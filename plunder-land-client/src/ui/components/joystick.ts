@@ -37,7 +37,9 @@ export class Joystick extends Container {
 
   // figure out the event type
   onPointerMove (event: { data: { global: { x: number, y: number } }, stopPropagation: () => void }): void {
-    if (Game.PLAYER === null) return
+    // Game.PLAYER is set to `undefined` on death, never null, so the original
+    // `=== null` test could never fire and the stick kept steering a corpse.
+    if (Game.PLAYER == null) return
 
     if (this.pointerDown) {
       const global = this.toGlobal(new Point(0, 0))
@@ -45,7 +47,9 @@ export class Joystick extends Container {
       const dy = event.data.global.y - global.y
 
       const data = new Vector(dx, dy).normalised()
-      Game.socket.emit('pointer', data)
+      // Held locally and sampled at the server's cadence, rather than emitted
+      // once per pointermove against a reader that runs once a tick.
+      Game.LOCAL.setDirection(data.x, data.y)
 
       const dir = data.multiply(this.radius)
       const point = data.rotateBy(Math.PI / 2).multiply(this.radius / 4)
@@ -65,6 +69,9 @@ export class Joystick extends Container {
 
   onPointerUp (): void {
     this.pointerDown = false
+    // Releasing the stick previously sent nothing at all, so the player kept
+    // running in the last direction until the next pointer event.
+    Game.LOCAL.setDirection(0, 0)
 
     this.fore
       .clear()

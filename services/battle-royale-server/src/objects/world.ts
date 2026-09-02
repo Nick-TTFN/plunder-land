@@ -20,6 +20,10 @@ export default class World {
   static MOBS: Unit[] = []
   static AREA_EFFECT: Area[] = []
 
+  // Iterated in place by the spatial queries. Previously they built a fresh
+  // PLAYERS.concat(MOBS) array on every call.
+  static UNIT_SOURCES: Unit[][] = [World.PLAYERS as unknown as Unit[], World.MOBS]
+
   static config = {
     damage: 10,
     defend: 0,
@@ -199,17 +203,19 @@ export default class World {
   ) {
     const sqRadius = radius * radius
     const result = new Array<Unit>()
-    for (const units of (World.PLAYERS as Unit[]).concat(World.MOBS)) {
-      if (units.tag !== tag) continue
+    for (const source of World.UNIT_SOURCES) {
+      for (const units of source) {
+        if (units.tag !== tag) continue
 
-      if ((units.type & typeMask) === 0) continue
+        if ((units.type & typeMask) === 0) continue
 
-      const dx = units.position.x - x
-      const dy = units.position.y - y
-      const sqDistance = dx * dx + dy * dy
+        const dx = units.position.x - x
+        const dy = units.position.y - y
+        const sqDistance = dx * dx + dy * dy
 
-      if (sqDistance < sqRadius) {
-        result.push(units)
+        if (sqDistance < sqRadius) {
+          result.push(units)
+        }
       }
     }
     return result
@@ -249,7 +255,8 @@ export default class World {
       maxy = y1
     }
 
-    for (const candidate of (World.PLAYERS as Unit[]).concat(World.MOBS)) {
+    for (const source of World.UNIT_SOURCES) {
+      for (const candidate of source) {
       if (candidate.tag !== tag) continue
 
       if ((candidate.type & typeMask) === 0) continue
@@ -271,6 +278,7 @@ export default class World {
 
       if (sqDistance < sqRadius) {
         result.push(candidate)
+      }
       }
     }
     return result

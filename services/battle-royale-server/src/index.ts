@@ -8,7 +8,11 @@ dotenv.config()
 startGame()
 
 function startGame (): void {
-  const multiplayer = new Multiplayer()
+  // Nothing downstream may assume this value: it is sent to the client in the
+  // `hello` payload and echoed as a tick counter on every update packet.
+  const tickLengthMs = parseInt(process.env.TICK_MS ?? '250')
+
+  const multiplayer = new Multiplayer(tickLengthMs)
 
   const httpserver = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/healthcheck') {
@@ -51,10 +55,9 @@ function startGame (): void {
 
   const world = new World(4000)
 
-  const tickLengthMs = 250
-
   // timestamp of each loop
   let previousTick = Date.now()
+  let tick = 0
 
   function gameLoop (): void {
     const now = Date.now()
@@ -67,8 +70,9 @@ function startGame (): void {
       // throw in a single tick would take every player's run down with the process.
       // Log and keep ticking instead.
       try {
+        tick++
         world.update(dt)
-        multiplayer.flushAll()
+        multiplayer.flushAll(tick, dt * 1000)
       } catch (e) {
         console.error('tick', e)
       }

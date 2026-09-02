@@ -1,24 +1,38 @@
 import { ProgressBar } from '../ui/elements/progressbar'
 import { type Texture, Sprite, Point, ColorMatrixFilter } from 'pixi.js'
-import { type Vector } from '../utils/vector'
 import { GameObject } from './gameobject'
 import { TextEffect } from '../ui/elements/texteffect'
-import Player from './player'
+import { Session } from '../net/session'
+
+interface State {
+  /** Client clock at which this state arrived. */
+  t: number
+  x: number
+  y: number
+}
+
+/** Movement below this per frame counts as standing still, for animation. */
+const IDLE_EPSILON = 0.05
 
 export default class Unit extends GameObject {
   shadow: Sprite | undefined
-  _velocity: number = 0
   loot: number = 0
   progressBar: ProgressBar | undefined
   level: number = 0
   hp: number | undefined
-  moveTarget: Vector | undefined
 
   becameIdleAt: number = 0
 
   maxHP: number = 0
   runAnimation: string | undefined
   idleAnimation: string | undefined
+
+  /**
+   * Recent authoritative states, oldest first. Rendering runs deliberately
+   * behind the newest of these so there is always a state on both sides of the
+   * render time to interpolate between.
+   */
+  readonly states: State[] = []
 
   constructor (radius: number = 0) {
     super()
@@ -86,53 +100,101 @@ export default class Unit extends GameObject {
     this.progressBar?.setValue(this.hp / this.maxHP)
   }
 
-  update (dt: number): void {
-    if (this.moveTarget === undefined) { return }
+  /** Record an authoritative position. Replaces the old chase-the-target model. */
+  pushState (x: number, y: number): void {
+    const now = performance.now()
+    this.states.push({ t: now, x, y })
+    if (this.states.length > 24) this.states.shift()
 
-    const now = Date.now()
-
-    if (this.becameIdleAt !== 0 && now - this.becameIdleAt > 100) { this.animation?.setDefault(this.idleAnimation) }
-
-    const dx = this.moveTarget.x - this.x
-    const dy = this.moveTarget.y - this.y
-
-    // cheap ABS
-    if (dx < 1 && dy < 1 && dx > -1 && dy > -1) {
-      if (this.becameIdleAt === 0) { this.becameIdleAt = now }
-      return
+    if (this.states.length === 1) {
+      this.x = x
+      this.y = y
     }
-
-    this.becameIdleAt = 0
-
-    this.animation?.setDefault(this.runAnimation)
-
-    this.DEBUG_COLLIDER.x = this.moveTarget.x - this.x
-    this.DEBUG_COLLIDER.y = this.moveTarget.y - this.y
-
-    if (this.animation != null && this.shadow != null) {
-      this.animation.scale.x = Math.abs(this.animation.scale.x) * (dx < 0 ? -1 : 1)
-      this.shadow.scale = new Point(this.animation.scale.x * 1.1, this.animation.scale.y * 1.1)
-    }
-
-    if (!this.killed && this.moveTarget !== undefined) {
-      const dir = this.moveTarget.subElem(this.x, this.y).normalised()
-
-      this.x += dir.x * dt * this._velocity
-      this.y += dir.y * dt * this._velocity
-    }
-
-    if (this.animation == null || this.shadow == null) return
-
-    this.shadow.texture = this.animation.textures[
-      this.animation.currentFrame
-    ] as Texture
-    this.zIndex = this.position.y
   }
 
-  setMoveTarget (value: Vector): void {
-    if ((this.timeSinceUpdate) > 0) {
-      this._velocity = value.subElem(this.x, this.y).getMagnitude() / (this.timeSinceUpdate)
+  update (dt: number): void {
+    const states = this.states
+    if (states.length === 0) return
+
+    const now = performance.now()
+    const renderTime = now - Session.interpolationDelay
+
+    let nx: number
+    let ny: number
+
+    if (renderTime <= states[0].t) {
+      // Not enough history yet to render in the past: hold at the oldest state
+      // rather than inventing motion.
+      nx = states[0].x
+      ny = states[0].y
+    } else {
+      let i = states.length - 1
+      while (i > 0 && states[i].t > renderTime) i--
+
+      const a = states[i]
+      const b = states[i + 1]
+
+      if (b !== undefined) {
+        const span = b.t - a.t
+        const f = span > 0 ? (renderTime - a.t) / span : 1
+        nx = a.x + (b.x - a.x) * f
+        ny = a.y + (b.y - a.y) * f
+      } else {
+        // The buffer has run dry - a packet is late. Continue along the last
+        // known velocity for a bounded time, then hold. Holding is honest;
+        // extrapolating indefinitely walks units through walls.
+        const last = states[states.length - 1]
+        const prev = states.length > 1 ? states[states.length - 2] : undefined
+        const span = prev !== undefined ? last.t - prev.t : 0
+        const ahead = Math.min(renderTime - last.t, Session.extrapolationCap)
+
+        if (prev !== undefined && span > 0 && ahead > 0) {
+          nx = last.x + ((last.x - prev.x) / span) * ahead
+          ny = last.y + ((last.y - prev.y) / span) * ahead
+        } else {
+          nx = last.x
+          ny = last.y
+        }
+      }
     }
-    this.moveTarget = value
+
+    this.applyPosition(nx, ny, now)
+  }
+
+  /**
+   * Move to a rendered position and run the animation bookkeeping that follows
+   * from it. Shared with the locally predicted player, which arrives at its
+   * position by a completely different route but needs the same footwork.
+   */
+  applyPosition (nx: number, ny: number, now: number): void {
+    const dx = nx - this.x
+    const dy = ny - this.y
+
+    this.x = nx
+    this.y = ny
+
+    if (Math.abs(dx) + Math.abs(dy) < IDLE_EPSILON) {
+      if (this.becameIdleAt === 0) this.becameIdleAt = now
+      if (now - this.becameIdleAt > 100) this.animation?.setDefault(this.idleAnimation)
+    } else {
+      this.becameIdleAt = 0
+      this.animation?.setDefault(this.runAnimation)
+
+      if (this.animation != null && Math.abs(dx) > 0.01) {
+        this.animation.scale.x = Math.abs(this.animation.scale.x) * (dx < 0 ? -1 : 1)
+        if (this.shadow != null) {
+          this.shadow.scale.x = this.animation.scale.x * 1.1
+          this.shadow.scale.y = this.animation.scale.y * 1.1
+        }
+      }
+    }
+
+    if (this.animation != null && this.shadow != null) {
+      this.shadow.texture = this.animation.textures[
+        this.animation.currentFrame
+      ] as Texture
+    }
+
+    this.zIndex = this.y
   }
 }

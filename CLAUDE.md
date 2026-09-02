@@ -24,7 +24,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 34 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 36 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 ```
 
@@ -42,8 +42,8 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
 - ~9 × `Type 'Point' is missing ... from type 'ObservablePoint'`. Verified harmless:
   pixi's `set anchor` (and the other transform setters) do `this._anchor.copyFrom(value)`,
   so assigning a plain `Point` works correctly at runtime. Typings quirk only.
-- 21 × `Property 'setHP' / 'setLevel' / 'loot' ... does not exist on type 'GameObject'`
-  in `game.ts`'s `onObjectUpdated`. `LOOKUP` is typed as `GameObject` but holds `Unit`
+- 23 × `Property 'setHP' / 'setLevel' / 'loot' / 'pushState' ... does not exist on type
+  'GameObject'` in `game.ts`'s `onObjectUpdated`. `LOOKUP` is typed as `GameObject` but holds `Unit`
   subclasses. Runtime-correct, type-unsafe. Fixing it properly means introducing a union
   or widening the base class — a real refactor, deliberately not done.
 
@@ -104,6 +104,30 @@ binary. Each event is **one** buffer containing length-prefixed records:
 
 Pack: `Multiplayer.packRecords` (server). Unpack: `Game.unpackRecords` (client).
 
+**The `update` event additionally carries an 8-byte header before the records:**
+
+```
+[uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]
+```
+
+and it is emitted **every tick for every connection with a player, even when it holds no
+records**, because that header is the client's clock and its input acknowledgement. Split
+it with `Game.splitRecords(buffer, 8)`; `unpackRecords` is the headerless form used by the
+other four events.
+
+`ackElapsedMs` is how long the server has been applying `lastInputSeq`. It exists because
+the sequence number alone does not say how far *into* an input the server has got, and
+without it every reconciliation drags the player backwards by a fraction of a tick. A
+control run with the field forced to zero doubled the median correction (2.00 vs 1.00
+units) and introduced a systematic backward bias.
+
+**Client → server `pointer` is 4 bytes:** `[int8 dirX][int8 dirY][uint16 seq]`, direction
+scaled by 127. It is sampled once per server tick, not per pointer event. The server
+ignores any payload that is not a buffer of at least 4 bytes.
+
+**`hello`** is emitted once on join: `{ tick, map, interest }`. Nothing on the client may
+hardcode these — see `src/net/session.ts`.
+
 Each record is a sequence of `[field index][payload]`, indexed into `GameObject.fieldOrder`
 (server) / `allFields` (client). **These two tables must stay identical and are
 append-only** — an index is a consumed boundary, so never reorder or remove one.
@@ -113,13 +137,42 @@ append-only** — an index is a consumed boundary, so never reorder or remove on
 currently unreachable because `dirtyFields.add('direction')` / `('impulse')` are commented
 out in `gameobject.ts`. Add them to `fieldOrder` before ever re-enabling those.
 
-`maxVelocity` is in neither `allFields` nor `allFieldsOwn` and its dirty flag is also
-commented out, so the client never receives a speed value from the server. This matters if
-you add client-side prediction.
+`maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
+without it. It is deliberately **not** in `allFields`: remote units are interpolated between
+known positions and never need a speed.
 
 `lifetime` is encoded as centiseconds in one signed byte (`value / 100`, clamped to 127)
 because the client decodes it as `byte * 100`. Encoding it raw throws `ERR_OUT_OF_RANGE`
 for every real value including 1000.
+
+## Movement: three different mechanisms, deliberately
+
+Do not collapse these into one. They were one before, and that is what made the game feel
+like it did.
+
+1. **The local player is predicted.** `Game.LOCAL` (`src/net/localplayer.ts`) applies input
+   immediately and reconciles against the server. It is the one object in the scene that is
+   never fed through `onObjectUpdated` — `Game.PLAYER`'s position comes from
+   `Game.LOCAL.renderX/renderY` in `Game.update`. `LocalPlayer._step` mirrors the server's
+   `Unit.update` integration and push-out; **if one changes, the other has to change with
+   it** or prediction starts fighting the authority.
+2. **Remote units are interpolated**, not chased. `Unit.pushState` records authoritative
+   states and `Unit.update` renders at `now - Session.interpolationDelay`, interpolating
+   between the two states straddling that time, extrapolating for a bounded window on
+   underrun, then holding.
+3. **Corrections are eased, not snapped.** `LocalPlayer` keeps a decaying render offset so a
+   small disagreement is walked off over ~100 ms; a disagreement over 220 units is treated as
+   a teleport and shown immediately.
+
+`Session` (`src/net/session.ts`) owns every timing constant, and separates what the server
+*says* (`tickMs`, from `hello`) from what the connection *delivers* (`arrivalP95`, measured).
+Interpolation is timed off the measured value.
+
+**Liveness is not a heartbeat.** Idle units now send nothing at all, so "hasn't updated
+recently" no longer means "gone". `Game.stillPresent` treats a silent unit as present if it
+is inside the interest radius and absent otherwise. The old per-player 3-byte id heartbeat
+is gone; the update header replaced it with a fixed per-connection cost instead of a
+per-visible-player one (break-even at about three visible players).
 
 ## Things that are deliberate
 
@@ -146,9 +199,10 @@ for every real value including 1000.
   out in `playerstats.ts`, so the per-level damage tables always index level 1.
   Note `Player.setLevel()` zeroes `this.loot` — probably leftover init, but nobody has
   decided whether that is meant to be "spend your haul on power or carry it to the gate".
-- **No client-side prediction.** `Game.PLAYER` goes through the same
-  `onObjectUpdated` → `setMoveTarget` → interpolate path as every remote unit, so your own
-  character does not move until a packet returns. Input-to-motion is RTT + up to one 250ms
-  tick. What exists is interpolation, not prediction, despite the commit named
-  "client prediction 0.1". **Do not re-propose tuning `tickLengthMs`** — git history shows
-  six changes in eight days that ended where they started.
+- **Player-versus-player collision is not predicted.** `LocalPlayer._step` replicates the
+  server's obstacle push-out but not its player push-out, so shoving another player produces
+  a correction. Rare and small; revisit if it reads badly in a crowd.
+- **`tickLengthMs` is `TICK_MS` in the environment**, default 250, and is sent to the client
+  in `hello`. **Do not re-propose tuning it as a latency fix** — git history shows six changes
+  in eight days that ended where they started, and the measured tick is healthy: 200
+  concurrent players hold 249ms with a 255ms p95. Latency was architectural, not cadence.

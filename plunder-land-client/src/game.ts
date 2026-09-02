@@ -32,9 +32,15 @@ import { type Socket } from 'socket.io-client'
 import { type PopupManager } from './ui/popups/popupmanager'
 import { ToolKit } from './ui/components/toolkit'
 import { Exit } from './objects/exit'
+import { Session } from './net/session'
+import { LocalPlayer, type Collider } from './net/localplayer'
+
+/** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
+const UPDATE_HEADER_BYTES = 8
 
 export class Game extends Container {
   mapSize: number
+  serverTick: number = 0
   layers: Container[] | undefined
   static CONTAINER: Container
   tags: number[] | undefined
@@ -54,6 +60,16 @@ export class Game extends Container {
   static Instance: Game
   static simulate: boolean
   static loader: any
+
+  /**
+   * Colliders the local prediction has to respect. The server pushes units out
+   * of everything in its OBSTACLES list, which includes portals and exits, so
+   * this has to hold all three or prediction walks through them and snaps back.
+   */
+  static COLLIDERS: Collider[] = []
+
+  /** The locally simulated player. Never fed through onObjectUpdated. */
+  static LOCAL: LocalPlayer = new LocalPlayer(() => Game.COLLIDERS)
 
   constructor () {
     super()
@@ -110,6 +126,10 @@ export class Game extends Container {
     Game.CONTAINER.addChild(this.cloudsLayer)
     this.cloudsLayer.alpha = 0
 
+    Game.COLLIDERS = []
+    Session.reset()
+
+    Game.socket.off('hello')
     Game.socket.off('create')
     Game.socket.off('create_own')
     Game.socket.off('effect')
@@ -120,6 +140,7 @@ export class Game extends Container {
   }
 
   async onStartRequested (playerId: string): Promise<void> {
+    Game.socket.on('hello', (data) => { Session.onHello(data) })
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
     Game.socket.on('effect', this.onEffects.bind(this))
@@ -143,9 +164,12 @@ export class Game extends Container {
   unpackRecords (raw: ArrayBuffer): Uint8Array[] {
     const buffer = new Uint8Array(raw)
     Game.socketBytes += buffer.length
+    return this.splitRecords(buffer, 0)
+  }
 
+  splitRecords (buffer: Uint8Array, start: number): Uint8Array[] {
     const records: Uint8Array[] = []
-    let offset = 0
+    let offset = start
     while (offset + 2 <= buffer.length) {
       const length = (buffer[offset] << 8) + buffer[offset + 1]
       offset += 2
@@ -328,6 +352,13 @@ export class Game extends Container {
     if (own) {
       Game.PLAYER = obj as Player
 
+      Game.LOCAL.reset(
+        data.position?.x ?? obj.x,
+        data.position?.y ?? obj.y,
+        data.tag,
+        data.maxVelocity ?? 0
+      )
+
       Game.hud.setupStats()
       Game.hud.setupSkills(Game.PLAYER.skills)
 
@@ -376,6 +407,12 @@ export class Game extends Container {
     if (data.radius !== undefined && obj.radius !== data.radius) {
       obj.radius = data.radius
       obj.DEBUG_DRAW_COLLIDER()
+    }
+
+    // Obstacles, portals and exits all sit in the server's OBSTACLES list and
+    // all push units out, so local prediction has to know about all three.
+    if (data.type === 1 || data.type === (1 << 3) || data.type === (1 << 6)) {
+      Game.COLLIDERS.push(obj as unknown as Collider)
     }
 
     this.LOOKUP[data.id] = obj
@@ -460,10 +497,26 @@ export class Game extends Container {
   }
 
   onObjectsUpdated (data: ArrayBuffer) {
-    for (const entry of this.unpackRecords(data)) this.onObjectUpdated(entry)
+    const buffer = new Uint8Array(data)
+    Game.socketBytes += buffer.length
+
+    if (buffer.length < UPDATE_HEADER_BYTES) return
+
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    // [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]
+    this.serverTick = view.getUint32(0)
+    const ackSeq = view.getUint16(4)
+    const ackElapsed = view.getUint16(6)
+
+    const now = performance.now()
+    Session.onPacket(now)
+
+    for (const entry of this.splitRecords(buffer, UPDATE_HEADER_BYTES)) {
+      this.onObjectUpdated(entry, ackSeq, ackElapsed, now)
+    }
   }
 
-  onObjectUpdated (raw: Uint8Array) {
+  onObjectUpdated (raw: Uint8Array, ackSeq: number = 0, ackElapsed: number = 0, now: number = performance.now()) {
     const data = this.deserialiseBinary(raw)
 
     const obj = this.LOOKUP[data.id]
@@ -473,13 +526,23 @@ export class Game extends Container {
       if (data.direction) obj.setDirection(data.direction.x, data.direction.y)
 
       if (data.position) {
-        if (obj.setMoveTarget) { obj.setMoveTarget(new Vector(data.position.x, data.position.y)) } else {
+        if (obj === Game.PLAYER) {
+          // Authority for the local player is a correction, not a position.
+          Game.LOCAL.reconcile(data.position.x, data.position.y, ackSeq, ackElapsed, now)
+        } else if (obj.pushState) {
+          obj.pushState(data.position.x, data.position.y)
+        } else if (obj.setMoveTarget) {
+          obj.setMoveTarget(new Vector(data.position.x, data.position.y))
+        } else {
           obj.x = data.position.x
           obj.y = data.position.y
         }
       }
 
-      if (data.maxVelocity) obj.maxVelocity = data.maxVelocity
+      if (data.maxVelocity) {
+        obj.maxVelocity = data.maxVelocity
+        if (obj === Game.PLAYER) Game.LOCAL.maxVelocity = data.maxVelocity
+      }
 
       if (data.hp && obj.setHP) obj.setHP(data.hp)
 
@@ -507,6 +570,7 @@ export class Game extends Container {
 
       if (data.tag !== undefined && data.tag !== obj.tag) {
         obj.tag = data.tag
+        if (obj === Game.PLAYER) Game.LOCAL.tag = data.tag
         this.layers[this.tags.indexOf(obj.tag)].addChild(obj)
 
         if (obj === Game.PLAYER) this.updateLayerVisibility(data.tag)
@@ -532,6 +596,9 @@ export class Game extends Container {
 
     const obj = this.LOOKUP[data.id]
     if (obj !== undefined) {
+      const collider = Game.COLLIDERS.indexOf(obj as unknown as Collider)
+      if (collider >= 0) Game.COLLIDERS.splice(collider, 1)
+
       if (data.hp !== undefined && obj.setHP) { obj.setHP(data.hp) }
 
       if (obj === Game.PLAYER) {
@@ -544,6 +611,20 @@ export class Game extends Container {
     }
   }
 
+  /**
+   * Silence is no longer evidence of absence. Idle units send nothing at all
+   * now that the per-tick id heartbeat is gone, so a unit that has stopped
+   * reporting is only really gone if it is also outside the interest window the
+   * server is filtering on.
+   */
+  stillPresent (unit: GameObject, staleBefore: number): boolean {
+    if (unit._lastUpdate > staleBefore) return true
+    if (Game.PLAYER === undefined) return false
+
+    const r = Session.interestRadius
+    return Math.abs(unit.x - Game.PLAYER.x) < r && Math.abs(unit.y - Game.PLAYER.y) < r
+  }
+
   update (dt: number): void {
     // for (const obstacle of Game.OBSTACLES) {
     //   obstacle.update(dt)
@@ -553,16 +634,34 @@ export class Game extends Container {
     //   obj.update(dt)
     // }
 
-    const noUpdateDelay = (Game.PLAYER != null) ? 1000 : 2000
+    const now = performance.now()
+
+    // The local player moves on input, not on the network.
+    Game.LOCAL.predict(dt)
+
+    const staleBefore = Date.now() - Session.stalenessLimit
 
     for (const player of Game.PLAYERS) {
-      player.visible = player._lastUpdate > Date.now() - noUpdateDelay
-      if (player.visible) { player.update(dt) }
+      if (player === Game.PLAYER) {
+        player.visible = true
+        player.applyPosition(Game.LOCAL.renderX, Game.LOCAL.renderY, now)
+        continue
+      }
+      if (this.stillPresent(player, staleBefore)) {
+        player.visible = true
+        player.update(dt)
+      } else {
+        player.visible = false
+      }
     }
 
     for (const mob of Game.MOBS) {
-      mob.visible = mob._lastUpdate > Date.now() - noUpdateDelay
-      if (mob.visible) { mob.update(dt) }
+      if (this.stillPresent(mob, staleBefore)) {
+        mob.visible = true
+        mob.update(dt)
+      } else {
+        mob.visible = false
+      }
     }
 
     if (Game.PLAYER != null) {

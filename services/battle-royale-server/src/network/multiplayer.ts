@@ -1,5 +1,5 @@
 import { type Socket } from 'socket.io'
-import { type GameObject, ObjectType } from '../objects/gameobject'
+import { type GameObject } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
 import World from '../objects/world'
@@ -10,6 +10,12 @@ class Connection {
   socket: Socket
   player: Player | undefined
   started: boolean = false
+  // Last input sequence number consumed by the simulation, and how much
+  // simulated time it has been applied for. The client needs both: the sequence
+  // alone leaves it unable to tell how far into that input the server has got,
+  // and that gap is exactly what makes replayed prediction drift backwards.
+  lastInputSeq: number = 0
+  ackElapsedMs: number = 0
   pendingObjectIDs: Record<string, boolean> | undefined
 
   get id (): string {
@@ -19,14 +25,17 @@ class Connection {
 
 export default class Multiplayer {
   static order = ['create', 'update', 'effect', 'destroy']
+  static INTEREST_RADIUS = 500
 
   static Instance: Multiplayer
+  readonly tickLengthMs: number
   private readonly _connections: Connection[]
   private _buffer: Record<string, { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }> = {}
   redis: Redis
 
-  constructor () {
+  constructor (tickLengthMs: number) {
     Multiplayer.Instance = this
+    this.tickLengthMs = tickLengthMs
     this._connections = []
 
     this.redis = new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis')
@@ -57,6 +66,13 @@ export default class Multiplayer {
 
     connection.player = player
 
+    // Everything the client would otherwise have to assume about this server.
+    connection.socket.emit('hello', {
+      tick: this.tickLengthMs,
+      map: World.mapSize,
+      interest: Multiplayer.INTEREST_RADIUS
+    })
+
     this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
 
     for (const obj of World.OBSTACLES.concat(
@@ -64,39 +80,70 @@ export default class Multiplayer {
     )) {
       if (obj !== undefined) {
         if (connection.player === obj) {
-          this._buffer[connection.id].create_own.push(obj.serialiseBinary(obj.allFields))
+          // allFieldsOwn, not allFields: the owner needs loot and maxVelocity,
+          // and maxVelocity is what makes local prediction possible at all.
+          this._buffer[connection.id].create_own.push(obj.serialiseBinary(obj.allFieldsOwn))
         } else {
           this._buffer[connection.id].create.push(obj.serialiseBinary(obj.allFields))
         }
       }
     }
 
-    this.flush(connection)
+    this.flush(connection, 0)
   }
 
-  flush (connection: Connection): void {
-    if (this._buffer[connection.id] === undefined) return
+  flush (connection: Connection, tick: number): void {
+    const buffered = this._buffer[connection.id]
 
     // Always drop the buffer, even for a socket that never started a run.
     // Clients connect on page load but only send `start_requested` on button
     // click, so returning early here leaked a buffer per idle visitor.
     if (connection.player != null) {
-      const buffered = this._buffer[connection.id]
-      for (const event in buffered) {
-        const records: Buffer[] = buffered[event]
-        if (records.length === 0) continue
-        connection.socket.emit(event, Multiplayer.packRecords(records))
+      if (buffered !== undefined) {
+        for (const event in buffered) {
+          if (event === 'update') continue
+          const records: Buffer[] = buffered[event]
+          if (records.length === 0) continue
+          connection.socket.emit(event, Multiplayer.packRecords(records))
+        }
       }
+
+      // The update packet goes out every tick even when it carries no records.
+      // Its header is the client's clock and its input acknowledgement, and
+      // prediction needs both on a fixed cadence to reconcile against.
+      const header = Buffer.alloc(8)
+      header.writeUInt32BE(tick >>> 0)
+      header.writeUInt16BE(connection.lastInputSeq, 4)
+      header.writeUInt16BE(Math.min(65535, Math.round(connection.ackElapsedMs)), 6)
+      connection.socket.emit(
+        'update',
+        Multiplayer.packRecords(buffered?.update ?? [], header)
+      )
     }
-    this._buffer[connection.id] = undefined
+
+    if (buffered !== undefined) this._buffer[connection.id] = undefined
 
     if (connection.player?.destroyed ?? false) connection.player = undefined
   }
 
+  // [int8 dirX][int8 dirY][uint16 seq] - 4 bytes, replacing a JSON object that
+  // was being sent at pointermove rate against a reader that runs once a tick.
   onPointer (connection: Connection, data): void {
-    if (connection.player != null) {
-      connection.player.setDirection(data.x, data.y)
+    if (connection.player == null) return
+
+    let buf: Buffer
+    if (Buffer.isBuffer(data)) buf = data
+    else if (data instanceof Uint8Array || data instanceof ArrayBuffer) buf = Buffer.from(data as any)
+    else return
+
+    if (buf.length < 4) return
+
+    const seq = buf.readUInt16BE(2)
+    if (seq !== connection.lastInputSeq) {
+      connection.lastInputSeq = seq
+      connection.ackElapsedMs = 0
     }
+    connection.player.setDirection(buf.readInt8(0) / 127, buf.readInt8(1) / 127)
   }
 
   onSkill (connection: Connection, data): void {
@@ -131,11 +178,6 @@ export default class Multiplayer {
           500
         )
       ) {
-        // update nearby players even if they dont do anything
-        if (obj.type === ObjectType.Player && !obj.dirtyFields.has('id')) {
-          obj.dirtyFields.add('id')
-        }
-
         if (connection.pendingObjectIDs?.[obj.id] ?? false) {
           if (fullData == null) {
             fullData = obj.serialiseBinary(
@@ -175,7 +217,7 @@ export default class Multiplayer {
         connection.player?.position.withinBounds(
           originator.position.x,
           originator.position.y,
-          500
+          Multiplayer.INTEREST_RADIUS
         )
       ) {
         if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
@@ -232,8 +274,9 @@ export default class Multiplayer {
   // join sending ~650 objects was rejected outright with "too many attachments"
   // and the client reconnected forever. Batching also collapses ~650 WebSocket
   // frames per join into one.
-  static packRecords (records: Buffer[]): Buffer {
+  static packRecords (records: Buffer[], header?: Buffer): Buffer {
     const parts: Buffer[] = []
+    if (header !== undefined) parts.push(header)
     for (const record of records) {
       const header = Buffer.alloc(2)
       header.writeUInt16BE(record.length)
@@ -242,8 +285,11 @@ export default class Multiplayer {
     return Buffer.concat(parts)
   }
 
-  flushAll (): void {
-    for (const connection of this._connections) this.flush(connection)
+  flushAll (tick: number, dtMs: number = 0): void {
+    for (const connection of this._connections) {
+      if (connection.player != null) connection.ackElapsedMs += dtMs
+      this.flush(connection, tick)
+    }
   }
 
   onDisconnect (socket: Socket): void {

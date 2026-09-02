@@ -143,15 +143,17 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
 
   const globalpos = Game.PLAYER.toGlobal(new Point(0, 0))
 
-  Game.socket.emit('pointer', {
-    x: event.data.global.x - globalpos.x,
-    y: event.data.global.y - globalpos.y
-  })
+  const dx = event.data.global.x - globalpos.x
+  const dy = event.data.global.y - globalpos.y
+  const magnitude = Math.sqrt(dx * dx + dy * dy)
+
+  // Record the intent only. Sending happens on a fixed cadence in frame().
+  if (magnitude > 0) Game.LOCAL.setDirection(dx / magnitude, dy / magnitude)
 }
 
 function onPointerUp (): void {
   _pointerDown = false
-  Game.socket.emit('pointer', { x: 0, y: 0 })
+  Game.LOCAL.setDirection(0, 0)
 }
 
 let _prevTime = 0
@@ -162,6 +164,14 @@ let maxSocketBytes = 1
 function frame (): void {
   stats.begin()
   const now = Date.now()
+
+  // One input per server tick, four bytes, instead of one JSON object per
+  // pointermove against a reader that samples once a tick.
+  if (Game.PLAYER !== undefined) {
+    const input = Game.LOCAL.sample(performance.now())
+    if (input !== null) Game.socket.emit('pointer', input)
+  }
+
   if (_prevTime !== 0) {
     const dt = now - _prevTime
     Game.Instance.update(dt / 1000)

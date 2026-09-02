@@ -4,6 +4,10 @@ import World from './world'
 import type Buff from '../buffs/buff'
 import { type IAIRoutine } from '../ai/findnearestconsumable'
 
+// Below this squared distance two bodies count as coincident and the
+// normalised push-out would divide by zero.
+const EPSILON = 1e-9
+
 export class Unit extends GameObject {
   damageReduction: number = 0
   routines: IAIRoutine[] = []
@@ -65,18 +69,37 @@ export class Unit extends GameObject {
 
     if (this.direction == null) return
 
-    const pos = this.getNextPos(dt)
+    // Scalar throughout: this runs once per obstacle per unit per tick, and the
+    // Vector form allocated a throwaway object for every one of those pairs.
+    let px = this.position.x
+    let py = this.position.y
+
+    const dirSq = this.direction.x * this.direction.x + this.direction.y * this.direction.y
+    if (dirSq > 0) {
+      const inv = 1 / Math.sqrt(dirSq)
+      const step = dt * this.maxVelocity
+      px += (this.direction.x * inv + this.impulse.x) * step
+      py += (this.direction.y * inv + this.impulse.y) * step
+    }
+
     for (const obstacle of World.OBSTACLES) {
       if (obstacle.tag !== this.tag) continue
 
       const sumWidth = obstacle.radius + this.radius
-      const delta = obstacle.position.sub(pos)
-      const sqr = delta.getSquareMagnitude()
+      const dx = obstacle.position.x - px
+      const dy = obstacle.position.y - py
+      const sqr = dx * dx + dy * dy
       if (sqr < sumWidth * sumWidth) {
-        const magnitude = Math.sqrt(sqr)
-
-        pos.x = obstacle.position.x - (sumWidth * delta.x) / magnitude
-        pos.y = obstacle.position.y - (sumWidth * delta.y) / magnitude
+        if (sqr > EPSILON) {
+          const magnitude = Math.sqrt(sqr)
+          px = obstacle.position.x - (sumWidth * dx) / magnitude
+          py = obstacle.position.y - (sumWidth * dy) / magnitude
+        } else {
+          // Coincident centres: the normalised push-out is 0/0. Pick an axis
+          // rather than writing NaN into the position, which is unrecoverable.
+          px = obstacle.position.x - sumWidth
+          py = obstacle.position.y
+        }
 
         obstacle.onCollide(this)
       }
@@ -88,14 +111,20 @@ export class Unit extends GameObject {
       if (obj.tag !== this.tag) continue
 
       const sumWidth = obj.radius + this.radius
-      const delta = obj.position.sub(pos)
-      const sqr = delta.getSquareMagnitude()
+      const dx = obj.position.x - px
+      const dy = obj.position.y - py
+      const sqr = dx * dx + dy * dy
       if (sqr < sumWidth * sumWidth) {
         this.onCollideWithPlayer(obj)
-        const magnitude = Math.sqrt(sqr)
 
-        pos.x = obj.position.x - (sumWidth * delta.x) / magnitude
-        pos.y = obj.position.y - (sumWidth * delta.y) / magnitude
+        if (sqr > EPSILON) {
+          const magnitude = Math.sqrt(sqr)
+          px = obj.position.x - (sumWidth * dx) / magnitude
+          py = obj.position.y - (sumWidth * dy) / magnitude
+        } else {
+          px = obj.position.x - sumWidth
+          py = obj.position.y
+        }
       }
     }
 
@@ -108,11 +137,11 @@ export class Unit extends GameObject {
       }
     }
 
-    pos.x = pos.x < 0 ? 0 : pos.x
-    pos.x = pos.x > World.mapSize ? World.mapSize : pos.x
+    px = px < 0 ? 0 : px
+    px = px > World.mapSize ? World.mapSize : px
 
-    pos.y = pos.y < 0 ? 0 : pos.y
-    pos.y = pos.y > World.mapSize ? World.mapSize : pos.y
+    py = py < 0 ? 0 : py
+    py = py > World.mapSize ? World.mapSize : py
 
     const sqMagnitude = this.impulse.getSquareMagnitude()
     if (sqMagnitude > 0.001) {
@@ -122,8 +151,8 @@ export class Unit extends GameObject {
       this.impulse.y = 0
     }
 
-    if (this.position.x !== pos.x || this.position.y !== pos.y) {
-      this.position = pos
+    if (this.position.x !== px || this.position.y !== py) {
+      this.position = new Vector(px, py)
     }
 
     super.update(dt)

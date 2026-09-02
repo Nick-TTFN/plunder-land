@@ -70,7 +70,8 @@ export class GameObject {
       'tag',
       'to',
       'radius',
-      'lifetime'
+      'lifetime',
+      'maxVelocity'
     ])
     this.allFields = new Set([
       'id',
@@ -207,7 +208,7 @@ export class GameObject {
 
   set maxVelocity (value) {
     this._maxVelocity = value
-    // this.dirtyFields.add('maxVelocity')
+    this.dirtyFields.add('maxVelocity')
   }
 
   get name () {
