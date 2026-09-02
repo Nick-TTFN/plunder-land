@@ -252,6 +252,7 @@ export default class Multiplayer {
 
       if (connection.socket === socket) {
         if (connection.player != null) connection.player.destroy()
+        delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
         this._connections.splice(i, 1)
         break
       }

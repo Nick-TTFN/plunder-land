@@ -228,6 +228,9 @@ export class Game extends Container {
         case 'lifetime':
           value = buffer[offset++] * 100
           break
+        case 'maxVelocity':
+          value = buffer[offset++] * 10
+          break
         case 'name':
           value = ''
 
