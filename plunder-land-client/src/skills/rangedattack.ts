@@ -12,6 +12,6 @@ export class RangedAttack extends Skill {
 
   execute (): void {
     super.execute()
-    this.owner.animation?.playClip('player/shoot/shot')
+    // 'player/shoot/shot' is not in the atlas either; same story as Defend.
   }
 }

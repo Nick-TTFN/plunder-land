@@ -145,9 +145,10 @@ out in `gameobject.ts`. Add them to `fieldOrder` before ever re-enabling those.
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
 known positions and never need a speed.
 
-`lifetime` is encoded as centiseconds in one signed byte (`value / 100`, clamped to 127)
-because the client decodes it as `byte * 100`. Encoding it raw throws `ERR_OUT_OF_RANGE`
-for every real value including 1000.
+`lifetime` is encoded as centiseconds in a **uint16** (`value / 100`), giving a range of
+about 65,000 seconds. It was a single signed byte, which silently capped every lifetime at
+12.7s — long enough for a 3s fireball, wrong for the 60s timer on dropped loot. Encoding it
+raw in milliseconds throws `ERR_OUT_OF_RANGE` for every real value including 1000.
 
 ## Movement: three different mechanisms, deliberately
 
@@ -190,27 +191,22 @@ per-visible-player one (break-even at about three visible players).
   otherwise take every in-flight run down with the process. It also rules out serverless,
   edge, and sleep-enabled hosting: a sleep/wake cycle wipes the world.
 
+## Skills
+
+All eight are equipped: Dash, MeleeAttack, RangedAttack, Defend, StoneWall, ThrowFireball,
+Throwicicle, IceBreath. **The order of `Player.skills` is a wire contract** — the client sends
+the index of the slot pressed and `tryExecuteSkill` indexes straight into the server's array,
+so the two lists must stay identical. The HUD bar binds them to `q w e r t y u i`.
+
+**Four of them use placeholder icons.** The atlas ships exactly four control icons (dash,
+defend, melee, ranged); StoneWall, ThrowFireball, Throwicicle and IceBreath each borrow the
+closest one, listed in `src/skills/placeholders.ts`. The key letter on the button is what
+distinguishes them until real art exists. Also missing and wanted: `player/magic/frame` and
+`player/shoot/shot` clips (Defend and RangedAttack used to call them and only logged an
+error), and an icicle projectile sprite — thrown icicles currently render as fireballs.
+
 ## Known-unfixed
 
-- **Loot is never awarded.** `player.ts` heals on pickup (`this.hp += obj.loot`) and
-  `Player.addLoot()` has zero callers, so `player.loot` is always 0 and so is
-  `stats.lootCollected`. Left alone pending a deliberate game-design pass on whether a
-  pickup should heal, bank, or split into two pickup types.
-- **Consumables only ever grow.** `createLootFrom` appends on every death with no cap and
-  nothing expires a pickup, so a populated world's consumable array ratchets upward. The drop
-  *value* is now carried correctly; bounding the population needs a design call on whether loot
-  should expire.
-- **Impulse decay is dimensionally wrong.** `reduceBy(dt / sqMagnitude)` makes the decay rate
-  inversely proportional to the square of the current impulse, so strong knockback fades slowly
-  and weak knockback snaps. `Dash` uses it live, so correcting the curve changes how Dash feels
-  — a balance call, not a bug fix.
-- **Bosses are never replaced.** Five spawn at world start (both spawn guards run on the same
-  tick until `MOBS` reaches 10); once killed the replacement guard cannot fire again unless the
-  whole mob population collapses below ten. How many bosses a world should sustain is a design
-  question.
-- **The six skills are unequipped.** Players get `[Dash, MeleeAttack]` from a 6-slot bar.
-  `Defend`, `RangedAttack`, `FireBreath`, `IceBreath`, `StoneWall`, `ThrowFireball`,
-  `ThrowIcicle` exist and are unreachable.
 - **Levels never change.** `setLevel(1)` is called once; `LEVEL_THRESHOLDS` sits commented
   out in `playerstats.ts`, so the per-level damage tables always index level 1.
   Note `Player.setLevel()` zeroes `this.loot` — probably leftover init, but nobody has
@@ -226,6 +222,12 @@ per-visible-player one (break-even at about three visible players).
   permanently blind — wandering, while `UseSkillOnTarget` (which only tests for null) kept
   attacking the corpse. Anything that latches onto a target must clear it the same way.
   Note the acquisition loop still takes the *last* match from `FIND_AROUND`, not the nearest.
+- **A pickup both banks and heals.** One consumable does double duty; splitting them into
+  separate loot and health pickups is a later decision, not an oversight.
+- **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (60s); natural spawns do not.**
+  The world's own spawner is bounded by a count, drops were not.
+- **Impulse decay is a constant** (`IMPULSE_FRICTION`), tuned to keep Dash's total duration
+  roughly where the old broken curve put it (~1.1s). It is a feel value — change it freely.
 - **Player-versus-player collision is not predicted.** `LocalPlayer._step` replicates the
   server's obstacle push-out but not its player push-out, so shoving another player produces
   a correction. Rare and small; revisit if it reads badly in a crowd.

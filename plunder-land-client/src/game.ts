@@ -13,7 +13,7 @@ import { Consumable } from './objects/consumable'
 import { Obstacle } from './objects/obstacle'
 import { Vector } from './utils/vector'
 import { Timer } from './ui/elements/timer'
-import { type Throwable } from './objects/throwable'
+import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
 import { CloudsLayer } from './objects/cloudslayer'
@@ -252,7 +252,7 @@ export class Game extends Container {
           value = buffer[offset++]
           break
         case 'lifetime':
-          value = buffer[offset++] * 100
+          value = ((buffer[offset++] << 8) + buffer[offset++]) * 100
           break
         case 'maxVelocity':
           value = buffer[offset++] * 10
@@ -304,12 +304,15 @@ export class Game extends Container {
       }
         break
 
-      case 1 << 4:
-        // todo this should be handled by throwable class
-        // if (this.PLAYER && this.PLAYER.type == "ice") obj = new Icicle();
-        // else obj = new Throwable();
-        // Game.FIREBALLS.push(obj);
+      case 1 << 4: {
+        // Projectiles were never rendered: this branch was commented out, so
+        // ThrowFireball and ThrowIcicle fired server-side and showed nothing.
+        // Both use the fireball sprite; the atlas has no icicle art.
+        const throwable = new Throwable()
+        Game.FIREBALLS.push(throwable)
+        obj = throwable as unknown as GameObject
         break
+      }
 
       case 1 << 5:
         obj = new Mob(data.radius)

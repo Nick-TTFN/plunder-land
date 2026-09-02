@@ -12,6 +12,7 @@ export class Defend extends Skill {
 
   execute (): void {
     super.execute()
-    this.owner.animation?.playClip('player/magic/frame')
+    // 'player/magic/frame' is not in the atlas, so asking for it only logged an
+    // error. Restore the call once the clip exists.
   }
 }

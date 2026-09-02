@@ -1,5 +1,11 @@
 import { Unit } from './unit'
 import { Dash } from '../skills/dash'
+import { RangedAttack } from '../skills/rangedattack'
+import { Defend } from '../skills/defend'
+import { StoneWall } from '../skills/stonewall'
+import { ThrowFireball } from '../skills/throwfireball'
+import { Throwicicle } from '../skills/throwicicle'
+import { IceBreath } from '../skills/icebreath'
 import { GameObject, ObjectType } from './gameobject'
 import { Vector } from '../utils/vector'
 import Mob from './mob'
@@ -32,8 +38,19 @@ export default class Player extends Unit {
 
     this.setLevel(1)
 
-    // this.skills = [new Defend(this), new Dash(this), new MeleeAttack(this), new RangedAttack(this)];
-    this.skills = [new Dash(this), new MeleeAttack(this)]
+    // Order is the wire contract: the client sends the index of the slot it
+    // pressed, and `tryExecuteSkill` indexes straight into this array. The
+    // client's own skill list must stay in exactly this order.
+    this.skills = [
+      new Dash(this),
+      new MeleeAttack(this),
+      new RangedAttack(this),
+      new Defend(this),
+      new StoneWall(this),
+      new ThrowFireball(this),
+      new Throwicicle(this),
+      new IceBreath(this)
+    ]
 
     this.createdAt = Date.now()
 
@@ -55,6 +72,9 @@ export default class Player extends Unit {
       const sumWidth = obj.radius + this.radius
       const sqr = obj.position.sub(this.position).getSquareMagnitude()
       if (sqr < sumWidth * sumWidth) {
+        // Bank it and heal for it. Splitting these into two pickup types is a
+        // later decision; for now one consumable does both.
+        this.addLoot(obj.loot)
         this.hp += (obj.loot)
         if (this.hp > this.maxHP()) { this.hp = this.maxHP() }
         obj.destroy()

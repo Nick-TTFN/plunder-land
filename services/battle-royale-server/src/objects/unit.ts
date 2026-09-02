@@ -8,6 +8,15 @@ import { type IAIRoutine } from '../ai/findnearestconsumable'
 // normalised push-out would divide by zero.
 const EPSILON = 1e-9
 
+/**
+ * Impulse lost per second. Was `dt / sqMagnitude`, which made the decay rate
+ * inversely proportional to the square of the current impulse - a dash held its
+ * speed and then fell off a cliff. This constant is chosen to keep Dash's total
+ * duration about where it was (~1.1s from its starting impulse of 1.5) while
+ * making the falloff even.
+ */
+const IMPULSE_FRICTION = 1.35
+
 export class Unit extends GameObject {
   damageReduction: number = 0
   routines: IAIRoutine[] = []
@@ -148,7 +157,7 @@ export class Unit extends GameObject {
 
     const sqMagnitude = this.impulse.getSquareMagnitude()
     if (sqMagnitude > 0.001) {
-      this.impulse = this.impulse.reduceBy(dt / sqMagnitude)
+      this.impulse = this.impulse.reduceBy(dt * IMPULSE_FRICTION)
     } else if (sqMagnitude > 0) {
       this.impulse.x = 0
       this.impulse.y = 0

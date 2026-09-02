@@ -310,9 +310,11 @@ export class GameObject {
           raw.push(this.getBuffer(value))
           break
         case 'lifetime':
-          // wire format is centiseconds in one signed byte; the client
-          // multiplies by 100 again on receipt.
-          raw.push(this.getBuffer(Math.min(127, Math.floor(value / 100))))
+          // Centiseconds in a uint16. It was a single signed byte, which capped
+          // any lifetime at 12.7s - fine for a 3s fireball, silently wrong for
+          // the 60s timer on dropped loot, where the client's countdown ring
+          // would finish while the pickup sat there for another 47 seconds.
+          raw.push(this.getBuffer2(Math.min(65535, Math.floor(value / 100))))
           break
         case 'maxVelocity':
           raw.push(this.getBuffer(Math.floor(value / 10)))

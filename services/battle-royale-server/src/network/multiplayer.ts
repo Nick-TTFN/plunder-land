@@ -75,9 +75,14 @@ export default class Multiplayer {
 
     this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
 
-    for (const obj of World.OBSTACLES.concat(
-      World.CONSUMABLES.concat(World.PLAYERS).concat(World.MOBS)
-    )) {
+    const snapshot: GameObject[] = [
+      ...World.OBSTACLES,
+      ...World.CONSUMABLES,
+      ...World.PLAYERS,
+      ...World.MOBS
+    ]
+
+    for (const obj of snapshot) {
       if (obj !== undefined) {
         if (connection.player === obj) {
           // allFieldsOwn, not allFields: the owner needs loot and maxVelocity,

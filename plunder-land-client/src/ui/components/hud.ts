@@ -41,7 +41,7 @@ export class HUD extends Container {
   }
 
   setupSkills (value: any[]): void {
-    const keys = ['q', 'w', 'e', 'r', 't', 'y']
+    const keys = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i']
 
     this.skillBar = new Container()
     for (const skill of value) {

@@ -12,6 +12,11 @@ import type Area from '../area/area'
 import Exit from './exit'
 
 export default class World {
+  /** How long loot dropped on death survives on the ground, in ms. */
+  static DROPPED_LOOT_LIFETIME = 60000
+  /** Bosses the world tries to keep alive, counted separately from mobs. */
+  static BOSS_COUNT = 5
+
   static TAGS = [-1, 0]
   static mapSize: number
   static OBSTACLES: GameObject[] = []
@@ -75,6 +80,16 @@ export default class World {
       player.update(dt)
     }
 
+    // Expire dropped loot. Nothing else removes a consumable except pickup.
+    const now = Date.now()
+    for (let i = World.CONSUMABLES.length - 1; i >= 0; i--) {
+      const consumable = World.CONSUMABLES[i]
+      if (consumable.expiresAt > 0 && now > consumable.expiresAt) {
+        consumable.destroy()
+        World.CONSUMABLES.splice(i, 1)
+      }
+    }
+
     for (const area of World.AREA_EFFECT) {
       area.update(dt)
     }
@@ -113,8 +128,13 @@ export default class World {
       World.MOBS.push(new Mob(pos.x, pos.y, tag))
     }
 
-    // fill the map with crazy bosses
-    if (World.MOBS.length < 10) {
+    // Bosses are counted separately. Both guards used to read MOBS.length, so
+    // five spawned during the first few ticks and none was ever replaced once
+    // the mob population had filled past ten.
+    let bosses = 0
+    for (const mob of World.MOBS) if (mob instanceof Boss) bosses++
+
+    if (bosses < World.BOSS_COUNT) {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
       World.MOBS.push(new Boss(pos.x, pos.y, tag))
@@ -138,7 +158,8 @@ export default class World {
           value.position.y + Random.RangeInt(-100, 100),
           value.tag,
           undefined,
-          newDropValue
+          newDropValue,
+          World.DROPPED_LOOT_LIFETIME
         )
       )
     }

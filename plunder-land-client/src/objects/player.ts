@@ -1,22 +1,30 @@
 import { Point } from 'pixi.js'
 import { Dash } from '../skills/dash'
 import { MeleeAttack } from '../skills/meleeattack'
-import { type RangedAttack } from '../skills/rangedattack'
-import { type Defend } from '../skills/defend'
+import { RangedAttack } from '../skills/rangedattack'
+import { Defend } from '../skills/defend'
+import { StoneWall, ThrowFireball, ThrowIcicle, IceBreath } from '../skills/placeholders'
+import { type Skill } from '../skills/skill'
 import { AnimationStates } from '../animation/animationstates'
 import Unit from './unit'
 
 export default class Player extends Unit {
-  skills: Array<Defend | Dash | MeleeAttack | RangedAttack>
+  skills: Skill[]
 
   constructor () {
     super()
 
+    // Must match Player.skills on the server: the index of the pressed slot is
+    // the whole payload of the `skill` message.
     this.skills = [
-    //   new Defend(this),q
       new Dash(this),
-      new MeleeAttack(this)
-    //   new RangedAttack(this),
+      new MeleeAttack(this),
+      new RangedAttack(this),
+      new Defend(this),
+      new StoneWall(this),
+      new ThrowFireball(this),
+      new ThrowIcicle(this),
+      new IceBreath(this)
     ]
     for (let i = 0; i < this.skills.length; i++) this.skills[i].index = i
   }
