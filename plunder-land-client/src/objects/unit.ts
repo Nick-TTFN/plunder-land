@@ -178,9 +178,15 @@ export default class Unit extends GameObject {
    * from it. Shared with the locally predicted player, which arrives at its
    * position by a completely different route but needs the same footwork.
    */
-  applyPosition (nx: number, ny: number, now: number): void {
-    const dx = nx - this.x
-    const dy = ny - this.y
+  applyPosition (nx: number, ny: number, now: number, motionX?: number, motionY?: number): void {
+    // Animation follows intent wherever we have it. For the locally predicted
+    // player the rendered position also carries a decaying server correction,
+    // and a correction is not movement — driving the run cycle and the sprite
+    // flip from it made the player jog on the spot every time the server
+    // nudged them. Remote units have no intent to read, so they fall back to
+    // the rendered delta, which must be measured before the move.
+    const dx = motionX ?? (nx - this.x)
+    const dy = motionY ?? (ny - this.y)
 
     this.x = nx
     this.y = ny

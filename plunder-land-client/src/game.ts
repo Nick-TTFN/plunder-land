@@ -669,7 +669,7 @@ export class Game extends Container {
     for (const player of Game.PLAYERS) {
       if (player === Game.PLAYER) {
         player.visible = true
-        player.applyPosition(Game.LOCAL.renderX, Game.LOCAL.renderY, now)
+        player.applyPosition(Game.LOCAL.renderX, Game.LOCAL.renderY, now, Game.LOCAL.moveX, Game.LOCAL.moveY)
         continue
       }
       if (this.stillPresent(player, staleBefore)) {

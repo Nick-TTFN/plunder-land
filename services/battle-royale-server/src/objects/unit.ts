@@ -9,13 +9,19 @@ import { type IAIRoutine } from '../ai/findnearestconsumable'
 const EPSILON = 1e-9
 
 /**
- * Impulse lost per second. Was `dt / sqMagnitude`, which made the decay rate
- * inversely proportional to the square of the current impulse - a dash held its
- * speed and then fell off a cliff. This constant is chosen to keep Dash's total
- * duration about where it was (~1.1s from its starting impulse of 1.5) while
- * making the falloff even.
+ * Impulse lost per second, applied to the magnitude.
+ *
+ * Dash duration is simply `impulse magnitude / IMPULSE_FRICTION`. Dash starts at
+ * 1.5, so 3.0 gives a half-second burst. This is a feel value - change it freely.
+ *
+ * Two earlier versions were wrong in different ways. `dt / sqMagnitude` made the
+ * decay rate inversely proportional to the square of the impulse, so a dash held
+ * its speed and then fell off a cliff. Replacing it with `reduceBy(dt * F)` fixed
+ * the curve but decayed each axis independently, so a dash along an axis lasted
+ * √2 longer than a diagonal one - the same input felt different depending on
+ * which way you were facing.
  */
-const IMPULSE_FRICTION = 1.35
+const IMPULSE_FRICTION = 3.0
 
 export class Unit extends GameObject {
   damageReduction: number = 0
@@ -156,11 +162,14 @@ export class Unit extends GameObject {
     py = py > World.mapSize ? World.mapSize : py
 
     const sqMagnitude = this.impulse.getSquareMagnitude()
-    if (sqMagnitude > 0.001) {
-      this.impulse = this.impulse.reduceBy(dt * IMPULSE_FRICTION)
-    } else if (sqMagnitude > 0) {
-      this.impulse.x = 0
-      this.impulse.y = 0
+    if (sqMagnitude > EPSILON) {
+      const magnitude = Math.sqrt(sqMagnitude)
+      const remaining = magnitude - dt * IMPULSE_FRICTION
+      // Scale towards zero so the direction is preserved and the duration is the
+      // same whichever way the dash points.
+      this.impulse = remaining > 0
+        ? this.impulse.multiply(remaining / magnitude)
+        : new Vector(0, 0)
     }
 
     if (this.position.x !== px || this.position.y !== py) {

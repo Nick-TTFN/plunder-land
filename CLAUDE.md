@@ -165,7 +165,13 @@ like it did.
    states and `Unit.update` renders at `now - Session.interpolationDelay`, interpolating
    between the two states straddling that time, extrapolating for a bounded window on
    underrun, then holding.
-3. **Corrections are eased, not snapped.** `LocalPlayer` keeps a decaying render offset so a
+3. **Animation follows intent, not rendered movement.** `Unit.applyPosition` takes an optional
+   motion hint; the local player passes `LocalPlayer.moveX/moveY`, which is the predicted step
+   with no correction in it. Driving the run cycle and the sprite flip from the rendered delta
+   made the player jog on the spot and flip to face the wrong way every time the server nudged
+   them, because the render position carries the decaying correction offset. Remote units have no
+   intent to read and correctly fall back to the rendered delta.
+4. **Corrections are eased, not snapped.** `LocalPlayer` keeps a decaying render offset so a
    small disagreement is walked off over ~100 ms; a disagreement over 220 units is treated as
    a teleport and shown immediately.
 
@@ -226,8 +232,14 @@ error), and an icicle projectile sprite — thrown icicles currently render as f
   separate loot and health pickups is a later decision, not an oversight.
 - **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (60s); natural spawns do not.**
   The world's own spawner is bounded by a count, drops were not.
-- **Impulse decay is a constant** (`IMPULSE_FRICTION`), tuned to keep Dash's total duration
-  roughly where the old broken curve put it (~1.1s). It is a feel value — change it freely.
+- **Impulse decay is a constant applied to the magnitude** (`IMPULSE_FRICTION`, currently 3.0).
+  Duration is `impulse magnitude / IMPULSE_FRICTION`; Dash starts at 1.5, so 0.5s. Measured: the
+  dash adds ~81 units over two ticks, against a 35-unit baseline tick. **Note the tick
+  granularity** — the server applies the current impulse for a whole tick *then* decays, so a
+  dash can never be shorter than one 250ms tick no matter how high the friction goes. Two earlier
+  versions were wrong: `dt / sqMagnitude` made decay inversely proportional to the square of the
+  impulse, and `reduceBy(dt * F)` decayed each axis independently, so an axis-aligned dash lasted
+  √2 longer than a diagonal one.
 - **Player-versus-player collision is not predicted.** `LocalPlayer._step` replicates the
   server's obstacle push-out but not its player push-out, so shoving another player produces
   a correction. Rare and small; revisit if it reads badly in a crowd.

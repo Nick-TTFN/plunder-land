@@ -52,6 +52,15 @@ export class LocalPlayer {
   private _offsetX: number = 0
   private _offsetY: number = 0
 
+  /**
+   * Movement produced by the last predicted frame, with no correction in it.
+   * The rendered position carries both, and a correction is not movement — using
+   * the rendered delta to drive animation started the run cycle and flipped the
+   * sprite while the player was standing still.
+   */
+  moveX: number = 0
+  moveY: number = 0
+
   private _seq: number = 1
   private _dirX: number = 0
   private _dirY: number = 0
@@ -118,6 +127,8 @@ export class LocalPlayer {
   predict (dtSeconds: number): void {
     if (!this.ready) return
     const next = this._step(this.x, this.y, this._dirX, this._dirY, dtSeconds)
+    this.moveX = next.x - this.x
+    this.moveY = next.y - this.y
     this.x = next.x
     this.y = next.y
 
@@ -147,6 +158,7 @@ export class LocalPlayer {
 
     const beforeX = this.x
     const beforeY = this.y
+
 
     // Drop everything the server has already finished with.
     while (this._inputs.length > 0 && seqBefore(this._inputs[0].seq, ackSeq)) {
