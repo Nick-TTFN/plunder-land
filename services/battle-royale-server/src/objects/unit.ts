@@ -21,10 +21,13 @@ export class Unit extends GameObject {
     objType: number,
     x: number,
     y: number,
-    lifetime: number,
+    radius: number,
     tag: number
   ) {
-    super(objType, x, y, lifetime, tag)
+    // Named `lifetime` before, but GameObject's fourth parameter is radius, so
+    // that is what every caller was actually setting.
+    super(objType, x, y, radius, tag)
+    this.maxHp = this.maxHP()
     this.direction = new Vector(0, 0)
     this.impulse = new Vector(0, 0)
   }
@@ -167,9 +170,10 @@ export class Unit extends GameObject {
   }
 
   hit (value: number): boolean {
-    const inflictedDamage = Math.floor(
-      value * (1 - this.damageReduction - this.armor / 10)
-    )
+    // Clamped: at armor 10 the multiplier hits zero, and above it went negative,
+    // so `hp -= inflictedDamage` healed - past maxHP, since only pickups clamp.
+    const multiplier = Math.max(0, Math.min(1, 1 - this.damageReduction - this.armor / 10))
+    const inflictedDamage = Math.floor(value * multiplier)
     this.hp -= inflictedDamage
 
     if (this.hp <= 0) {

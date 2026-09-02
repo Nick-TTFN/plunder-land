@@ -69,16 +69,28 @@ export default class Unit extends GameObject {
 
   initAnimation (): void {}
 
-  setHP (value: number): void {
-    if (this.maxHP === 0) {
-      this.maxHP = value
+  /**
+   * The server now sends the real maximum. Previously this was inferred from the
+   * first hp value ever seen, so any unit met while already damaged got a bar
+   * that read full at its current health and overflowed if it healed.
+   */
+  setMaxHP (value: number): void {
+    if (value <= 0 || this.maxHP === value) return
 
-      if (this.progressBar !== undefined) {
-        this.progressBar.width = this.maxHP
-        this.progressBar.graphics.x = -this.progressBar.width / 2
-        this.progressBar.graphics.y = this.radius + 5
-      }
+    this.maxHP = value
+
+    if (this.progressBar !== undefined) {
+      this.progressBar.width = this.maxHP
+      this.progressBar.graphics.x = -this.progressBar.width / 2
+      this.progressBar.graphics.y = this.radius + 5
     }
+
+    if (this.hp !== undefined) this.progressBar?.setValue(this.hp / this.maxHP)
+  }
+
+  setHP (value: number): void {
+    // Fallback for anything that somehow arrives without a maximum.
+    if (this.maxHP === 0) this.setMaxHP(value)
 
     if (this.hp === value) return
     if (this.hp !== undefined) {

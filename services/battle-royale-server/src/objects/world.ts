@@ -136,7 +136,9 @@ export default class World {
         new Consumable(
           value.position.x + Random.RangeInt(-100, 100),
           value.position.y + Random.RangeInt(-100, 100),
-          value.tag
+          value.tag,
+          undefined,
+          newDropValue
         )
       )
     }
@@ -146,6 +148,12 @@ export default class World {
     let x: number
     let y: number
     let collides = false
+    // Capped: this runs inside the tick, and on a crowded plane an unbounded
+    // retry loop wedges the whole simulation with nothing thrown for the error
+    // boundary to catch. StoneWall lets players add obstacles, so density is
+    // not fixed. After the cap, take the last candidate and let the collision
+    // push-out sort it out.
+    let attempts = 0
     do {
       collides = false
       x = Random.RangeInt(0, World.mapSize)
@@ -157,7 +165,7 @@ export default class World {
           break
         }
       }
-    } while (collides)
+    } while (collides && ++attempts < 40)
     return new Vector(x, y)
   }
 

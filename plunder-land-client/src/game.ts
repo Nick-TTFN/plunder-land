@@ -127,6 +127,7 @@ export class Game extends Container {
     this.cloudsLayer.alpha = 0
 
     Game.COLLIDERS = []
+    this.LOOKUP = {}
     Session.reset()
 
     Game.socket.off('hello')
@@ -196,7 +197,8 @@ export class Game extends Container {
       'radius',
       'lifetime',
       'maxVelocity',
-      'name'
+      'name',
+      'maxHp'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -254,6 +256,9 @@ export class Game extends Container {
           break
         case 'maxVelocity':
           value = buffer[offset++] * 10
+          break
+        case 'maxHp':
+          value = (buffer[offset++] << 8) + buffer[offset++]
           break
         case 'name':
           value = ''
@@ -544,23 +549,29 @@ export class Game extends Container {
         if (obj === Game.PLAYER) Game.LOCAL.maxVelocity = data.maxVelocity
       }
 
-      if (data.hp && obj.setHP) obj.setHP(data.hp)
+      if (data.maxHp !== undefined && obj.setMaxHP) obj.setMaxHP(data.maxHp)
+
+      if (data.hp !== undefined && obj.setHP) obj.setHP(data.hp)
 
       if (data.impulse && obj.impulse) obj.impulse = data.impulse
 
-      if (data.level && obj.setLevel) {
+      if (data.level !== undefined && obj.setLevel) {
         obj.setLevel(data.level)
         if (obj === Game.PLAYER) Game.hud.updateStats(data)
       }
 
-      if (data.loot && data.loot !== obj.loot) {
+      if (data.loot !== undefined && data.loot !== obj.loot) {
+        // Was `+${data.loot < obj.loot ? data.loot : data.loot - obj.loot}`, which
+        // printed the new absolute total with a plus sign whenever loot fell, and
+        // NaN the first time an object was seen with no previous value.
+        const delta = data.loot - (obj.loot ?? 0)
         new TextEffect(
-          `+${data.loot < obj.loot ? data.loot : data.loot - obj.loot}`,
+          `${delta > 0 ? '+' : ''}${delta}`,
           Game.CONTAINER,
           obj.x,
           obj.y,
           24,
-          'green',
+          delta > 0 ? 'green' : 'orange',
           400
         )
         obj.loot = data.loot
@@ -576,7 +587,7 @@ export class Game extends Container {
         if (obj === Game.PLAYER) this.updateLayerVisibility(data.tag)
       }
 
-      if (data.radius && obj.radius !== data.radius) {
+      if (data.radius !== undefined && obj.radius !== data.radius) {
         obj.radius = data.radius
         if (obj.DEBUG_DRAW_COLLIDER) obj.DEBUG_DRAW_COLLIDER()
       }
@@ -607,7 +618,18 @@ export class Game extends Container {
         Game.PLAYER = undefined
         Game.hud.clearGameUI()
       }
-      obj.destroy()
+
+      // Drop every reference. These arrays were never pruned, so the render loop
+      // kept walking objects that had been destroyed rounds ago, and LOOKUP kept
+      // resolving recycled ids to stale containers.
+      for (const list of [Game.PLAYERS, Game.MOBS, Game.CONSUMABLES, Game.OBSTACLES, Game.FIREBALLS]) {
+        const at = (list as unknown[]).indexOf(obj)
+        if (at >= 0) list.splice(at, 1)
+      }
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+      delete this.LOOKUP[data.id]
+
+      obj.dispose()
     }
   }
 

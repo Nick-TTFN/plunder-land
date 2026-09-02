@@ -123,13 +123,16 @@ export default class Multiplayer {
 
     if (buffered !== undefined) this._buffer[connection.id] = undefined
 
-    if (connection.player?.destroyed ?? false) connection.player = undefined
+    // Exiting removes the player from the world but never set `destroyed`, so the
+    // connection kept pointing at it and the input handlers kept reaching it.
+    const player = connection.player
+    if (player != null && (player.destroyed || player.exited)) connection.player = undefined
   }
 
   // [int8 dirX][int8 dirY][uint16 seq] - 4 bytes, replacing a JSON object that
   // was being sent at pointermove rate against a reader that runs once a tick.
   onPointer (connection: Connection, data): void {
-    if (connection.player == null) return
+    if (connection.player == null || connection.player.exited || connection.player.destroyed) return
 
     let buf: Buffer
     if (Buffer.isBuffer(data)) buf = data
@@ -147,9 +150,9 @@ export default class Multiplayer {
   }
 
   onSkill (connection: Connection, data): void {
-    if (connection.player != null) {
-      connection.player.tryExecuteSkill(data)
-    }
+    const player = connection.player
+    if (player == null || player.exited || player.destroyed) return
+    player.tryExecuteSkill(data)
   }
 
   // outgoing traffic ========

@@ -24,7 +24,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 36 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 37 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 ```
 
@@ -42,7 +42,7 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
 - ~9 × `Type 'Point' is missing ... from type 'ObservablePoint'`. Verified harmless:
   pixi's `set anchor` (and the other transform setters) do `this._anchor.copyFrom(value)`,
   so assigning a plain `Point` works correctly at runtime. Typings quirk only.
-- 23 × `Property 'setHP' / 'setLevel' / 'loot' / 'pushState' ... does not exist on type
+- 18 × `Property 'setHP' / 'setMaxHP' / 'loot' / 'pushState' ... does not exist on type
   'GameObject'` in `game.ts`'s `onObjectUpdated`. `LOOKUP` is typed as `GameObject` but holds `Unit`
   subclasses. Runtime-correct, type-unsafe. Fixing it properly means introducing a union
   or widening the base class — a real refactor, deliberately not done.
@@ -125,6 +125,10 @@ units) and introduced a systematic backward bias.
 scaled by 127. It is sampled once per server tick, not per pointer event. The server
 ignores any payload that is not a buffer of at least 4 bytes.
 
+`maxHp` is sent per unit so the client does not have to infer a health bar's scale from the
+first hp value it happens to see. **The field table is append-only** — new fields go on the
+end of `fieldOrder` (server) and `allFields` (client), and the two must stay identical.
+
 **`hello`** is emitted once on join: `{ tick, map, interest }`. Nothing on the client may
 hardcode these — see `src/net/session.ts`.
 
@@ -192,6 +196,18 @@ per-visible-player one (break-even at about three visible players).
   `Player.addLoot()` has zero callers, so `player.loot` is always 0 and so is
   `stats.lootCollected`. Left alone pending a deliberate game-design pass on whether a
   pickup should heal, bank, or split into two pickup types.
+- **Consumables only ever grow.** `createLootFrom` appends on every death with no cap and
+  nothing expires a pickup, so a populated world's consumable array ratchets upward. The drop
+  *value* is now carried correctly; bounding the population needs a design call on whether loot
+  should expire.
+- **Impulse decay is dimensionally wrong.** `reduceBy(dt / sqMagnitude)` makes the decay rate
+  inversely proportional to the square of the current impulse, so strong knockback fades slowly
+  and weak knockback snaps. `Dash` uses it live, so correcting the curve changes how Dash feels
+  — a balance call, not a bug fix.
+- **Bosses are never replaced.** Five spawn at world start (both spawn guards run on the same
+  tick until `MOBS` reaches 10); once killed the replacement guard cannot fire again unless the
+  whole mob population collapses below ten. How many bosses a world should sustain is a design
+  question.
 - **The six skills are unequipped.** Players get `[Dash, MeleeAttack]` from a 6-slot bar.
   `Defend`, `RangedAttack`, `FireBreath`, `IceBreath`, `StoneWall`, `ThrowFireball`,
   `ThrowIcicle` exist and are unreachable.
@@ -199,6 +215,12 @@ per-visible-player one (break-even at about three visible players).
   out in `playerstats.ts`, so the per-level damage tables always index level 1.
   Note `Player.setLevel()` zeroes `this.loot` — probably leftover init, but nobody has
   decided whether that is meant to be "spend your haul on power or carry it to the gate".
+- **Our client-side teardown is `dispose()`, not `destroy()`.** `destroy()` belongs to PIXI and
+  overriding it with a different signature meant PIXI's own cleanup could never run. `dispose()`
+  deliberately does *not* chain to `super.destroy()`: effects hold a reference to their target
+  for up to a second after it dies, and freeing the container under them throws. Dropping every
+  reference — `LOOKUP`, `COLLIDERS` and the per-type arrays, all done in `onObjectDestroyed` —
+  is what actually lets it be collected.
 - **AI targets are released when they die.** `GuardPosition` only scans for a new target
   while `owner.target` is null, so a target that dies or extracts used to leave the unit
   permanently blind — wandering, while `UseSkillOnTarget` (which only tests for null) kept

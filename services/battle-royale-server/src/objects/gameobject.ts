@@ -34,6 +34,7 @@ export class GameObject {
   private _lifetime: number
   private _maxVelocity: number
   private _name: string
+  private _maxHp: number
 
   static fieldOrder: string[] = [
     'id',
@@ -47,7 +48,8 @@ export class GameObject {
     'radius',
     'lifetime',
     'maxVelocity',
-    'name'
+    'name',
+    'maxHp'
   ]
 
   constructor (
@@ -71,7 +73,8 @@ export class GameObject {
       'to',
       'radius',
       'lifetime',
-      'maxVelocity'
+      'maxVelocity',
+      'maxHp'
     ])
     this.allFields = new Set([
       'id',
@@ -83,7 +86,8 @@ export class GameObject {
       'to',
       'radius',
       'lifetime',
-      'name'
+      'name',
+      'maxHp'
     ])
 
     if (radius) {
@@ -211,6 +215,17 @@ export class GameObject {
     this.dirtyFields.add('maxVelocity')
   }
 
+  // The client used to infer a unit's maximum from the first hp value it ever
+  // saw, which is wrong for anything already damaged when you meet it.
+  get maxHp () {
+    return this._maxHp
+  }
+
+  set maxHp (value) {
+    this._maxHp = value
+    this.dirtyFields.add('maxHp')
+  }
+
   get name () {
     return this._name
   }
@@ -301,6 +316,9 @@ export class GameObject {
           break
         case 'maxVelocity':
           raw.push(this.getBuffer(Math.floor(value / 10)))
+          break
+        case 'maxHp':
+          raw.push(this.getBuffer2(value))
           break
         case 'name':
           raw.push(Buffer.from(value), Buffer.alloc(1)); break

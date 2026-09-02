@@ -19,6 +19,13 @@ export class IceBreath extends Skill {
     const lifetime = 1000
     Multiplayer.Instance.effect(1, this.owner, lifetime)
 
+    // FireBreath has always had this; IceBreath never did, so every cast left a
+    // permanent damage field tracking its caster.
+    setTimeout(() => {
+      const idx = World.AREA_EFFECT.indexOf(area)
+      if (idx >= 0) World.AREA_EFFECT.splice(idx, 1)
+    }, lifetime)
+
     return true
   }
 }

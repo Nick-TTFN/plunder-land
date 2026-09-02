@@ -67,7 +67,15 @@ export class GameObject extends Container {
     this.zIndex = this.position.y
   }
 
-  destroy (): void {
+  /**
+   * Named `dispose`, not `destroy`: this is our own teardown and it used to
+   * override PIXI's `destroy()` with an incompatible signature, so PIXI's own
+   * cleanup could never run and any caller expecting PIXI semantics got ours.
+   * We still do not call `super.destroy()` - effects hold a reference to their
+   * target for up to a second after it dies, and freeing the container under
+   * them throws. Dropping every reference is what actually lets it be collected.
+   */
+  dispose (): void {
     new TWEEN.Tween(this.scale)
       .to({ x: 0, y: 0 }, 200)
       .onComplete(() => {

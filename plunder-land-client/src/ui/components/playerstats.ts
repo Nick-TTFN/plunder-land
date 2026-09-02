@@ -38,7 +38,7 @@ export class PlayerStats extends Container {
     // this.graphics.clear()
     // this.graphics.beginFill(0x000000).drawRect(0, 0, 64, 16).endFill()
 
-    if (data !== undefined) {
+    if (data?.loot !== undefined) {
       // const progress = data.loot / this.LEVEL_THRESHOLDS[this.level]
       this.lootLabel.text = 'collected: ' + data.loot.toString()
       // this.graphics.beginFill(0x880088).drawRect(0, 0, 64 * progress, 16).endFill()

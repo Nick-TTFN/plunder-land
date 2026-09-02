@@ -45,7 +45,7 @@ export class Throwable extends AnimatedSprite {
 
   DEBUG_DRAW_COLLIDER (): void {}
 
-  destroy (): void {
+  dispose (): void {
     for (let i = 0; i < 10; i++) {
       const parent = this.parent
       setTimeout(() => {

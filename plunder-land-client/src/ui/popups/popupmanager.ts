@@ -13,7 +13,10 @@ export class PopupManager extends Container {
   }
 
   hide (value: Container): void {
-    this.queue.splice(this.queue.indexOf(value))
+    // splice() without a delete count removes the element and everything after
+    // it, and removes the last entry when indexOf returns -1.
+    const at = this.queue.indexOf(value)
+    if (at >= 0) this.queue.splice(at, 1)
 
     this.updateVisibility()
   }

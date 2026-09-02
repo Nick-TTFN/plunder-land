@@ -130,7 +130,7 @@ export default class Player extends Unit {
   }
 
   exit (): void {
-    this.dirtyFields = new Set('id')
+    this.dirtyFields = new Set(['id'])  // not new Set('id'), which yields {'i','d'}
     Multiplayer.Instance.destroy(this)
     this.exited = true
 

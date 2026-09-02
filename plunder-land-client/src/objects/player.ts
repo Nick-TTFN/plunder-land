@@ -40,7 +40,7 @@ export default class Player extends Unit {
     this.addChild(this.animation)
   }
 
-  destroy (): void {
+  dispose (): void {
     if ((this.hp ?? 0) <= 0) {
       this.animation?.playClip('player/die/die')
       this.animation?.setDefault(undefined)
@@ -51,7 +51,9 @@ export default class Player extends Unit {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this
     setTimeout(() => {
-      if (self.parent !== undefined) this.parent.removeChild(self)
+      // A removed PIXI object has `parent === null`, which passed the old
+      // `!== undefined` test and then threw on the line below.
+      if (self.parent != null) self.parent.removeChild(self)
     }, 1700)
 
     this.killed = true
