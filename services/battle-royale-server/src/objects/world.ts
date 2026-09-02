@@ -45,12 +45,12 @@ export default class World {
     }
   }
 
-  static createPlayer (address: string): Player {
+  static createPlayer (playerId: string): Player {
     const player = new Player(
       Random.RangeInt(0, World.mapSize),
       Random.RangeInt(0, World.mapSize),
       World.TAGS[Random.RangeInt(0, World.TAGS.length)],
-      address
+      playerId
     )
     World.PLAYERS.push(player)
     return player

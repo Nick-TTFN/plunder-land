@@ -1,4 +1,3 @@
-import Now from 'performance-now'
 import { Server } from 'socket.io'
 import http from 'http'
 import dotenv from 'dotenv'
@@ -9,8 +8,31 @@ dotenv.config()
 startGame()
 
 function startGame (): void {
+  const multiplayer = new Multiplayer()
+
   const httpserver = http.createServer((req, res) => {
-    res.writeHead(req.method === 'GET' && req.url === '/healthcheck' ? 200 : 404)
+    if (req.method === 'GET' && req.url === '/healthcheck') {
+      res.writeHead(200)
+      res.end()
+      return
+    }
+
+    if (req.method === 'GET' && req.url === '/stats') {
+      multiplayer.getLeaderboard().then((data) => {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        })
+        res.end(JSON.stringify(data))
+      }).catch((e) => {
+        console.error('stats', e)
+        res.writeHead(500)
+        res.end()
+      })
+      return
+    }
+
+    res.writeHead(404)
     res.end()
   })
   httpserver.listen(process.env.PORT, () => {
@@ -18,8 +40,6 @@ function startGame (): void {
   })
 
   const server = new Server(httpserver, { cors: { origin: '*' } })
-
-  const multiplayer = new Multiplayer()
 
   server.on('connection', function (socket) {
     multiplayer.onConnect(socket)
@@ -43,10 +63,15 @@ function startGame (): void {
       const dt = (now - previousTick) / 1000
       previousTick = now
 
-      // const start = Now()
-      world.update(dt)
-      // console.log((Now() - start).toFixed(3), (process.memoryUsage().rss / 1024 / 1024).toFixed(3), (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(3), (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(3))
-      multiplayer.flushAll()
+      // The world is held entirely in memory with no persistence, so an uncaught
+      // throw in a single tick would take every player's run down with the process.
+      // Log and keep ticking instead.
+      try {
+        world.update(dt)
+        multiplayer.flushAll()
+      } catch (e) {
+        console.error('tick', e)
+      }
     }
 
     const dt = Date.now() - previousTick

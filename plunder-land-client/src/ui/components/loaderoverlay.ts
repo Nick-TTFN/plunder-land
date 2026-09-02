@@ -15,17 +15,17 @@ export class LoaderOverlay extends Container {
     this.addChild(this.text)
 
     this.visible = false
-    this.interactive = true
+    this.eventMode = 'static'
   }
 
   enable (): void {
     this.visible = true
-    this.interactive = true
+    this.eventMode = 'static'
   }
 
   disable (): void {
     this.visible = false
-    this.interactive = false
+    this.eventMode = 'auto'
   }
 
   resize (width: number, height: number): void {

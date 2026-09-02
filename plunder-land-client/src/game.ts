@@ -30,7 +30,6 @@ import { type GameObject } from './objects/gameobject'
 import { type HUD } from './ui/components/hud'
 import { type Socket } from 'socket.io-client'
 import { type PopupManager } from './ui/popups/popupmanager'
-import { TokenService } from './services/token.service'
 import { ToolKit } from './ui/components/toolkit'
 import { Exit } from './objects/exit'
 
@@ -54,14 +53,12 @@ export class Game extends Container {
   static popups: PopupManager
   static Instance: Game
   static simulate: boolean
-  assets: TokenService
   static loader: any
 
   constructor () {
     super()
     this.mapSize = 4000
 
-    this.assets = new TokenService()
   }
 
   clear (): void {
@@ -122,26 +119,47 @@ export class Game extends Container {
     Game.popups.show(new GameEnterPopup(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (address: string): Promise<void> {
+  async onStartRequested (playerId: string): Promise<void> {
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
     Game.socket.on('effect', this.onEffects.bind(this))
     Game.socket.on('update', this.onObjectsUpdated.bind(this))
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
-    Game.socket.emit('start_requested', address)
+    Game.socket.emit('start_requested', playerId)
 
     Game.hud.setupGameUI()
   }
 
-  onObjectsCreated (data: ArrayBuffer[]): void {
-    for (const entry of data) this.onObjectCreated(entry)
+  onObjectsCreated (data: ArrayBuffer): void {
+    for (const entry of this.unpackRecords(data)) this.onObjectCreated(entry)
   }
 
-  onOwnObjectsCreated (data: ArrayBuffer[]): void {
-    for (const entry of data) this.onObjectCreated(entry, true)
+  onOwnObjectsCreated (data: ArrayBuffer): void {
+    for (const entry of this.unpackRecords(data)) this.onObjectCreated(entry, true)
   }
 
-  deserialiseBinary (raw: ArrayBuffer): any {
+  // Each event now arrives as one buffer holding many length-prefixed records
+  // (see Multiplayer.packRecords on the server).
+  unpackRecords (raw: ArrayBuffer): Uint8Array[] {
+    const buffer = new Uint8Array(raw)
+    Game.socketBytes += buffer.length
+
+    const records: Uint8Array[] = []
+    let offset = 0
+    while (offset + 2 <= buffer.length) {
+      const length = (buffer[offset] << 8) + buffer[offset + 1]
+      offset += 2
+      if (offset + length > buffer.length) {
+        console.warn('truncated record batch', buffer)
+        break
+      }
+      records.push(buffer.subarray(offset, offset + length))
+      offset += length
+    }
+    return records
+  }
+
+  deserialiseBinary (raw: ArrayBuffer | Uint8Array): any {
     const allFields = [
       'id',
       'type',
@@ -157,14 +175,21 @@ export class Game extends Container {
       'name'
     ]
 
-    const buffer = new Uint8Array(raw)
-    Game.socketBytes += buffer.length
+    const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
     const data: Record<string, number | Vector | string> = {}
-    let value
     let offset = 0
     while (offset < buffer.length) {
+      let value
       const keyIndex = buffer[offset++]
       const key = allFields[keyIndex]
+
+      // An unrecognised key index means the stream is already misaligned and
+      // there is no way to know how wide the payload is. Keep what parsed
+      // cleanly rather than emitting garbage for every field after it.
+      if (key === undefined) {
+        console.warn('unknown field index', keyIndex, 'in', buffer)
+        break
+      }
 
       switch (key) {
         case 'id':
@@ -206,7 +231,7 @@ export class Game extends Container {
         case 'name':
           value = ''
 
-          while (true) {
+          while (offset < buffer.length) {
             const code = buffer[offset++]
             if (code === 0) { break }
             value += String.fromCharCode(code)
@@ -221,7 +246,7 @@ export class Game extends Container {
     return data
   }
 
-  onObjectCreated (raw: ArrayBuffer, own = false): void {
+  onObjectCreated (raw: Uint8Array, own = false): void {
     let obj: GameObject | undefined
 
     const data = this.deserialiseBinary(raw)
@@ -386,13 +411,13 @@ export class Game extends Container {
     }
   }
 
-  onEffects (data: ArrayBuffer[]) {
+  onEffects (data: ArrayBuffer) {
     // ADD_TO_BENCHMARK(data);
 
-    for (const entry of data) this.onEffect(entry)
+    for (const entry of this.unpackRecords(data)) this.onEffect(entry)
   }
 
-  onEffect (raw: ArrayBuffer) {
+  onEffect (raw: Uint8Array) {
     const buffer = new Uint8Array(raw)
     Game.socketBytes += buffer.length
 
@@ -431,13 +456,11 @@ export class Game extends Container {
     }
   }
 
-  onObjectsUpdated (data: ArrayBuffer[]) {
-    // ADD_TO_BENCHMARK(data);
-
-    for (const entry of data) this.onObjectUpdated(entry)
+  onObjectsUpdated (data: ArrayBuffer) {
+    for (const entry of this.unpackRecords(data)) this.onObjectUpdated(entry)
   }
 
-  onObjectUpdated (raw: ArrayBuffer) {
+  onObjectUpdated (raw: Uint8Array) {
     const data = this.deserialiseBinary(raw)
 
     const obj = this.LOOKUP[data.id]
@@ -497,11 +520,11 @@ export class Game extends Container {
     }
   }
 
-  onObjectsDestroyed (data: ArrayBuffer[]) {
-    for (const entry of data) this.onObjectDestroyed(entry)
+  onObjectsDestroyed (data: ArrayBuffer) {
+    for (const entry of this.unpackRecords(data)) this.onObjectDestroyed(entry)
   }
 
-  onObjectDestroyed (raw: ArrayBuffer) {
+  onObjectDestroyed (raw: Uint8Array) {
     const data = this.deserialiseBinary(raw)
 
     const obj = this.LOOKUP[data.id]

@@ -8,7 +8,7 @@ export class Joystick extends Container {
   pointerDown: boolean = false
   constructor (radius: number) {
     super()
-    this.interactive = true
+    this.eventMode = 'static'
     this.radius = radius
     const back = new Graphics()
       .beginFill('0xA39171', 0.4)

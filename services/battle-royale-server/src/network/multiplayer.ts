@@ -3,13 +3,13 @@ import { type GameObject, ObjectType } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
 import World from '../objects/world'
-import axios from 'axios'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
 
 class Connection {
   socket: Socket
   player: Player | undefined
+  started: boolean = false
   pendingObjectIDs: Record<string, boolean> | undefined
 
   get id (): string {
@@ -36,14 +36,16 @@ export default class Multiplayer {
     const connection = new Connection()
     connection.socket = socket
 
-    socket.on('start_requested', (address) => {
-      void this.onStart(connection, address)
+    socket.on('start_requested', (playerId) => {
+      if (connection.started) return
+      connection.started = true
+      void this.onStart(connection, playerId)
     })
     this._connections.push(connection)
   }
 
   // incoming traffic ========
-  async onStart (connection: Connection, address: string): Promise<void> {
+  async onStart (connection: Connection, playerId: string): Promise<void> {
     connection.socket.on('pointer', (data) => {
       this.onPointer(connection, data)
     })
@@ -51,14 +53,7 @@ export default class Multiplayer {
       this.onSkill(connection, data)
     })
 
-    const player = World.createPlayer(address)
-
-    /* gear disabled
-    const response = await axios.get(`http://evm-connector:8001/gear/equipment/${address}`)
-    if (response.status === 200) {
-      player.setGear(response.data)
-    }
-    */
+    const player = World.createPlayer(playerId)
 
     connection.player = player
 
@@ -82,14 +77,20 @@ export default class Multiplayer {
   flush (connection: Connection): void {
     if (this._buffer[connection.id] === undefined) return
 
-    if (connection.player == null) return
-
-    for (const event in this._buffer[connection.id]) {
-      connection.socket.emit(event, this._buffer[connection.id][event])
+    // Always drop the buffer, even for a socket that never started a run.
+    // Clients connect on page load but only send `start_requested` on button
+    // click, so returning early here leaked a buffer per idle visitor.
+    if (connection.player != null) {
+      const buffered = this._buffer[connection.id]
+      for (const event in buffered) {
+        const records: Buffer[] = buffered[event]
+        if (records.length === 0) continue
+        connection.socket.emit(event, Multiplayer.packRecords(records))
+      }
     }
     this._buffer[connection.id] = undefined
 
-    if (connection.player.destroyed) connection.player = undefined
+    if (connection.player?.destroyed ?? false) connection.player = undefined
   }
 
   onPointer (connection: Connection, data): void {
@@ -155,10 +156,8 @@ export default class Multiplayer {
         this._buffer[connection.id].update.push(data)
       } else {
         if (obj.dirtyFields.size > 0) {
-          if (connection.pendingObjectIDs === undefined) {
-            connection.pendingObjectIDs = {}
-            connection.pendingObjectIDs[obj.id] = true
-          }
+          if (connection.pendingObjectIDs === undefined) connection.pendingObjectIDs = {}
+          connection.pendingObjectIDs[obj.id] = true
         }
       }
     }
@@ -186,24 +185,6 @@ export default class Multiplayer {
     }
   }
 
-  async reportLoss (player: Player): Promise<void> {
-    try {
-      const response = await axios.post(`http://evm-connector:8001/rewards/payout/${player.address}`, { amount: 0 })
-      if (response.status !== 200) { console.error('reportLoss', response.data) }
-    } catch (e) {
-      console.error(e)
-    }
-  }
-
-  async reportWin (player: Player): Promise<void> {
-    try {
-      const response = await axios.post(`http://evm-connector:8001/rewards/payout/${player.address}`, { amount: player.loot })
-      if (response.status !== 200) { console.error('reportLoss', response.data) }
-    } catch (e) {
-      console.error(e)
-    }
-  }
-
   destroy (obj): void {
     const data = obj.serialiseBinary(obj.dirtyFields)
     for (const connection of this._connections) {
@@ -226,9 +207,39 @@ export default class Multiplayer {
 
     for (const key in stats) {
       if (stats[key] > 0) {
-        await Multiplayer.Instance.redis.hincrby(`stats-${player.address}`, key, stats[key])
+        await Multiplayer.Instance.redis.hincrby(`stats-${player.playerId}`, key, stats[key])
       }
     }
+  }
+
+  private _leaderboard: Record<string, Record<string, string>> = {}
+  private _leaderboardAt: number = 0
+
+  async getLeaderboard (): Promise<Record<string, Record<string, string>>> {
+    if (Date.now() - this._leaderboardAt < 3000) return this._leaderboard
+
+    const keys = await this.redis.keys('stats-*')
+    const data: Record<string, Record<string, string>> = {}
+    for (const key of keys) data[key] = await this.redis.hgetall(key)
+
+    this._leaderboard = data
+    this._leaderboardAt = Date.now()
+    return data
+  }
+
+  // One binary attachment per event instead of one per object. socket.io-parser
+  // caps a packet at 10 attachments (added after this code was written), so a
+  // join sending ~650 objects was rejected outright with "too many attachments"
+  // and the client reconnected forever. Batching also collapses ~650 WebSocket
+  // frames per join into one.
+  static packRecords (records: Buffer[]): Buffer {
+    const parts: Buffer[] = []
+    for (const record of records) {
+      const header = Buffer.alloc(2)
+      header.writeUInt16BE(record.length)
+      parts.push(header, record)
+    }
+    return Buffer.concat(parts)
   }
 
   flushAll (): void {

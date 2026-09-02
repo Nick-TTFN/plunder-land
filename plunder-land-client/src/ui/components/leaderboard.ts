@@ -1,6 +1,7 @@
 import { Graphics, Point } from 'pixi.js'
 import { ToolKit } from './toolkit'
 import axios from 'axios'
+import { SERVER_URL } from '../../config'
 
 export class Leaderboard extends Graphics {
   label
@@ -20,16 +21,22 @@ export class Leaderboard extends Graphics {
   }
 
   async refresh (): Promise<void> {
-    const response = await axios.get('http://localhost:8001/stats')
-    this.setData(response.data)
+    // Keep polling even if a request fails: an unhandled rejection here used to
+    // kill the refresh loop permanently for the rest of the session.
+    try {
+      const response = await axios.get(`${SERVER_URL}/stats`)
+      this.setData(response.data)
+    } catch (e) {
+      console.warn('leaderboard', e)
+    }
 
     setTimeout(() => { void this.refresh() }, 3000)
   }
 
   setData (value: Record<string, { kills: number, mobKills: number, bossKills: number, games: number, lootCollected: number, lifeTime: number }>): void {
     const lines = ['Leaderboard:']
-    for (const address in value) {
-      lines.push(`${address.slice(-6)}: kills: ${value[address].kills}`)
+    for (const playerId in value) {
+      lines.push(`${playerId.slice(-6)}: kills: ${value[playerId].kills}`)
     }
 
     this.label.text = lines.join('\n')

@@ -1,5 +1,5 @@
 import TWEEN from '@tweenjs/tween.js'
-import { Sprite, Texture, Loader, Graphics } from 'pixi.js'
+import { Sprite, Texture, Graphics } from 'pixi.js'
 
 export class MeleeAttackEffect {
   constructor (owner, lifetime) {

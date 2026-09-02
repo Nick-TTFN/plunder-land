@@ -1,4 +1,4 @@
-import { Loader, Texture, AnimatedSprite, Point } from 'pixi.js'
+import { Assets, Texture, AnimatedSprite, Point } from 'pixi.js'
 import { Vector } from '../utils/vector'
 import AnimationClip from '../animation/animationclip'
 import TWEEN from '@tweenjs/tween.js'
@@ -8,7 +8,7 @@ export class Throwable extends AnimatedSprite {
   maxVelocity: number
   direction: Vector | undefined
   constructor () {
-    const sheet = Loader.shared.resources['./res/atlas.json']
+    const sheet = Assets.get('./res/atlas.json')
     const tex = new Array<Texture>()
     for (const frame of sheet.data.animations['fireball/fireball']) { tex.push(Texture.from(frame)) }
     super(tex, true)

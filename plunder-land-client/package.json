@@ -6,20 +6,20 @@
     "build": "webpack build --mode production",
     "build:dev": "webpack build",
     "start": "webpack-dev-server --mode development",
-    "lint": "eslint --fix ./src/**/*.ts"
+    "lint": "eslint --fix ./src/**/*.ts",
+    "typecheck": "tsc --noEmit"
   },
   "author": "Nick Balyanitsa",
   "license": "ISC",
   "dependencies": {
-    "5": "^0.0.1",
     "@babel/plugin-transform-runtime": "^7.21.0",
     "@babel/preset-env": "^7.20.2",
     "@babel/preset-typescript": "^7.21.0",
+    "@babel/runtime": "^7.29.7",
     "@tweenjs/tween.js": "^18.5.0",
     "axios": "^1.4.0",
     "babel-loader": "^9.1.2",
     "copy-webpack-plugin": "^11.0.0",
-    "ethers": "^6.5.1",
     "firebase": "^8.6.8",
     "fontfaceobserver": "^2.3.0",
     "html-webpack-plugin": "^5.5.0",

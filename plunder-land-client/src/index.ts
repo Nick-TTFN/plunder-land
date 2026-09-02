@@ -8,8 +8,10 @@ import { Application, Assets, Point, type Renderer, settings } from 'pixi.js'
 import FontFaceObserver from 'fontfaceobserver'
 import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
+import { SERVER_URL } from './config'
 
-import firebase from 'firebase'
+import firebase from 'firebase/app'
+import 'firebase/analytics'
 
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
@@ -62,37 +64,57 @@ function start (): void {
 }
 
 function setup (): void {
-  const host = 'https://socket.plunderland.io:8000'
-
-  let url = `${window.location.protocol}//${host}`
-  url = host
-
-  if (window.location.href.lastIndexOf('?') > 0) {
-    url += window.location.href.substring(
-      window.location.href.lastIndexOf('?')
-    )
-  }
-
-  Game.socket = io.connect(url)
+  // websocket only: the default starts on HTTP long-polling and merely tries to
+  // upgrade, which adds latency to every early message of a run.
+  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'] })
 
   Game.socket.on('connect', () => {
     onConnect()
   })
 }
 
-function onConnect (): void {
-  app.stage.interactive = true
+// socket.io fires `connect` again after every reconnect. Everything that
+// registers a listener, starts a render loop or spins up a poller has to run
+// exactly once for the life of the page - a second requestAnimationFrame loop
+// made the whole game run at double speed.
+let _initialised = false
 
-  if (Game.Instance === undefined) {
+function onConnect (): void {
+  app.stage.eventMode = 'static'
+
+  if (!_initialised) {
+    _initialised = true
+
     Game.Instance = new Game()
     app.stage.addChild(Game.Instance)
-  }
 
-  if (Game.hud === undefined) {
     Game.hud = new HUD()
     app.stage.addChild(Game.hud)
+
+    app.stage.addChild(new Leaderboard())
+
+    Game.loader = new LoaderOverlay()
+    app.stage.addChild(Game.loader)
+
+    app.stage.on('pointermove', updatePointer)
+    app.stage.on('pointerdown', onPointerDown)
+    app.stage.on('pointerup', onPointerUp)
+
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key === 's') Game.simulate = !Game.simulate
+      },
+      false
+    )
+
+    window.addEventListener('resize', onResize)
+
+    window.requestAnimationFrame(frame)
   }
 
+  // per-connection state: the popup stack is rebuilt so a reconnect drops the
+  // player back on the enter screen.
   if (Game.popups !== undefined) {
     Game.popups.removeChildren()
     app.stage.removeChild(Game.popups)
@@ -100,29 +122,10 @@ function onConnect (): void {
   Game.popups = new PopupManager()
   app.stage.addChild(Game.popups)
 
-  app.stage.addChild(new Leaderboard())
-
-  Game.loader = new LoaderOverlay()
-  app.stage.addChild(Game.loader)
-
   Game.Instance.start()
 
-  app.stage.on('pointermove', updatePointer)
-  app.stage.on('pointerdown', onPointerDown)
-  app.stage.on('pointerup', onPointerUp)
-
   Game.simulate = true
-  window.addEventListener(
-    'keydown',
-    (e) => {
-      if (e.key === 's') Game.simulate = !Game.simulate
-    },
-    false
-  )
 
-  window.requestAnimationFrame(frame)
-
-  window.addEventListener('resize', onResize)
   onResize()
 }
 

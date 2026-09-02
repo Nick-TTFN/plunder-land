@@ -21,12 +21,12 @@ export default class Player extends Unit {
   skills: Skill[]
   createdAt: number
   exited: boolean
-  address: string
+  playerId: string
 
-  constructor (x: number, y: number, tag: number, address: string) {
+  constructor (x: number, y: number, tag: number, playerId: string) {
     super(ObjectType.Player, x, y, 0, tag)
-    this.address = address
-    this.name = address
+    this.playerId = playerId
+    this.name = playerId
     this.maxVelocity = 140
     this.loot = 0
 
@@ -120,20 +120,18 @@ export default class Player extends Unit {
     console.log('stats', stats)
     for (const key in stats) {
       if (stats[key] > 0) {
-        await Multiplayer.Instance.redis.hincrby(`stats-${this.address}`, key, stats[key])
+        await Multiplayer.Instance.redis.hincrby(`stats-${this.playerId}`, key, stats[key])
       }
     }
   }
 
   destroy (): void {
     super.destroy()
-    void Multiplayer.Instance.reportLoss(this)
   }
 
   exit (): void {
     this.dirtyFields = new Set('id')
     Multiplayer.Instance.destroy(this)
-    void Multiplayer.Instance.reportWin(this)
     this.exited = true
 
     // we need this time out because server sends out all data asynchronously,

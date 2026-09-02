@@ -294,7 +294,9 @@ export class GameObject {
           raw.push(this.getBuffer(value))
           break
         case 'lifetime':
-          raw.push(this.getBuffer(value))
+          // wire format is centiseconds in one signed byte; the client
+          // multiplies by 100 again on receipt.
+          raw.push(this.getBuffer(Math.min(127, Math.floor(value / 100))))
           break
         case 'maxVelocity':
           raw.push(this.getBuffer(Math.floor(value / 10)))

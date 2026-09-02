@@ -1,4 +1,4 @@
-import { Container, Sprite, Point, filters, Graphics, type Texture, type RenderTexture, type LoaderResource, SCALE_MODES } from 'pixi.js'
+import { Container, Sprite, Point, ColorMatrixFilter, Graphics, type Texture, type RenderTexture, SCALE_MODES } from 'pixi.js'
 import TWEEN from '@tweenjs/tween.js'
 import { type Vector } from '../utils/vector'
 import { type AnimationStates } from '../animation/animationstates'
@@ -37,17 +37,22 @@ export class GameObject extends Container {
   static SHADOW_CACHE: Record<string, RenderTexture> = {}
 
   createShadow (texture: Texture): Sprite {
-    const cacheId = `${(texture.baseTexture.resource as unknown as LoaderResource).url}@${texture.frame.x}:${texture.frame.y}`
+    const cacheId = `${texture.baseTexture.uid}@${texture.frame.x}:${texture.frame.y}`
     let renderTexture = GameObject.SHADOW_CACHE[cacheId]
     if (renderTexture === undefined) {
       const sprite = new Sprite(texture)
-      const colorMatrix = new filters.ColorMatrixFilter()
+      const colorMatrix = new ColorMatrixFilter()
       sprite.filters = [colorMatrix]
       colorMatrix.desaturate()
       colorMatrix.brightness(0, true)
       sprite.alpha = 0.3
-      renderTexture = Game.RENDERER.generateTexture(sprite, SCALE_MODES.NEAREST, 1)
-      Game.RENDERER.render(sprite, renderTexture)
+      // pixi v7: generateTexture already renders into the texture it returns.
+      // The old v6-style positional args meant the scale mode was dropped and
+      // the follow-up render() drew the shadow to the screen instead.
+      renderTexture = Game.RENDERER.generateTexture(sprite, {
+        scaleMode: SCALE_MODES.NEAREST,
+        resolution: 1
+      })
       GameObject.SHADOW_CACHE[cacheId] = renderTexture
     }
     const shadowSprite = new Sprite(renderTexture)

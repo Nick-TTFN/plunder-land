@@ -1,6 +1,5 @@
 import { Container, Graphics } from 'pixi.js'
 import { Timer } from './timer'
-import { TokenService } from '../../services/token.service'
 
 export class TapHandler extends Container {
   cooldown: number | undefined
@@ -8,7 +7,7 @@ export class TapHandler extends Container {
   callback: () => void
   constructor (callback: () => void, cooldown?: number, width?: number, height?: number, color?: number) {
     super()
-    this.interactive = true
+    this.eventMode = 'static'
     if (cooldown !== undefined) { this.cooldown = cooldown }
 
     if (width !== undefined && height !== undefined && color !== 0x00000000) {
