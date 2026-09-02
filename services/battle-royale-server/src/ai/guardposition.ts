@@ -24,6 +24,17 @@ export default class GuardPosition implements IAIRoutine {
 
   update (dt: number) {
     const now = new Date().getTime()
+
+    // Release a target that is no longer in the world. Without this the unit is
+    // permanently blinded: acquisition only runs while `target` is null, and a
+    // dead or extracted player leaves it non-null forever. The unit then wanders
+    // (the chase branch requires a live target) while UseSkillOnTarget, which
+    // only tests for null, keeps firing at the corpse.
+    const target = this.owner.target
+    if (target != null && (target.destroyed || (target as any).exited === true)) {
+      this.owner.target = undefined
+    }
+
     if (
       this.owner.target == null &&
 			this.targetAquiredAt < now - this.target_REFRESH_RATE

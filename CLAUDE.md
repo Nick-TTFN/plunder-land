@@ -199,6 +199,11 @@ per-visible-player one (break-even at about three visible players).
   out in `playerstats.ts`, so the per-level damage tables always index level 1.
   Note `Player.setLevel()` zeroes `this.loot` — probably leftover init, but nobody has
   decided whether that is meant to be "spend your haul on power or carry it to the gate".
+- **AI targets are released when they die.** `GuardPosition` only scans for a new target
+  while `owner.target` is null, so a target that dies or extracts used to leave the unit
+  permanently blind — wandering, while `UseSkillOnTarget` (which only tests for null) kept
+  attacking the corpse. Anything that latches onto a target must clear it the same way.
+  Note the acquisition loop still takes the *last* match from `FIND_AROUND`, not the nearest.
 - **Player-versus-player collision is not predicted.** `LocalPlayer._step` replicates the
   server's obstacle push-out but not its player push-out, so shoving another player produces
   a correction. Rare and small; revisit if it reads badly in a crowd.
