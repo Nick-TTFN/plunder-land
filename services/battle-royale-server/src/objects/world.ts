@@ -2,6 +2,7 @@ import Consumable from './consumable'
 import Player from './player'
 import Obstacle from './obstacle'
 import { Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
 import { Random } from '../utils/random'
 import Portal from './portal'
 import { type GameObject, ObjectType } from './gameobject'
@@ -19,6 +20,21 @@ export default class World {
 
   static TAGS = [-1, 0]
   static mapSize: number
+
+  /**
+   * Blocked cells per plane, as `Hex.key` values.
+   *
+   * Sparse on purpose: about 270 obstacles sit in a grid of roughly 15,000
+   * cells, so a Set costs a few hundred entries instead of one byte per cell
+   * per plane. That matters because the plan is many worlds per box, and this
+   * is per-world state.
+   *
+   * Kept in step by `Obstacle`, which blocks its cell on construction and
+   * releases it on destroy. Nothing else may write to it - a cell blocked
+   * without an obstacle to explain it is invisible in every log.
+   */
+  static BLOCKED: Map<number, Set<number>> = new Map()
+
   static OBSTACLES: GameObject[] = []
   static CONSUMABLES: Consumable[] = []
   static PLAYERS: Player[] = []
@@ -44,11 +60,13 @@ export default class World {
     for (const tag of World.TAGS) {
       for (let i = 0; i < 10; i++) {
         const pos = this.getUnobstructedPosition(40, tag)
+        if (pos === undefined) continue
         const to = -1 - tag // -1->0, 0->-1
         World.OBSTACLES.push(new Portal(pos.x, pos.y, to, tag))
       }
       for (let i = 0; i < 4; i++) {
         const pos = this.getUnobstructedPosition(40, tag)
+        if (pos === undefined) continue
         World.OBSTACLES.push(new Exit(pos.x, pos.y, tag))
       }
     }
@@ -111,6 +129,9 @@ export default class World {
     while (World.OBSTACLES.length < 300) {
       const tag = World.TAGS[Random.RangeInt(0, 2)]
       const pos = this.getUnobstructedPosition(40, tag)
+      // break, not continue: the loop tests OBSTACLES.length, so skipping
+      // without adding one spins forever inside the tick.
+      if (pos === undefined) break
       // -1 because we dont have obstacles in the air yet
       World.OBSTACLES.push(new Obstacle(pos.x, pos.y, tag))
     }
@@ -118,14 +139,14 @@ export default class World {
     if (World.CONSUMABLES.length < 300) {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
-      World.CONSUMABLES.push(new Consumable(pos.x, pos.y, tag))
+      if (pos !== undefined) World.CONSUMABLES.push(new Consumable(pos.x, pos.y, tag))
     }
 
     // fill the map with NPC's
     if (World.MOBS.length < 50) {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
-      World.MOBS.push(new Mob(pos.x, pos.y, tag))
+      if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag))
     }
 
     // Bosses are counted separately. Both guards used to read MOBS.length, so
@@ -137,7 +158,7 @@ export default class World {
     if (bosses < World.BOSS_COUNT) {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
-      World.MOBS.push(new Boss(pos.x, pos.y, tag))
+      if (pos !== undefined) World.MOBS.push(new Boss(pos.x, pos.y, tag))
     }
   }
 
@@ -165,29 +186,63 @@ export default class World {
     }
   }
 
-  getUnobstructedPosition (buffer: number, tag: number) {
-    let x: number
-    let y: number
-    let collides = false
-    // Capped: this runs inside the tick, and on a crowded plane an unbounded
-    // retry loop wedges the whole simulation with nothing thrown for the error
-    // boundary to catch. StoneWall lets players add obstacles, so density is
-    // not fixed. After the cap, take the last candidate and let the collision
-    // push-out sort it out.
-    let attempts = 0
-    do {
-      collides = false
-      x = Random.RangeInt(0, World.mapSize)
-      y = Random.RangeInt(0, World.mapSize)
+  /** True if this cell blocks movement on this plane. */
+  static isBlocked (q: number, r: number, tag: number): boolean {
+    return World.BLOCKED.get(tag)?.has(Hex.key(q, r)) ?? false
+  }
 
-      for (const o of World.OBSTACLES) {
-        if (o.tag === tag && o.position.withinBounds(x, y, o.radius + buffer)) {
-          collides = true
-          break
-        }
+  static block (q: number, r: number, tag: number): void {
+    let cells = World.BLOCKED.get(tag)
+    if (cells === undefined) {
+      cells = new Set()
+      World.BLOCKED.set(tag, cells)
+    }
+    cells.add(Hex.key(q, r))
+  }
+
+  static unblock (q: number, r: number, tag: number): void {
+    World.BLOCKED.get(tag)?.delete(Hex.key(q, r))
+  }
+
+  /** True if the cell and everything within `rings` steps of it is free. */
+  static isClear (q: number, r: number, tag: number, rings: number): boolean {
+    for (let dq = -rings; dq <= rings; dq++) {
+      const lo = Math.max(-rings, -dq - rings)
+      const hi = Math.min(rings, -dq + rings)
+      for (let dr = lo; dr <= hi; dr++) {
+        if (World.isBlocked(q + dq, r + dr, tag)) return false
       }
-    } while (collides && ++attempts < 40)
-    return new Vector(x, y)
+    }
+    return true
+  }
+
+  /**
+   * A free cell centre, or undefined if 40 tries found nothing.
+   *
+   * `buffer` was a clearance in world units tested against a scan of every
+   * obstacle; it is now a ring count tested with a Set lookup, so this is both
+   * exact and much cheaper. It still runs inside the tick, so it still cannot
+   * loop unbounded - StoneWall lets players add obstacles and density is not
+   * fixed.
+   *
+   * It used to return the last candidate whether or not it collided, which
+   * spawned things inside rocks and left the push-out to shove them out. Callers
+   * now skip a tick instead; at roughly 2% occupancy the cap is never reached in
+   * practice anyway.
+   */
+  getUnobstructedPosition (buffer: number, tag: number): Vector | undefined {
+    const rings = Math.ceil(buffer / Hex.SIZE)
+
+    for (let attempts = 0; attempts < 40; attempts++) {
+      const cell = Hex.toCell(new Vector(
+        Random.RangeInt(0, World.mapSize),
+        Random.RangeInt(0, World.mapSize)
+      ))
+
+      if (World.isClear(cell.x, cell.y, tag, rings)) return Hex.toPosition(cell)
+    }
+
+    return undefined
   }
 
   static FIND_NEAREST_FN (

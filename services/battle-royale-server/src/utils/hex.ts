@@ -26,8 +26,30 @@ export class Hex {
    */
   static SIZE = 35
 
+  /**
+   * Collision radius of a cell that blocks, in world units - the hex's inradius,
+   * so the circle sits inside the cell rather than spilling into its neighbours.
+   *
+   * A unit pushed off a blocked cell ends up `RADIUS + its own radius` from the
+   * centre, which for a player is about 32 against a 35-unit spacing. It can
+   * still stand on the adjacent cell, which is the property that keeps push-out
+   * and the grid describing the same world.
+   */
+  static RADIUS = Hex.SIZE / 2
+
   /** sqrt(3)/2. The vertical spacing between rows is SIZE times this. */
   private static readonly ROW = Math.sqrt(3) / 2
+
+  /**
+   * A cell as a single number, for use as a Set or Map key.
+   *
+   * Valid for q and r in [-1024, 3071], which covers any map this engine can
+   * address: a 4000-unit world is about 114 cells wide, and the axial skew puts
+   * q no lower than about -70.
+   */
+  static key (q: number, r: number): number {
+    return (q + 1024) * 4096 + (r + 1024)
+  }
 
   /**
    * The six neighbours, clockwise from east in screen space (y grows downward):

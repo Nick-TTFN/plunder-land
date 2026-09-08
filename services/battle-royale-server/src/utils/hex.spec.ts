@@ -113,3 +113,34 @@ test('DIRECTIONS runs clockwise from east in screen space', () => {
   const southEast = Hex.toPosition(Hex.DIRECTIONS[1])
   assert.ok(southEast.x > 0 && southEast.y > 0)
 })
+
+test('key is unique across every cell a map can address', () => {
+  const seen = new Map<number, string>()
+  for (let q = -80; q <= 130; q++) {
+    for (let r = -10; r <= 150; r++) {
+      const k = Hex.key(q, r)
+      const clash = seen.get(k)
+      assert.equal(clash, undefined, `${q},${r} collides with ${clash} at key ${k}`)
+      seen.set(k, `${q},${r}`)
+    }
+  }
+})
+
+test('key survives the negative q the axial skew produces', () => {
+  // r grows downward and q leans back by r/2, so the left edge of a square map
+  // reaches roughly q = -66. A packing that assumed q >= 0 would fold those
+  // cells onto real ones and block terrain on the far side of the map.
+  assert.notEqual(Hex.key(-66, 0), Hex.key(66, 0))
+  assert.notEqual(Hex.key(-1, 0), Hex.key(0, 0))
+  assert.notEqual(Hex.key(0, -1), Hex.key(0, 0))
+})
+
+test('a blocking cell leaves its neighbours standable', () => {
+  // RADIUS is the inradius, so a player shoved off a blocked cell stops short of
+  // the neighbouring centre. If it were the circumradius the push-out would
+  // eject them past it and the grid would describe a world the collision code
+  // does not agree with.
+  const player = 2 * Math.sqrt(50)
+  assert.ok(Hex.RADIUS + player < Hex.SIZE, 'push-out reaches past the next cell centre')
+  assert.equal(Hex.RADIUS, Hex.SIZE / 2)
+})

@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/index.ts",
   "scripts": {
-    "build": "swc ./src -d dist",
+    "build": "swc ./src -d dist --ignore '**/*.spec.ts'",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --pretty --transpile-only src/index.ts",
     "lint": "eslint --fix ./src/**/*.ts",
