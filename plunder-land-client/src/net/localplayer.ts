@@ -13,8 +13,22 @@ export interface Collider {
 /** Squared distance below which two bodies count as coincident. */
 const EPSILON = 1e-9
 
-/** Positional disagreement below this is noise, not divergence. */
-const DEAD_ZONE = 4
+/**
+ * How far ahead of the server the prediction is allowed to be before it counts
+ * as divergence rather than lead, in ticks of travel.
+ *
+ * The client walks the route in real time; the server's last packet describes
+ * where it was a tick ago plus however long the wire took. Being ahead by that
+ * much is not an error, it is the entire point of predicting - and correcting it
+ * drags the render back toward a stale position on every packet, which is felt
+ * as the player sliding rather than walking.
+ *
+ * Two ticks covers the lead plus a normal amount of latency. Beyond it, both
+ * sides walking the same integer route at the same speed cannot have drifted
+ * apart on their own: something happened - a wall across the route, a portal, a
+ * respawn - and that is worth correcting.
+ */
+const LEAD_TICKS = 2
 
 /** Disagreement above this is a teleport - respawn or portal. Snap, don't ease. */
 const SNAP_DISTANCE = 220
@@ -98,6 +112,14 @@ export class LocalPlayer {
   constructor (colliders: () => Collider[], isBlocked: (q: number, r: number) => boolean) {
     this._colliders = colliders
     this._isBlocked = isBlocked
+  }
+
+  /**
+   * Positional disagreement below this is prediction lead, not divergence.
+   * Derived rather than a constant so it follows the server's own cadence.
+   */
+  private get _deadZone (): number {
+    return (Session.tickMs / 1000) * this.maxVelocity * LEAD_TICKS
   }
 
   get renderX (): number { return this.x + this._offsetX }
@@ -263,7 +285,11 @@ export class LocalPlayer {
     const errY = serverY - this.y
     const error = Math.sqrt(errX * errX + errY * errY)
 
-    if (error <= DEAD_ZONE) return
+    // Walking the same route at the same speed, the two cannot drift apart on
+    // their own, so anything inside the lead is left alone entirely - no nudge,
+    // no easing. Whatever lead is left resolves for free at the end of the
+    // route, because both sides finish on the same cell centre.
+    if (error <= this._deadZone) return
 
     this.x = serverX
     this.y = serverY
@@ -316,28 +342,39 @@ export class LocalPlayer {
   }
 
   /**
-   * One integration step towards the current target cell, then push out of every
+   * Walk the route by one frame's worth of distance, then push out of every
    * collider sharing our plane and clamp to the map.
    *
-   * Deliberately one straight move at the frame's own dt, exactly like the
-   * server's per-tick step - not a walk along the polyline. Matching the shape of
-   * the server's integration matters more than being smoother than it.
+   * Mirrors `Unit.walkPath`: leftover distance carries from one cell into the
+   * next, and the walk finishes exactly on the last cell's centre. Aiming at the
+   * next centre and taking one straight step instead would overshoot every
+   * centre by a different amount, so the player came to rest wherever they
+   * happened to cross into the final cell - a different point from the server's,
+   * which the correction then slid them across at the end of every walk.
    */
   private _step (x: number, y: number, dt: number): { x: number, y: number } {
     if (dt <= 0) return { x, y }
 
-    const target = this.path[this.pathIndex]
-    if (target !== undefined) {
-      const centre = Hex.toPosition(target)
+    let budget = dt * this.maxVelocity
+    while (budget > 0 && this.pathIndex < this.path.length) {
+      const centre = Hex.toPosition(this.path[this.pathIndex])
       const dx = centre.x - x
       const dy = centre.y - y
       const distance = Math.sqrt(dx * dx + dy * dy)
-      if (distance > 0) {
-        const step = dt * this.maxVelocity
-        x += (dx / distance) * step
-        y += (dy / distance) * step
+
+      if (distance <= budget) {
+        x = centre.x
+        y = centre.y
+        budget -= distance
+        this.pathIndex++
+      } else {
+        x += (dx / distance) * budget
+        y += (dy / distance) * budget
+        budget = 0
       }
     }
+
+    if (this.path.length > 0 && this.pathIndex >= this.path.length) this.stop()
 
     for (const c of this._colliders()) {
       if (c.tag !== this.tag) continue

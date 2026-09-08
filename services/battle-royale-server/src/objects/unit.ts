@@ -190,6 +190,43 @@ export class Unit extends GameObject {
    */
   static PATH_LOOKAHEAD = 1
 
+  /**
+   * Advance along the route by a distance budget, carrying what is left over
+   * from one cell into the next, and finish exactly on the last cell's centre.
+   *
+   * Aiming at the next centre and taking one straight step per tick instead
+   * would overshoot every centre by a different amount, so a unit came to rest
+   * wherever it happened to cross into the final cell. Client and server crossed
+   * at slightly different points, and the correction between the two was visible
+   * as a slide at the end of every walk. Landing on the centre makes the resting
+   * place the same number on both sides, so there is nothing left to correct.
+   *
+   * Returns the new position; the caller still owns push-out and clamping.
+   */
+  walkPath (x: number, y: number, budget: number): { x: number, y: number } {
+    while (budget > 0 && this.pathIndex < this.path.length) {
+      const centre = Hex.toPosition(this.path[this.pathIndex])
+      const dx = centre.x - x
+      const dy = centre.y - y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+
+      if (distance <= budget) {
+        x = centre.x
+        y = centre.y
+        budget -= distance
+        this.pathIndex++
+      } else {
+        x += (dx / distance) * budget
+        y += (dy / distance) * budget
+        budget = 0
+      }
+    }
+
+    if (this.pathIndex >= this.path.length) this.stop()
+
+    return { x, y }
+  }
+
   followPath (): void {
     const here = this.cell
 
@@ -219,10 +256,6 @@ export class Unit extends GameObject {
       if (this.buffs[i].update(dt)) this.buffs.splice(i, 1)
     }
 
-    // Only when there is a path. A unit without one is being steered directly by
-    // an AI routine, and overwriting its direction here would freeze it.
-    if (this.path.length > 0) this.followPath()
-
     if (this.direction == null) return
 
     // Scalar throughout: this runs once per obstacle per unit per tick, and the
@@ -230,12 +263,29 @@ export class Unit extends GameObject {
     let px = this.position.x
     let py = this.position.y
 
-    const dirSq = this.direction.x * this.direction.x + this.direction.y * this.direction.y
-    if (dirSq > 0) {
-      const inv = 1 / Math.sqrt(dirSq)
-      const step = dt * this.maxVelocity
-      px += (this.direction.x * inv + this.impulse.x) * step
-      py += (this.direction.y * inv + this.impulse.y) * step
+    if (this.path.length > 0) {
+      // Following a route. `followPath` only corrects the index when something
+      // has shoved us off it; `walkPath` does the moving.
+      this.followPath()
+
+      if (this.path.length > 0) {
+        // Impulse becomes extra distance rather than a sideways push, so a dash
+        // travels further along the route instead of off it. Dash is due to
+        // become a speed multiplier outright, which is what this already is.
+        const budget = dt * this.maxVelocity * (1 + this.impulse.getMagnitude())
+        const walked = this.walkPath(px, py, budget)
+        px = walked.x
+        py = walked.y
+      }
+    } else {
+      // No route: steered directly by an AI routine.
+      const dirSq = this.direction.x * this.direction.x + this.direction.y * this.direction.y
+      if (dirSq > 0) {
+        const inv = 1 / Math.sqrt(dirSq)
+        const step = dt * this.maxVelocity
+        px += (this.direction.x * inv + this.impulse.x) * step
+        py += (this.direction.y * inv + this.impulse.y) * step
+      }
     }
 
     for (const obstacle of World.OBSTACLES) {
