@@ -134,8 +134,14 @@ export default class Multiplayer {
     if (player != null && (player.destroyed || player.exited)) connection.player = undefined
   }
 
-  // [int8 dirX][int8 dirY][uint16 seq] - 4 bytes, replacing a JSON object that
-  // was being sent at pointermove rate against a reader that runs once a tick.
+  // [int16 q][int16 r][uint16 seq] - 6 bytes. This carried a direction before
+  // click-to-move; it now carries the destination cell, and the server routes to
+  // it. Sent every tick whether or not it changed, so the newest packet always
+  // holds complete current intent and a dropped one costs nothing.
+  //
+  // A q of -1 with an r of -1 means "stop" - no cell on any map is negative in
+  // both axes, because r never goes below zero and q only leans negative as r
+  // grows.
   onPointer (connection: Connection, data): void {
     if (connection.player == null || connection.player.exited || connection.player.destroyed) return
 
@@ -144,14 +150,30 @@ export default class Multiplayer {
     else if (data instanceof Uint8Array || data instanceof ArrayBuffer) buf = Buffer.from(data as any)
     else return
 
-    if (buf.length < 4) return
+    if (buf.length < 6) return
 
-    const seq = buf.readUInt16BE(2)
+    const seq = buf.readUInt16BE(4)
     if (seq !== connection.lastInputSeq) {
       connection.lastInputSeq = seq
       connection.ackElapsedMs = 0
     }
-    connection.player.setDirection(buf.readInt8(0) / 127, buf.readInt8(1) / 127)
+
+    const q = buf.readInt16BE(0)
+    const r = buf.readInt16BE(2)
+
+    if (q === -1 && r === -1) {
+      connection.player.stop()
+      return
+    }
+
+    // Only re-route when the destination actually moves. The packet arrives
+    // every tick; running a search on each one would put a BFS per player per
+    // tick into the loop for no gain, since the route from a standing
+    // destination does not change unless the terrain does.
+    const current = connection.player.destination
+    if (current !== undefined && current.x === q && current.y === r) return
+
+    connection.player.setDestination(q, r)
   }
 
   onSkill (connection: Connection, data): void {

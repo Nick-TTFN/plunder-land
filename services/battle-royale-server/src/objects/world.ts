@@ -198,6 +198,18 @@ export default class World {
       World.BLOCKED.set(tag, cells)
     }
     cells.add(Hex.key(q, r))
+
+    // Anything already routed through this cell has to be re-routed now, or it
+    // walks into the new wall and stands there pressing against it. Done here
+    // rather than in StoneWall so no future caller can forget it. Cheap: units
+    // without a path return from `pathCrosses` immediately, which is every unit
+    // during the world's initial fill.
+    for (const source of World.UNIT_SOURCES) {
+      for (const unit of source) {
+        if (unit.tag !== tag) continue
+        if (unit.pathCrosses(q, r)) unit.repath()
+      }
+    }
   }
 
   static unblock (q: number, r: number, tag: number): void {

@@ -12,6 +12,7 @@ import { TextEffect } from './ui/elements/texteffect'
 import { Consumable } from './objects/consumable'
 import { Obstacle } from './objects/obstacle'
 import { Vector } from './utils/vector'
+import { Hex } from './utils/hex'
 import { Timer } from './ui/elements/timer'
 import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
@@ -68,8 +69,39 @@ export class Game extends Container {
    */
   static COLLIDERS: Collider[] = []
 
+  /**
+   * Blocked cells per plane, mirroring `World.BLOCKED` on the server.
+   *
+   * Populated from the obstacles the server sends, so it only ever covers what
+   * is inside the interest radius - which is the point. The client can only
+   * route through cells it can see, and the server searches the same bounded
+   * window, so both derive the same path.
+   */
+  static BLOCKED: Map<number, Set<number>> = new Map()
+
+  static isBlocked (q: number, r: number, tag: number | undefined): boolean {
+    if (tag === undefined) return false
+    return Game.BLOCKED.get(tag)?.has(Hex.key(q, r)) ?? false
+  }
+
+  static block (q: number, r: number, tag: number): void {
+    let cells = Game.BLOCKED.get(tag)
+    if (cells === undefined) {
+      cells = new Set()
+      Game.BLOCKED.set(tag, cells)
+    }
+    cells.add(Hex.key(q, r))
+  }
+
+  static unblock (q: number, r: number, tag: number): void {
+    Game.BLOCKED.get(tag)?.delete(Hex.key(q, r))
+  }
+
   /** The locally simulated player. Never fed through onObjectUpdated. */
-  static LOCAL: LocalPlayer = new LocalPlayer(() => Game.COLLIDERS)
+  static LOCAL: LocalPlayer = new LocalPlayer(
+    () => Game.COLLIDERS,
+    (q, r) => Game.isBlocked(q, r, Game.LOCAL.tag)
+  )
 
   constructor () {
     super()
@@ -286,15 +318,15 @@ export class Game extends Container {
     switch (data.type) {
       case 1: {
         const sheet = Assets.get('./res/atlas.json')
+        // Every obstacle is one cell wide now, so radius no longer picks the
+        // small or large variant - it would always choose small. Picked at
+        // random instead, to keep the variety the radius used to provide.
+        const large = Math.random() < 0.5
         const frames =
             sheet.data.animations[
               data.tag === 0
-                ? data.radius < 20
-                  ? 'obstacle_1_sm/obj'
-                  : 'obstacle_1_lg/obj'
-                : data.radius < 20
-                  ? 'obstacle_0_sm/obj'
-                  : 'obstacle_0_lg/obj'
+                ? (large ? 'obstacle_1_lg/obj' : 'obstacle_1_sm/obj')
+                : (large ? 'obstacle_0_lg/obj' : 'obstacle_0_sm/obj')
             ]
         const tex = Texture.from(
           frames[Math.floor(frames.length * Math.random())]
@@ -421,6 +453,13 @@ export class Game extends Container {
     // all push units out, so local prediction has to know about all three.
     if (data.type === 1 || data.type === (1 << 3) || data.type === (1 << 6)) {
       Game.COLLIDERS.push(obj as unknown as Collider)
+    }
+
+    // Only obstacles block a cell. Portals and exits push units out but are
+    // places you walk into on purpose, so routing through them has to stay legal.
+    if (data.type === 1 && data.position !== undefined) {
+      const cell = Hex.toCell(new Vector(data.position.x, data.position.y))
+      Game.block(cell.x, cell.y, data.tag)
     }
 
     this.LOOKUP[data.id] = obj
@@ -612,6 +651,15 @@ export class Game extends Container {
     if (obj !== undefined) {
       const collider = Game.COLLIDERS.indexOf(obj as unknown as Collider)
       if (collider >= 0) Game.COLLIDERS.splice(collider, 1)
+
+      // instanceof rather than a type code: `LOOKUP` is typed as GameObject, so
+      // reading `.type` off it adds to the documented pile of unsafe accesses in
+      // this file. Destroy records only carry id and hp, so the type is not in
+      // `data` either.
+      if (obj instanceof Obstacle && obj.tag !== undefined) {
+        const cell = Hex.toCell(new Vector(obj.x, obj.y))
+        Game.unblock(cell.x, cell.y, obj.tag)
+      }
 
       if (data.hp !== undefined && obj.setHP) { obj.setHP(data.hp) }
 

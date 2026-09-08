@@ -1,5 +1,7 @@
 import { GameObject } from './gameobject'
 import { Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
+import { Path } from '../utils/path'
 import World from './world'
 import type Buff from '../buffs/buff'
 import { type IAIRoutine } from '../ai/findnearestconsumable'
@@ -24,6 +26,26 @@ const EPSILON = 1e-9
 const IMPULSE_FRICTION = 3.0
 
 export class Unit extends GameObject {
+  /**
+   * Cells still to walk, first step first, and how far along we are.
+   *
+   * This is the whole of "where a unit is going" - there is no trajectory
+   * object, the way there is no velocity object. `path` plus `pathIndex` is to
+   * movement what `direction` plus `maxVelocity` already is to speed.
+   *
+   * A unit with no path keeps whatever direction was last set on it, which is
+   * how the AI routines go on steering by `setDirectionTo` untouched.
+   */
+  path: Vector[] = []
+  pathIndex: number = 0
+
+  /**
+   * Where the unit was last told to go, kept so the route can be recomputed
+   * without the caller having to remember it - which is what StoneWall needs
+   * when it drops terrain across somebody's path.
+   */
+  destination: Vector | undefined
+
   damageReduction: number = 0
   routines: IAIRoutine[] = []
   buffs: Buff[] = []
@@ -76,6 +98,82 @@ export class Unit extends GameObject {
     this.routines.push(value)
   }
 
+  /** The cell this unit is standing in. */
+  get cell (): Vector {
+    return Hex.toCell(this.position)
+  }
+
+  /**
+   * Route to a destination cell, replacing any path in progress.
+   *
+   * An unreachable destination - blocked, outside the search window, or walled
+   * off - leaves the unit standing still rather than drifting toward it, which
+   * is the honest answer and the one the client predicts too.
+   */
+  setDestination (q: number, r: number): void {
+    this.destination = new Vector(q, r)
+    this.repath()
+  }
+
+  /** Recompute the route to the standing destination from wherever we are. */
+  repath (): void {
+    if (this.destination === undefined) return
+
+    this.path = Path.find(
+      this.cell,
+      this.destination,
+      (cq, cr) => World.isBlocked(cq, cr, this.tag)
+    )
+    this.pathIndex = 0
+
+    // Give up rather than retry forever. A destination that cannot be reached
+    // now will not become reachable by asking again next tick, and a unit
+    // silently re-searching every tick is the cost blow-up this design exists
+    // to avoid.
+    if (this.path.length === 0) this.stop()
+  }
+
+  /** Drop the path, the destination and the heading, and stand still. */
+  stop (): void {
+    this.path = []
+    this.pathIndex = 0
+    this.destination = undefined
+    this.direction = new Vector(0, 0)
+  }
+
+  /** True if any cell still to be walked is this one. */
+  pathCrosses (q: number, r: number): boolean {
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (this.path[i].x === q && this.path[i].y === r) return true
+    }
+    return false
+  }
+
+  /**
+   * Aim `direction` at the next cell on the path.
+   *
+   * Arrival is "the cell I am standing in is that cell" rather than a distance
+   * threshold, so there is no tuned epsilon and nothing to oscillate around.
+   * The scan forward matters while push-out is still in play: a shove can carry
+   * a unit past cells it never stepped through, and without it the unit would
+   * turn round and walk back to one it had already passed.
+   */
+  followPath (): void {
+    const here = this.cell
+
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (this.path[i].x === here.x && this.path[i].y === here.y) this.pathIndex = i + 1
+    }
+
+    if (this.pathIndex >= this.path.length) {
+      this.stop()
+      return
+    }
+
+    const centre = Hex.toPosition(this.path[this.pathIndex])
+    this.setDirectionTo(centre.x, centre.y)
+  }
+
   update (dt: number): void {
     for (const routine of this.routines) {
       routine.update(dt)
@@ -84,6 +182,10 @@ export class Unit extends GameObject {
     for (let i = this.buffs.length - 1; i >= 0; i--) {
       if (this.buffs[i].update(dt)) this.buffs.splice(i, 1)
     }
+
+    // Only when there is a path. A unit without one is being steered directly by
+    // an AI routine, and overwriting its direction here would freeze it.
+    if (this.path.length > 0) this.followPath()
 
     if (this.direction == null) return
 

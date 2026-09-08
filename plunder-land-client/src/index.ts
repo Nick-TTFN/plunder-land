@@ -141,19 +141,23 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
 
   if ((Game.hud.joystick?.pointerDown) ?? false) return
 
-  const globalpos = Game.PLAYER.toGlobal(new Point(0, 0))
-
-  const dx = event.data.global.x - globalpos.x
-  const dy = event.data.global.y - globalpos.y
-  const magnitude = Math.sqrt(dx * dx + dy * dy)
+  // Click-to-move. The click names a cell and the client routes to it with the
+  // same bounded search the server will run, so both derive the same path.
+  // toLocal rather than arithmetic against the player's global position: the
+  // container carries the camera and any scale with it.
+  const world = Game.CONTAINER.toLocal(
+    new Point(event.data.global.x, event.data.global.y)
+  )
 
   // Record the intent only. Sending happens on a fixed cadence in frame().
-  if (magnitude > 0) Game.LOCAL.setDirection(dx / magnitude, dy / magnitude)
+  Game.LOCAL.setDestination(world.x, world.y)
 }
 
 function onPointerUp (): void {
+  // Releasing no longer stops you. A destination is a commitment rather than a
+  // key being held down, which is the whole difference between click-to-move
+  // and the joystick it replaces.
   _pointerDown = false
-  Game.LOCAL.setDirection(0, 0)
 }
 
 let _prevTime = 0

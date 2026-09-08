@@ -1,8 +1,16 @@
 import { Container, Graphics, type IDestroyOptions, Point } from 'pixi.js'
 import { Game } from '../../game'
 import { Vector } from '../../utils/vector'
+import { Hex } from '../../utils/hex'
 
 export class Joystick extends Container {
+  /**
+   * How far ahead the stick aims, in cells. Short enough that the route bends
+   * with the stick rather than committing to a long detour, and well inside the
+   * search window so it is always reachable.
+   */
+  static REACH = 5
+
   radius: number
   fore: Graphics
   pointerDown: boolean = false
@@ -47,9 +55,14 @@ export class Joystick extends Container {
       const dy = event.data.global.y - global.y
 
       const data = new Vector(dx, dy).normalised()
-      // Held locally and sampled at the server's cadence, rather than emitted
-      // once per pointermove against a reader that runs once a tick.
-      Game.LOCAL.setDirection(data.x, data.y)
+      // The stick has no destination of its own, so it names one a few cells out
+      // in the direction it is pushed and renames it as the stick moves. Held
+      // locally and sampled at the server's cadence, rather than emitted once per
+      // pointermove against a reader that runs once a tick.
+      Game.LOCAL.setDestination(
+        Game.LOCAL.x + data.x * Hex.SIZE * Joystick.REACH,
+        Game.LOCAL.y + data.y * Hex.SIZE * Joystick.REACH
+      )
 
       const dir = data.multiply(this.radius)
       const point = data.rotateBy(Math.PI / 2).multiply(this.radius / 4)
@@ -71,7 +84,7 @@ export class Joystick extends Container {
     this.pointerDown = false
     // Releasing the stick previously sent nothing at all, so the player kept
     // running in the last direction until the next pointer event.
-    Game.LOCAL.setDirection(0, 0)
+    Game.LOCAL.stop()
 
     this.fore
       .clear()

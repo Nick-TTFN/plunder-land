@@ -1,4 +1,7 @@
 import { Session } from './session'
+import { Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
+import { Path } from '../utils/path'
 
 export interface Collider {
   x: number
@@ -9,8 +12,8 @@ export interface Collider {
 
 interface Input {
   seq: number
-  x: number
-  y: number
+  /** Destination cell, or undefined for "stop". */
+  cell: Vector | undefined
   /** Client clock at which this input became the current one. */
   t: number
 }
@@ -30,15 +33,17 @@ const SMOOTHING_HALF_LIFE = 90
 /**
  * The local player, simulated on the client and reconciled against the server.
  *
- * This is the one object in the scene that is never `setState`-ed from the
- * network directly. Input applies here immediately; the server's version of
- * events arrives later and is folded in as a correction.
+ * Input is a destination cell now, not a direction. The client runs the same
+ * bounded BFS over the same occupancy the server has, so both derive the same
+ * route - identically, because it is integer graph search rather than
+ * floating-point integration. Prediction is then just "how far along an agreed
+ * polyline am I", which is a far smaller thing to be wrong about than a free 2D
+ * heading was.
  *
- * The replay is exact rather than approximate because the server reports both
- * which input it last consumed *and* how long it has been applying it. Without
- * that second number the client cannot tell how far into an input the server
- * has got, and every reconciliation drags the player backwards by a fraction of
- * a tick — which reads as a permanent rubber-band while running.
+ * What has not changed: this is still the one object in the scene never fed
+ * through `onObjectUpdated`, and the replay is still exact rather than
+ * approximate because the server reports both which input it last consumed and
+ * how long it has been applying it.
  */
 export class LocalPlayer {
   maxVelocity: number = 140
@@ -48,13 +53,18 @@ export class LocalPlayer {
   x: number = 0
   y: number = 0
 
+  /** Cells still to walk. Recomputed only when the destination changes. */
+  path: Vector[] = []
+  /** Where we were last told to go, in cells. */
+  destination: Vector | undefined
+
   /** Decaying visual offset, so corrections are eased rather than snapped. */
   private _offsetX: number = 0
   private _offsetY: number = 0
 
   /**
    * Movement produced by the last predicted frame, with no correction in it.
-   * The rendered position carries both, and a correction is not movement — using
+   * The rendered position carries both, and a correction is not movement - using
    * the rendered delta to drive animation started the run cycle and flipped the
    * sprite while the player was standing still.
    */
@@ -62,15 +72,15 @@ export class LocalPlayer {
   moveY: number = 0
 
   private _seq: number = 1
-  private _dirX: number = 0
-  private _dirY: number = 0
   private readonly _inputs: Input[] = []
   private _lastSample: number = 0
 
-  private _colliders: () => Collider[]
+  private readonly _colliders: () => Collider[]
+  private readonly _isBlocked: (q: number, r: number) => boolean
 
-  constructor (colliders: () => Collider[]) {
+  constructor (colliders: () => Collider[], isBlocked: (q: number, r: number) => boolean) {
     this._colliders = colliders
+    this._isBlocked = isBlocked
   }
 
   get renderX (): number { return this.x + this._offsetX }
@@ -87,20 +97,45 @@ export class LocalPlayer {
     this._offsetX = 0
     this._offsetY = 0
     this._inputs.length = 0
-    this._dirX = 0
-    this._dirY = 0
+    this.path = []
+    this.destination = undefined
     this.ready = true
   }
 
-  /** Latest desired direction from pointer or joystick. Not yet sent. */
-  setDirection (x: number, y: number): void {
-    this._dirX = x
-    this._dirY = y
+  /** The cell we are standing in. */
+  get cell (): Vector {
+    return Hex.toCell(new Vector(this.x, this.y))
+  }
+
+  /**
+   * Route to a world position - wherever the player clicked.
+   *
+   * An unreachable destination clears the path and leaves us standing, which is
+   * what the server does with the same input, so the two agree about doing
+   * nothing just as they agree about where to walk.
+   */
+  setDestination (worldX: number, worldY: number): void {
+    const cell = Hex.toCell(new Vector(worldX, worldY))
+
+    if (this.destination !== undefined && this.destination.x === cell.x && this.destination.y === cell.y) return
+
+    this.path = Path.find(this.cell, cell, this._isBlocked)
+    this.destination = this.path.length > 0 ? cell : undefined
+  }
+
+  /** Drop the route and stand still. */
+  stop (): void {
+    this.path = []
+    this.destination = undefined
   }
 
   /**
    * Emit at the server's cadence rather than at pointer-event rate. Returns the
-   * 4-byte payload when it is time to send, otherwise null.
+   * 6-byte payload when it is time to send, otherwise null.
+   *
+   * Sent every tick whether or not the destination changed, so the newest packet
+   * always carries complete current intent - the property the old direction
+   * packet had and an on-change-only message would lose.
    */
   sample (now: number): ArrayBuffer | null {
     const interval = Session.tickMs
@@ -111,22 +146,25 @@ export class LocalPlayer {
     this._seq = (this._seq + 1) & 0xffff
     if (this._seq === 0) this._seq = 1
 
-    this._inputs.push({ seq, x: this._dirX, y: this._dirY, t: now })
+    this._inputs.push({ seq, cell: this.destination, t: now })
     // Bounded: anything this old is either acknowledged or lost for good.
     while (this._inputs.length > 64) this._inputs.shift()
 
-    const buf = new ArrayBuffer(4)
+    const buf = new ArrayBuffer(6)
     const view = new DataView(buf)
-    view.setInt8(0, Math.max(-127, Math.min(127, Math.round(this._dirX * 127))))
-    view.setInt8(1, Math.max(-127, Math.min(127, Math.round(this._dirY * 127))))
-    view.setUint16(2, seq)
+    // (-1, -1) is the stop sentinel: r never goes below zero on a real map and q
+    // only leans negative as r grows, so no cell is negative in both axes.
+    view.setInt16(0, this.destination?.x ?? -1)
+    view.setInt16(2, this.destination?.y ?? -1)
+    view.setUint16(4, seq)
     return buf
   }
 
   /** Advance the prediction by one rendered frame. */
   predict (dtSeconds: number): void {
     if (!this.ready) return
-    const next = this._step(this.x, this.y, this._dirX, this._dirY, dtSeconds)
+
+    const next = this._step(this.x, this.y, dtSeconds)
     this.moveX = next.x - this.x
     this.moveY = next.y - this.y
     this.x = next.x
@@ -159,49 +197,42 @@ export class LocalPlayer {
     const beforeX = this.x
     const beforeY = this.y
 
-
     // Drop everything the server has already finished with.
     while (this._inputs.length > 0 && seqBefore(this._inputs[0].seq, ackSeq)) {
       this._inputs.shift()
     }
 
-    let x = serverX
-    let y = serverY
-
+    // How much client time the server has not yet accounted for. The acked input
+    // has been applied for ackElapsedMs, but on this client it was current for
+    // longer than that; without the second number every reconciliation drags the
+    // player backwards by a fraction of a tick.
+    let unackedMs = 0
     if (this._inputs.length > 0 && this._inputs[0].seq === ackSeq) {
-      // The acked input is still partly ahead of the server: it has been applied
-      // for ackElapsedMs, but on this client it was current for longer than that.
       const acked = this._inputs[0]
       const endOfAcked = this._inputs.length > 1 ? this._inputs[1].t : now
-      const remainder = Math.max(0, (endOfAcked - acked.t) - ackElapsedMs)
-      const p0 = this._step(x, y, acked.x, acked.y, remainder / 1000)
-      x = p0.x
-      y = p0.y
-
+      unackedMs = Math.max(0, (endOfAcked - acked.t) - ackElapsedMs)
       for (let i = 1; i < this._inputs.length; i++) {
-        const input = this._inputs[i]
         const end = i + 1 < this._inputs.length ? this._inputs[i + 1].t : now
-        const p = this._step(x, y, input.x, input.y, Math.max(0, end - input.t) / 1000)
-        x = p.x
-        y = p.y
+        unackedMs += Math.max(0, end - this._inputs[i].t)
       }
     } else {
       // The server acknowledged an input we no longer hold - it skipped ours, or
       // we have been away. Its word is final; replay whatever we still have.
       for (let i = 0; i < this._inputs.length; i++) {
-        const input = this._inputs[i]
         const end = i + 1 < this._inputs.length ? this._inputs[i + 1].t : now
-        const p = this._step(x, y, input.x, input.y, Math.max(0, end - input.t) / 1000)
-        x = p.x
-        y = p.y
+        unackedMs += Math.max(0, end - this._inputs[i].t)
       }
     }
 
-    this.x = x
-    this.y = y
+    // Replaying is one call now rather than one per held input: the route is
+    // shared state both sides agree on, so walking it forward from the server's
+    // position for the unacknowledged time reproduces where we should be.
+    const replayed = this._step(serverX, serverY, unackedMs / 1000)
+    this.x = replayed.x
+    this.y = replayed.y
 
-    const errX = beforeX - x
-    const errY = beforeY - y
+    const errX = beforeX - this.x
+    const errY = beforeY - this.y
     const error = Math.sqrt(errX * errX + errY * errY)
 
     if (error > SNAP_DISTANCE) {
@@ -216,34 +247,63 @@ export class LocalPlayer {
   }
 
   /**
-   * One integration step, mirroring the server's `Unit.update`: normalised
-   * direction, then push out of every collider sharing our plane, then clamp to
-   * the map. Kept deliberately in step with the server - if that changes, this
-   * has to change with it or prediction starts fighting the authority.
+   * The next cell to walk towards from a position, or undefined when the route
+   * is finished.
+   *
+   * Derived from the position rather than held as an index, which is what makes
+   * replay a single call: the same path walked from the server's position gives
+   * the same answer without any per-frame state to rewind. It mirrors the
+   * server's `Unit.followPath`, including the forward scan that skips cells a
+   * push-out may have carried us past.
    */
-  private _step (x: number, y: number, dirX: number, dirY: number, dt: number): { x: number, y: number } {
+  private _target (x: number, y: number): Vector | undefined {
+    if (this.path.length === 0) return undefined
+
+    const here = Hex.toCell(new Vector(x, y))
+
+    let index = 0
+    for (let i = 0; i < this.path.length; i++) {
+      if (this.path[i].x === here.x && this.path[i].y === here.y) index = i + 1
+    }
+
+    return index < this.path.length ? this.path[index] : undefined
+  }
+
+  /**
+   * One integration step. Aims at the next cell on the route, moves, then pushes
+   * out of every collider sharing our plane and clamps to the map.
+   *
+   * The push-out still mirrors the server's while both sides still run it. Once
+   * routes are trusted enough for the server to drop it, this goes with it.
+   */
+  private _step (x: number, y: number, dt: number): { x: number, y: number } {
     if (dt <= 0) return { x, y }
 
-    const dirSq = dirX * dirX + dirY * dirY
-    if (dirSq > 0) {
-      const inv = 1 / Math.sqrt(dirSq)
-      const step = dt * this.maxVelocity
-      x += dirX * inv * step
-      y += dirY * inv * step
+    const target = this._target(x, y)
+    if (target !== undefined) {
+      const centre = Hex.toPosition(target)
+      const dx = centre.x - x
+      const dy = centre.y - y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      if (distance > 0) {
+        const step = dt * this.maxVelocity
+        x += (dx / distance) * step
+        y += (dy / distance) * step
+      }
     }
 
     for (const c of this._colliders()) {
       if (c.tag !== this.tag) continue
 
       const sumWidth = c.radius + PLAYER_RADIUS
-      const dx = c.x - x
-      const dy = c.y - y
-      const sqr = dx * dx + dy * dy
+      const cdx = c.x - x
+      const cdy = c.y - y
+      const sqr = cdx * cdx + cdy * cdy
       if (sqr < sumWidth * sumWidth) {
         if (sqr > EPSILON) {
           const magnitude = Math.sqrt(sqr)
-          x = c.x - (sumWidth * dx) / magnitude
-          y = c.y - (sumWidth * dy) / magnitude
+          x = c.x - (sumWidth * cdx) / magnitude
+          y = c.y - (sumWidth * cdy) / magnitude
         } else {
           x = c.x - sumWidth
           y = c.y

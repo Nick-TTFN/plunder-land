@@ -68,7 +68,7 @@ The client's server address lives in `src/config.ts` and defaults to production.
 at a local server with a query param — no source edit needed:
 
 ```
-http://localhost:8080/?server=http://localhost:8000
+http://localhost:3000/?server=http://localhost:8000
 ```
 
 Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested`, and
