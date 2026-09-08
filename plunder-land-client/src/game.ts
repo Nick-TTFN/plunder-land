@@ -13,6 +13,7 @@ import { Consumable } from './objects/consumable'
 import { Obstacle } from './objects/obstacle'
 import { Vector } from './utils/vector'
 import { Hex } from './utils/hex'
+import { PathMarker } from './ui/elements/pathmarker'
 import { Timer } from './ui/elements/timer'
 import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
@@ -52,6 +53,8 @@ export class Game extends Container {
   static MOBS: Mob[]
   LOOKUP: Record<string, GameObject> = {}
   cloudsLayer: CloudsLayer | undefined
+  /** Draws the route the local player is walking. */
+  pathMarker: PathMarker | undefined
   static socket: Socket
   static hud: HUD
   static socketBytes: number
@@ -157,6 +160,10 @@ export class Game extends Container {
     this.cloudsLayer = new CloudsLayer(this.mapSize)
     Game.CONTAINER.addChild(this.cloudsLayer)
     this.cloudsLayer.alpha = 0
+
+    // Parented in update(), not here: it belongs to whichever plane the player
+    // is standing on, and a portal moves them between planes mid-run.
+    this.pathMarker = new PathMarker()
 
     Game.COLLIDERS = []
     this.LOOKUP = {}
@@ -698,6 +705,28 @@ export class Game extends Container {
     return Math.abs(unit.x - Game.PLAYER.x) < r && Math.abs(unit.y - Game.PLAYER.y) < r
   }
 
+  /**
+   * Show the route on the player's current plane.
+   *
+   * Re-parented every frame rather than once, because a portal changes the
+   * player's tag mid-run and the marker has to follow them onto the new layer.
+   * addChild on the parent it already has is a no-op in pixi.
+   */
+  updatePathMarker (): void {
+    const marker = this.pathMarker
+    if (marker === undefined || this.layers == null || this.tags == null) return
+
+    if (Game.PLAYER === undefined) {
+      marker.setPath([])
+      return
+    }
+
+    const layer = this.layers[this.tags.indexOf(Game.LOCAL.tag ?? 0)]
+    if (layer !== undefined && marker.parent !== layer) layer.addChild(marker)
+
+    marker.setPath(Game.LOCAL.remaining)
+  }
+
   update (dt: number): void {
     // for (const obstacle of Game.OBSTACLES) {
     //   obstacle.update(dt)
@@ -711,6 +740,8 @@ export class Game extends Container {
 
     // The local player moves on input, not on the network.
     Game.LOCAL.predict(dt)
+
+    this.updatePathMarker()
 
     const staleBefore = Date.now() - Session.stalenessLimit
 

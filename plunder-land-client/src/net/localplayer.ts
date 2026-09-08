@@ -257,7 +257,13 @@ export class LocalPlayer {
    * push-out may have carried us past.
    */
   private _target (x: number, y: number): Vector | undefined {
-    if (this.path.length === 0) return undefined
+    const index = this._indexAt(x, y)
+    return index < this.path.length ? this.path[index] : undefined
+  }
+
+  /** How far along the route a position is. See `_target` for why it is derived. */
+  private _indexAt (x: number, y: number): number {
+    if (this.path.length === 0) return 0
 
     const here = Hex.toCell(new Vector(x, y))
 
@@ -265,8 +271,17 @@ export class LocalPlayer {
     for (let i = 0; i < this.path.length; i++) {
       if (this.path[i].x === here.x && this.path[i].y === here.y) index = i + 1
     }
+    return index
+  }
 
-    return index < this.path.length ? this.path[index] : undefined
+  /**
+   * The cells still to walk from where we are now - what the route marker draws.
+   * Shrinks as the player advances, because the index comes from the position
+   * rather than from a counter something has to remember to increment.
+   */
+  get remaining (): Vector[] {
+    if (this.path.length === 0) return []
+    return this.path.slice(this._indexAt(this.x, this.y))
   }
 
   /**
