@@ -3,6 +3,7 @@ import { type GameObject } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
 import World from '../objects/world'
+import { Vector } from '../utils/vector'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
 
@@ -134,14 +135,21 @@ export default class Multiplayer {
     if (player != null && (player.destroyed || player.exited)) connection.player = undefined
   }
 
-  // [int16 q][int16 r][uint16 seq] - 6 bytes. This carried a direction before
-  // click-to-move; it now carries the destination cell, and the server routes to
-  // it. Sent every tick whether or not it changed, so the newest packet always
-  // holds complete current intent and a dropped one costs nothing.
-  //
-  // A q of -1 with an r of -1 means "stop" - no cell on any map is negative in
-  // both axes, because r never goes below zero and q only leans negative as r
-  // grows.
+  /**
+   * Where the player wants to go: `[uint8 count][int16 q][int16 r] * count][uint16 seq]`.
+   *
+   * This carried a direction before click-to-move, then a single destination
+   * cell. It is a list because a route can be built up leg by leg - shift-click
+   * on the client appends to it - and the server has to route the same legs the
+   * client drew, or the marker on screen stops describing where the player will
+   * actually walk.
+   *
+   * A count of zero means stop. Sent every tick whether or not it changed, so
+   * the newest packet always holds complete current intent and a dropped one
+   * costs nothing.
+   */
+  static MAX_WAYPOINTS = 16
+
   onPointer (connection: Connection, data): void {
     if (connection.player == null || connection.player.exited || connection.player.destroyed) return
 
@@ -150,30 +158,36 @@ export default class Multiplayer {
     else if (data instanceof Uint8Array || data instanceof ArrayBuffer) buf = Buffer.from(data as any)
     else return
 
-    if (buf.length < 6) return
+    if (buf.length < 3) return
 
-    const seq = buf.readUInt16BE(4)
+    const count = buf.readUInt8(0)
+    if (count > Multiplayer.MAX_WAYPOINTS) return
+    if (buf.length < 1 + count * 4 + 2) return
+
+    const seq = buf.readUInt16BE(1 + count * 4)
     if (seq !== connection.lastInputSeq) {
       connection.lastInputSeq = seq
       connection.ackElapsedMs = 0
     }
 
-    const q = buf.readInt16BE(0)
-    const r = buf.readInt16BE(2)
-
-    if (q === -1 && r === -1) {
+    if (count === 0) {
       connection.player.stop()
       return
     }
 
-    // Only re-route when the destination actually moves. The packet arrives
-    // every tick; running a search on each one would put a BFS per player per
-    // tick into the loop for no gain, since the route from a standing
-    // destination does not change unless the terrain does.
-    const current = connection.player.destination
-    if (current !== undefined && current.x === q && current.y === r) return
+    const waypoints: Vector[] = []
+    for (let i = 0; i < count; i++) {
+      const at = 1 + i * 4
+      waypoints.push(new Vector(buf.readInt16BE(at), buf.readInt16BE(at + 2)))
+    }
 
-    connection.player.setDestination(q, r)
+    // Only re-route when the route actually changes. The packet arrives every
+    // tick; searching on each one would put a BFS per player per tick into the
+    // loop for no gain, since a standing route does not change unless the
+    // terrain does - and when it does, `World.block` re-routes.
+    if (connection.player.sameWaypoints(waypoints)) return
+
+    connection.player.setWaypoints(waypoints)
   }
 
   onSkill (connection: Connection, data): void {

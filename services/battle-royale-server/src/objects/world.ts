@@ -186,8 +186,9 @@ export default class World {
     }
   }
 
-  /** True if this cell blocks movement on this plane. */
+  /** True if this cell blocks movement on this plane, or is off the map. */
   static isBlocked (q: number, r: number, tag: number): boolean {
+    if (!Hex.onMap(q, r, World.mapSize)) return true
     return World.BLOCKED.get(tag)?.has(Hex.key(q, r)) ?? false
   }
 

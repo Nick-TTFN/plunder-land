@@ -83,6 +83,11 @@ export class Game extends Container {
   static BLOCKED: Map<number, Set<number>> = new Map()
 
   static isBlocked (q: number, r: number, tag: number | undefined): boolean {
+    // Off the map counts as solid, matching `World.isBlocked`. Without it the
+    // client would happily route out past the edge while the server refused,
+    // and the two would disagree about the one thing this design depends on
+    // them agreeing about.
+    if (!Hex.onMap(q, r, Session.mapSize)) return true
     if (tag === undefined) return false
     return Game.BLOCKED.get(tag)?.has(Hex.key(q, r)) ?? false
   }

@@ -21,11 +21,19 @@ import { Hex } from './hex'
  */
 export class Path {
   /**
-   * Search radius in cells. Cells further than this from the start are not
-   * considered, so a destination beyond it is simply unreachable and the caller
-   * gets an empty path.
+   * Search radius in cells.
+   *
+   * TEMPORARY: set to span the whole map so nothing is out of range while the
+   * movement model is being played with. The bounded window is the design - it
+   * is what keeps the search cheap and, more importantly, what makes the client
+   * and the server agree, since both can only search what the client can see.
+   * Put it back to ~10 before this ships.
+   *
+   * 180 is the longest hex distance across a 4000-unit map: from the cell at
+   * (0, 4000), which is about (-66, 132), to the one at (4000, 0), about
+   * (114, 0). That is (180 + 132 + 48) / 2.
    */
-  static WINDOW = 10
+  static WINDOW = 180
 
   private static readonly SPAN = 2 * Path.WINDOW + 1
 
@@ -34,9 +42,18 @@ export class Path {
   // rewritten to scalar maths for the same reason - a throwaway object per
   // candidate is what turns a cheap loop into GC pressure, and GC is what makes
   // a tick miss its deadline.
-  private static readonly _cameFrom = new Int16Array(Path.SPAN * Path.SPAN)
-  private static readonly _queue = new Int16Array(Path.SPAN * Path.SPAN)
-  private static readonly _seen = new Uint8Array(Path.SPAN * Path.SPAN)
+  //
+  // Int32, not Int16: at the temporary map-wide window these hold indices up to
+  // 130,320, and Int16 tops out at 32,767. It would have wrapped to a negative
+  // index and silently produced garbage paths.
+  private static readonly _cameFrom = new Int32Array(Path.SPAN * Path.SPAN)
+  private static readonly _queue = new Int32Array(Path.SPAN * Path.SPAN)
+
+  // A generation stamp rather than a visited flag, so a search costs nothing to
+  // reset. Clearing 130,000 bytes on every call would have handed back most of
+  // what the bounded window was buying.
+  private static readonly _seen = new Uint16Array(Path.SPAN * Path.SPAN)
+  private static _generation = 0
 
   /** Index into the scratch arrays for a cell offset from the search origin. */
   private static _index (dq: number, dr: number): number {
@@ -66,8 +83,15 @@ export class Path {
     const target = Path._index(dq, dr)
     const origin = Path._index(0, 0)
 
-    Path._seen.fill(0)
-    Path._seen[origin] = 1
+    Path._generation = (Path._generation + 1) & 0xffff
+    if (Path._generation === 0) {
+      // Wrapped. Stale stamps from 65,536 searches ago would now read as current.
+      Path._seen.fill(0)
+      Path._generation = 1
+    }
+    const generation = Path._generation
+
+    Path._seen[origin] = generation
     Path._cameFrom[origin] = -1
 
     Path._queue[0] = origin
@@ -91,10 +115,10 @@ export class Path {
         if ((Math.abs(nq) + Math.abs(nr) + Math.abs(nq + nr)) / 2 > Path.WINDOW) continue
 
         const next = Path._index(nq, nr)
-        if (Path._seen[next] === 1) continue
+        if (Path._seen[next] === generation) continue
         if (isBlocked(from.x + nq, from.y + nr)) continue
 
-        Path._seen[next] = 1
+        Path._seen[next] = generation
         Path._cameFrom[next] = current
         Path._queue[tail++] = next
       }

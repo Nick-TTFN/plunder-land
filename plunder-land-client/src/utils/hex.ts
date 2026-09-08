@@ -119,6 +119,26 @@ export class Hex {
     return new Vector(cell.x + d.x, cell.y + d.y)
   }
 
+  /**
+   * True if a cell's centre lies inside a square map of `size` units.
+   *
+   * Pathfinding needs this because nothing else stops a route leaving the map:
+   * occupancy only knows about obstacles, and `Unit.update` clamps the position
+   * to the map afterwards. A route that runs off the edge therefore looks
+   * perfectly walkable to the search, and the unit ends up pressed against the
+   * boundary aiming at a cell it can never reach - stuck, with no error anywhere.
+   *
+   * Scalar rather than going through `toPosition`, because this is called once
+   * per neighbour inside the search loop and a Vector per call is exactly the
+   * allocation the pathfinder is built to avoid.
+   */
+  static onMap (q: number, r: number, size: number): boolean {
+    const y = Hex.SIZE * Hex.ROW * r
+    if (y < 0 || y > size) return false
+    const x = Hex.SIZE * (q + r / 2)
+    return x >= 0 && x <= size
+  }
+
   /** Steps between two cells. */
   static distance (a: Vector, b: Vector): number {
     const q = a.x - b.x

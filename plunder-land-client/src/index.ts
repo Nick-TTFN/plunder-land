@@ -40,6 +40,8 @@ settings.ROUND_PIXELS = true
 const font = new FontFaceObserver('Lilliput Steps')
 
 let _pointerDown = false
+/** True for the one press that should extend the route rather than replace it. */
+let _appendNext = false
 
 void font.load().then(function () {
   start()
@@ -129,9 +131,17 @@ function onConnect (): void {
   onResize()
 }
 
-function onPointerDown (event: { data: { buttons: number, global: { x: number, y: number } } }): void {
+function onPointerDown (event: { shiftKey?: boolean, data: { buttons: number, global: { x: number, y: number } } }): void {
   _pointerDown = true
+
+  // Shift-click appends a leg instead of replacing the route, so a way round
+  // something can be built up click by click. Only on the press: dragging with
+  // shift held would append a leg every frame. pixi normalises the modifier keys
+  // onto the event itself, so there is no need to reach into originalEvent.
+  _appendNext = event.shiftKey ?? false
+
   updatePointer(event)
+  _appendNext = false
 }
 
 function updatePointer (event: { data: { buttons: number, global: { x: number, y: number } } }): void {
@@ -150,7 +160,8 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
   )
 
   // Record the intent only. Sending happens on a fixed cadence in frame().
-  Game.LOCAL.setDestination(world.x, world.y)
+  if (_appendNext) Game.LOCAL.appendDestination(world.x, world.y)
+  else Game.LOCAL.setDestination(world.x, world.y)
 }
 
 function onPointerUp (): void {

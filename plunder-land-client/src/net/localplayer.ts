@@ -12,8 +12,6 @@ export interface Collider {
 
 interface Input {
   seq: number
-  /** Destination cell, or undefined for "stop". */
-  cell: Vector | undefined
   /** Client clock at which this input became the current one. */
   t: number
 }
@@ -29,6 +27,9 @@ const SNAP_DISTANCE = 220
 
 /** Visual correction half-life, ms. Lower is snappier and more visible. */
 const SMOOTHING_HALF_LIFE = 90
+
+/** Must match `Multiplayer.MAX_WAYPOINTS`; the server drops anything longer. */
+const MAX_WAYPOINTS = 16
 
 /**
  * The local player, simulated on the client and reconciled against the server.
@@ -53,10 +54,15 @@ export class LocalPlayer {
   x: number = 0
   y: number = 0
 
-  /** Cells still to walk. Recomputed only when the destination changes. */
+  /** Cells still to walk. Recomputed only when the route changes. */
   path: Vector[] = []
-  /** Where we were last told to go, in cells. */
-  destination: Vector | undefined
+
+  /**
+   * The cells we are routing through, in order. A list rather than one cell
+   * because a route can be built up leg by leg with shift-click, and the whole
+   * list goes to the server so it routes the same legs that are drawn on screen.
+   */
+  waypoints: Vector[] = []
 
   /** Decaying visual offset, so corrections are eased rather than snapped. */
   private _offsetX: number = 0
@@ -98,7 +104,7 @@ export class LocalPlayer {
     this._offsetY = 0
     this._inputs.length = 0
     this.path = []
-    this.destination = undefined
+    this.waypoints = []
     this.ready = true
   }
 
@@ -116,17 +122,53 @@ export class LocalPlayer {
    */
   setDestination (worldX: number, worldY: number): void {
     const cell = Hex.toCell(new Vector(worldX, worldY))
+    if (this.waypoints.length === 1 && this.waypoints[0].x === cell.x && this.waypoints[0].y === cell.y) return
 
-    if (this.destination !== undefined && this.destination.x === cell.x && this.destination.y === cell.y) return
+    this.waypoints = [cell]
+    this._repath()
+  }
 
-    this.path = Path.find(this.cell, cell, this._isBlocked)
-    this.destination = this.path.length > 0 ? cell : undefined
+  /**
+   * Add a leg, running from where the route currently ends to this point.
+   *
+   * Shift-click. Appending from the last waypoint rather than from the player
+   * is what makes it a continuation instead of a replacement.
+   */
+  appendDestination (worldX: number, worldY: number): void {
+    const cell = Hex.toCell(new Vector(worldX, worldY))
+
+    const last = this.waypoints[this.waypoints.length - 1]
+    if (last !== undefined && last.x === cell.x && last.y === cell.y) return
+
+    this.waypoints = [...this.waypoints, cell]
+    this._repath()
+  }
+
+  /**
+   * Rebuild the route through the waypoints, one leg at a time.
+   *
+   * Mirrors `Unit.repath` on the server, including stopping at the first leg
+   * that cannot be reached rather than skipping to the next waypoint - so the
+   * two stop in the same place.
+   */
+  private _repath (): void {
+    this.path = []
+    let from = this.cell
+
+    for (const waypoint of this.waypoints) {
+      const leg = Path.find(from, waypoint, this._isBlocked)
+      if (leg.length === 0) break
+      for (const cell of leg) this.path.push(cell)
+      from = waypoint
+    }
+
+    if (this.path.length === 0) this.waypoints = []
   }
 
   /** Drop the route and stand still. */
   stop (): void {
     this.path = []
-    this.destination = undefined
+    this.waypoints = []
   }
 
   /**
@@ -146,17 +188,20 @@ export class LocalPlayer {
     this._seq = (this._seq + 1) & 0xffff
     if (this._seq === 0) this._seq = 1
 
-    this._inputs.push({ seq, cell: this.destination, t: now })
+    this._inputs.push({ seq, t: now })
     // Bounded: anything this old is either acknowledged or lost for good.
     while (this._inputs.length > 64) this._inputs.shift()
 
-    const buf = new ArrayBuffer(6)
+    const count = Math.min(this.waypoints.length, MAX_WAYPOINTS)
+
+    const buf = new ArrayBuffer(1 + count * 4 + 2)
     const view = new DataView(buf)
-    // (-1, -1) is the stop sentinel: r never goes below zero on a real map and q
-    // only leans negative as r grows, so no cell is negative in both axes.
-    view.setInt16(0, this.destination?.x ?? -1)
-    view.setInt16(2, this.destination?.y ?? -1)
-    view.setUint16(4, seq)
+    view.setUint8(0, count)
+    for (let i = 0; i < count; i++) {
+      view.setInt16(1 + i * 4, this.waypoints[i].x)
+      view.setInt16(1 + i * 4 + 2, this.waypoints[i].y)
+    }
+    view.setUint16(1 + count * 4, seq)
     return buf
   }
 
@@ -261,17 +306,28 @@ export class LocalPlayer {
     return index < this.path.length ? this.path[index] : undefined
   }
 
-  /** How far along the route a position is. See `_target` for why it is derived. */
+  /**
+   * How far along the route a position is. See `_target` for why it is derived
+   * rather than counted.
+   *
+   * First match, not last, matching `Unit.followPath`: an appended route can
+   * cross itself and the last match would skip the whole middle of it.
+   *
+   * Known limit of the temporary unlimited-range mode: the server scans forward
+   * from the index it already holds, while this has to start from zero to stay
+   * replayable. On a route that crosses itself the two can disagree about which
+   * visit we are on, and the player mispredicts until the server corrects them.
+   * It goes away when the route is a single leg again.
+   */
   private _indexAt (x: number, y: number): number {
     if (this.path.length === 0) return 0
 
     const here = Hex.toCell(new Vector(x, y))
 
-    let index = 0
     for (let i = 0; i < this.path.length; i++) {
-      if (this.path[i].x === here.x && this.path[i].y === here.y) index = i + 1
+      if (this.path[i].x === here.x && this.path[i].y === here.y) return i + 1
     }
-    return index
+    return 0
   }
 
   /**

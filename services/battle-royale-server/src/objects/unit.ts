@@ -40,11 +40,14 @@ export class Unit extends GameObject {
   pathIndex: number = 0
 
   /**
-   * Where the unit was last told to go, kept so the route can be recomputed
-   * without the caller having to remember it - which is what StoneWall needs
-   * when it drops terrain across somebody's path.
+   * The cells the unit was told to go to, in order, kept so the route can be
+   * recomputed without the caller having to remember it - which is what
+   * StoneWall needs when it drops terrain across somebody's path.
+   *
+   * A list rather than a single cell because a route can be built up leg by leg
+   * (shift-click on the client). One waypoint is the ordinary case.
    */
-  destination: Vector | undefined
+  waypoints: Vector[] = []
 
   damageReduction: number = 0
   routines: IAIRoutine[] = []
@@ -111,19 +114,48 @@ export class Unit extends GameObject {
    * is the honest answer and the one the client predicts too.
    */
   setDestination (q: number, r: number): void {
-    this.destination = new Vector(q, r)
+    this.setWaypoints([new Vector(q, r)])
+  }
+
+  setWaypoints (cells: Vector[]): void {
+    this.waypoints = cells
     this.repath()
   }
 
-  /** Recompute the route to the standing destination from wherever we are. */
-  repath (): void {
-    if (this.destination === undefined) return
+  /** True if `cells` is the route the unit is already on. */
+  sameWaypoints (cells: Vector[]): boolean {
+    if (cells.length !== this.waypoints.length) return false
+    for (let i = 0; i < cells.length; i++) {
+      if (cells[i].x !== this.waypoints[i].x || cells[i].y !== this.waypoints[i].y) return false
+    }
+    return true
+  }
 
-    this.path = Path.find(
-      this.cell,
-      this.destination,
-      (cq, cr) => World.isBlocked(cq, cr, this.tag)
-    )
+  /**
+   * Recompute the route through the standing waypoints from wherever we are.
+   *
+   * Legs are searched one at a time and concatenated. A leg that cannot be
+   * reached ends the route there rather than skipping to the next waypoint,
+   * because walking a route with a hole in it is worse than stopping short of
+   * one - and the client, running the same thing, stops in the same place.
+   */
+  repath (): void {
+    if (this.waypoints.length === 0) return
+
+    this.path = []
+    let from = this.cell
+
+    for (const waypoint of this.waypoints) {
+      const leg = Path.find(
+        from,
+        waypoint,
+        (cq, cr) => World.isBlocked(cq, cr, this.tag)
+      )
+      if (leg.length === 0) break
+      for (const cell of leg) this.path.push(cell)
+      from = waypoint
+    }
+
     this.pathIndex = 0
 
     // Give up rather than retry forever. A destination that cannot be reached
@@ -133,11 +165,11 @@ export class Unit extends GameObject {
     if (this.path.length === 0) this.stop()
   }
 
-  /** Drop the path, the destination and the heading, and stand still. */
+  /** Drop the path, the waypoints and the heading, and stand still. */
   stop (): void {
     this.path = []
     this.pathIndex = 0
-    this.destination = undefined
+    this.waypoints = []
     this.direction = new Vector(0, 0)
   }
 
@@ -157,12 +189,19 @@ export class Unit extends GameObject {
    * The scan forward matters while push-out is still in play: a shove can carry
    * a unit past cells it never stepped through, and without it the unit would
    * turn round and walk back to one it had already passed.
+   *
+   * The scan takes the *first* match rather than the last. A multi-leg route can
+   * cross itself, and the last match would jump the unit to the far side of the
+   * loop - skipping the whole middle of its own route.
    */
   followPath (): void {
     const here = this.cell
 
     for (let i = this.pathIndex; i < this.path.length; i++) {
-      if (this.path[i].x === here.x && this.path[i].y === here.y) this.pathIndex = i + 1
+      if (this.path[i].x === here.x && this.path[i].y === here.y) {
+        this.pathIndex = i + 1
+        break
+      }
     }
 
     if (this.pathIndex >= this.path.length) {
