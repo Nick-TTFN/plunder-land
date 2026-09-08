@@ -25,6 +25,9 @@ const SMOOTHING_HALF_LIFE = 90
 /** Must match `Multiplayer.MAX_WAYPOINTS`; the server drops anything longer. */
 const MAX_WAYPOINTS = 16
 
+/** Must match `Unit.PATH_LOOKAHEAD`; see `_followPath` for why it is one. */
+const PATH_LOOKAHEAD = 1
+
 /**
  * The local player, simulated on the client and corrected by the server.
  *
@@ -283,19 +286,26 @@ export class LocalPlayer {
    * Advance `pathIndex` past the cell we are standing on, and stop when the route
    * runs out.
    *
-   * Scans **forward from the index we already hold**, and leaves it alone when
-   * nothing matches. That is the whole fix for walking backwards: a unit nudged
-   * off its route by an obstacle keeps aiming at the cell it was already aiming
-   * at, instead of concluding it is back at the start.
+   * Scans forward from the index we already hold, one cell and no further, and
+   * leaves it alone when nothing matches. Both halves matter, and both are
+   * copied from `Unit.followPath` because the two have to agree:
    *
-   * First match, not last, matching `Unit.followPath`: an appended route can
-   * cross itself and the last match would skip the whole middle of it.
+   * - Leaving it alone on a miss is what stops the walk-backwards: a player
+   *   nudged off the route by an obstacle keeps aiming at the cell it was
+   *   already aiming at, rather than concluding it is back at the start.
+   * - Bounding the look-ahead to one cell is what makes multi-leg routes work.
+   *   An appended leg comes back through the cell the player is standing in
+   *   right now, and matching that later occurrence sent them off toward the
+   *   last leg's destination while the first leg was still ahead of them. Two
+   *   adjacent cells are never equal, so one cell of look-ahead cannot land on a
+   *   duplicate.
    */
   private _followPath (): void {
     if (this.path.length === 0) return
 
     const here = this.cell
-    for (let i = this.pathIndex; i < this.path.length; i++) {
+    const limit = Math.min(this.path.length, this.pathIndex + PATH_LOOKAHEAD + 1)
+    for (let i = this.pathIndex; i < limit; i++) {
       if (this.path[i].x === here.x && this.path[i].y === here.y) {
         this.pathIndex = i + 1
         break

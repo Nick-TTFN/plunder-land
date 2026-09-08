@@ -122,15 +122,6 @@ export class Unit extends GameObject {
     this.repath()
   }
 
-  /** True if `cells` is the route the unit is already on. */
-  sameWaypoints (cells: Vector[]): boolean {
-    if (cells.length !== this.waypoints.length) return false
-    for (let i = 0; i < cells.length; i++) {
-      if (cells[i].x !== this.waypoints[i].x || cells[i].y !== this.waypoints[i].y) return false
-    }
-    return true
-  }
-
   /**
    * Recompute the route through the standing waypoints from wherever we are.
    *
@@ -186,18 +177,24 @@ export class Unit extends GameObject {
    *
    * Arrival is "the cell I am standing in is that cell" rather than a distance
    * threshold, so there is no tuned epsilon and nothing to oscillate around.
-   * The scan forward matters while push-out is still in play: a shove can carry
-   * a unit past cells it never stepped through, and without it the unit would
-   * turn round and walk back to one it had already passed.
    *
-   * The scan takes the *first* match rather than the last. A multi-leg route can
-   * cross itself, and the last match would jump the unit to the far side of the
-   * loop - skipping the whole middle of its own route.
+   * The look-ahead is deliberately one cell and no more. It exists for a single
+   * case: push-out, or a tick that covers a whole cell, can carry a unit past a
+   * cell it never stood in, and without it the unit turns round to collect one
+   * it has already passed. Scanning the rest of the route instead is what broke
+   * multi-leg routes - an appended leg comes back through cells the unit is
+   * standing in right now, and matching that later occurrence teleported the
+   * index to the far side of the route, so the unit set off for the last leg's
+   * destination while the first leg was still ahead of it. Two adjacent cells
+   * are never equal, so a look-ahead of one cannot land on a duplicate.
    */
+  static PATH_LOOKAHEAD = 1
+
   followPath (): void {
     const here = this.cell
 
-    for (let i = this.pathIndex; i < this.path.length; i++) {
+    const limit = Math.min(this.path.length, this.pathIndex + Unit.PATH_LOOKAHEAD + 1)
+    for (let i = this.pathIndex; i < limit; i++) {
       if (this.path[i].x === here.x && this.path[i].y === here.y) {
         this.pathIndex = i + 1
         break

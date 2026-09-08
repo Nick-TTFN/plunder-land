@@ -17,11 +17,30 @@ class Connection {
   // and that gap is exactly what makes replayed prediction drift backwards.
   lastInputSeq: number = 0
   ackElapsedMs: number = 0
+  /**
+   * The last route the client asked for, kept separately from the player's own
+   * routing state.
+   *
+   * They are not the same thing and comparing against the wrong one re-walks
+   * finished routes: arriving clears the player's waypoints, but the client goes
+   * on sending the route until it notices arrival too, and comparing that packet
+   * against the now-empty player would read as a change and set off again - from
+   * the end, back through the first waypoint.
+   */
+  lastWaypoints: Vector[] = []
   pendingObjectIDs: Record<string, boolean> | undefined
 
   get id (): string {
     return this.socket?.id
   }
+}
+
+function sameCells (a: Vector[], b: Vector[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].x !== b[i].x || a[i].y !== b[i].y) return false
+  }
+  return true
 }
 
 export default class Multiplayer {
@@ -171,6 +190,7 @@ export default class Multiplayer {
     }
 
     if (count === 0) {
+      connection.lastWaypoints = []
       connection.player.stop()
       return
     }
@@ -181,12 +201,13 @@ export default class Multiplayer {
       waypoints.push(new Vector(buf.readInt16BE(at), buf.readInt16BE(at + 2)))
     }
 
-    // Only re-route when the route actually changes. The packet arrives every
-    // tick; searching on each one would put a BFS per player per tick into the
-    // loop for no gain, since a standing route does not change unless the
-    // terrain does - and when it does, `World.block` re-routes.
-    if (connection.player.sameWaypoints(waypoints)) return
+    // Only re-route when the client asks for something different. The packet
+    // arrives every tick; searching on each one would put a BFS per player per
+    // tick into the loop for no gain, since a standing route does not change
+    // unless the terrain does - and when it does, `World.block` re-routes.
+    if (sameCells(connection.lastWaypoints, waypoints)) return
 
+    connection.lastWaypoints = waypoints
     connection.player.setWaypoints(waypoints)
   }
 
