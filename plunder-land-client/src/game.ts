@@ -99,6 +99,12 @@ export class Game extends Container {
       Game.BLOCKED.set(tag, cells)
     }
     cells.add(Hex.key(q, r))
+
+    // Mirrors `World.block`, which re-routes anything walking through a cell
+    // that just became solid. Without this the client keeps walking its old
+    // route into a rock the server has already routed around, and every step
+    // after that is a correction.
+    if (Game.LOCAL.tag === tag && Game.LOCAL.pathCrosses(q, r)) Game.LOCAL.repath()
   }
 
   static unblock (q: number, r: number, tag: number): void {
@@ -564,18 +570,19 @@ export class Game extends Container {
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     // [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]
     this.serverTick = view.getUint32(0)
-    const ackSeq = view.getUint16(4)
-    const ackElapsed = view.getUint16(6)
+    // Read for the record; movement no longer reconciles against them.
+    void view.getUint16(4)
+    void view.getUint16(6)
 
     const now = performance.now()
     Session.onPacket(now)
 
     for (const entry of this.splitRecords(buffer, UPDATE_HEADER_BYTES)) {
-      this.onObjectUpdated(entry, ackSeq, ackElapsed, now)
+      this.onObjectUpdated(entry, now)
     }
   }
 
-  onObjectUpdated (raw: Uint8Array, ackSeq: number = 0, ackElapsed: number = 0, now: number = performance.now()) {
+  onObjectUpdated (raw: Uint8Array, now: number = performance.now()) {
     const data = this.deserialiseBinary(raw)
 
     const obj = this.LOOKUP[data.id]
@@ -587,7 +594,10 @@ export class Game extends Container {
       if (data.position) {
         if (obj === Game.PLAYER) {
           // Authority for the local player is a correction, not a position.
-          Game.LOCAL.reconcile(data.position.x, data.position.y, ackSeq, ackElapsed, now)
+          // The header still carries lastInputSeq and ackElapsedMs; nothing
+          // reads them now. They answered "how far into a heading has the server
+          // got", and a heading is no longer what gets sent.
+          Game.LOCAL.reconcile(data.position.x, data.position.y)
         } else if (obj.pushState) {
           obj.pushState(data.position.x, data.position.y)
         } else if (obj.setMoveTarget) {

@@ -10,19 +10,13 @@ export interface Collider {
   tag: number | undefined
 }
 
-interface Input {
-  seq: number
-  /** Client clock at which this input became the current one. */
-  t: number
-}
-
 /** Squared distance below which two bodies count as coincident. */
 const EPSILON = 1e-9
 
-/** Corrections smaller than this are ignored; they are noise, not divergence. */
-const DEAD_ZONE = 0.75
+/** Positional disagreement below this is noise, not divergence. */
+const DEAD_ZONE = 4
 
-/** Corrections larger than this are a teleport, not an error. Snap, don't ease. */
+/** Disagreement above this is a teleport - respawn or portal. Snap, don't ease. */
 const SNAP_DISTANCE = 220
 
 /** Visual correction half-life, ms. Lower is snappier and more visible. */
@@ -32,30 +26,45 @@ const SMOOTHING_HALF_LIFE = 90
 const MAX_WAYPOINTS = 16
 
 /**
- * The local player, simulated on the client and reconciled against the server.
+ * The local player, simulated on the client and corrected by the server.
  *
- * Input is a destination cell now, not a direction. The client runs the same
- * bounded BFS over the same occupancy the server has, so both derive the same
- * route - identically, because it is integer graph search rather than
- * floating-point integration. Prediction is then just "how far along an agreed
- * polyline am I", which is a far smaller thing to be wrong about than a free 2D
- * heading was.
+ * The model is deliberately plain: **walk my own route, and if the server says I
+ * am somewhere else, accept that and carry on walking from there.** There is no
+ * input replay and no sequence arithmetic, because there is nothing left to
+ * replay - both sides derive the same route from the same integers and walk it
+ * at the same speed, so the only thing they can disagree about is how far along
+ * it we are, and that is a distance you can simply correct.
  *
- * What has not changed: this is still the one object in the scene never fed
- * through `onObjectUpdated`, and the replay is still exact rather than
- * approximate because the server reports both which input it last consumed and
- * how long it has been applying it.
+ * That replaces the machinery this class carried when input was a direction. The
+ * `ackElapsedMs` reconciliation was load-bearing then and is documented as such,
+ * but it answered "how far into a heading has the server got", and a heading is
+ * no longer what gets sent. The server still reports it; nothing here reads it.
+ *
+ * Two bugs came out of the replay it replaces, and they compounded:
+ *
+ * - The route index was derived from position on every call and returned zero
+ *   whenever the player's cell was not on the route - which happens the moment an
+ *   obstacle nudges them off it. Zero means `path[0]`, the *start* of the route,
+ *   so the player turned round and walked back, and the marker sprang back to
+ *   full length as though a new route had been drawn.
+ * - Replay covered the whole unacknowledged distance as one straight line towards
+ *   a single cell, so it cut corners and landed off the route, which then
+ *   triggered the first bug.
+ *
+ * The index is held rather than derived now, and only ever scans forward - which
+ * is exactly what `Unit.followPath` does on the server.
  */
 export class LocalPlayer {
   maxVelocity: number = 140
   tag: number | undefined
 
-  /** Authoritative-plus-replay position. What the game logic should believe. */
+  /** Authoritative-plus-prediction position. What the game logic should believe. */
   x: number = 0
   y: number = 0
 
-  /** Cells still to walk. Recomputed only when the route changes. */
+  /** Cells still to walk, and how far along them we are. Mirrors `Unit`. */
   path: Vector[] = []
+  pathIndex: number = 0
 
   /**
    * The cells we are routing through, in order. A list rather than one cell
@@ -78,7 +87,6 @@ export class LocalPlayer {
   moveY: number = 0
 
   private _seq: number = 1
-  private readonly _inputs: Input[] = []
   private _lastSample: number = 0
 
   private readonly _colliders: () => Collider[]
@@ -102,9 +110,7 @@ export class LocalPlayer {
     if (maxVelocity > 0) this.maxVelocity = maxVelocity
     this._offsetX = 0
     this._offsetY = 0
-    this._inputs.length = 0
-    this.path = []
-    this.waypoints = []
+    this.stop()
     this.ready = true
   }
 
@@ -113,26 +119,25 @@ export class LocalPlayer {
     return Hex.toCell(new Vector(this.x, this.y))
   }
 
-  /**
-   * Route to a world position - wherever the player clicked.
-   *
-   * An unreachable destination clears the path and leaves us standing, which is
-   * what the server does with the same input, so the two agree about doing
-   * nothing just as they agree about where to walk.
-   */
+  /** The cells still to walk - what the route marker draws. */
+  get remaining (): Vector[] {
+    return this.path.slice(this.pathIndex)
+  }
+
+  /** Route to a world position, replacing whatever route we were on. */
   setDestination (worldX: number, worldY: number): void {
     const cell = Hex.toCell(new Vector(worldX, worldY))
     if (this.waypoints.length === 1 && this.waypoints[0].x === cell.x && this.waypoints[0].y === cell.y) return
 
     this.waypoints = [cell]
-    this._repath()
+    this.repath()
   }
 
   /**
    * Add a leg, running from where the route currently ends to this point.
    *
-   * Shift-click. Appending from the last waypoint rather than from the player
-   * is what makes it a continuation instead of a replacement.
+   * Shift-click. Appending from the last waypoint rather than from the player is
+   * what makes it a continuation instead of a replacement.
    */
   appendDestination (worldX: number, worldY: number): void {
     const cell = Hex.toCell(new Vector(worldX, worldY))
@@ -141,20 +146,21 @@ export class LocalPlayer {
     if (last !== undefined && last.x === cell.x && last.y === cell.y) return
 
     this.waypoints = [...this.waypoints, cell]
-    this._repath()
+    this.repath()
   }
 
   /**
    * Rebuild the route through the waypoints, one leg at a time.
    *
-   * Mirrors `Unit.repath` on the server, including stopping at the first leg
-   * that cannot be reached rather than skipping to the next waypoint - so the
-   * two stop in the same place.
+   * Mirrors `Unit.repath`, including stopping at the first leg that cannot be
+   * reached rather than skipping to the next waypoint - so the two stop in the
+   * same place.
    */
-  private _repath (): void {
+  repath (): void {
     this.path = []
-    let from = this.cell
+    this.pathIndex = 0
 
+    let from = this.cell
     for (const waypoint of this.waypoints) {
       const leg = Path.find(from, waypoint, this._isBlocked)
       if (leg.length === 0) break
@@ -165,19 +171,27 @@ export class LocalPlayer {
     if (this.path.length === 0) this.waypoints = []
   }
 
+  /** True if any cell still to be walked is this one. */
+  pathCrosses (q: number, r: number): boolean {
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (this.path[i].x === q && this.path[i].y === r) return true
+    }
+    return false
+  }
+
   /** Drop the route and stand still. */
   stop (): void {
     this.path = []
+    this.pathIndex = 0
     this.waypoints = []
   }
 
   /**
    * Emit at the server's cadence rather than at pointer-event rate. Returns the
-   * 6-byte payload when it is time to send, otherwise null.
+   * payload when it is time to send, otherwise null.
    *
-   * Sent every tick whether or not the destination changed, so the newest packet
-   * always carries complete current intent - the property the old direction
-   * packet had and an on-change-only message would lose.
+   * Sent every tick whether or not the route changed, so the newest packet
+   * always carries complete current intent and a dropped one costs nothing.
    */
   sample (now: number): ArrayBuffer | null {
     const interval = Session.tickMs
@@ -187,10 +201,6 @@ export class LocalPlayer {
     const seq = this._seq
     this._seq = (this._seq + 1) & 0xffff
     if (this._seq === 0) this._seq = 1
-
-    this._inputs.push({ seq, t: now })
-    // Bounded: anything this old is either acknowledged or lost for good.
-    while (this._inputs.length > 64) this._inputs.shift()
 
     const count = Math.min(this.waypoints.length, MAX_WAYPOINTS)
 
@@ -205,17 +215,23 @@ export class LocalPlayer {
     return buf
   }
 
-  /** Advance the prediction by one rendered frame. */
+  /**
+   * Advance one rendered frame: aim at the next cell, move, then ease off any
+   * outstanding correction. The same two steps `Unit.update` runs on the server.
+   */
   predict (dtSeconds: number): void {
     if (!this.ready) return
 
+    this._followPath()
+
+    const beforeX = this.x
+    const beforeY = this.y
     const next = this._step(this.x, this.y, dtSeconds)
-    this.moveX = next.x - this.x
-    this.moveY = next.y - this.y
     this.x = next.x
     this.y = next.y
+    this.moveX = this.x - beforeX
+    this.moveY = this.y - beforeY
 
-    // Ease any outstanding correction towards zero.
     if (this._offsetX !== 0 || this._offsetY !== 0) {
       const decay = Math.pow(0.5, (dtSeconds * 1000) / SMOOTHING_HALF_LIFE)
       this._offsetX *= decay
@@ -226,12 +242,13 @@ export class LocalPlayer {
   }
 
   /**
-   * Fold in the server's version of events.
+   * Fold in the server's position.
    *
-   * @param ackSeq        last input the server consumed
-   * @param ackElapsedMs  how long it has been applying that input
+   * No replay: take where the server says we are and keep walking our own route
+   * from there. Because both sides walk the same cells at the same speed the
+   * disagreement is small, and almost always inside the dead zone.
    */
-  reconcile (serverX: number, serverY: number, ackSeq: number, ackElapsedMs: number, now: number): void {
+  reconcile (serverX: number, serverY: number): void {
     if (!this.ready) {
       this.x = serverX
       this.y = serverY
@@ -239,118 +256,67 @@ export class LocalPlayer {
       return
     }
 
-    const beforeX = this.x
-    const beforeY = this.y
-
-    // Drop everything the server has already finished with.
-    while (this._inputs.length > 0 && seqBefore(this._inputs[0].seq, ackSeq)) {
-      this._inputs.shift()
-    }
-
-    // How much client time the server has not yet accounted for. The acked input
-    // has been applied for ackElapsedMs, but on this client it was current for
-    // longer than that; without the second number every reconciliation drags the
-    // player backwards by a fraction of a tick.
-    let unackedMs = 0
-    if (this._inputs.length > 0 && this._inputs[0].seq === ackSeq) {
-      const acked = this._inputs[0]
-      const endOfAcked = this._inputs.length > 1 ? this._inputs[1].t : now
-      unackedMs = Math.max(0, (endOfAcked - acked.t) - ackElapsedMs)
-      for (let i = 1; i < this._inputs.length; i++) {
-        const end = i + 1 < this._inputs.length ? this._inputs[i + 1].t : now
-        unackedMs += Math.max(0, end - this._inputs[i].t)
-      }
-    } else {
-      // The server acknowledged an input we no longer hold - it skipped ours, or
-      // we have been away. Its word is final; replay whatever we still have.
-      for (let i = 0; i < this._inputs.length; i++) {
-        const end = i + 1 < this._inputs.length ? this._inputs[i + 1].t : now
-        unackedMs += Math.max(0, end - this._inputs[i].t)
-      }
-    }
-
-    // Replaying is one call now rather than one per held input: the route is
-    // shared state both sides agree on, so walking it forward from the server's
-    // position for the unacknowledged time reproduces where we should be.
-    const replayed = this._step(serverX, serverY, unackedMs / 1000)
-    this.x = replayed.x
-    this.y = replayed.y
-
-    const errX = beforeX - this.x
-    const errY = beforeY - this.y
+    const errX = serverX - this.x
+    const errY = serverY - this.y
     const error = Math.sqrt(errX * errX + errY * errY)
 
+    if (error <= DEAD_ZONE) return
+
+    this.x = serverX
+    this.y = serverY
+
     if (error > SNAP_DISTANCE) {
-      // Respawn, portal, or a correction too large to hide. Show it honestly.
+      // A respawn or a portal. Show it honestly, and drop a route that describes
+      // a journey from somewhere we no longer are.
       this._offsetX = 0
       this._offsetY = 0
-    } else if (error > DEAD_ZONE) {
-      // Keep rendering where we were and walk the difference off over ~100ms.
-      this._offsetX += errX
-      this._offsetY += errY
+      this.stop()
+    } else {
+      // Keep rendering where we were and walk the difference off over ~100 ms,
+      // so accepting the server's word does not read as a jerk.
+      this._offsetX -= errX
+      this._offsetY -= errY
     }
   }
 
   /**
-   * The next cell to walk towards from a position, or undefined when the route
-   * is finished.
+   * Advance `pathIndex` past the cell we are standing on, and stop when the route
+   * runs out.
    *
-   * Derived from the position rather than held as an index, which is what makes
-   * replay a single call: the same path walked from the server's position gives
-   * the same answer without any per-frame state to rewind. It mirrors the
-   * server's `Unit.followPath`, including the forward scan that skips cells a
-   * push-out may have carried us past.
-   */
-  private _target (x: number, y: number): Vector | undefined {
-    const index = this._indexAt(x, y)
-    return index < this.path.length ? this.path[index] : undefined
-  }
-
-  /**
-   * How far along the route a position is. See `_target` for why it is derived
-   * rather than counted.
+   * Scans **forward from the index we already hold**, and leaves it alone when
+   * nothing matches. That is the whole fix for walking backwards: a unit nudged
+   * off its route by an obstacle keeps aiming at the cell it was already aiming
+   * at, instead of concluding it is back at the start.
    *
    * First match, not last, matching `Unit.followPath`: an appended route can
    * cross itself and the last match would skip the whole middle of it.
-   *
-   * Known limit of the temporary unlimited-range mode: the server scans forward
-   * from the index it already holds, while this has to start from zero to stay
-   * replayable. On a route that crosses itself the two can disagree about which
-   * visit we are on, and the player mispredicts until the server corrects them.
-   * It goes away when the route is a single leg again.
    */
-  private _indexAt (x: number, y: number): number {
-    if (this.path.length === 0) return 0
+  private _followPath (): void {
+    if (this.path.length === 0) return
 
-    const here = Hex.toCell(new Vector(x, y))
-
-    for (let i = 0; i < this.path.length; i++) {
-      if (this.path[i].x === here.x && this.path[i].y === here.y) return i + 1
+    const here = this.cell
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (this.path[i].x === here.x && this.path[i].y === here.y) {
+        this.pathIndex = i + 1
+        break
+      }
     }
-    return 0
+
+    if (this.pathIndex >= this.path.length) this.stop()
   }
 
   /**
-   * The cells still to walk from where we are now - what the route marker draws.
-   * Shrinks as the player advances, because the index comes from the position
-   * rather than from a counter something has to remember to increment.
-   */
-  get remaining (): Vector[] {
-    if (this.path.length === 0) return []
-    return this.path.slice(this._indexAt(this.x, this.y))
-  }
-
-  /**
-   * One integration step. Aims at the next cell on the route, moves, then pushes
-   * out of every collider sharing our plane and clamps to the map.
+   * One integration step towards the current target cell, then push out of every
+   * collider sharing our plane and clamp to the map.
    *
-   * The push-out still mirrors the server's while both sides still run it. Once
-   * routes are trusted enough for the server to drop it, this goes with it.
+   * Deliberately one straight move at the frame's own dt, exactly like the
+   * server's per-tick step - not a walk along the polyline. Matching the shape of
+   * the server's integration matters more than being smoother than it.
    */
   private _step (x: number, y: number, dt: number): { x: number, y: number } {
     if (dt <= 0) return { x, y }
 
-    const target = this._target(x, y)
+    const target = this.path[this.pathIndex]
     if (target !== undefined) {
       const centre = Hex.toPosition(target)
       const dx = centre.x - x
@@ -396,8 +362,3 @@ export class LocalPlayer {
 }
 
 const PLAYER_RADIUS = LocalPlayer.RADIUS
-
-/** Wrap-safe "is a strictly before b" over a 16-bit sequence space. */
-function seqBefore (a: number, b: number): boolean {
-  return ((a - b + 0x10000) & 0xffff) > 0x8000
-}

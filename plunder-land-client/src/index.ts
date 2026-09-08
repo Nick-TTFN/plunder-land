@@ -39,7 +39,6 @@ settings.ROUND_PIXELS = true
 
 const font = new FontFaceObserver('Lilliput Steps')
 
-let _pointerDown = false
 /** True for the one press that should extend the route rather than replace it. */
 let _appendNext = false
 
@@ -98,7 +97,10 @@ function onConnect (): void {
     Game.loader = new LoaderOverlay()
     app.stage.addChild(Game.loader)
 
-    app.stage.on('pointermove', updatePointer)
+    // No 'pointermove' here on purpose. Re-routing while the pointer is held
+    // meant a full search per mouse-move event, which with the temporary
+    // map-wide window can sweep 130,000 cells - and click-to-move does not need
+    // it. A click is a route.
     app.stage.on('pointerdown', onPointerDown)
     app.stage.on('pointerup', onPointerUp)
 
@@ -132,8 +134,6 @@ function onConnect (): void {
 }
 
 function onPointerDown (event: { shiftKey?: boolean, data: { buttons: number, global: { x: number, y: number } } }): void {
-  _pointerDown = true
-
   // Shift-click appends a leg instead of replacing the route, so a way round
   // something can be built up click by click. Only on the press: dragging with
   // shift held would append a leg every frame. pixi normalises the modifier keys
@@ -146,8 +146,6 @@ function onPointerDown (event: { shiftKey?: boolean, data: { buttons: number, gl
 
 function updatePointer (event: { data: { buttons: number, global: { x: number, y: number } } }): void {
   if (Game.PLAYER === undefined) return
-
-  if (!_pointerDown) return
 
   if ((Game.hud.joystick?.pointerDown) ?? false) return
 
@@ -165,10 +163,10 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
 }
 
 function onPointerUp (): void {
-  // Releasing no longer stops you. A destination is a commitment rather than a
-  // key being held down, which is the whole difference between click-to-move
-  // and the joystick it replaces.
-  _pointerDown = false
+  // Nothing to do. Releasing does not stop you - a destination is a commitment
+  // rather than a key being held down, which is the whole difference between
+  // click-to-move and the joystick it replaces. Kept as a handler so the stage
+  // still consumes the event.
 }
 
 let _prevTime = 0
