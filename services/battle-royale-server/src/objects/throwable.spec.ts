@@ -47,6 +47,7 @@ beforeEach(() => {
   World.mapSize = 4000
   World.BLOCKED.clear()
   World.OBSTACLES.length = 0
+  World.PROJECTILES.length = 0
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
@@ -67,9 +68,7 @@ function advance (t: TestContext, ms: number): void {
 function tick (): void {
   for (const player of World.PLAYERS) player.update(DT)
   for (const mob of World.MOBS) mob.update(DT)
-  for (const obj of World.OBSTACLES) {
-    if (obj.type === ObjectType.Throwable) obj.update(DT)
-  }
+  World.updateProjectiles(DT)
 }
 
 function playerAt (x: number, y: number): Player {
@@ -99,7 +98,7 @@ function walkedAndStopped (dq: number): Player {
 /** Cast, and return the projectile the cast put in the world. */
 function cast (make: (owner: Unit) => { execute: () => boolean }, owner: Unit): Throwable {
   assert.equal(make(owner).execute(), true, 'the skill refused to cast')
-  const thrown = World.OBSTACLES.filter((o) => o.type === ObjectType.Throwable)
+  const thrown = World.PROJECTILES
   assert.equal(thrown.length, 1, 'expected exactly one projectile')
   return thrown[0] as Throwable
 }

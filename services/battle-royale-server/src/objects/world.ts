@@ -5,13 +5,16 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Random } from '../utils/random'
 import Portal from './portal'
-import { type GameObject, ObjectType } from './gameobject'
+import { type GameObject } from './gameobject'
 import Mob from './mob'
 import Boss from './boss'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
 import Timers from './timers'
+// Type-only: throwable.ts imports this module, so a value import would add
+// another edge to the import cycle described in world.spec.ts.
+import type Throwable from './throwable'
 
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
@@ -36,7 +39,14 @@ export default class World {
    */
   static BLOCKED: Map<number, Set<number>> = new Map()
 
+  /** Solid things only: rocks, stone-wall stones, portals, exits. */
   static OBSTACLES: GameObject[] = []
+  /**
+   * Fireballs and icicles in flight. Their own list, not OBSTACLES: they are
+   * not solid, they must not count toward the rock refill, and the tick is the
+   * only thing that removes them (see `updateProjectiles`).
+   */
+  static PROJECTILES: Throwable[] = []
   static CONSUMABLES: Consumable[] = []
   static PLAYERS: Player[] = []
   static MOBS: Unit[] = []
@@ -129,9 +139,7 @@ export default class World {
       mob.update(dt)
     }
 
-    for (const obj of World.OBSTACLES) {
-      if (obj.type === ObjectType.Throwable) obj.update(dt)
-    }
+    World.updateProjectiles(dt)
 
     while (World.OBSTACLES.length < 300) {
       const tag = World.TAGS[Random.RangeInt(0, 2)]
@@ -166,6 +174,28 @@ export default class World {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
       if (pos !== undefined) World.MOBS.push(new Boss(pos.x, pos.y, tag))
+    }
+  }
+
+  /**
+   * Fly every projectile one tick, and drop the ones that are gone.
+   *
+   * **This is the only place a projectile leaves the list.** Its skill's
+   * `explode` used to splice it out, and `explode` runs inside the projectile's
+   * own `update`, so it removed an entry from the list this loop was walking
+   * forwards: the entry after it slid into its slot and skipped a tick of
+   * movement. Walking backwards and splicing only index `i` cannot skip
+   * anything. A projectile that expired on its lifetime timer was destroyed by
+   * `Timers.run` at the top of this tick, and is swept here unflown.
+   *
+   * Between ticks the list therefore holds no destroyed projectile, which is
+   * what lets the join snapshot copy it as it stands.
+   */
+  static updateProjectiles (dt: number): void {
+    for (let i = World.PROJECTILES.length - 1; i >= 0; i--) {
+      const projectile = World.PROJECTILES[i]
+      if (!projectile.destroyed) projectile.update(dt)
+      if (projectile.destroyed) World.PROJECTILES.splice(i, 1)
     }
   }
 

@@ -34,6 +34,7 @@ beforeEach(() => {
   World.mapSize = 4000
   World.BLOCKED.clear()
   World.OBSTACLES.length = 0
+  World.PROJECTILES.length = 0
   World.CONSUMABLES.length = 0
   World.PLAYERS.length = 0
   World.MOBS.length = 0
@@ -58,9 +59,7 @@ function playerAt (x: number, y: number): Player {
 }
 
 function flyThrowables (): void {
-  for (const obj of World.OBSTACLES) {
-    if (obj.type === ObjectType.Throwable) obj.update(DT)
-  }
+  World.updateProjectiles(DT)
 }
 
 // --- the list itself ---------------------------------------------------------
@@ -238,10 +237,10 @@ for (const skill of PROJECTILES) {
     cast.explode = (target, struck) => { explosions++; explode(target, struck) }
 
     assert.equal(cast.execute(), true)
-    const first = World.OBSTACLES[0] as Throwable
+    const first = World.PROJECTILES[0]
     advance(t, 500)
     assert.equal(cast.execute(), true, 'the second cast was refused')
-    const second = World.OBSTACLES[1] as Throwable
+    const second = World.PROJECTILES[1]
     assert.notEqual(first, second)
 
     advance(t, 699)
@@ -256,6 +255,9 @@ for (const skill of PROJECTILES) {
     assert.equal(second.destroyed, true, 'the second never expired')
 
     assert.equal(explosions, 2)
+    // Expired between ticks; the next tick's sweep is what drops them.
+    World.updateProjectiles(DT)
+    assert.equal(World.PROJECTILES.length, 0)
     assert.equal(World.OBSTACLES.length, 0)
     assert.equal(Timers.size, 2, 'only the two freed-id timers should be left')
   })
@@ -274,7 +276,7 @@ for (const skill of PROJECTILES) {
     const rock = { type: ObjectType.Obstacle } as unknown as GameObject
 
     assert.equal(cast.execute(), true)
-    const projectile = World.OBSTACLES[0] as Throwable
+    const projectile = World.PROJECTILES[0]
     World.OBSTACLES.push(rock)
     for (let i = 0; i < 4 && !projectile.destroyed; i++) flyThrowables()
     assert.equal(projectile.struck, target, 'it never hit')

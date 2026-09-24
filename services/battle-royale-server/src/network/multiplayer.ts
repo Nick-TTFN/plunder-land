@@ -97,6 +97,7 @@ export default class Multiplayer {
 
     const snapshot: GameObject[] = [
       ...World.OBSTACLES,
+      ...World.PROJECTILES,
       ...World.CONSUMABLES,
       ...World.PLAYERS,
       ...World.MOBS

@@ -46,6 +46,7 @@ beforeEach(() => {
   World.mapSize = 4000
   World.BLOCKED.clear()
   World.OBSTACLES.length = 0
+  World.PROJECTILES.length = 0
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
@@ -83,7 +84,7 @@ function distanceToSegment (p: Vector, a: Vector, b: Vector): number {
 }
 
 function throwables (): Throwable[] {
-  return World.OBSTACLES.filter((o) => o.type === ObjectType.Throwable) as Throwable[]
+  return World.PROJECTILES.filter((o) => o.type === ObjectType.Throwable) as Throwable[]
 }
 
 // --- the wire ---------------------------------------------------------------

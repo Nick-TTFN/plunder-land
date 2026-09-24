@@ -37,7 +37,7 @@ export class ThrowFireball extends Skill {
       this.owner,
       this.explode.bind(this)
     )
-    World.OBSTACLES.push(fireball)
+    World.PROJECTILES.push(fireball)
     // Owned by the projectile, not the skill: a hit destroys it, which cancels
     // this, so any number can be in flight whatever the cooldown.
     Timers.schedule(lifetime, () => { fireball.destroy() }, fireball)
@@ -64,7 +64,7 @@ export class ThrowFireball extends Skill {
         if (collidee.hit(ThrowFireball.Damage[this.owner.level])) { this.owner.onKill(collidee) } else GuardPosition.provoke(collidee, this.owner)
       }
     }
-
-    World.OBSTACLES.splice(World.OBSTACLES.indexOf(target), 1)
+    // No removal here: `World.updateProjectiles` sweeps the destroyed
+    // projectile. Splicing from inside its own update skipped the next one.
   }
 }

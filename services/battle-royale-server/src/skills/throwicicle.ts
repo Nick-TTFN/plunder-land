@@ -38,7 +38,7 @@ export class Throwicicle extends Skill {
       this.owner,
       this.explode.bind(this)
     )
-    World.OBSTACLES.push(icicle)
+    World.PROJECTILES.push(icicle)
     // Owned by the projectile, not the skill: a hit destroys it, which cancels
     // this, so any number can be in flight whatever the cooldown.
     Timers.schedule(lifetime, () => { icicle.destroy() }, icicle)
@@ -66,7 +66,6 @@ export class Throwicicle extends Skill {
         if (collidee.hit(damage)) this.owner.onKill(collidee)
       }
     }
-
-    World.OBSTACLES.splice(World.OBSTACLES.indexOf(target), 1)
+    // No removal here; see ThrowFireball.explode.
   }
 }

@@ -37,6 +37,7 @@ beforeEach(() => {
   World.mapSize = 4000
   World.BLOCKED.clear()
   World.OBSTACLES.length = 0
+  World.PROJECTILES.length = 0
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
@@ -71,9 +72,7 @@ function tick (): void {
   for (const player of World.PLAYERS) player.update(DT)
   for (const area of World.AREA_EFFECT) area.update(DT)
   for (const mob of World.MOBS) mob.update(DT)
-  for (const obj of World.OBSTACLES) {
-    if (obj.type === ObjectType.Throwable) obj.update(DT)
-  }
+  World.updateProjectiles(DT)
 }
 
 /** Mock Date: breaths, mob cooldowns and projectiles all schedule a `Timers` entry. */
@@ -155,9 +154,7 @@ test('a fireball from range turns a boss on the thrower', (t) => {
   assert.equal(new ThrowFireball(player).execute(), true)
   for (let i = 0; i < 10 && boss.hp === boss.maxHP(); i++) {
     advance(t, DT * 1000)
-    for (const obj of World.OBSTACLES) {
-      if (obj.type === ObjectType.Throwable) obj.update(DT)
-    }
+    World.updateProjectiles(DT)
   }
   assert.ok(boss.hp < boss.maxHP(), 'the fireball never hurt the boss')
   assert.equal(boss.target, player, 'the boss did not turn on the thrower')
@@ -224,9 +221,7 @@ test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
   assert.equal(new Throwicicle(player).execute(), true)
   for (let i = 0; i < 10 && mob.buffs.length === 0; i++) {
     advance(t, DT * 1000)
-    for (const obj of World.OBSTACLES) {
-      if (obj.type === ObjectType.Throwable) obj.update(DT)
-    }
+    World.updateProjectiles(DT)
   }
   assert.equal(mob.buffs.length, 1, 'the icicle never hit the mob')
   assert.equal(mob.target, player, 'the icicle did not provoke the mob')
@@ -508,6 +503,7 @@ for (const [name, make] of [
       let damaged = 0
       for (let i = 0; i < N; i++) {
         World.OBSTACLES.length = 0
+        World.PROJECTILES.length = 0
         World.PLAYERS.length = 0
         World.MOBS.length = 0
         Timers.clear()
@@ -519,11 +515,9 @@ for (const [name, make] of [
 
         t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
         assert.equal(make(player).execute(), true)
-        for (let k = 0; k < 10 && World.OBSTACLES.some((o) => !o.destroyed); k++) {
+        for (let k = 0; k < 10 && World.PROJECTILES.some((p) => !p.destroyed); k++) {
           advance(t, DT * 1000)
-          for (const obj of World.OBSTACLES) {
-            if (obj.type === ObjectType.Throwable && !obj.destroyed) obj.update(DT)
-          }
+          World.updateProjectiles(DT)
         }
         if (mob.hp < mob.maxHP()) damaged++
         t.mock.timers.reset()
@@ -536,7 +530,7 @@ for (const [name, make] of [
     mockTimers(t)
     const player = shooterAt(1000, 2000)
     assert.equal(make(player).execute(), true)
-    const projectile = World.OBSTACLES.find((o) => o.type === ObjectType.Throwable)!
+    const projectile = World.PROJECTILES[0]
     // Park it on a known cell in empty space, then let its lifetime run out.
     const at = cellCentre(20)
     projectile.position = at

@@ -7,10 +7,10 @@ import World from './world'
 /**
  * A projectile. It finds its own targets; nothing collides with it.
  *
- * It still lives in `World.OBSTACLES`, because the world's tick only updates
- * throwables by walking that list, but it is **not** solid: `Unit.update`'s
- * push-out skips it. Being solid is what made every fireball and icicle explode
- * on its caster. It spawned `radius * 4` (about 57 units) ahead of a caster
+ * It lives in `World.PROJECTILES`, which the tick flies and sweeps
+ * (`World.updateProjectiles`), and **not** in `World.OBSTACLES`: it is not
+ * solid, so `Unit.update`'s push-out never sees it. Being solid is what made
+ * every fireball and icicle explode on its caster. It spawned `radius * 4` (about 57 units) ahead of a caster
  * whose push-out reach is 50 + 14, so the caster's own next tick touched it and
  * `onCollide` destroyed it. A stopped caster used to have direction (0,0) and
  * spawn it on their own centre; skills now aim with `Unit.facing`, the last
