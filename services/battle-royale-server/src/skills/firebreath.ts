@@ -2,6 +2,7 @@ import { Skill } from './skill'
 import SectorArea from '../area/sectorarea'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
+import Timers from '../objects/timers'
 import Multiplayer from '../network/multiplayer'
 
 export class FireBreath extends Skill {
@@ -24,14 +25,11 @@ export class FireBreath extends Skill {
     const lifetime = 1000
     Multiplayer.Instance.effect(0, this.owner, lifetime)
 
-    setTimeout(
-      (a) => {
-        const idx = World.AREA_EFFECT.indexOf(area)
-        if (idx >= 0) World.AREA_EFFECT.splice(idx, 1)
-      },
-      lifetime,
-      area
-    )
+    // No owner: the area must go even if its caster dies first.
+    Timers.schedule(lifetime, () => {
+      const idx = World.AREA_EFFECT.indexOf(area)
+      if (idx >= 0) World.AREA_EFFECT.splice(idx, 1)
+    })
 
     return true
   }

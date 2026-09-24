@@ -14,6 +14,7 @@ import { MeleeAttack } from '../skills/meleeattack'
 import { type Skill } from '../skills/skill'
 import World from './world'
 import Multiplayer from '../network/multiplayer'
+import Timers from './timers'
 
 export class Stats {
   kills?: number
@@ -163,12 +164,16 @@ export default class Player extends Unit {
     Multiplayer.Instance.destroy(this)
     this.exited = true
 
+    // Exit bypasses GameObject.destroy, so cancel its pending work here too
+    // (a Defend in progress), before scheduling the free.
+    Timers.cancelOwner(this)
+
     // we need this time out because server sends out all data asynchronously,
     // and a new objectmight take an id of a destroyed object,
     // before clients were notified about it.
     // our server loop is 16ms, thin of a cleaner way to do this.
-    setTimeout(() => {
+    Timers.schedule(1000, () => {
       GameObject.FreedIDs.push(this.id)
-    }, 1000)
+    })
   }
 }

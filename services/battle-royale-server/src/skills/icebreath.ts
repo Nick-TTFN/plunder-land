@@ -2,6 +2,7 @@ import { Skill } from './skill'
 import SectorArea from '../area/sectorarea'
 import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
+import Timers from '../objects/timers'
 
 export class IceBreath extends Skill {
   /** 3 cells (the balance pass's 135 u = 3 * Hex.SIZE). */
@@ -27,10 +28,11 @@ export class IceBreath extends Skill {
 
     // FireBreath has always had this; IceBreath never did, so every cast left a
     // permanent damage field tracking its caster.
-    setTimeout(() => {
+    // No owner: the area must go even if its caster dies first.
+    Timers.schedule(lifetime, () => {
       const idx = World.AREA_EFFECT.indexOf(area)
       if (idx >= 0) World.AREA_EFFECT.splice(idx, 1)
-    }, lifetime)
+    })
 
     return true
   }

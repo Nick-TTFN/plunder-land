@@ -2,6 +2,7 @@ import { Unit } from './unit'
 import { ObjectType } from './gameobject'
 import GuardPosition from '../ai/guardposition'
 import Multiplayer from '../network/multiplayer'
+import Timers from './timers'
 
 export default class Mob extends Unit {
   static Cooldown = 1000
@@ -28,7 +29,7 @@ export default class Mob extends Unit {
 
   onCollideWithPlayer (target: Unit): void {
     if (this.canAttack) {
-      setTimeout(() => { this.canAttack = true }, Mob.Cooldown)
+      Timers.schedule(Mob.Cooldown, () => { this.canAttack = true }, this)
 
       this.canAttack = false
       if (target.hit(this.getDamage())) { this.onKill(target) }

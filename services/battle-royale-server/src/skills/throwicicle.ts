@@ -4,6 +4,7 @@ import { type GameObject, ObjectType } from '../objects/gameobject'
 import Slowdown from '../buffs/slowdown'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
+import Timers from '../objects/timers'
 import { Hex } from '../utils/hex'
 import GuardPosition from '../ai/guardposition'
 
@@ -12,8 +13,6 @@ export class Throwicicle extends Skill {
   /** The impact cell and its 6 neighbours. */
   static BLAST_RINGS = 1
 
-  private _timeoutId: NodeJS.Timeout | undefined
-
   constructor (owner: Unit) {
     super(owner, 4000)
   }
@@ -21,8 +20,7 @@ export class Throwicicle extends Skill {
   execute (): boolean {
     if (!super.execute()) return false
 
-    // 1200 ms at 300 u/s is 360 units, 8 cells: out to base vision. Must stay
-    // under the cooldown until `move-timers-into-tick` (one _timeoutId per skill).
+    // 1200 ms at 300 u/s is 360 units, 8 cells: out to base vision.
     const lifetime = 1200
     const pos = this.owner.position.add(
       this.owner.facing.multiply(this.owner.radius * 4)
@@ -38,13 +36,9 @@ export class Throwicicle extends Skill {
       this.explode.bind(this)
     )
     World.OBSTACLES.push(icicle)
-    this._timeoutId = setTimeout(
-      (v) => {
-        v.destroy()
-      },
-      lifetime,
-      icicle
-    )
+    // Owned by the projectile, not the skill: a hit destroys it, which cancels
+    // this, so any number can be in flight whatever the cooldown.
+    Timers.schedule(lifetime, () => { icicle.destroy() }, icicle)
 
     return true
   }
@@ -71,9 +65,5 @@ export class Throwicicle extends Skill {
     }
 
     World.OBSTACLES.splice(World.OBSTACLES.indexOf(target), 1)
-    if (this._timeoutId != null) {
-      clearTimeout(this._timeoutId)
-      this._timeoutId = undefined
-    }
   }
 }

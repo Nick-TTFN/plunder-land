@@ -11,6 +11,7 @@ import Boss from './boss'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
+import Timers from './timers'
 
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
@@ -86,6 +87,10 @@ export default class World {
   }
 
   update (dt: number): void {
+    // First, so work that fell due between ticks lands before anything moves,
+    // exactly where a setTimeout firing between ticks used to leave it.
+    Timers.run(Date.now())
+
     for (let i = World.PLAYERS.length - 1; i >= 0; i--) {
       const player = World.PLAYERS[i]
       if (player.destroyed) {

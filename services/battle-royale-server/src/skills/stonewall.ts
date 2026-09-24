@@ -2,6 +2,7 @@ import { Skill } from './skill'
 import Obstacle from '../objects/obstacle'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
+import Timers from '../objects/timers'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
@@ -36,14 +37,10 @@ export class StoneWall extends Skill {
       const lifetime = StoneWall.LIFETIME
       const stone = new Obstacle(pos_x, pos_y, this.owner.tag, lifetime)
       World.OBSTACLES.push(stone)
-      setTimeout(
-        (v) => {
-          v.destroy()
-          World.OBSTACLES.splice(World.OBSTACLES.indexOf(v), 1)
-        },
-        lifetime,
-        stone
-      )
+      Timers.schedule(lifetime, () => {
+        stone.destroy()
+        World.OBSTACLES.splice(World.OBSTACLES.indexOf(stone), 1)
+      }, stone)
     }
     return true
   }

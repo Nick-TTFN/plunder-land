@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 // GameObject undefined, so go in the way index.ts does.
 import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
+import Timers from '../objects/timers'
 import Player from '../objects/player'
 import Mob from '../objects/mob'
 import Boss from '../objects/boss'
@@ -39,7 +40,18 @@ beforeEach(() => {
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
+  Timers.clear()
 })
+
+/**
+ * Move the clock and run what fell due, as `World.update` does first thing.
+ * Skill lifetimes, breath removal and mob cooldowns are all `Timers` on
+ * `Date.now()`, so the test's clock is a mocked Date.
+ */
+function advance (t: TestContext, ms: number): void {
+  t.mock.timers.tick(ms)
+  Timers.run(Date.now())
+}
 
 /** A player who has never moved, so every aimed skill goes East. */
 function shooterAt (x: number, y: number): Player {
@@ -64,9 +76,9 @@ function tick (): void {
   }
 }
 
-/** Mock setTimeout: breaths, mob cooldowns and projectiles all schedule one. */
+/** Mock Date: breaths, mob cooldowns and projectiles all schedule a `Timers` entry. */
 function mockTimers (t: TestContext): void {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
 }
 
 // --- N4 ---------------------------------------------------------------------
@@ -123,7 +135,7 @@ test('a boss hit from range turns on the shooter and chases them', (t) => {
 
   for (let i = 0; i < 4; i++) {
     tick()
-    t.mock.timers.tick(DT * 1000)
+    advance(t, DT * 1000)
   }
 
   assert.equal(boss.target, player, 'the boss gave up on a shooter it could still reach')
@@ -142,14 +154,14 @@ test('a fireball from range turns a boss on the thrower', (t) => {
 
   assert.equal(new ThrowFireball(player).execute(), true)
   for (let i = 0; i < 10 && boss.hp === boss.maxHP(); i++) {
-    t.mock.timers.tick(DT * 1000)
+    advance(t, DT * 1000)
     for (const obj of World.OBSTACLES) {
       if (obj.type === ObjectType.Throwable) obj.update(DT)
     }
   }
   assert.ok(boss.hp < boss.maxHP(), 'the fireball never hurt the boss')
   assert.equal(boss.target, player, 'the boss did not turn on the thrower')
-  t.mock.timers.tick(5000)
+  advance(t, 5000)
 })
 
 test('a provoked mob still gives up on a shooter who backs well out of reach', (t) => {
@@ -179,7 +191,7 @@ test('a mob caught in another mob\'s breath does not turn on it', (t) => {
 
   assert.ok(grunt.hp < grunt.maxHP(), 'the breath missed the grunt')
   assert.equal(grunt.target, undefined, 'the grunt turned on the boss')
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
 })
 
 test('a mob caught in a player\'s breath turns on the player', (t) => {
@@ -195,7 +207,7 @@ test('a mob caught in a player\'s breath turns on the player', (t) => {
 
   assert.ok(grunt.hp < grunt.maxHP(), 'the breath missed the grunt')
   assert.equal(grunt.target, player, 'the grunt ignored the breath')
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
 })
 
 test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
@@ -211,7 +223,7 @@ test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
 
   assert.equal(new Throwicicle(player).execute(), true)
   for (let i = 0; i < 10 && mob.buffs.length === 0; i++) {
-    t.mock.timers.tick(DT * 1000)
+    advance(t, DT * 1000)
     for (const obj of World.OBSTACLES) {
       if (obj.type === ObjectType.Throwable) obj.update(DT)
     }
@@ -224,7 +236,7 @@ test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
   assert.equal(new RangedAttack(player).execute(), true)
   assert.ok(mob.hp < mob.maxHP() - World.config.ranged, 'the follow-up shot missed')
   assert.equal(mob.maxVelocity, GuardPosition.CHASE_SPEED / 2, 'a second hit cancelled the slow')
-  t.mock.timers.tick(5000)
+  advance(t, 5000)
 })
 
 test('a slow wears off and gives back exactly what it took', () => {
@@ -311,7 +323,7 @@ test('IceBreath cones three rings ahead, not the fourth, not its own cell, not b
   assert.ok(edge.hp < 1000, 'missed the edge of the wedge, 60 degrees off the facing')
   assert.equal(side.hp, 1000, 'hit a cell 120 degrees off the facing')
   assert.equal(behind.hp, 1000, 'hit behind the caster')
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
 })
 
 test('FireBreath cones four rings ahead and not the fifth', (t) => {
@@ -328,7 +340,7 @@ test('FireBreath cones four rings ahead and not the fifth', (t) => {
 
   assert.equal(fourth.hp, 1000 - Math.floor(World.config.fire * DT), 'missed the fourth ring')
   assert.equal(fifth.hp, 1000, 'reached the fifth ring')
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
 })
 
 test('the breath cone follows the caster as they move', (t) => {
@@ -344,7 +356,7 @@ test('the breath cone follows the caster as they move', (t) => {
   player.position = cellCentre(2)
   tick()
   assert.ok(target.hp < 1000, 'the cone stayed where it was cast')
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
 })
 
 test('the breath cone turns with the caster without leaving its cell', (t) => {
@@ -363,7 +375,7 @@ test('the breath cone turns with the caster without leaving its cell', (t) => {
   player.facing = new Vector(-1, 0)
   tick()
   assert.ok(west.hp < 1000, 'the cone did not turn with the caster')
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
 })
 
 // --- Cone by neighbour expansion (decision #20) -------------------------------
@@ -498,16 +510,17 @@ for (const [name, make] of [
         World.OBSTACLES.length = 0
         World.PLAYERS.length = 0
         World.MOBS.length = 0
+        Timers.clear()
         const player = shooterAt(1000, 2000)
         const x = 1150 + i
         const mob = kind === 'grunt' ? new Mob(x, 2000, 0) : new Boss(x, 2000, 0)
         mob.routines.length = 0 // stand still
         World.MOBS.push(mob)
 
-        t.mock.timers.enable({ apis: ['setTimeout'] })
+        t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
         assert.equal(make(player).execute(), true)
         for (let k = 0; k < 10 && World.OBSTACLES.some((o) => !o.destroyed); k++) {
-          t.mock.timers.tick(DT * 1000)
+          advance(t, DT * 1000)
           for (const obj of World.OBSTACLES) {
             if (obj.type === ObjectType.Throwable && !obj.destroyed) obj.update(DT)
           }
@@ -531,7 +544,7 @@ for (const [name, make] of [
     const neighbour = mobAt(cellCentre(20, -1))
     const twoOut = mobAt(cellCentre(22))
 
-    t.mock.timers.tick(5000)
+    advance(t, 5000)
 
     assert.ok(projectile.destroyed)
     assert.ok(neighbour.hp < 1000, 'missed a unit next to where it expired')

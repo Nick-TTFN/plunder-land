@@ -1,5 +1,6 @@
 import Multiplayer from '../network/multiplayer'
 import { Vector } from '../utils/vector'
+import Timers from './timers'
 
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
 export class ObjectType {
@@ -244,13 +245,17 @@ export class GameObject {
     Multiplayer.Instance.destroy(this)
     this.destroyed = true
 
+    // Its own pending work (a projectile's lifetime, a mob's attack cooldown)
+    // goes with it. Before the free below, which must not be cancelled.
+    Timers.cancelOwner(this)
+
     // we need this time out because server sends out all data asynchronously,
     // and a new objectmight take an id of a destroyed object,
     // before clients were notified about it.
     // our server loop is 16ms, thin of a cleaner way to do this.
-    setTimeout(() => {
+    Timers.schedule(1000, () => {
       GameObject.FreedIDs.push(this.id)
-    }, 1000)
+    })
   }
 
   onCollide (target) { }

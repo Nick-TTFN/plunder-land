@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 // GameObject undefined, so go in through multiplayer the way index.ts does.
 import Multiplayer from '../network/multiplayer'
 import World from './world'
+import Timers from './timers'
 import Player from './player'
 import { Unit } from './unit'
 import { ObjectType } from './gameobject'
@@ -49,7 +50,18 @@ beforeEach(() => {
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
+  Timers.clear()
 })
+
+/**
+ * Move the clock and run what fell due, as `World.update` does first thing.
+ * Skill lifetimes, breath removal and mob cooldowns are all `Timers` on
+ * `Date.now()`, so the test's clock is a mocked Date.
+ */
+function advance (t: TestContext, ms: number): void {
+  t.mock.timers.tick(ms)
+  Timers.run(Date.now())
+}
 
 /** One tick in `World.update`'s order: players, then mobs, then throwables. */
 function tick (): void {
@@ -96,8 +108,8 @@ function cast (make: (owner: Unit) => { execute: () => boolean }, owner: Unit): 
  * Fly the projectile until it detonates on something or its lifetime runs out,
  * and return how far it got from where it spawned.
  *
- * The lifetime is the skill's own setTimeout, so the test must have mocked
- * timers enabled before the cast. Time moves first and the world ticks after,
+ * The lifetime is a `Timers` entry on `Date.now()`, so the test must have
+ * mocked Date before the cast. Time moves first and the world ticks after,
  * as on the server, where a cast lands between ticks: a projectile destroyed by
  * the clock expired, one destroyed by a tick hit something.
  */
@@ -105,7 +117,7 @@ function fly (t: TestContext, projectile: Throwable): { travelled: number, deton
   const from = projectile.position
   let detonated = false
   for (let i = 0; i < 40 && !projectile.destroyed; i++) {
-    t.mock.timers.tick(DT * 1000)
+    advance(t, DT * 1000)
     if (projectile.destroyed) break
     tick()
     detonated = projectile.destroyed
@@ -115,9 +127,9 @@ function fly (t: TestContext, projectile: Throwable): { travelled: number, deton
   return { travelled: projectile.position.sub(from).getMagnitude(), detonated }
 }
 
-/** Mock setTimeout for a test that casts a projectile; see `fly`. */
+/** Mock Date for a test that casts a projectile; see `fly`. */
 function mockTimers (t: TestContext): void {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
 }
 
 for (const skill of SKILLS) {
@@ -293,7 +305,7 @@ test('StoneWall from a stopped player is placed by their last facing', (t) => {
   // StoneWall has always put its arc on the side *opposite* the heading
   // (`direction * -70`): a wall behind you. That is unchanged; what is tested
   // is that a stopped caster gets a wall at all, and on that side of the facing.
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
   const player = walkedAndStopped(-3)
 
   assert.equal(new StoneWall(player).execute(), true, 'stonewall refused to cast')
@@ -309,7 +321,7 @@ test('StoneWall from a stopped player is placed by their last facing', (t) => {
     `the wall's mean offset east of the caster is ${(east / stones.length).toFixed(1)}`)
 
   // Let the stones expire now rather than holding the test process open.
-  t.mock.timers.tick(StoneWall.LIFETIME)
+  advance(t, StoneWall.LIFETIME)
   assert.equal(World.OBSTACLES.filter((o) => o.type === ObjectType.Obstacle).length, 0,
     'a stone outlived the fixed lifetime')
 })
@@ -318,7 +330,7 @@ test('IceBreath from a stopped player cones along their last facing, not East', 
   // SectorArea aimed with `direction`, whose angle at (0,0) is 0: every breath
   // from a standstill went East. Walk West so the old East cone misses.
   // Three cells out, the edge of the cone's 3 rings.
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
   const player = walkedAndStopped(-3)
   const at = player.position
   const ahead = new Unit(ObjectType.Mob, at.x - 3 * Hex.SIZE, at.y, 10, 0)
@@ -333,6 +345,6 @@ test('IceBreath from a stopped player cones along their last facing, not East', 
   assert.equal(behind.hp, 100, 'hit the unit behind it')
 
   // Run the breath's 1 s removal timer rather than holding the process open.
-  t.mock.timers.tick(1000)
+  advance(t, 1000)
   assert.equal(World.AREA_EFFECT.length, 0)
 })
