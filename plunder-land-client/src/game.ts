@@ -1,6 +1,5 @@
 /* eslint-disable no-new */
 import {
-  TilingSprite,
   Texture,
   Text,
   Container,
@@ -19,6 +18,7 @@ import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
 import { CloudsLayer } from './objects/cloudslayer'
+import { HexTerrain } from './objects/hexterrain'
 import Mob from './objects/mob'
 import Player from './objects/player'
 import GameEnterPopup from './ui/popups/gameenterpopup'
@@ -32,7 +32,6 @@ import { type GameObject } from './objects/gameobject'
 import { type HUD } from './ui/components/hud'
 import { type Socket } from 'socket.io-client'
 import { type PopupManager } from './ui/popups/popupmanager'
-import { ToolKit } from './ui/components/toolkit'
 import { Exit } from './objects/exit'
 import { Session } from './net/session'
 import { LocalPlayer, type Collider } from './net/localplayer'
@@ -53,6 +52,8 @@ export class Game extends Container {
   static MOBS: Mob[]
   LOOKUP: Record<string, GameObject> = {}
   cloudsLayer: CloudsLayer | undefined
+  /** The drawn ground of each plane, parallel to `layers`; air has none. */
+  terrains: Array<HexTerrain | undefined> = []
   /** Draws the route the local player is walking. */
   pathMarker: PathMarker | undefined
   static socket: Socket
@@ -133,10 +134,32 @@ export class Game extends Container {
     while (Game.CONTAINER !== undefined && Game.CONTAINER.children.length > 0) { Game.CONTAINER.removeChildAt(0) }
   }
 
-  createLayer (tex: Texture, size: number): TilingSprite {
-    const res = new TilingSprite(tex, size, size)
-    res.anchor = ToolKit.TOP_LEFT_ANCHOR
-    return res
+  /**
+   * A plane: its hex ground, plus everything standing on it.
+   *
+   * The ground goes in as a child rather than being the layer itself, because
+   * the layer is also the parent of every object on that plane and those sort
+   * against each other by `y`. A single very negative zIndex puts the ground
+   * under all of them and under the path marker at -1.
+   */
+  createLayer (group: string): Container {
+    const layer = new Container()
+
+    // `meta.regions` names the palettes in the order the terrain lays them out
+    // along its noise field, so the order is the sheet's to decide and not this
+    // function's to guess from key order.
+    const sheet = Assets.get('./res/hex.json')
+    const terrain = new HexTerrain(
+      sheet.data.meta.regions[group].map((region: string) =>
+        sheet.data.animations[region].map((name: string) => Texture.from(name))
+      )
+    )
+    terrain.zIndex = -1000
+
+    layer.addChild(terrain)
+    this.terrains.push(terrain)
+
+    return layer
   }
 
   start (): void {
@@ -156,11 +179,15 @@ export class Game extends Container {
     }
     // map
     this.tags = [-1, 0, 1]
+    this.terrains = []
     this.layers = [
-      this.createLayer(Texture.from('tiles/ground.png'), this.mapSize),
-      this.createLayer(Texture.from('tiles/grass.png'), this.mapSize),
+      this.createLayer('hexpad/ground'),
+      this.createLayer('hexpad/grass'),
       new Container()
     ]
+    // The air plane has no ground of its own, and `terrains` is indexed
+    // alongside `layers`, so it needs the hole.
+    this.terrains.push(undefined)
 
     for (const layer of this.layers) {
       layer.alpha = 0
@@ -335,17 +362,14 @@ export class Game extends Container {
 
     switch (data.type) {
       case 1: {
-        const sheet = Assets.get('./res/atlas.json')
-        // Every obstacle is one cell wide now, so radius no longer picks the
-        // small or large variant - it would always choose small. Picked at
-        // random instead, to keep the variety the radius used to provide.
-        const large = Math.random() < 0.5
-        const frames =
-            sheet.data.animations[
-              data.tag === 0
-                ? (large ? 'obstacle_1_lg/obj' : 'obstacle_1_sm/obj')
-                : (large ? 'obstacle_0_lg/obj' : 'obstacle_0_sm/obj')
-            ]
+        // Props are baked against the same cell size as the ground they stand
+        // on, so which one an obstacle gets is the only choice left - there is
+        // no size to pick any more. Two sets, because a pine tree on the stone
+        // plane and a ruined arch on the grass one both read as a mistake.
+        const sheet = Assets.get('./res/hex.json')
+        const frames = sheet.data.animations[
+          data.tag === 0 ? 'hexprop/grass' : 'hexprop/ground'
+        ]
         const tex = Texture.from(
           frames[Math.floor(frames.length * Math.random())]
         )
@@ -456,6 +480,12 @@ export class Game extends Container {
     if (data.position !== undefined) {
       obj.x = data.position.x
       obj.y = data.position.y
+      // Obstacles never move and are never fed through `update`, so this is the
+      // only place their depth can be set. Without it they sit at zIndex 0 and
+      // every unit on the plane draws in front of them - which nobody noticed
+      // while obstacles were flat rocks, and is glaring now that some of them
+      // are trees.
+      obj.zIndex = obj.y
     }
 
     obj.tag = data.tag
@@ -783,14 +813,41 @@ export class Game extends Container {
       }
     }
 
-    if (Game.PLAYER != null) {
+    const layers = this.layers
+
+    if (Game.PLAYER != null && layers != null) {
       Game.CONTAINER.x = -Game.PLAYER.x
       Game.CONTAINER.y = -Game.PLAYER.y
 
-      // parallax (kinda)
-      for (const layer of this.layers) {
+      const screen = Game.RENDERER.screen
+
+      for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i]
+
+        // A plane you are not on fades to alpha 0 and stays in the scene, which
+        // used to cost nothing because it was one TilingSprite. It is now about
+        // a thousand pad sprites, and PIXI walks every one of them to update
+        // its transform whether or not anything comes of it. On a GPU that is
+        // invisible either way; on the software rasteriser a headless browser
+        // falls back to, skipping it was worth 6 fps. `visible`, not
+        // `renderable`: only the former skips the transform pass as well as the
+        // draw.
+        layer.visible = layer.alpha > 0.01
+        if (!layer.visible) continue
+
+        // parallax (kinda)
         layer.x = Game.PLAYER.x * (1 - layer.scale.x)
         layer.y = Game.PLAYER.y * (1 - layer.scale.y)
+
+        // A scaled layer is still centred on the player - the parallax offset
+        // is exactly what keeps it there - so the slice of it the camera can
+        // see is the screen divided by its own scale.
+        this.terrains[i]?.update(
+          Game.PLAYER.x,
+          Game.PLAYER.y,
+          screen.width / layer.scale.x,
+          screen.height / layer.scale.y
+        )
       }
     }
 

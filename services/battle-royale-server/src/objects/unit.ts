@@ -227,20 +227,34 @@ export class Unit extends GameObject {
     return { x, y }
   }
 
+  /**
+   * Re-aim after something has shoved us off the route, and nothing else.
+   *
+   * **It must never end the route.** Entering the last cell is not arriving at
+   * it: `walkPath` finishes on the centre, and that is the whole point of it.
+   * This used to advance the index past the end and `stop()` as soon as the
+   * unit's cell matched the last cell, which is the moment it crosses the
+   * boundary - so a walk came to rest wherever it entered the final cell,
+   * roughly half a cell short of the middle. That was invisible while a cell
+   * was 35 units and a tick's travel was also 35, because the two crossings
+   * then fell in the same tick and `walkPath` always got to the centre first.
+   * At 45 they no longer coincide and it stopped short every single time.
+   *
+   * So the index is capped at the last cell, and `walkPath` is the only thing
+   * that ends a route.
+   */
   followPath (): void {
+    if (this.path.length === 0) return
+
     const here = this.cell
+    const last = this.path.length - 1
 
     const limit = Math.min(this.path.length, this.pathIndex + Unit.PATH_LOOKAHEAD + 1)
     for (let i = this.pathIndex; i < limit; i++) {
       if (this.path[i].x === here.x && this.path[i].y === here.y) {
-        this.pathIndex = i + 1
+        this.pathIndex = Math.min(i + 1, last)
         break
       }
-    }
-
-    if (this.pathIndex >= this.path.length) {
-      this.stop()
-      return
     }
 
     const centre = Hex.toPosition(this.path[this.pathIndex])

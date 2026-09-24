@@ -29,8 +29,8 @@ test('walking a straight route advances one cell at a time', () => {
   unit.followPath()
   assert.equal(unit.pathIndex, 0, 'not standing on a route cell yet')
 
-  // Up to the last cell only: arriving at that one ends the route, which clears
-  // the index. That is asserted on its own below.
+  // Up to the last cell only: the index is capped there, so standing on it
+  // leaves the index alone rather than advancing. Asserted on its own below.
   for (let i = 0; i < path.length - 1; i++) {
     unit.position = Hex.toPosition(path[i])
     unit.followPath()
@@ -83,16 +83,45 @@ test('a shove one cell ahead is recovered from, not walked back', () => {
   assert.equal(unit.pathIndex, 2, 'should carry on from where it landed')
 })
 
-test('reaching the last cell ends the route', () => {
+test('entering the last cell is not arriving at it', () => {
+  // The regression. `followPath` used to end the route as soon as the unit's
+  // cell matched the last cell of it, which is the moment it crosses the
+  // boundary - so a walk stopped about half a cell short of the middle. It has
+  // to keep aiming at that centre until `walkPath` lands on it.
   const path = cells([11, 60], [12, 60])
   const unit = unitOn(new Vector(10, 60), path)
 
-  unit.position = Hex.toPosition(path[0])
-  unit.followPath()
-  unit.position = Hex.toPosition(path[1])
+  const centre = Hex.toPosition(path[1])
+  // Just inside the last cell, a third of the way in from the near edge.
+  unit.position = new Vector(centre.x - Hex.SIZE * 0.3, centre.y)
   unit.followPath()
 
-  assert.equal(unit.path.length, 0)
-  assert.equal(unit.pathIndex, 0)
+  assert.equal(unit.path.length, 2, 'the route was dropped on entering the cell')
+  assert.equal(unit.pathIndex, 1, 'should still be aiming at the last cell')
+})
+
+test('a walk comes to rest on the last cell centre, not where it entered it', () => {
+  // Runs the real loop - `followPath` then `walkPath`, a tick's travel at a
+  // time - because the bug was in the interaction between the two and neither
+  // shows it alone. 35 units is 140 u/s over a 250 ms tick, which is
+  // deliberately not a whole cell: when it was, the two crossings fell in the
+  // same tick and `walkPath` always reached the centre first, which is why this
+  // stayed hidden until the cell grew.
+  const path = cells([11, 60], [12, 60], [13, 60])
+  const unit = unitOn(new Vector(10, 60), path)
+
+  for (let tick = 0; tick < 20 && unit.path.length > 0; tick++) {
+    unit.followPath()
+    if (unit.path.length === 0) break
+    const walked = unit.walkPath(unit.position.x, unit.position.y, 35)
+    unit.position = new Vector(walked.x, walked.y)
+  }
+
+  const centre = Hex.toPosition(path[path.length - 1])
+  assert.equal(unit.path.length, 0, 'the route never finished')
+  assert.ok(
+    Math.hypot(unit.position.x - centre.x, unit.position.y - centre.y) < 1e-9,
+    `came to rest ${Math.hypot(unit.position.x - centre.x, unit.position.y - centre.y)} units off the centre`
+  )
   assert.equal(unit.direction.getSquareMagnitude(), 0, 'should be standing still')
 })

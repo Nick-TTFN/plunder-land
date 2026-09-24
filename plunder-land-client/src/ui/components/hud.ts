@@ -1,6 +1,5 @@
 import { TapHandler } from '../elements/taphandler'
 import { Sprite, Point, Text, Container, Texture } from 'pixi.js'
-import { Joystick } from './joystick'
 import { PlayerStats } from './playerstats'
 import { MiniMap } from './minimap'
 import { type Skill } from '../../skills/skill'
@@ -9,7 +8,6 @@ import { ToolKit } from './toolkit'
 export class HUD extends Container {
   controlsMap = new Map<string, TapHandler>()
   map: MiniMap | undefined
-  joystick: Joystick | undefined
   playerStats: PlayerStats | undefined
   skillBar: Container | undefined
   constructor () {
@@ -24,9 +22,6 @@ export class HUD extends Container {
   setupGameUI (): void {
     this.map = new MiniMap(200, 200, 0.3)
     this.addChild(this.map)
-
-    this.joystick = new Joystick(60)
-    this.addChild(this.joystick)
   }
 
   setupStats (): void {
@@ -98,11 +93,6 @@ export class HUD extends Container {
       this.map.y = 20
     }
 
-    if (this.joystick != null) {
-      this.joystick.x = 120
-      this.joystick.y = window.innerHeight - 120
-    }
-
     if (this.playerStats != null) {
       this.playerStats.x = window.innerWidth - 84
       this.playerStats.y = 20
@@ -135,11 +125,6 @@ export class HUD extends Container {
     if (this.map != null) {
       this.removeChild(this.map)
       this.map = undefined
-    }
-
-    if (this.joystick != null) {
-      this.removeChild(this.joystick)
-      this.joystick = undefined
     }
 
     if (this.playerStats != null) {

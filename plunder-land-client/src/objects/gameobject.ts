@@ -24,9 +24,18 @@ export class GameObject extends Container {
     this.addChild(this.DEBUG_COLLIDER)
   }
 
+  /**
+   * Off. It draws a magenta disc the size of the collider under every unit,
+   * pickup and portal in the world, and the `// return` that used to switch it
+   * off had been commented out, so the shipping game had one under everything.
+   * Kept as a flag rather than deleted - it is the only way to see where the
+   * server thinks a thing is, and the push-out work needs it.
+   */
+  static DEBUG_COLLIDERS = false
+
   DEBUG_DRAW_COLLIDER (): void {
-    // return
     this.DEBUG_COLLIDER.clear()
+    if (!GameObject.DEBUG_COLLIDERS) return
     if (this.radius !== undefined) {
       this.DEBUG_COLLIDER.beginFill(0xff00ff)
         .drawCircle(0, 0, this.radius)

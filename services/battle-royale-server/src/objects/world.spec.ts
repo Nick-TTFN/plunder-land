@@ -24,7 +24,8 @@ import { Vector } from '../utils/vector'
  * Not the origin: occupancy answers "off the map" as well as "solid" now, and
  * (0, 0) is the map's own corner, so three of its six neighbours are outside it.
  */
-const MID = { q: 27, r: 60 }
+const MID_CELL = Hex.toCell(new Vector(2000, 1800))
+const MID = { q: MID_CELL.x, r: MID_CELL.y }
 
 function clear (): void {
   World.BLOCKED.clear()
@@ -120,11 +121,14 @@ test('cells off the map count as blocked', () => {
   assert.equal(World.isBlocked(-1, 0, 0), true)
   assert.equal(World.isBlocked(0, -1, 0), true)
 
-  // Past the eastern edge. At r = 40 the axial skew pulls the edge back to
-  // about q = 94, so 134 is well outside even though 134 cells is a perfectly
-  // ordinary distance elsewhere on the map.
-  assert.equal(World.isBlocked(94, 40, 0), false)
-  assert.equal(World.isBlocked(134, 40, 0), true)
+  // Past the eastern edge. The axial skew pulls that edge back by half a row,
+  // so at r = 40 it sits 20 cells short of where it does at r = 0 - and a q
+  // that is a perfectly ordinary distance elsewhere on the map is outside it.
+  // Derived rather than written down: the last two times the cell size moved,
+  // a literal here went stale and the test failed for the wrong reason.
+  const edge = Math.floor(World.mapSize / Hex.SIZE) - 20
+  assert.equal(World.isBlocked(edge, 40, 0), false)
+  assert.equal(World.isBlocked(edge + 40, 40, 0), true)
 })
 
 test('a route cannot be built off the edge of the map', () => {

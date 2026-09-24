@@ -35,7 +35,7 @@ cd plunder-land-client        && npm run build   # webpack -> dist/
 cd services/battle-royale-server && npm run build   # swc -> dist/
 ```
 
-### Client typecheck baseline (2026-09-02)
+### Client typecheck baseline (2026-09-08: 36 errors)
 
 The client is **not** at zero and fixing it to zero is not expected. Known-benign:
 
@@ -64,6 +64,12 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 ```
 
+**`services/saved/redis` must exist too**, and is also gitignored. It is redis's data volume;
+without it redis cannot write its snapshot, sets `stop-writes-on-bgsave-error`, and starts
+refusing every write. The game server's stats writes then throw `ReplyError: MISCONF` and it
+restart-loops — which from the browser looks like the game randomly dropping the connection
+and resetting the world, not like a missing directory. `mkdir -p services/saved/redis`.
+
 The client's server address lives in `src/config.ts` and defaults to production. Point it
 at a local server with a query param — no source edit needed:
 
@@ -77,13 +83,46 @@ count the `create` records. A healthy join streams ~420 objects (20 Portals, 8 E
 
 ## Bundle size
 
-Production build, 2026-09-02: **696 KB** JS + 327 KB atlas + 30 KB atlas.json + 15 KB font
-= **~1.07 MB** total. Measure with `npm run build` and read `dist/main.*.js`; the build also
-writes `dist/report.html` (webpack-bundle-analyzer) for a breakdown.
+Production build, 2026-09-08: **699 KB** JS + 327 KB atlas + 30 KB atlas.json + 48 KB hex.png
++ 10 KB hex.json + 15 KB font = **~1.13 MB** total. Measure with `npm run build` and read
+`dist/main.*.js`; the build also writes `dist/report.html` (webpack-bundle-analyzer) for a
+breakdown.
 
 `import firebase from 'firebase'` pulls the entire Firebase SDK and cost **832 KB** on its
 own — more than the rest of the game combined. It is now `firebase/app` + `firebase/analytics`.
 Never widen that import back. Only `analytics` is used.
+
+## The hex sheet is generated, and its sources are not in the repo
+
+`assets/res/hex.png` + `hex.json` are baked by `tools/bake-hex-atlas.py` from two 1254x1254
+art drops that live **outside** the repo (`~/.codex/.chatgpt-projects/.../assets/hex_tileset`,
+the `pixel-art-clean-alpha` pair). They are ~5 MB each against a 3.4 MB repo, so only the
+48 KB output is committed. Re-bake with:
+
+```
+cd plunder-land-client && python3 tools/bake-hex-atlas.py [source-dir]
+```
+
+It needs `pillow` and `numpy`, and uses `pngquant` + `oxipng` if they are installed — they
+take the sheet from 193 KB to 48 KB with no visible difference, and it warns and ships the
+larger file if they are missing.
+
+The script owns three things worth knowing before touching either sheet:
+
+- **Pads are baked to their exact on-screen size** for `Hex.SIZE = 45` (`HexTerrain.BAKED_FOR`),
+  because the game draws at 1:1 with `ROUND_PIXELS` and a texture baked to size never gets
+  resampled. Change `Hex.SIZE` and the pads still tile - `HexTerrain` rescales them - but
+  they stop being crisp. Re-bake instead.
+- **A pad is a regular hexagon 7% larger than the lattice.** The art is 4.5% short of regular,
+  and tiling a short hex leaves a transparent notch on every diagonal edge; the 7% is what
+  makes neighbours overlap once positions are rounded to whole pixels.
+- **Both sheets' 6x6 grids are measured, not assumed.** Neither is on the clean 209 px pitch
+  the image size implies, and one prop has a stray pixel that reads as a seventh row.
+
+`tiles/grass.png`, `tiles/ground.png` and the four `obstacle_*` groups in the TexturePacker
+atlas are now unused — the ground and every obstacle come from the hex sheet. They stay
+because regenerating that atlas needs TexturePacker, which is not in this toolchain; that is
+about 40 KB of the 327 KB atlas sitting there for nothing.
 
 ## Lockfiles are committed. Keep them that way.
 
@@ -149,6 +188,69 @@ known positions and never need a speed.
 about 65,000 seconds. It was a single signed byte, which silently capped every lifetime at
 12.7s — long enough for a 3s fireball, wrong for the 60s timer on dropped loot. Encoding it
 raw in milliseconds throws `ERR_OUT_OF_RANGE` for every real value including 1000.
+
+## The grid, and how it is drawn
+
+`Hex.SIZE` is **45 world units** and `utils/hex.ts` + `utils/path.ts` are byte-identical in
+both packages (`mirror.spec.ts` enforces it). It was 35, picked so 140 u/s covered one cell
+per 250 ms tick; that coincidence lost to legibility — the player sprite is 50 px and the
+game draws at 1:1, so a 35-unit cell was smaller than the character standing on it. Movement
+is continuous along the path, so nothing depended on it and no speed changed.
+
+Anything that moves with `Hex.SIZE` should be **derived from it, not written down**:
+`Path.WINDOW` (140, the longest hex distance across a 4000-unit map), the path marker's
+radii, the eastern-edge cell in `world.spec.ts`. Three separate literals went stale the one
+time the cell size moved.
+
+**Entering the last cell of a route is not arriving at it.** `followPath` (server `unit.ts`,
+client `localplayer.ts`) re-aims the index after a shove and nothing else; it caps the index at
+the last cell and never ends a route. `walkPath` / `_step` is the only thing that does, and it
+finishes exactly on the centre. The two were in the wrong order once and a walk came to rest
+about half a cell short of the middle, every time — invisible while a cell was 35 units and a
+tick's travel was also 35, because the two crossings then fell in the same tick.
+
+**Arriving does not clear the waypoints, only the path.** The client walks in real time and the
+server starts a tick later, so the client always finishes first; clearing the waypoints on
+arrival made the next input packet a "stop" that landed on a server still short of the
+destination. `LocalPlayer._arrive` keeps the destination so the packet keeps asking for it, and
+the server's `sameCells` check makes the repeat free. `stop()` stays for a real stop.
+
+`HexTerrain` (`src/objects/hexterrain.ts`) draws the ground as one sprite per cell, pooled,
+rebuilt only when the camera's own cell changes. Two things about it are load-bearing:
+
+- **A cell's face is derived from the cell, never drawn at random**, or the ground boils as
+  you walk and every re-entry into view reshuffles it.
+- **A value-noise field picks the *palette*, and a hash of the cell picks a face within it.**
+  Choosing per cell out of one palette was the first build and it looked like static —
+  patches are what makes it read as ground. `meta.regions` in `hex.json` fixes the order the
+  palettes lie along the field; value noise is centre-heavy, so the middle ones dominate.
+
+An invisible plane sets `layer.visible = false` rather than sitting at alpha 0 — `visible` is
+the only flag that skips PIXI's transform pass as well as the draw, and there are now about a
+thousand pads behind it.
+
+## Input: the stage has to be its own hit target
+
+**`app.stage.hitArea` must cover the canvas** (set in `onResize`), or click-to-move works only
+where something happens to be drawn. pixi dispatches a pointer event to the innermost thing
+under the pointer and bubbles up from there; with no hit at all there is no event and the
+stage's listener never runs. That was free while the ground was one `TilingSprite` over the
+whole map — every click landed on a sprite. Hex pads are `eventMode: 'none'`, so clicks on bare
+ground stopped reaching anything and routing worked only when a mob, a rock or a pickup was
+under the pointer. It reads as "click-to-move is flaky", which is a long way from its cause.
+
+The other half of the same rule: **`onPointerDown` ignores anything whose target is not the
+stage.** Events bubble, so a press on a skill button reached the world handler too and walked
+the player in under the HUD. With the hitArea in place, "target is the stage" means exactly
+"nothing interactive was hit", which is the world.
+
+Movement is click-to-move only. The on-screen joystick is gone — it was a second way to say the
+same thing, it aimed at a cell five out rather than at a destination, and its
+`pointerDown` flag was a hidden gate on the world's own click handler.
+
+`GameObject.DEBUG_COLLIDERS` is off. It draws a magenta disc the size of the collider under
+every object; the `// return` that used to switch it off had been commented out, so the
+shipping game had one under everything.
 
 ## Movement: three different mechanisms, deliberately
 

@@ -152,7 +152,15 @@ export class LocalPlayer {
   /** Route to a world position, replacing whatever route we were on. */
   setDestination (worldX: number, worldY: number): void {
     const cell = Hex.toCell(new Vector(worldX, worldY))
-    if (this.waypoints.length === 1 && this.waypoints[0].x === cell.x && this.waypoints[0].y === cell.y) return
+
+    // Only skip the search while we are still walking to that cell. The
+    // waypoint outlives the walk now - it has to, see `_arrive` - so testing it
+    // alone would refuse to re-route to a cell we have already reached and then
+    // been shoved off, which is a click that visibly does nothing.
+    if (
+      this.path.length > 0 && this.waypoints.length === 1 &&
+      this.waypoints[0].x === cell.x && this.waypoints[0].y === cell.y
+    ) return
 
     this.waypoints = [cell]
     this.repath()
@@ -204,11 +212,38 @@ export class LocalPlayer {
     return false
   }
 
-  /** Drop the route and stand still. */
+  /**
+   * Drop the route and the intent behind it, and stand still.
+   *
+   * This is what the *player* asking to stop looks like, and it is what a
+   * teleport does. It empties the waypoints, so the next packet tells the
+   * server to stop as well.
+   */
   stop (): void {
     this.path = []
     this.pathIndex = 0
     this.waypoints = []
+  }
+
+  /**
+   * We have finished the walk. Drop the route but keep the destination.
+   *
+   * Deliberately not `stop()`. The client walks in real time and the server
+   * starts a tick or so later, so the client always gets there first - and
+   * clearing the waypoints here made the very next packet a "stop" that landed
+   * on a server still a cell short of the destination. It obeyed, and the
+   * authoritative player came to rest somewhere the client had already left,
+   * which is invisible until the next click routes from a different cell on
+   * each side.
+   *
+   * Keeping the waypoint means the packet keeps saying "I want to be there"
+   * until the server has been. The server ignores a repeat of what it is
+   * already walking (`sameCells` in `onPointer`), so this costs one comparison
+   * per tick and no search.
+   */
+  private _arrive (): void {
+    this.path = []
+    this.pathIndex = 0
   }
 
   /**
@@ -309,12 +344,11 @@ export class LocalPlayer {
   }
 
   /**
-   * Advance `pathIndex` past the cell we are standing on, and stop when the route
-   * runs out.
+   * Re-aim after something has shoved us off the route, and nothing else.
    *
    * Scans forward from the index we already hold, one cell and no further, and
-   * leaves it alone when nothing matches. Both halves matter, and both are
-   * copied from `Unit.followPath` because the two have to agree:
+   * leaves it alone when nothing matches. All three rules matter, and all three
+   * are copied from `Unit.followPath` because the two have to agree:
    *
    * - Leaving it alone on a miss is what stops the walk-backwards: a player
    *   nudged off the route by an obstacle keeps aiming at the cell it was
@@ -325,20 +359,26 @@ export class LocalPlayer {
    *   last leg's destination while the first leg was still ahead of them. Two
    *   adjacent cells are never equal, so one cell of look-ahead cannot land on a
    *   duplicate.
+   * - **Capping the index at the last cell is what stops the route ending
+   *   early.** Entering the final cell is not arriving at it. This used to run
+   *   the index off the end and clear the route the frame the player crossed the
+   *   boundary, so a walk came to rest about half a cell short of the middle,
+   *   every time. `_step` is the only thing that ends a route now, and it ends
+   *   it on the centre.
    */
   private _followPath (): void {
     if (this.path.length === 0) return
 
     const here = this.cell
+    const last = this.path.length - 1
+
     const limit = Math.min(this.path.length, this.pathIndex + PATH_LOOKAHEAD + 1)
     for (let i = this.pathIndex; i < limit; i++) {
       if (this.path[i].x === here.x && this.path[i].y === here.y) {
-        this.pathIndex = i + 1
+        this.pathIndex = Math.min(i + 1, last)
         break
       }
     }
-
-    if (this.pathIndex >= this.path.length) this.stop()
   }
 
   /**
@@ -374,7 +414,7 @@ export class LocalPlayer {
       }
     }
 
-    if (this.path.length > 0 && this.pathIndex >= this.path.length) this.stop()
+    if (this.path.length > 0 && this.pathIndex >= this.path.length) this._arrive()
 
     for (const c of this._colliders()) {
       if (c.tag !== this.tag) continue

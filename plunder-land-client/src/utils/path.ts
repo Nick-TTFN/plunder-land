@@ -29,11 +29,12 @@ export class Path {
    * and the server agree, since both can only search what the client can see.
    * Put it back to ~10 before this ships.
    *
-   * 180 is the longest hex distance across a 4000-unit map: from the cell at
-   * (0, 4000), which is about (-66, 132), to the one at (4000, 0), about
-   * (114, 0). That is (180 + 132 + 48) / 2.
+   * 140 is the longest hex distance across a 4000-unit map at the current cell
+   * size: from the cell at (0, 0) to the one at about (38, 102), the far corner
+   * of the skewed grid. Recompute it if `Hex.SIZE` changes - a window shorter
+   * than the map silently caps how far a click can route.
    */
-  static WINDOW = 180
+  static WINDOW = 140
 
   private static readonly SPAN = 2 * Path.WINDOW + 1
 
@@ -44,7 +45,7 @@ export class Path {
   // a tick miss its deadline.
   //
   // Int32, not Int16: at the temporary map-wide window these hold indices up to
-  // 130,320, and Int16 tops out at 32,767. It would have wrapped to a negative
+  // 78,960, and Int16 tops out at 32,767. It would have wrapped to a negative
   // index and silently produced garbage paths.
   private static readonly _cameFrom = new Int32Array(Path.SPAN * Path.SPAN)
   private static readonly _queue = new Int32Array(Path.SPAN * Path.SPAN)

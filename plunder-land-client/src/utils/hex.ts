@@ -21,17 +21,26 @@ export class Hex {
    * Distance between the centres of two adjacent cells, in world units.
    *
    * Not the circumradius - this is the number that matters, because it is one
-   * step of movement. At the 140 u/s base speed and a 250 ms tick it is exactly
-   * one cell per tick, which is why the existing tuning carries over.
+   * step of movement.
+   *
+   * It was 35, chosen so that the 140 u/s base speed covered exactly one cell
+   * per 250 ms tick. That was a tuning argument and it lost to a rendering one:
+   * the player sprite is 50 px tall and the client draws the world at 1:1, so a
+   * 35-unit cell was visibly smaller than the character standing on it and the
+   * grid read as background texture rather than as the thing you move across.
+   * At 45 a cell is about the size of the character, which is what makes a
+   * route legible. Movement is continuous along the path rather than a cell per
+   * tick, so nothing depended on the old coincidence - a cell is now about 1.3
+   * ticks and no speed changed.
    */
-  static SIZE = 35
+  static SIZE = 45
 
   /**
    * Collision radius of a cell that blocks, in world units - the hex's inradius,
    * so the circle sits inside the cell rather than spilling into its neighbours.
    *
    * A unit pushed off a blocked cell ends up `RADIUS + its own radius` from the
-   * centre, which for a player is about 32 against a 35-unit spacing. It can
+   * centre, which for a player is about 37 against a 45-unit spacing. It can
    * still stand on the adjacent cell, which is the property that keeps push-out
    * and the grid describing the same world.
    */
@@ -44,8 +53,8 @@ export class Hex {
    * A cell as a single number, for use as a Set or Map key.
    *
    * Valid for q and r in [-1024, 3071], which covers any map this engine can
-   * address: a 4000-unit world is about 114 cells wide, and the axial skew puts
-   * q no lower than about -70.
+   * address: a 4000-unit world is about 89 cells wide, and the axial skew puts
+   * q no lower than about -51.
    */
   static key (q: number, r: number): number {
     return (q + 1024) * 4096 + (r + 1024)
