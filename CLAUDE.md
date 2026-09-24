@@ -389,7 +389,11 @@ the projectile's own update, made the next projectile skip a tick. `OBSTACLES` h
 solid things, which is what the 300-obstacle rock refill counts.
 
 **StoneWall is placed behind the caster on purpose**, to block chasers. Do not "fix" it to
-the front.
+the front. It fills the 3 cells directly behind (`StoneWall.cells`: the neighbours at b-1,
+b, b+1, b opposite the facing), one stone per cell centre. A cell is skipped if it is off
+the map, already blocked, holds a portal or exit, or has a unit on it. `World.BLOCKED` is a
+Set, not a count, so two blockers on one cell would let the first to expire unblock the
+other's cell. The skip is what makes a stone's unconditional unblock safe.
 
 ## Known-unfixed
 

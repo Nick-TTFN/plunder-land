@@ -301,9 +301,9 @@ test('RangedAttack from a stopped player hits along their last facing, not behin
 })
 
 test('StoneWall from a stopped player is placed by their last facing', (t) => {
-  // StoneWall has always put its arc on the side *opposite* the heading
-  // (`direction * -70`): a wall behind you. That is unchanged; what is tested
-  // is that a stopped caster gets a wall at all, and on that side of the facing.
+  // StoneWall goes on the side *opposite* the facing: the 3 cells directly
+  // behind you (decision #22, `StoneWall.cells`). What is tested here is that a
+  // stopped caster gets a wall at all, and on that side of the facing.
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
   const player = walkedAndStopped(-3)
 
