@@ -10,6 +10,10 @@ import { ObjectType } from './gameobject'
 import type Throwable from './throwable'
 import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
+import { Dash } from '../skills/dash'
+import { RangedAttack } from '../skills/rangedattack'
+import { StoneWall } from '../skills/stonewall'
+import { IceBreath } from '../skills/icebreath'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 
@@ -62,6 +66,24 @@ function playerAt (x: number, y: number): Player {
   return player
 }
 
+/**
+ * A player on a cell centre who walks `dq` cells along the q axis and comes to
+ * rest, through the real `setDestination` and tick. Returns them stopped.
+ */
+function walkedAndStopped (dq: number): Player {
+  const start = Hex.toPosition(Hex.toCell(new Vector(1000, 2000)))
+  const player = playerAt(start.x, start.y)
+  const cell = player.cell
+  player.setDestination(cell.x + dq, cell.y)
+  assert.ok(player.path.length > 0, 'no route')
+
+  for (let i = 0; i < 40 && player.path.length > 0; i++) tick()
+
+  assert.equal(player.path.length, 0, 'never arrived')
+  assert.equal(player.direction.getSquareMagnitude(), 0, 'not stopped')
+  return player
+}
+
 /** Cast, and return the projectile the cast put in the world. */
 function cast (make: (owner: Unit) => { execute: () => boolean }, owner: Unit): Throwable {
   assert.equal(make(owner).execute(), true, 'the skill refused to cast')
@@ -103,30 +125,24 @@ for (const skill of SKILLS) {
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
   })
 
-  test(`${skill.name} from a standing player flies more than five cells`, () => {
-    // A standing player facing east. The server has no facing yet: `stop()`
-    // zeroes the heading, and a player with a heading but no path walks. So the
-    // heading is set for the cast and the player stops straight after, which
-    // is what "last-facing" (fix-direction-on-wire) will give a standing caster.
-    // The projectile keeps the vector it was given; `stop()` replaces the
-    // player's rather than mutating it.
-    const player = playerAt(1000, 2000)
-    player.setDirection(1, 0)
-    const projectile = cast(skill.make, player)
-    player.stop()
+  test(`${skill.name} from a player who walked and stopped flies the way they walked`, () => {
+    // A real walk-then-stop, no heading set by hand. West, so the result cannot
+    // be the East default a never-moved player gets.
+    const player = walkedAndStopped(-3)
 
+    const projectile = cast(skill.make, player)
     const { travelled } = fly(projectile)
 
     assert.ok(travelled > FIVE_CELLS,
       `travelled ${travelled.toFixed(1)}, needed more than ${FIVE_CELLS}`)
-    assert.equal(player.position.x, 1000, 'the caster was shoved by their own projectile')
+    assert.ok(projectile.position.x < player.position.x - FIVE_CELLS,
+      'did not fly west, the way the caster last walked')
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
   })
 
-  test(`${skill.name} from a stopped player with no heading does not hit its caster`, () => {
-    // Direction (0,0): the projectile spawns on the caster's own centre and
-    // never moves. Where it should aim belongs to fix-direction-on-wire; this
-    // only pins down that it no longer detonates on the unit that threw it.
+  test(`${skill.name} from a player who has never moved flies East`, () => {
+    // Replaces the old "(0,0) mine" test: with no heading the projectile used
+    // to spawn on the caster's centre and sit there for its whole lifetime.
     const player = playerAt(1000, 2000)
     assert.equal(player.direction.getSquareMagnitude(), 0)
 
@@ -134,7 +150,11 @@ for (const skill of SKILLS) {
     const { travelled, detonated } = fly(projectile)
 
     assert.equal(detonated, false, 'detonated on its own caster')
-    assert.equal(travelled, 0)
+    assert.ok(travelled > FIVE_CELLS,
+      `travelled ${travelled.toFixed(1)}, needed more than ${FIVE_CELLS}`)
+    assert.ok(projectile.position.x > 1000 + FIVE_CELLS, 'did not fly East')
+    assert.ok(Math.abs(projectile.position.y - 2000) < 1e-6, 'drifted off the East axis')
+    assert.equal(player.position.x, 1000, 'the caster was shoved by their own projectile')
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
   })
 
@@ -178,4 +198,91 @@ test('a projectile is not an obstacle: units walk through it undisplaced', () =>
   assert.equal(player.position.y, 2000)
   assert.equal(projectile.destroyed, false)
   projectile.destroy()
+})
+
+for (const dq of [-3, 3]) {
+  test(`Dash from a standstill moves the player along their last facing (walked ${dq > 0 ? 'East' : 'West'})`, () => {
+    // Dash used to set impulse = direction * 1.5, and a stopped player's
+    // direction is (0,0). Now it aims along `facing`, and the no-route branch
+    // of Unit.update applies an impulse even with no heading.
+    const player = walkedAndStopped(dq)
+    const from = player.position
+
+    assert.equal(new Dash(player).execute(), true, 'dash refused to cast')
+    for (let i = 0; i < 4; i++) tick()
+
+    const moved = player.position.sub(from)
+    assert.ok(Math.sign(moved.x) === Math.sign(dq), `dashed the wrong way: dx ${moved.x.toFixed(1)}`)
+    assert.ok(Math.abs(moved.x) > Hex.SIZE, `dashed only ${moved.x.toFixed(1)}`)
+    assert.ok(Math.abs(moved.y) < 1e-6, 'dashed off the line it last walked')
+    assert.equal(player.impulse.getSquareMagnitude(), 0, 'the dash never decayed')
+  })
+}
+
+test('Dash from a player who has never moved goes East', () => {
+  const player = playerAt(1000, 2000)
+  assert.equal(new Dash(player).execute(), true, 'dash refused to cast')
+  for (let i = 0; i < 4; i++) tick()
+
+  assert.ok(player.position.x > 1000 + Hex.SIZE, `dashed only to x=${player.position.x.toFixed(1)}`)
+  assert.equal(player.position.y, 2000)
+})
+
+test('RangedAttack from a stopped player hits along their last facing, not behind', () => {
+  const player = walkedAndStopped(-3)
+  const at = player.position
+  const ahead = new Unit(ObjectType.Mob, at.x - 6 * Hex.SIZE, at.y, 10, 0)
+  const behind = new Unit(ObjectType.Mob, at.x + 6 * Hex.SIZE, at.y, 10, 0)
+  ahead.hp = behind.hp = 100
+  World.MOBS.push(ahead, behind)
+
+  assert.equal(new RangedAttack(player).execute(), true, 'ranged refused to cast')
+
+  assert.ok(ahead.hp < 100, 'missed the unit it was facing')
+  assert.equal(behind.hp, 100, 'hit the unit behind it')
+})
+
+test('StoneWall from a stopped player is placed by their last facing', (t) => {
+  // StoneWall has always put its arc on the side *opposite* the heading
+  // (`direction * -70`): a wall behind you. That is unchanged; what is tested
+  // is that a stopped caster gets a wall at all, and on that side of the facing.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const player = walkedAndStopped(-3)
+
+  assert.equal(new StoneWall(player).execute(), true, 'stonewall refused to cast')
+  const stones = World.OBSTACLES.filter((o) => o.type === ObjectType.Obstacle)
+  assert.ok(stones.length > 0, 'no stones placed')
+
+  // Measured against the way they walked (West), not against `player.facing`,
+  // so a facing that failed to follow the walk cannot pass by agreeing with
+  // itself. Behind a West-walker is East.
+  let east = 0
+  for (const stone of stones) east += stone.position.x - player.position.x
+  assert.ok(east / stones.length > Hex.SIZE / 2,
+    `the wall's mean offset east of the caster is ${(east / stones.length).toFixed(1)}`)
+
+  // Let the stones expire now rather than holding the test process open.
+  t.mock.timers.tick(3000)
+})
+
+test('IceBreath from a stopped player cones along their last facing, not East', (t) => {
+  // SectorArea aimed with `direction`, whose angle at (0,0) is 0: every breath
+  // from a standstill went East. Walk West so the old East cone misses.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const player = walkedAndStopped(-3)
+  const at = player.position
+  const ahead = new Unit(ObjectType.Mob, at.x - 3 * Hex.SIZE, at.y, 10, 0)
+  const behind = new Unit(ObjectType.Mob, at.x + 3 * Hex.SIZE, at.y, 10, 0)
+  ahead.hp = behind.hp = 100
+  World.MOBS.push(ahead, behind)
+
+  assert.equal(new IceBreath(player).execute(), true, 'icebreath refused to cast')
+  tick() // area effects are applied in each unit's own update
+
+  assert.ok(ahead.hp < 100, 'missed the unit it was facing')
+  assert.equal(behind.hp, 100, 'hit the unit behind it')
+
+  // Run the breath's 1 s removal timer rather than holding the process open.
+  t.mock.timers.tick(1000)
+  assert.equal(World.AREA_EFFECT.length, 0)
 })

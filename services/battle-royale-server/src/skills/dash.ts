@@ -7,7 +7,7 @@ export class Dash extends Skill {
 
   execute () {
     if (!super.execute()) return false
-    this.owner.impulse = this.owner.direction.multiply(1.5)
+    this.owner.impulse = this.owner.facing.multiply(1.5)
     return true
   }
 }

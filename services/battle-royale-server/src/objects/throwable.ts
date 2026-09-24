@@ -12,8 +12,9 @@ import World from './world'
  * push-out skips it. Being solid is what made every fireball and icicle explode
  * on its caster. It spawned `radius * 4` (about 57 units) ahead of a caster
  * whose push-out reach is 50 + 14, so the caster's own next tick touched it and
- * `onCollide` destroyed it; a stopped caster has direction (0,0) and spawned it
- * on their own centre.
+ * `onCollide` destroyed it. A stopped caster used to have direction (0,0) and
+ * spawn it on their own centre; skills now aim with `Unit.facing`, the last
+ * way the caster moved (East if never), so a standing cast flies too.
  *
  * So the test runs the other way round: after moving, the projectile looks for
  * a unit on its plane that it overlaps, never its owner, and detonates on it.

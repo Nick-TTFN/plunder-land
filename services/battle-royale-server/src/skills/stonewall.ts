@@ -15,7 +15,9 @@ export class StoneWall extends Skill {
     if (!super.execute()) return false
 
     for (let i = 0; i < 4; i++) {
-      const offset = this.owner.direction
+      // Negative on purpose: the arc goes BEHIND the caster, to block anyone
+      // chasing them (Nick, 2026-09-24). Do not "fix" it to the front.
+      const offset = this.owner.facing
         .multiply(-70)
         .rotateBy(-Math.PI / 2 + (i * Math.PI) / 3)
       const pos_x = this.owner.position.x + offset.x

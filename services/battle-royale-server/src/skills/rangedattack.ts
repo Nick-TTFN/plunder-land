@@ -13,7 +13,7 @@ export class RangedAttack extends Skill {
 
   execute () {
     const endpoint = this.owner.position.add(
-      this.owner.direction.multiply(this.range)
+      this.owner.facing.multiply(this.range)
     )
     if (!super.execute()) return false
 

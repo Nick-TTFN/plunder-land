@@ -18,13 +18,13 @@ export class ThrowFireball extends Skill {
 
     const lifetime = 3000
     const pos = this.owner.position.add(
-      this.owner.direction.multiply(this.owner.radius * 4)
+      this.owner.facing.multiply(this.owner.radius * 4)
     )
     const fireball = new Throwable(
       pos.x,
       pos.y,
       lifetime,
-      this.owner.direction,
+      this.owner.facing,
       300,
       this.owner.tag,
       this.owner,

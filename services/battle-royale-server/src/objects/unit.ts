@@ -49,6 +49,23 @@ export class Unit extends GameObject {
    */
   waypoints: Vector[] = []
 
+  /**
+   * The way this unit last moved, kept when it stops. Skills aim along it.
+   *
+   * `direction` is movement: `stop()` zeroes it, because a unit with a heading
+   * and no path walks. Aiming with it made a standing caster's fireball sit on
+   * them as a mine, fired ranged and StoneWall at their own feet, and made Dash
+   * do nothing. This is the heading with the stopping taken out (decision #16).
+   *
+   * Always unit length, because Dash scales it straight into an impulse. It is
+   * updated by the `direction` setter below, so every write - `setDirection`,
+   * `setDirectionTo`, the path re-aim, the AI routines - keeps it current and
+   * none can forget to. East until the unit first moves (Nick, 2026-09-24).
+   *
+   * Server only. Putting it on the wire belongs to `fix-direction-on-wire`.
+   */
+  facing: Vector = new Vector(1, 0)
+
   damageReduction: number = 0
   routines: IAIRoutine[] = []
   buffs: Buff[] = []
@@ -70,6 +87,22 @@ export class Unit extends GameObject {
     this.maxHp = this.maxHP()
     this.direction = new Vector(0, 0)
     this.impulse = new Vector(0, 0)
+  }
+
+  get direction (): Vector {
+    return super.direction
+  }
+
+  /**
+   * A zero (or non-finite) vector means "stopped" and leaves `facing` alone;
+   * anything else becomes the new facing. `getDirectionTo` a point the unit is
+   * standing on is (0,0), so that case must not face it anywhere.
+   */
+  set direction (value: Vector) {
+    super.direction = value
+    if (value != null && value.getSquareMagnitude() > EPSILON) {
+      this.facing = value.normalised()
+    }
   }
 
   getDirectionTo (targetX: number, targetY: number): Vector {
@@ -156,7 +189,10 @@ export class Unit extends GameObject {
     if (this.path.length === 0) this.stop()
   }
 
-  /** Drop the path, the waypoints and the heading, and stand still. */
+  /**
+   * Drop the path, the waypoints and the heading, and stand still.
+   * `facing` is kept: a stopped unit still faces the way it was going.
+   */
   stop (): void {
     this.path = []
     this.pathIndex = 0
@@ -292,13 +328,25 @@ export class Unit extends GameObject {
         py = walked.y
       }
     } else {
-      // No route: steered directly by an AI routine.
+      // No route: steered directly by an AI routine, or standing still.
+      //
+      // The impulse applies either way. It used to be inside the heading check,
+      // which was harmless while Dash aimed along `direction` - a stopped unit
+      // got a zero impulse anyway. Now it aims along `facing`, and a standing
+      // Dash is meant to go somewhere.
+      const step = dt * this.maxVelocity
       const dirSq = this.direction.x * this.direction.x + this.direction.y * this.direction.y
       if (dirSq > 0) {
         const inv = 1 / Math.sqrt(dirSq)
-        const step = dt * this.maxVelocity
-        px += (this.direction.x * inv + this.impulse.x) * step
-        py += (this.direction.y * inv + this.impulse.y) * step
+        px += this.direction.x * inv * step
+        py += this.direction.y * inv * step
+      }
+      // Behind its own non-zero check like the heading: a unit that never had
+      // `maxVelocity` set has a NaN step, and `0 * NaN` would write NaN into
+      // the position of a unit that is not moving at all.
+      if (this.impulse.x !== 0 || this.impulse.y !== 0) {
+        px += this.impulse.x * step
+        py += this.impulse.y * step
       }
     }
 

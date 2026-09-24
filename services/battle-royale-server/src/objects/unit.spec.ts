@@ -125,3 +125,32 @@ test('a walk comes to rest on the last cell centre, not where it entered it', ()
   )
   assert.equal(unit.direction.getSquareMagnitude(), 0, 'should be standing still')
 })
+
+test('facing starts East, follows every non-zero heading, and survives stop()', () => {
+  const unit = unitOn(new Vector(10, 60), [])
+  assert.deepEqual({ x: unit.facing.x, y: unit.facing.y }, { x: 1, y: 0 }, 'default is not East')
+
+  // The AI routines' path: setDirectionTo a point well away.
+  unit.setDirectionTo(unit.position.x, unit.position.y - 500)
+  assert.ok(Math.abs(unit.facing.x) < 1e-9 && Math.abs(unit.facing.y + 1) < 1e-9, 'did not face north')
+
+  unit.stop()
+  assert.equal(unit.direction.getSquareMagnitude(), 0, 'stop() left a heading')
+  assert.ok(Math.abs(unit.facing.y + 1) < 1e-9, 'stop() cleared the facing')
+
+  // Aiming at the point it stands on is a zero vector: must not face anywhere new.
+  unit.setDirectionTo(unit.position.x, unit.position.y)
+  assert.ok(Math.abs(unit.facing.y + 1) < 1e-9, 'a zero heading changed the facing')
+
+  // A raw assignment of an unnormalised vector still gives a unit-length
+  // facing: Dash scales it straight into an impulse.
+  unit.direction = new Vector(-3, 4)
+  assert.ok(Math.abs(unit.facing.getMagnitude() - 1) < 1e-9, 'facing is not unit length')
+  assert.ok(Math.abs(unit.facing.x + 0.6) < 1e-9 && Math.abs(unit.facing.y - 0.8) < 1e-9)
+})
+
+test('the path re-aim keeps facing along the route', () => {
+  const unit = unitOn(new Vector(10, 60), cells([9, 60], [8, 60]))
+  unit.followPath()
+  assert.ok(unit.facing.x < -0.99, 'facing does not point west along the route')
+})
