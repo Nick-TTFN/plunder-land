@@ -77,6 +77,13 @@ test('a disconnect with Redis down leaves the world running', async () => {
   const redis = deadRedis()
   const multiplayer = new Multiplayer(250, redis.client)
   const world = new World(4000)
+  // This ticks a real world, which places exits, portals and mobs at random.
+  // A player that spawns next to an exit extracts within the four ticks below
+  // and fails the count at the end: 6 of 1500 replays did (main session,
+  // 2026-09-24). This test is about Redis, not the map, so it gets an empty one.
+  World.OBSTACLES.length = 0
+  World.BLOCKED.clear()
+  World.MOBS.length = 0
 
   const { socket, fire } = fakeSocket('s1')
   multiplayer.onConnect(socket)
