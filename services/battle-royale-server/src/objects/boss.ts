@@ -18,10 +18,10 @@ export default class Boss extends Mob {
   }
 
   maxHP () {
-    return 250
+    return 300
   }
 
   getDamage () {
-    return 40
+    return 30
   }
 }

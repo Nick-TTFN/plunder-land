@@ -4,7 +4,13 @@ import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
 
 export class IceBreath extends Skill {
-  static Damage = [25, 35, 45, 55]
+  /** 3 cells (the balance pass's 135 u = 3 * Hex.SIZE). */
+  static RINGS = 3
+
+  // Per second, applied as `damage * dt` and floored per tick by `hit()`, so
+  // keep it a multiple of 4 at 250 ms ticks: 32/s is 8 a tick, 32 a cast.
+  // Only [1] is read while `setLevel(1)` is the only level.
+  static Damage = [25, 32, 45, 55]
 
   constructor (owner) {
     super(owner, 3000)
@@ -13,7 +19,7 @@ export class IceBreath extends Skill {
   execute () {
     if (!super.execute()) return false
 
-    const area = new SectorArea(this.owner, 200, Math.PI / 4)
+    const area = new SectorArea(this.owner, IceBreath.RINGS)
     area.setEffect(IceBreath.Damage[this.owner.level], true)
     World.AREA_EFFECT.push(area)
     const lifetime = 1000

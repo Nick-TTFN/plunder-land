@@ -22,7 +22,9 @@ import World from './world'
 export default class Throwable extends GameObject {
   velocity: number
   owner: Unit
-  destroyCallback: (value: GameObject) => void
+  /** The unit it flew into, set just before it is destroyed by the hit. */
+  struck: Unit | undefined
+  destroyCallback: (value: GameObject, struck?: Unit) => void
   constructor (
     x: number,
     y: number,
@@ -31,7 +33,7 @@ export default class Throwable extends GameObject {
     velocity: number,
     tag: number,
     owner: Unit,
-    destroyCallback: (value: GameObject) => void
+    destroyCallback: (value: GameObject, struck?: Unit) => void
   ) {
     super(ObjectType.Throwable, x, y, 50, tag)
 
@@ -79,13 +81,15 @@ export default class Throwable extends GameObject {
     return undefined
   }
 
-  onCollide (target: GameObject) {
+  onCollide (target: Unit) {
     super.onCollide(target)
+    this.struck = target
     this.destroy()
   }
 
+  /** Also the end of its lifetime (the skill's timer), when `struck` is unset. */
   destroy () {
-    if (this.destroyCallback) this.destroyCallback(this)
+    if (this.destroyCallback) this.destroyCallback(this, this.struck)
     super.destroy()
   }
 }

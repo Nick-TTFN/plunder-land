@@ -1,14 +1,16 @@
 import { Skill } from './skill'
 import Obstacle from '../objects/obstacle'
-import { Random } from '../utils/random'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
 export class StoneWall extends Skill {
+  /** Fixed, not random, so the wall's duration is legible. */
+  static LIFETIME = 4000
+
   constructor (owner: Unit) {
-    super(owner, 1000)
+    super(owner, 6000)
   }
 
   execute (): boolean {
@@ -31,7 +33,7 @@ export class StoneWall extends Skill {
       const cell = Hex.toCell(new Vector(pos_x, pos_y))
       if (World.isBlocked(cell.x, cell.y, this.owner.tag)) continue
 
-      const lifetime = Random.RangeInt(2000, 2500)
+      const lifetime = StoneWall.LIFETIME
       const stone = new Obstacle(pos_x, pos_y, this.owner.tag, lifetime)
       World.OBSTACLES.push(stone)
       setTimeout(

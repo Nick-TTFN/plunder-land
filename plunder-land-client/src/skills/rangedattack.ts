@@ -7,7 +7,7 @@ export class RangedAttack extends Skill {
     super(owner)
     this.name = 'Ranged Attack'
     this.uiTexture = Texture.from('UI/controls/ranged.png')
-    this.cooldown = 0.5
+    this.cooldown = 0.75 // mirrors the server's 750 ms
   }
 
   execute (): void {

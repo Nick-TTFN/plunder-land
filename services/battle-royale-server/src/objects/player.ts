@@ -24,6 +24,15 @@ export class Stats {
   lifeTime?: number
 }
 export default class Player extends Unit {
+  /**
+   * Body radius, pinned rather than derived from HP (it was 2 * sqrt(maxHP),
+   * 14.1 at 50 HP and 20 at 100). A bigger body widens pickup reach past the
+   * 39-unit step where it starts sweeping three rows of cells, moves the
+   * fireball spawn point and widens the ranged hit. Per-robot values belong to
+   * `unit-archetypes`; keep it under Hex.SIZE / 2 so a unit fits beside a rock.
+   */
+  static BODY_RADIUS = 14
+
   skills: Skill[]
   createdAt: number
   exited: boolean
@@ -108,7 +117,7 @@ export default class Player extends Unit {
   setLevel (value: number): void {
     this.level = value
     this.hp = this.maxHP()
-    this.radius = 2 * Math.sqrt(this.maxHP())
+    this.radius = Player.BODY_RADIUS
     this.loot = 0
   }
 

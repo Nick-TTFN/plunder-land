@@ -1,4 +1,4 @@
-import test, { beforeEach } from 'node:test'
+import test, { beforeEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 // See world.spec.ts: entering the module graph at an objects/ file leaves
 // GameObject undefined, so go in through multiplayer the way index.ts does.
@@ -27,9 +27,9 @@ import { Hex } from '../utils/hex'
 
 /** The server tick, TICK_MS's default. */
 const DT = 0.25
-/** Both skills use a 3000 ms lifetime; tick until just short of it. */
-const FLIGHT_TICKS = Math.floor(3 / DT) - 1
 const FIVE_CELLS = 5 * Hex.SIZE
+/** Both skills' range: 1200 ms at 300 u/s, out to base vision (balance pass). */
+const EIGHT_CELLS = 8 * Hex.SIZE
 
 const SKILLS = [
   { name: 'fireball', make: (owner: Unit) => new ThrowFireball(owner) },
@@ -93,22 +93,36 @@ function cast (make: (owner: Unit) => { execute: () => boolean }, owner: Unit): 
 }
 
 /**
- * Fly the projectile until it detonates or its lifetime is nearly up, and
- * return how far it got from where it spawned.
+ * Fly the projectile until it detonates on something or its lifetime runs out,
+ * and return how far it got from where it spawned.
+ *
+ * The lifetime is the skill's own setTimeout, so the test must have mocked
+ * timers enabled before the cast. Time moves first and the world ticks after,
+ * as on the server, where a cast lands between ticks: a projectile destroyed by
+ * the clock expired, one destroyed by a tick hit something.
  */
-function fly (projectile: Throwable): { travelled: number, detonated: boolean } {
+function fly (t: TestContext, projectile: Throwable): { travelled: number, detonated: boolean } {
   const from = projectile.position
-  for (let i = 0; i < FLIGHT_TICKS && !projectile.destroyed; i++) tick()
+  let detonated = false
+  for (let i = 0; i < 40 && !projectile.destroyed; i++) {
+    t.mock.timers.tick(DT * 1000)
+    if (projectile.destroyed) break
+    tick()
+    detonated = projectile.destroyed
+  }
+  assert.ok(projectile.destroyed, 'the projectile outlived its lifetime')
 
-  const detonated = projectile.destroyed
-  const travelled = projectile.position.sub(from).getMagnitude()
-  // Clears the skill's lifetime setTimeout, so the test process can exit.
-  if (!detonated) projectile.destroy()
-  return { travelled, detonated }
+  return { travelled: projectile.position.sub(from).getMagnitude(), detonated }
+}
+
+/** Mock setTimeout for a test that casts a projectile; see `fly`. */
+function mockTimers (t: TestContext): void {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
 }
 
 for (const skill of SKILLS) {
-  test(`${skill.name} from a walking player flies more than five cells`, () => {
+  test(`${skill.name} from a walking player flies more than five cells`, (t) => {
+    mockTimers(t)
     const start = Hex.toPosition(Hex.toCell(new Vector(1000, 2000)))
     const player = playerAt(start.x, start.y)
     const cell = player.cell
@@ -118,20 +132,21 @@ for (const skill of SKILLS) {
     assert.ok(player.direction.getSquareMagnitude() > 0, 'player is not walking')
     assert.ok(player.path.length > 0, 'player stopped before the cast')
 
-    const { travelled } = fly(cast(skill.make, player))
+    const { travelled } = fly(t, cast(skill.make, player))
 
     assert.ok(travelled > FIVE_CELLS,
       `travelled ${travelled.toFixed(1)}, needed more than ${FIVE_CELLS}`)
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
   })
 
-  test(`${skill.name} from a player who walked and stopped flies the way they walked`, () => {
+  test(`${skill.name} from a player who walked and stopped flies the way they walked`, (t) => {
+    mockTimers(t)
     // A real walk-then-stop, no heading set by hand. West, so the result cannot
     // be the East default a never-moved player gets.
     const player = walkedAndStopped(-3)
 
     const projectile = cast(skill.make, player)
-    const { travelled } = fly(projectile)
+    const { travelled } = fly(t, projectile)
 
     assert.ok(travelled > FIVE_CELLS,
       `travelled ${travelled.toFixed(1)}, needed more than ${FIVE_CELLS}`)
@@ -140,14 +155,15 @@ for (const skill of SKILLS) {
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
   })
 
-  test(`${skill.name} from a player who has never moved flies East`, () => {
+  test(`${skill.name} from a player who has never moved flies East`, (t) => {
+    mockTimers(t)
     // Replaces the old "(0,0) mine" test: with no heading the projectile used
     // to spawn on the caster's centre and sit there for its whole lifetime.
     const player = playerAt(1000, 2000)
     assert.equal(player.direction.getSquareMagnitude(), 0)
 
     const projectile = cast(skill.make, player)
-    const { travelled, detonated } = fly(projectile)
+    const { travelled, detonated } = fly(t, projectile)
 
     assert.equal(detonated, false, 'detonated on its own caster')
     assert.ok(travelled > FIVE_CELLS,
@@ -158,7 +174,8 @@ for (const skill of SKILLS) {
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
   })
 
-  test(`${skill.name} still detonates on a unit in its path, and damages it`, () => {
+  test(`${skill.name} still detonates on a unit in its path, and damages it`, (t) => {
+    mockTimers(t)
     // Taking projectiles out of the push-out took away the only thing that
     // used to detect a hit, so check the new hit test actually finds one.
     const player = playerAt(1000, 2000)
@@ -170,7 +187,7 @@ for (const skill of SKILLS) {
     const projectile = cast(skill.make, player)
     player.stop()
 
-    const { detonated } = fly(projectile)
+    const { detonated } = fly(t, projectile)
 
     assert.equal(detonated, true, 'flew through the target')
     const reach = projectile.radius + target.radius
@@ -178,6 +195,36 @@ for (const skill of SKILLS) {
       'detonated somewhere other than on the target')
     assert.ok(target.hp < 100, 'target took no damage')
     assert.equal(player.hp, player.maxHP(), 'the caster was hurt by their own cast')
+  })
+
+  test(`${skill.name} reaches about eight cells and no further`, (t) => {
+    // Range is lifetime x speed out from the spawn point, which sits 4 body
+    // radii ahead of the caster; the flight is quantised to whole ticks. Both
+    // are measured from the caster, which is what a player sees.
+    mockTimers(t)
+    const player = playerAt(1000, 2000)
+    const projectile = cast(skill.make, player)
+    const { detonated } = fly(t, projectile)
+
+    assert.equal(detonated, false, 'hit something on an empty map')
+    const reach = projectile.position.x - player.position.x
+    assert.ok(reach > EIGHT_CELLS - Hex.SIZE,
+      `fell short: ${reach.toFixed(1)} from the caster, wanted about ${EIGHT_CELLS}`)
+    assert.ok(reach <= EIGHT_CELLS + Hex.SIZE / 2,
+      `flew too far: ${reach.toFixed(1)} from the caster, wanted about ${EIGHT_CELLS}`)
+  })
+
+  test(`${skill.name} does not hit a unit past its range`, (t) => {
+    mockTimers(t)
+    const player = playerAt(1000, 2000)
+    const beyond = new Unit(ObjectType.Mob, 1000 + 10 * Hex.SIZE, 2000, 10, 0)
+    beyond.hp = 100
+    World.MOBS.push(beyond)
+
+    const { detonated } = fly(t, cast(skill.make, player))
+
+    assert.equal(detonated, false, 'reached a unit ten cells out')
+    assert.equal(beyond.hp, 100, 'a unit ten cells out took damage')
   })
 }
 
@@ -262,12 +309,15 @@ test('StoneWall from a stopped player is placed by their last facing', (t) => {
     `the wall's mean offset east of the caster is ${(east / stones.length).toFixed(1)}`)
 
   // Let the stones expire now rather than holding the test process open.
-  t.mock.timers.tick(3000)
+  t.mock.timers.tick(StoneWall.LIFETIME)
+  assert.equal(World.OBSTACLES.filter((o) => o.type === ObjectType.Obstacle).length, 0,
+    'a stone outlived the fixed lifetime')
 })
 
 test('IceBreath from a stopped player cones along their last facing, not East', (t) => {
   // SectorArea aimed with `direction`, whose angle at (0,0) is 0: every breath
   // from a standstill went East. Walk West so the old East cone misses.
+  // Three cells out, the edge of the cone's 3 rings.
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const player = walkedAndStopped(-3)
   const at = player.position

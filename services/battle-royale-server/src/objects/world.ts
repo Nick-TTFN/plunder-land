@@ -14,7 +14,7 @@ import Exit from './exit'
 
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
-  static DROPPED_LOOT_LIFETIME = 60000
+  static DROPPED_LOOT_LIFETIME = 30000
   /** Bosses the world tries to keep alive, counted separately from mobs. */
   static BOSS_COUNT = 5
 
@@ -47,11 +47,13 @@ export default class World {
 
   static config = {
     damage: 10,
-    defend: 0,
-    fire: 15,
-    hp: 50,
+    defend: 0.5,
+    // Per second, applied as `fire * dt` and floored per tick by `hit()`, so it
+    // must be a multiple of 4 at 250 ms ticks: 60/s is 15 a tick, 60 a cast.
+    fire: 60,
+    hp: 100,
     melee: 20,
-    ranged: 20
+    ranged: 12
   }
 
   constructor (size: number) {
@@ -289,6 +291,52 @@ export default class World {
       }
     }
     return result
+  }
+
+  /**
+   * Units standing within `rings` cells of `origin` (a cell, not a position):
+   * `rings` 0 is the origin cell alone, 1 adds its 6 neighbours, 2 is 19 cells.
+   * A unit is in the area if the cell under its centre is, so an area is
+   * exactly the cells it covers, however big the unit.
+   *
+   * N rings is every cell whose centre is at most N * Hex.SIZE from the
+   * origin's centre (the ring's corners are at N * 45, its flat sides at
+   * N * 39), so "N cells" in the balance pass is N rings.
+   */
+  static FIND_IN_CELLS (
+    origin: Vector,
+    rings: number,
+    tag: number,
+    typeMask: number
+  ): Unit[] {
+    const result = new Array<Unit>()
+    for (const source of World.UNIT_SOURCES) {
+      for (const unit of source) {
+        if (unit.tag !== tag) continue
+        if ((unit.type & typeMask) === 0) continue
+        if (Hex.distance(origin, Hex.toCell(unit.position)) <= rings) result.push(unit)
+      }
+    }
+    return result
+  }
+
+  /**
+   * The cone variant of FIND_IN_CELLS, as a test on one cell so an area that is
+   * re-tested every tick (`SectorArea`) can use it: `cell` is within `rings` of
+   * `origin`, is not the origin itself, and its centre lies within `halfAngle`
+   * of `facing` as seen from the origin's centre.
+   */
+  static CELL_IN_CONE (
+    origin: Vector,
+    cell: Vector,
+    rings: number,
+    facing: Vector,
+    halfAngle: number
+  ): boolean {
+    const steps = Hex.distance(origin, cell)
+    if (steps === 0 || steps > rings) return false
+    const delta = Hex.toPosition(cell).sub(Hex.toPosition(origin))
+    return Math.abs(delta.getAngleTo(facing.getAngle())) <= halfAngle
   }
 
   static FIND_AROUND (

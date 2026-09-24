@@ -13,7 +13,9 @@ export class Defend extends Skill {
     // set damage reduction to
     this.owner.damageReduction = World.config.defend
 
-    const lifetime = 5000
+    // Must stay under the 8000 ms cooldown until `move-timers-into-tick`: a
+    // re-cast inside the lifetime would be ended early by the first timeout.
+    const lifetime = 3000
     Multiplayer.Instance.effect(4, this.owner, lifetime)
 
     setTimeout(() => {

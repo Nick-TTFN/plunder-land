@@ -20,7 +20,7 @@ export class StoneWall extends Skill {
     super(owner)
     this.name = 'Stone Wall'
     this.uiTexture = Texture.from(PLACEHOLDER.stoneWall)
-    this.cooldown = 1
+    this.cooldown = 6 // mirrors the server's 6000 ms
   }
 }
 
