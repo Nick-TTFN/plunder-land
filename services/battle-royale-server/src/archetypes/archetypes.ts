@@ -50,12 +50,24 @@ export interface GuardSpec {
   wander: number
   /** How long an empty scan blocks the next one, in ms. */
   refreshMs: number
+  /**
+   * While chasing, a target nearer than this (strictly) is not closed on: the
+   * unit stops where it is. 0 = never stop, which is how grunt and boss chase.
+   * It does not back away from a target that walks up to it.
+   */
+  standoff: number
 }
 
 export interface UseSkillOnTargetSpec {
   kind: 'useSkillOnTarget'
   /** Index into the archetype's `skills`. */
   skill: number
+  /**
+   * Fire only while the target is at most this many cells away, by
+   * `Hex.distance` between the two units' cells. Undefined = fire at any
+   * distance (the boss), which spends the cooldown on shots that cannot land.
+   */
+  withinCells?: number
 }
 
 export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec
@@ -143,7 +155,8 @@ const GUARD: GuardSpec = Object.freeze({
   idleSpeed: 30,
   chaseSpeed: 100,
   wander: 30,
-  refreshMs: 2000
+  refreshMs: 2000,
+  standoff: 0
 })
 
 const NO_ARMOR = Object.freeze({ max: 0, refillPerSec: 0, delayMs: 0 })
@@ -210,7 +223,50 @@ const boss: Archetype = {
   routines: [GUARD, { kind: 'useSkillOnTarget', skill: 0 }]
 }
 
-export const ARCHETYPES = Object.freeze({ peep, grunt, boss })
+/**
+ * Holds range and shoots (design section 1, decision #23). Deals no contact
+ * damage: `Mob.onCollideWithPlayer` returns before anything when
+ * `contact.damage` is 0.
+ */
+const gunner: Archetype = {
+  id: 8,
+  key: 'gunner',
+  kind: 'mob',
+  maxHp: 40,
+  armor: NO_ARMOR,
+  // Dead, like grunt and boss's 100 (the guard sets 30 or 80 before the first
+  // move). Set to the chase speed, which is the pattern those two follow; the
+  // design has no speed column for mobs.
+  speed: 80,
+  body: 24,
+  pickupReach: null,
+  vision: null,
+  loot: 75,
+  contact: { damage: 0, cooldownMs: 0 },
+  passesObstacles: false,
+  killStats: ['mobKills'],
+  // Range 300, not 270 (decision #24). `withinCells` counts cells, and a
+  // target in a cell 6 away can stand up to ~293 units from a gunner on its
+  // own cell centre (270 + the cell's far edge). At 270 the shot fell short.
+  skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: 300 }],
+  routines: [
+    Object.freeze({
+      kind: 'guard',
+      acquire: 270,
+      lose: 315,
+      idleSpeed: 30,
+      chaseSpeed: 80,
+      wander: 30,
+      refreshMs: 2000,
+      // 5 cells, so a target stepping back one cell is still inside the
+      // 6-cell range. Provisional (decision #23 Q3): Dez retunes after a playtest.
+      standoff: 225
+    }),
+    { kind: 'useSkillOnTarget', skill: 0, withinCells: 6 }
+  ]
+}
+
+export const ARCHETYPES = Object.freeze({ peep, grunt, boss, gunner })
 
 /** Build an archetype's skills for `owner`, in table order, with overrides applied. */
 export function buildSkills (owner: Unit, archetype: Archetype): Skill[] {
@@ -238,7 +294,7 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
       case 'useSkillOnTarget': {
         const skill = skills[spec.skill]
         if (skill === undefined) throw new Error(`${archetype.key}: no skill at index ${spec.skill}`)
-        return new UseSkillOnTarget(owner, skill)
+        return new UseSkillOnTarget(owner, skill, spec.withinCells)
       }
     }
     throw new Error(`${archetype.key}: unknown routine ${(spec as { kind: string }).kind}`)

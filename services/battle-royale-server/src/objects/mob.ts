@@ -29,6 +29,12 @@ export default class Mob extends Unit {
   }
 
   onCollideWithPlayer (target: Unit): void {
+    // No contact attack (the gunner). Nothing at all happens on touch: no
+    // cooldown is armed and no `hit(0)` is dealt, so a touch cannot kill a
+    // player already at 0 hp, credit a kill, or anything else a hit does.
+    // The two bodies are still pushed apart by `Unit.update`.
+    if (this.archetype.contact.damage <= 0) return
+
     if (this.canAttack) {
       Timers.schedule(this.archetype.contact.cooldownMs, () => { this.canAttack = true }, this)
 

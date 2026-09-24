@@ -117,16 +117,21 @@ export default class GuardPosition implements IAIRoutine {
     }
 
     if ((this.owner.target != null) && !this.owner.target.destroyed) {
-      if (
-        this.owner.target.position
-          .sub(this.owner.position)
-          .getSquareMagnitude() <
-				this.loseDistance * this.loseDistance
-      ) {
-        this.owner.setDirectionTo(
-          this.owner.target.position.x,
-          this.owner.target.position.y
-        )
+      const sqDistance = this.owner.target.position
+        .sub(this.owner.position)
+        .getSquareMagnitude()
+      if (sqDistance < this.loseDistance * this.loseDistance) {
+        if (sqDistance < this.spec.standoff * this.spec.standoff) {
+          // Close enough: hold here rather than close in (standoff 0 never
+          // gets here). Zeroing `direction` keeps `facing`, and the unit's
+          // skills aim at the target's cell, not along facing.
+          this.owner.direction = new Vector(0, 0)
+        } else {
+          this.owner.setDirectionTo(
+            this.owner.target.position.x,
+            this.owner.target.position.y
+          )
+        }
       } else this.release()
     } else {
       if (this.moveTarget != null) {

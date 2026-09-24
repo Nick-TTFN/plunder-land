@@ -210,20 +210,23 @@ async function statsForKilling (victim: GameObject): Promise<string[]> {
 test('kill stats keep today\'s redis keys: a boss counts as a mob kill and a boss kill', async () => {
   assert.deepEqual(await statsForKilling(new Mob(1000, 2000, 0, ARCHETYPES.grunt)), ['kills', 'mobKills'])
   assert.deepEqual(await statsForKilling(new Mob(1000, 2000, 0, ARCHETYPES.boss)), ['kills', 'mobKills', 'bossKills'])
+  assert.deepEqual(await statsForKilling(new Mob(1000, 2000, 0, ARCHETYPES.gunner)), ['kills', 'mobKills'])
   assert.deepEqual(await statsForKilling(new Player(1000, 2000, 0, 'victim')), ['kills'])
   assert.deepEqual(await statsForKilling(new Unit(ObjectType.Mob, 1000, 2000, 10, 0)), ['kills'])
 })
 
 // --- spawner --------------------------------------------------------------------
 
-test('the spawner keeps BOSS_COUNT bosses by archetype, and fills the rest with grunts', () => {
+test('the spawner keeps BOSS_COUNT bosses and GUNNER_COUNT gunners by archetype, and fills the rest with grunts', () => {
   const world = new World(4000)
   const count = (a: Archetype): number => World.MOBS.filter((m) => m.archetype === a).length
   for (let i = 0; i < 400 && World.MOBS.length < 50; i++) world.update(0.25)
 
+  assert.equal(World.GUNNER_COUNT, 8)
   assert.equal(World.MOBS.length, 50)
   assert.equal(count(ARCHETYPES.boss), World.BOSS_COUNT)
-  assert.equal(count(ARCHETYPES.grunt), 50 - World.BOSS_COUNT)
+  assert.equal(count(ARCHETYPES.gunner), World.GUNNER_COUNT)
+  assert.equal(count(ARCHETYPES.grunt), 50 - World.BOSS_COUNT - World.GUNNER_COUNT)
   for (const mob of World.MOBS) assert.ok(mob instanceof Mob)
 
   // A dead boss is replaced by a boss, not a grunt: the count is by archetype.
@@ -231,6 +234,12 @@ test('the spawner keeps BOSS_COUNT bosses by archetype, and fills the rest with 
   boss.hit(10_000)
   for (let i = 0; i < 400 && count(ARCHETYPES.boss) < World.BOSS_COUNT; i++) world.update(0.25)
   assert.equal(count(ARCHETYPES.boss), World.BOSS_COUNT)
+
+  // Likewise a dead gunner.
+  const gunner = World.MOBS.find((m) => m.archetype === ARCHETYPES.gunner) as Mob
+  gunner.hit(10_000)
+  for (let i = 0; i < 400 && count(ARCHETYPES.gunner) < World.GUNNER_COUNT; i++) world.update(0.25)
+  assert.equal(count(ARCHETYPES.gunner), World.GUNNER_COUNT)
 })
 
 test('World.config no longer carries unit stats', () => {

@@ -7,7 +7,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { type GameObject } from './gameobject'
 import Mob from './mob'
-import { ARCHETYPES } from '../archetypes/archetypes'
+import { type Archetype, ARCHETYPES } from '../archetypes/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -21,6 +21,8 @@ export default class World {
   static DROPPED_LOOT_LIFETIME = 30000
   /** Bosses the world tries to keep alive, counted separately from mobs. */
   static BOSS_COUNT = 5
+  /** Gunners the world keeps alive, world-wide on random planes (decision #23 Q2). */
+  static GUNNER_COUNT = 8
 
   static TAGS = [-1, 0]
   static mapSize: number
@@ -158,23 +160,32 @@ export default class World {
     }
 
     // fill the map with NPC's
-    if (World.MOBS.length < 50) {
-      const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
-      const pos = this.getUnobstructedPosition(40, tag)
-      if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag, ARCHETYPES.grunt))
-    }
+    if (World.MOBS.length < 50) this.spawnMob(ARCHETYPES.grunt)
 
-    // Bosses are counted separately. Both guards used to read MOBS.length, so
-    // five spawned during the first few ticks and none was ever replaced once
-    // the mob population had filled past ten.
+    // Bosses and gunners are counted separately, by archetype. Both guards used
+    // to read MOBS.length, so five bosses spawned during the first few ticks
+    // and none was ever replaced once the mob population had filled past ten.
+    // All three spawners share the 50 above: grunts fill whatever the other
+    // two leave (37 once all 5 bosses and 8 gunners are up). A boss or gunner
+    // that dies on a full map is replaced in the same tick as the grunt that
+    // refills its slot, so the total can sit above 50 until grunts die off;
+    // bosses always did this.
     let bosses = 0
-    for (const mob of World.MOBS) if (mob.archetype === ARCHETYPES.boss) bosses++
-
-    if (bosses < World.BOSS_COUNT) {
-      const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
-      const pos = this.getUnobstructedPosition(40, tag)
-      if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag, ARCHETYPES.boss))
+    let gunners = 0
+    for (const mob of World.MOBS) {
+      if (mob.archetype === ARCHETYPES.boss) bosses++
+      else if (mob.archetype === ARCHETYPES.gunner) gunners++
     }
+
+    if (bosses < World.BOSS_COUNT) this.spawnMob(ARCHETYPES.boss)
+    if (gunners < World.GUNNER_COUNT) this.spawnMob(ARCHETYPES.gunner)
+  }
+
+  /** One mob of `archetype` on a random plane, if a free spot turns up. */
+  private spawnMob (archetype: Archetype): void {
+    const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
+    const pos = this.getUnobstructedPosition(40, tag)
+    if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag, archetype))
   }
 
   /**
