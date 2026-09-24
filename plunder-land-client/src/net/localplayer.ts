@@ -444,8 +444,11 @@ export class LocalPlayer {
     return { x, y }
   }
 
-  /** Server-side radius for a level-1 player: 2 * sqrt(maxHP), maxHP 50. */
-  static RADIUS = 2 * Math.sqrt(50)
+  /**
+   * Mirrors the server's `Player.BODY_RADIUS` (14), which is pinned rather than
+   * derived from HP. Until `unit-archetypes` sends it, keep the two in step.
+   */
+  static RADIUS = 14
 }
 
 const PLAYER_RADIUS = LocalPlayer.RADIUS
