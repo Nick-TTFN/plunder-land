@@ -26,7 +26,18 @@ types without checking them, so `tsc` errors never fail a client build.
 ```
 cd plunder-land-client        && npm run typecheck   # 34 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
+cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
+
+The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typechecked**. A
+type error in a spec only shows up if ts-node trips over it at run time.
+
+**Unit stats live in one table**, `src/archetypes/archetypes.ts` (peep, grunt, boss, and the
+robots and gunner to come): body, HP, speed, loot, contact damage, kill-stat keys, skills
+with per-archetype overrides, and AI routines with their parameters. There is no `Boss`
+class. `src/archetypes/baseline.spec.ts` pins the pre-refactor behaviour; change it only on
+purpose. `plunder-land-client/tools/archetype-bot.mjs <server-url>` records what a real
+join sees on the wire (Node 22.18+).
 
 Builds:
 
