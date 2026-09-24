@@ -475,6 +475,12 @@ export class Unit extends GameObject {
   }
 
   hit (value: number): boolean {
+    // A dead unit stays in its world list until the next tick sweeps it, and
+    // FIND_IN_CELLS does not skip it, so a second hit in the same tick reached
+    // the corpse and destroyed it again: its id was freed twice (two later
+    // objects then share it) and the second killer was credited too.
+    if (this.destroyed) return false
+
     // Clamped: at armor 10 the multiplier hits zero, and above it went negative,
     // so `hp -= inflictedDamage` healed - past maxHP, since only pickups clamp.
     const multiplier = Math.max(0, Math.min(1, 1 - this.damageReduction - this.armor / 10))

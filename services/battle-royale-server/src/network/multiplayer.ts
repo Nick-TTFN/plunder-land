@@ -98,6 +98,14 @@ export default class Multiplayer {
    */
   static STATS_LOG = new ThrottledLog('stats write failed', 60_000)
   static REDIS_LOG = new ThrottledLog('redis', 60_000)
+  /**
+   * Socket handlers run on their own turn of the event loop, outside the tick's
+   * try/catch in `index.ts`, so each one is caught where it is registered (see
+   * `guarded`). Throttled because a broken skill throws on every press, and a
+   * client can press it several times a second.
+   */
+  static HANDLER_LOG = new ThrottledLog('socket handler threw', 10_000)
+
   static logStatsFailure (error: unknown): void {
     Multiplayer.STATS_LOG.report(error)
   }
@@ -123,30 +131,72 @@ export default class Multiplayer {
     socket.on('start_requested', (playerId) => {
       if (connection.started) return
       connection.started = true
-      void this.onStart(connection, playerId)
+      Multiplayer.guarded(() => { this.onStart(connection, playerId) })
+    })
+    // Registered here rather than in onStart, so a start that fails and is
+    // retried does not register them twice. Before a start they do nothing:
+    // both return while `connection.player` is unset.
+    //
+    // Applied on arrival, not queued for the tick. Their effects leave on the
+    // next flush either way, but a skill's cooldown is checked against
+    // `Date.now()`, and moving the check to tick time changes which presses
+    // made right at the end of a cooldown are accepted (socket-handlers-in-
+    // boundary, handoff note).
+    socket.on('pointer', (data) => {
+      Multiplayer.guarded(() => { this.onPointer(connection, data) })
+    })
+    socket.on('skill', (data) => {
+      Multiplayer.guarded(() => { this.onSkill(connection, data) })
     })
     this._connections.push(connection)
   }
 
+  /**
+   * The error boundary for socket input, the counterpart of the tick's in
+   * `index.ts`. A throw here would otherwise reach the process and end every
+   * run in progress. It is caught per event, so one bad press cannot stop the
+   * next event - anyone's - from being handled.
+   */
+  static guarded (fn: () => void): void {
+    try {
+      fn()
+    } catch (e) {
+      Multiplayer.HANDLER_LOG.report(e)
+    }
+  }
+
   // incoming traffic ========
-  async onStart (connection: Connection, playerId: string): Promise<void> {
-    connection.socket.on('pointer', (data) => {
-      this.onPointer(connection, data)
-    })
-    connection.socket.on('skill', (data) => {
-      this.onSkill(connection, data)
-    })
+  /**
+   * Joins the world. Not async: nothing here waits, and an `async` function
+   * that throws turns into a rejected promise that `void` left unhandled,
+   * which ends the process.
+   *
+   * If anything throws, the join is undone before the error is rethrown to
+   * `guarded`: the player leaves the world and every client that was sent its
+   * create is sent its destroy. Unless the final flush is what threw, nothing
+   * has been emitted to the joining client (`hello` goes out just before that
+   * flush), and `started` is cleared so it can ask again.
+   */
+  onStart (connection: Connection, playerId: string): void {
+    let player: Player | undefined
+    try {
+      player = World.createPlayer(playerId)
+      this.admit(connection, player)
+    } catch (e) {
+      connection.started = false
+      connection.player = undefined // before destroy, so no stats are written for it
+      if (player !== undefined) {
+        const i = World.PLAYERS.indexOf(player)
+        if (i >= 0) World.PLAYERS.splice(i, 1)
+        player.destroy()
+      }
+      delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
+      throw e
+    }
+  }
 
-    const player = World.createPlayer(playerId)
-
+  private admit (connection: Connection, player: Player): void {
     connection.player = player
-
-    // Everything the client would otherwise have to assume about this server.
-    connection.socket.emit('hello', {
-      tick: this.tickLengthMs,
-      map: World.mapSize,
-      interest: Multiplayer.INTEREST_RADIUS
-    })
 
     this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
 
@@ -169,6 +219,15 @@ export default class Multiplayer {
         }
       }
     }
+
+    // Everything the client would otherwise have to assume about this server.
+    // Sent after the snapshot is built, so a snapshot that throws sends nothing;
+    // still before the flush, so the client gets it first, as it always has.
+    connection.socket.emit('hello', {
+      tick: this.tickLengthMs,
+      map: World.mapSize,
+      interest: Multiplayer.INTEREST_RADIUS
+    })
 
     this.flush(connection, 0)
   }
@@ -461,7 +520,11 @@ export default class Multiplayer {
       const connection = this._connections[i]
 
       if (connection.socket === socket) {
-        if (connection.player != null) connection.player.destroy()
+        // Not a player that is already gone. One killed between ticks (a skill
+        // runs from its socket handler) is still here until the next flush,
+        // and destroying it again freed its id twice and counted the run twice.
+        const player = connection.player
+        if (player != null && !player.destroyed) player.destroy()
         delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
         this._connections.splice(i, 1)
         break
