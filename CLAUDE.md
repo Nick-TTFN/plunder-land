@@ -180,6 +180,12 @@ append-only** — an index is a consumed boundary, so never reorder or remove on
 currently unreachable because `dirtyFields.add('direction')` / `('impulse')` are commented
 out in `gameobject.ts`. Add them to `fieldOrder` before ever re-enabling those.
 
+**Skills aim with `Unit.facing`, not `direction`, and `facing` is server-only.** `stop()` zeroes
+`direction`, so aiming with it made every skill fire at the caster's own feet once they stood
+still. `facing` is the last non-zero direction (unit length, East until the unit first moves),
+kept current by `Unit`'s `direction` setter. `fix-direction-on-wire` should send `facing`, not
+`direction`.
+
 `maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
 known positions and never need a speed.
@@ -313,6 +319,24 @@ distinguishes them until real art exists. Also missing and wanted: `player/magic
 `player/shoot/shot` clips (Defend and RangedAttack used to call them and only logged an
 error), and an icicle projectile sprite — thrown icicles currently render as fireballs.
 
+**Every area of effect is a set of hex cells, not a radius.** A unit is inside if the cell
+under its centre is. `World.FIND_IN_CELLS` covers rings around a cell: melee is 2 rings
+around the caster, and the fireball/icicle blast is 1 ring around **the cell of the unit
+struck** (or the projectile's own cell if it expires). Centring a distance blast on the
+projectile missed the unit it had just hit, because a projectile's 50-unit collider sets
+it off before the target is inside a 70-unit blast. Breath cones are `World.CONE_CELLS`: the
+facing snaps to one of the six `Hex.DIRECTIONS`, and each ring is the three forward
+neighbours of the ring before, so ring k has 2k+1 cells. No angle test. The client effects
+still draw the old distances (`vfx-match-cells`).
+
+**Projectiles are not solid.** A `Throwable` still lives in `World.OBSTACLES`, because that
+is how the tick finds it to update, but `Unit.update`'s push-out skips it, and it does its
+own hit test after moving, which never matches its owner. When it was solid, every fireball
+exploded on its caster.
+
+**StoneWall is placed behind the caster on purpose**, to block chasers. Do not "fix" it to
+the front.
+
 ## Known-unfixed
 
 - **Levels never change.** `setLevel(1)` is called once; `LEVEL_THRESHOLDS` sits commented
@@ -330,9 +354,14 @@ error), and an icicle projectile sprite — thrown icicles currently render as f
   permanently blind — wandering, while `UseSkillOnTarget` (which only tests for null) kept
   attacking the corpse. Anything that latches onto a target must clear it the same way.
   Note the acquisition loop still takes the *last* match from `FIND_AROUND`, not the nearest.
+  **Being hit by a player also sets the target** (`GuardPosition.provoke`), so a mob can no
+  longer be killed from beyond its 200-unit notice range without reacting. It chases until
+  the attacker is more than max(250, the distance at the hit + 50) away, and always switches
+  to whoever hit it last. Breath damage has no attacker attached, so being inside a player's
+  cone counts as a hit.
 - **A pickup both banks and heals.** One consumable does double duty; splitting them into
   separate loot and health pickups is a later decision, not an oversight.
-- **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (60s); natural spawns do not.**
+- **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (30s); natural spawns do not.**
   The world's own spawner is bounded by a count, drops were not.
 - **Impulse decay is a constant applied to the magnitude** (`IMPULSE_FRICTION`, currently 3.0).
   Duration is `impulse magnitude / IMPULSE_FRICTION`; Dash starts at 1.5, so 0.5s. Measured: the
