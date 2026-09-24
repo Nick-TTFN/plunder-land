@@ -321,22 +321,62 @@ export default class World {
   }
 
   /**
-   * The cone variant of FIND_IN_CELLS, as a test on one cell so an area that is
-   * re-tested every tick (`SectorArea`) can use it: `cell` is within `rings` of
-   * `origin`, is not the origin itself, and its centre lies within `halfAngle`
-   * of `facing` as seen from the origin's centre.
+   * The `Hex.DIRECTIONS` index nearest to a facing (a world-space vector).
+   *
+   * DIRECTIONS runs clockwise from East in screen space (y grows downward), so
+   * index i sits at exactly i * 60 degrees of `atan2(y, x)`. A facing exactly
+   * halfway between two directions - due South (0, 1), due North (0, -1), or
+   * 30 degrees either side of East or West - **rounds clockwise**, to the higher
+   * angle: South snaps to SW, North to NE. The small epsilon is what makes that
+   * hold for halfway facings whose angle is not exactly representable. A zero
+   * vector snaps to East (`atan2(0, 0)` is 0), which matches `Unit.facing`'s
+   * default.
    */
-  static CELL_IN_CONE (
-    origin: Vector,
-    cell: Vector,
-    rings: number,
-    facing: Vector,
-    halfAngle: number
-  ): boolean {
-    const steps = Hex.distance(origin, cell)
-    if (steps === 0 || steps > rings) return false
-    const delta = Hex.toPosition(cell).sub(Hex.toPosition(origin))
-    return Math.abs(delta.getAngleTo(facing.getAngle())) <= halfAngle
+  static FACING_INDEX (facing: Vector): number {
+    const sixths = Math.atan2(facing.y, facing.x) / (Math.PI / 3)
+    const index = Math.floor(sixths + 0.5 + 1e-9)
+    return ((index % 6) + 6) % 6
+  }
+
+  /**
+   * The cells of a breath cone: `rings` rings of the 120-degree hex wedge in
+   * front of `origin` (a cell), facing along `Hex.DIRECTIONS[direction]`.
+   *
+   * **This expansion is the definition of a cone** (decision #20), not an
+   * approximation of an angle test. Ring 1 is the origin's neighbours in
+   * directions d-1, d and d+1. Every later ring is those same three forward
+   * neighbours of every cell in the ring before it, deduplicated by `Hex.key`.
+   * The origin is not in the cone. Ring k holds 2k + 1 cells, so 3 rings is 15
+   * cells and 4 rings is 24.
+   *
+   * Returned ring by ring, each cell once. **The deduplication runs against
+   * every cell seen so far, not just the ring being built**: two forward steps
+   * can land back in an earlier ring (NE then SE is E), so a per-ring dedupe
+   * leaves ring 2 with 6 cells, one of them from ring 1. The *set* comes out the
+   * same either way (`balance.spec.ts` checks that against the literal per-ring
+   * expansion), but ring k holds exactly the 2k + 1 cells at distance k only
+   * with the whole-cone dedupe.
+   */
+  static CONE_CELLS (origin: Vector, direction: number, rings: number): Vector[] {
+    const turns = [(direction + 5) % 6, direction, (direction + 1) % 6]
+    const result = new Array<Vector>()
+    const seen = new Set<number>([Hex.key(origin.x, origin.y)])
+    let frontier = [origin]
+    for (let ring = 1; ring <= rings; ring++) {
+      const next = new Array<Vector>()
+      for (const cell of frontier) {
+        for (const turn of turns) {
+          const neighbour = Hex.neighbour(cell, turn)
+          const key = Hex.key(neighbour.x, neighbour.y)
+          if (seen.has(key)) continue
+          seen.add(key)
+          next.push(neighbour)
+        }
+      }
+      result.push(...next)
+      frontier = next
+    }
+    return result
   }
 
   static FIND_AROUND (

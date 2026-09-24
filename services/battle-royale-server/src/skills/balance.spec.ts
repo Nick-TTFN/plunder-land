@@ -296,7 +296,10 @@ test('IceBreath cones three rings ahead, not the fourth, not its own cell, not b
   const own = mobAt(at.add(new Vector(10, 0))) // same cell as the caster
   const third = mobAt(cellCentre(3))
   const fourth = mobAt(cellCentre(4))
-  const side = mobAt(cellCentre(0, 2)) // 60 degrees off East: outside +-45
+  // The cone is the 120-degree hex wedge (decision #20): the SE axis, 60
+  // degrees off East, is its edge and inside; the SW axis, 120 off, is out.
+  const edge = mobAt(cellCentre(0, 2))
+  const side = mobAt(cellCentre(-2, 2))
   const behind = mobAt(cellCentre(-2))
 
   assert.equal(new IceBreath(player).execute(), true)
@@ -305,7 +308,8 @@ test('IceBreath cones three rings ahead, not the fourth, not its own cell, not b
   assert.ok(third.hp < 1000, 'missed the third ring straight ahead')
   assert.equal(fourth.hp, 1000, 'reached the fourth ring')
   assert.equal(own.hp, 1000, "hit a unit in the caster's own cell")
-  assert.equal(side.hp, 1000, 'hit a cell 60 degrees off the facing')
+  assert.ok(edge.hp < 1000, 'missed the edge of the wedge, 60 degrees off the facing')
+  assert.equal(side.hp, 1000, 'hit a cell 120 degrees off the facing')
   assert.equal(behind.hp, 1000, 'hit behind the caster')
   t.mock.timers.tick(1000)
 })
@@ -341,6 +345,141 @@ test('the breath cone follows the caster as they move', (t) => {
   tick()
   assert.ok(target.hp < 1000, 'the cone stayed where it was cast')
   t.mock.timers.tick(1000)
+})
+
+test('the breath cone turns with the caster without leaving its cell', (t) => {
+  // SectorArea caches the cone by (origin cell, direction); a turn on the spot
+  // changes only the direction, so a cache keyed on the cell alone would keep
+  // breathing East.
+  mockTimers(t)
+  const at = cellCentre(0)
+  const player = shooterAt(at.x, at.y) // faces East
+  const west = mobAt(cellCentre(-2))
+
+  assert.equal(new IceBreath(player).execute(), true)
+  tick()
+  assert.equal(west.hp, 1000, 'hit West while facing East')
+
+  player.facing = new Vector(-1, 0)
+  tick()
+  assert.ok(west.hp < 1000, 'the cone did not turn with the caster')
+  t.mock.timers.tick(1000)
+})
+
+// --- Cone by neighbour expansion (decision #20) -------------------------------
+
+const cellKey = (c: Vector): number => Hex.key(c.x, c.y)
+const sortedKeys = (cells: Vector[]): number[] => cells.map(cellKey).sort((a, b) => a - b)
+
+/**
+ * Nick's wording taken literally, as an independent reference: each ring is the
+ * d-1 / d / d+1 neighbours of the previous ring, deduplicated within the ring.
+ * Returns the union, minus the origin.
+ */
+function literalCone (origin: Vector, d: number, rings: number): Set<number> {
+  const result = new Set<number>()
+  let frontier = [origin]
+  for (let ring = 1; ring <= rings; ring++) {
+    const next = new Map<number, Vector>()
+    for (const cell of frontier) {
+      for (const turn of [(d + 5) % 6, d, (d + 1) % 6]) {
+        const n = Hex.neighbour(cell, turn)
+        next.set(cellKey(n), n)
+      }
+    }
+    for (const key of next.keys()) result.add(key)
+    frontier = [...next.values()]
+  }
+  result.delete(cellKey(origin))
+  return result
+}
+
+/**
+ * A closed form, as a second independent reference: rotate the offset back to
+ * the East frame (one step anticlockwise is cube (q, r, s) -> (-s, -q, -r)),
+ * where the wedge between NE and SE is q >= 0 and s <= 0.
+ */
+function inClosedFormCone (origin: Vector, d: number, rings: number, cell: Vector): boolean {
+  let q = cell.x - origin.x
+  let r = cell.y - origin.y
+  let s = -q - r
+  for (let i = 0; i < d; i++) [q, r, s] = [-s, -q, -r]
+  const steps = Hex.distance(origin, cell)
+  return steps > 0 && steps <= rings && q >= 0 && s <= 0
+}
+
+test('FACING_INDEX snaps to the nearest of the six directions', () => {
+  for (let i = 0; i < 6; i++) {
+    assert.equal(World.FACING_INDEX(Hex.toPosition(Hex.DIRECTIONS[i])), i, `direction ${i}`)
+  }
+  assert.equal(World.FACING_INDEX(new Vector(0.01, 1)), 1, 'just East of South is SE')
+  assert.equal(World.FACING_INDEX(new Vector(-0.01, 1)), 2, 'just West of South is SW')
+  assert.equal(World.FACING_INDEX(new Vector(0, 0)), 0, 'a zero facing is East')
+})
+
+test('a facing exactly halfway between two directions rounds clockwise', () => {
+  const c = Math.cos(Math.PI / 6)
+  const s = Math.sin(Math.PI / 6)
+  assert.equal(World.FACING_INDEX(new Vector(c, s)), 1, 'E|SE -> SE')
+  assert.equal(World.FACING_INDEX(new Vector(0, 1)), 2, 'SE|SW (South) -> SW')
+  assert.equal(World.FACING_INDEX(new Vector(-c, s)), 3, 'SW|W -> W')
+  assert.equal(World.FACING_INDEX(new Vector(-c, -s)), 4, 'W|NW -> NW')
+  assert.equal(World.FACING_INDEX(new Vector(0, -1)), 5, 'NW|NE (North) -> NE')
+  assert.equal(World.FACING_INDEX(new Vector(c, -s)), 0, 'NE|E -> E')
+})
+
+test('cone rings hold 3, 5, 7, 9 cells, each at its own distance, each once', () => {
+  const origin = new Vector(40, 40)
+  for (let d = 0; d < 6; d++) {
+    const cells = World.CONE_CELLS(origin, d, 4)
+    assert.equal(new Set(cells.map(cellKey)).size, cells.length, `direction ${d}: a cell appears twice`)
+    let start = 0
+    for (let ring = 1; ring <= 4; ring++) {
+      const size = 2 * ring + 1
+      const slice = cells.slice(start, start + size)
+      assert.equal(slice.length, size, `direction ${d} ring ${ring}`)
+      for (const cell of slice) {
+        assert.equal(Hex.distance(origin, cell), ring, `direction ${d}: a ring-${ring} cell is out of place`)
+      }
+      start += size
+    }
+    assert.equal(cells.length, 24, `direction ${d}: 4 rings is 24 cells`)
+  }
+})
+
+test('the East and North-West cones are exactly these cells', () => {
+  const o = new Vector(40, 40)
+  const at = (dq: number, dr: number): Vector => new Vector(o.x + dq, o.y + dr)
+
+  const east = World.CONE_CELLS(o, 0, 2)
+  assert.deepEqual(sortedKeys(east.slice(0, 3)), sortedKeys([at(1, -1), at(1, 0), at(0, 1)]))
+  assert.deepEqual(sortedKeys(east.slice(3)),
+    sortedKeys([at(2, -2), at(2, -1), at(2, 0), at(1, 1), at(0, 2)]))
+
+  const northWest = World.CONE_CELLS(o, 4, 2)
+  assert.deepEqual(sortedKeys(northWest.slice(0, 3)), sortedKeys([at(-1, 0), at(0, -1), at(1, -1)]))
+  assert.deepEqual(sortedKeys(northWest.slice(3)),
+    sortedKeys([at(-2, 0), at(-1, -1), at(0, -2), at(1, -2), at(2, -2)]))
+})
+
+test('the cone matches the literal expansion and the closed form, all directions, rings 1-5', () => {
+  const origin = new Vector(40, 40)
+  for (let d = 0; d < 6; d++) {
+    for (let rings = 1; rings <= 5; rings++) {
+      const cone = new Set(World.CONE_CELLS(origin, d, rings).map(cellKey))
+      assert.deepEqual(cone, literalCone(origin, d, rings), `direction ${d}, ${rings} rings: literal`)
+      let closed = 0
+      for (let q = -6; q <= 6; q++) {
+        for (let r = -6; r <= 6; r++) {
+          const cell = new Vector(origin.x + q, origin.y + r)
+          const expected = inClosedFormCone(origin, d, rings, cell)
+          if (expected) closed++
+          assert.equal(cone.has(cellKey(cell)), expected, `direction ${d}, ${rings} rings, offset (${q}, ${r})`)
+        }
+      }
+      assert.equal(closed, rings * (rings + 2), 'closed form: sum of 2k+1')
+    }
+  }
 })
 
 for (const [name, make] of [
