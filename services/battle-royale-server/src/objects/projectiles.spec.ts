@@ -73,11 +73,32 @@ function hitterAndMob (): { caster: Player, mob: Unit } {
   return { caster, mob }
 }
 
+/**
+ * A real World to tick, minus the 20 Portals and 8 Exits its constructor drops
+ * at random cells.
+ *
+ * Those made the explode-order tests below flaky (1 suite run in 46, then 1 in
+ * 75, on 2026-09-24; the replay rate below predicts about 1 in 30): a plane-0
+ * Portal landing within 60 units (its radius 50 + the mob's 10) of the target
+ * mob collided with it in the mob's own update, which runs before projectiles
+ * fly, and `Portal.onCollide` moved the mob to plane -1, so the projectile on
+ * plane 0 flew through it ("the setup projectile never hit"). Measured over
+ * 10,000 replays: 85 misses, all 85 with the mob's tag flipped, no flip that
+ * still hit. The refill at the end of `update` runs after the projectiles, so
+ * nothing it places can reach them this tick.
+ */
+function worldWithoutPortals (): World {
+  const world = new World(4000)
+  World.OBSTACLES.length = 0
+  World.BLOCKED.clear()
+  return world
+}
+
 for (const skill of SKILLS) {
   for (const hitterFirst of [true, false]) {
     const order = hitterFirst ? 'before' : 'after'
     test(`a ${skill.name} that explodes does not cost the one cast ${order} it a tick of movement`, () => {
-      const world = new World(4000)
+      const world = worldWithoutPortals()
       const { caster } = hitterAndMob()
       const flyer = playerAt(3000, 1000)
 

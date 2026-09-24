@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 // GameObject undefined, so go in the way index.ts does.
 import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
+import Timers from '../objects/timers'
 import Player from '../objects/player'
 import Boss from '../objects/boss'
 import { Unit } from '../objects/unit'
@@ -50,10 +51,16 @@ beforeEach(() => {
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
+  Timers.clear()
 })
 
+/**
+ * Mock Date for a test that casts a projectile or a breath. Their lifetimes and
+ * cooldowns are `Timers` entries on `Date.now()`, not `setTimeout`s; mocking
+ * `setTimeout` (what this used to do) mocked nothing the skills read.
+ */
 function mockTimers (t: TestContext): void {
-  t.mock.timers.enable({ apis: ['setTimeout'] })
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
 }
 
 /** A player standing on the centre of a cell, who has never moved: facing East. */
