@@ -357,9 +357,20 @@ per-visible-player one (break-even at about three visible players).
   first in `World.update`, with a catch per timer. Give a timer the object whose state it
   changes as its owner, so the timer is cancelled when that object dies or exits. Never
   give a cleanup timer an owner that can die before the thing it cleans up. The only
-  `setTimeout` left is the game loop's own scheduler in `index.ts`. Socket handlers
-  (`'skill'`, `pointer`, and `void this.onStart(...)` on connect) are still outside the
-  boundary (`socket-handlers-in-boundary`).
+  `setTimeout` left is the game loop's own scheduler in `index.ts`. **Socket handlers
+  (`start_requested`, `pointer`, `skill`) run inside `Multiplayer.guarded`**, which catches
+  per event. They are applied on arrival, not queued for the tick, on purpose: a skill's
+  cooldown is checked against `Date.now()`, and queuing would move that check to tick time
+  and change which presses at the end of a cooldown are accepted. A join that throws is
+  undone (`onStart`).
+- **A dead unit stays findable until the next tick's sweep.** `FIND_IN_CELLS` and the world
+  lists still return it, so anything that damages, credits or destroys a unit must check
+  `destroyed` first. `Unit.hit` does. A second hit on a corpse used to free its id twice
+  and credit a second kill.
+- **Tests that tick a real `new World()` get random exits, portals and mobs.** An exit
+  extracts a player, and a portal moves a unit to the other plane. Two test flakes came
+  from this (`c14d74a`, `34835e1`). Clear `World.OBSTACLES`/`BLOCKED`/`MOBS` after
+  building the world unless the test is about the map.
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`.** A rejected
   `void` promise is an unhandled rejection, which ends the process, and no try/catch around
   the tick can see it. With Redis down, every disconnect used to kill the server that way.
