@@ -35,6 +35,39 @@ class Connection {
   }
 }
 
+/**
+ * Logs at most one line per window, and says how many it swallowed since.
+ *
+ * For failures that repeat for as long as their cause lasts. A dead Redis fails
+ * every stats write (one per disconnect, exit and kill) and ioredis emits an
+ * `error` on every reconnect attempt, which is one line every two seconds for as
+ * long as it stays down. The first failure is logged in full; the rest of the
+ * window is counted and reported with the next line.
+ */
+export class ThrottledLog {
+  private _lastAt = -Infinity
+  private _suppressed = 0
+
+  constructor (
+    readonly label: string,
+    readonly windowMs: number,
+    private readonly _now: () => number = () => Date.now(),
+    private readonly _sink: (...args: unknown[]) => void = console.error
+  ) {}
+
+  report (error: unknown): void {
+    const now = this._now()
+    if (now - this._lastAt < this.windowMs) {
+      this._suppressed++
+      return
+    }
+    const note = this._suppressed > 0 ? ` (${this._suppressed} more in the last ${Math.round((now - this._lastAt) / 1000)}s)` : ''
+    this._lastAt = now
+    this._suppressed = 0
+    this._sink(`${this.label}${note}:`, error)
+  }
+}
+
 function sameCells (a: Vector[], b: Vector[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
@@ -53,12 +86,34 @@ export default class Multiplayer {
   private _buffer: Record<string, { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }> = {}
   redis: Redis
 
-  constructor (tickLengthMs: number) {
+  /**
+   * Stats are a side channel. Nothing in the world is persisted, so a stats write
+   * that takes the process down wipes every run in progress to save one counter.
+   * Every stats write is fire-and-forget and must end in `.catch(logStatsFailure)`:
+   * a bare `void` promise that rejects is an unhandled rejection, which ends the
+   * process, and no try/catch around the tick can see it.
+   *
+   * Static, not per-instance, so a spec that swaps `Instance` for a stub still
+   * has somewhere to report to.
+   */
+  static STATS_LOG = new ThrottledLog('stats write failed', 60_000)
+  static REDIS_LOG = new ThrottledLog('redis', 60_000)
+  static logStatsFailure (error: unknown): void {
+    Multiplayer.STATS_LOG.report(error)
+  }
+
+  constructor (tickLengthMs: number, redis?: Redis) {
     Multiplayer.Instance = this
     this.tickLengthMs = tickLengthMs
     this._connections = []
 
-    this.redis = new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis')
+    // Start-up does not wait for Redis: ioredis connects in the background and
+    // queues commands meanwhile, so a server with Redis down still starts and
+    // runs the world; only stats are lost.
+    this.redis = redis ?? new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis')
+    // Without a listener ioredis prints "[ioredis] Unhandled error event" with a
+    // stack on every reconnect attempt, forever, while Redis is down.
+    this.redis.on('error', (e) => { Multiplayer.REDIS_LOG.report(e) })
   }
 
   onConnect (socket: Socket): void {
@@ -342,7 +397,7 @@ export default class Multiplayer {
       if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
       this._buffer[connection.id].destroy.push(data)
 
-      if (connection.player === obj) { void this.updateStats(obj as Player) }
+      if (connection.player === obj) { this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure) }
     }
 
     obj.dirtyFields.clear()

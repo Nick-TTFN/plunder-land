@@ -144,7 +144,9 @@ export default class Player extends Unit {
   onKill (value: GameObject): void {
     super.onKill(value)
 
-    void this.updateKillStats(value)
+    // Never `void`: see Multiplayer.STATS_LOG. A rejected stats write is an
+    // unhandled rejection, and that ends the process.
+    this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
   }
 
   async updateKillStats (value: GameObject): Promise<void> {
