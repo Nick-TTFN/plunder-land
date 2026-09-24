@@ -1,45 +1,33 @@
 import TWEEN from '@tweenjs/tween.js'
 import { Sprite, Texture, Point } from 'pixi.js'
 import { type GameObject } from '../objects/gameobject'
-import { Game } from '../game'
+import { type Vector } from '../utils/vector'
+import { ICE_BREATH_RINGS } from './cells'
+import { playBreath } from './breath'
 
+/**
+ * The `CONE_CELLS` wedge, 3 rings (decision #20), lit for the breath's
+ * lifetime, with snowflakes blown out to its cells. See FireBreathEffect.
+ */
 export class IceBreathEffect {
-  constructor (owner: GameObject, lifetime: number) {
-    if (owner.direction === undefined) return
+  constructor (owner: GameObject, lifetime: number, aimCell?: Vector) {
+    playBreath(owner, lifetime, aimCell, ICE_BREATH_RINGS, 0x7fd8ff, (layer, from, to, duration) => {
+      const snowflake = new Sprite(Texture.from('UI/controls/snowflake.png'))
+      snowflake.anchor.set(0.5, 0.5)
+      snowflake.x = from.x
+      snowflake.y = from.y
+      snowflake.zIndex = to.y + 1
+      snowflake.scale = new Point(0.3, 0.3)
+      layer.addChild(snowflake)
 
-    const particleLifetime = 550
-    for (let i = 0; i < 20; i++) {
-      setTimeout(() => {
-        const snowflake = new Sprite(Texture.from('UI/controls/snowflake.png'))
-        snowflake.x = owner.x + 50 * owner.direction!.x
-        snowflake.y = owner.y + 50 * owner.direction!.y
-        snowflake.scale = new Point(0, 0)
-
-        new TWEEN.Tween(snowflake.scale)
-          .to({
-            x: 2,
-            y: 2
-          })
-          .start()
-
-        new TWEEN.Tween(snowflake)
-          .to(
-            {
-              alpha: 0,
-              x: owner.x + 100 * (1 + 2 * Math.random()) * owner.direction!.x,
-              y: owner.y + 100 * (1 + 2 * Math.random()) * owner.direction!.y
-            },
-            particleLifetime
-          )
-          .onStart(() => {
-            Game.CONTAINER.addChild(snowflake)
-          })
-          .onComplete(() => {
-            Game.CONTAINER.removeChild(snowflake)
-          })
-          .start()
-        return snowflake
-      }, (lifetime - particleLifetime) * Math.random())
-    }
+      new TWEEN.Tween(snowflake.scale).to({ x: 1.2, y: 1.2 }, duration).start()
+      new TWEEN.Tween(snowflake)
+        .to({ alpha: 0.2, x: to.x, y: to.y }, duration)
+        .onComplete(() => {
+          snowflake.parent?.removeChild(snowflake)
+          snowflake.destroy()
+        })
+        .start()
+    })
   }
 }

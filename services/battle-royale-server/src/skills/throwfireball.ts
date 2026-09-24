@@ -1,4 +1,5 @@
 import { Skill } from './skill'
+import Multiplayer from '../network/multiplayer'
 import Throwable from '../objects/throwable'
 import { type GameObject, ObjectType } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
@@ -54,6 +55,10 @@ export class ThrowFireball extends Skill {
    */
   explode (target: GameObject, struck?: Unit) {
     const origin = Hex.toCell((struck ?? target).position)
+    // The blast's own cell, so the client draws the ring the server damages.
+    // The client cannot work it out: the destroy record carries no position,
+    // and its last one is a tick behind the hit.
+    Multiplayer.Instance.effect(5, this.owner, 500, origin)
     for (const collidee of World.FIND_IN_CELLS(
       origin,
       ThrowFireball.BLAST_RINGS,

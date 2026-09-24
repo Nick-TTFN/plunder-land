@@ -62,9 +62,35 @@ export class Unit extends GameObject {
    * `setDirectionTo`, the path re-aim, the AI routines - keeps it current and
    * none can forget to. East until the unit first moves (Nick, 2026-09-24).
    *
-   * Server only. Putting it on the wire belongs to `fix-direction-on-wire`.
+   * On the wire as `facing`, snapped to a `Hex.DIRECTIONS` index (see the
+   * setter). Effects carry their own aim; this is for sprites (decision #21).
    */
-  facing: Vector = new Vector(1, 0)
+  get facing (): Vector {
+    return this._facing
+  }
+
+  /**
+   * Marks `facing` dirty only when the snapped index changes. Every tick of a
+   * walk re-aims `direction`, which writes this, and marking it on every write
+   * would send two bytes per moving unit per tick for a value that changes only
+   * when the route turns.
+   */
+  set facing (value: Vector) {
+    this._facing = value
+    const index = World.FACING_INDEX(value)
+    if (index !== this._facingIndex) {
+      this._facingIndex = index
+      this.dirtyFields.add('facing')
+    }
+  }
+
+  /** `World.FACING_INDEX(facing)`, the value sent on the wire. */
+  get facingIndex (): number {
+    return this._facingIndex
+  }
+
+  private _facing: Vector = new Vector(1, 0)
+  private _facingIndex: number = 0
 
   damageReduction: number = 0
   routines: IAIRoutine[] = []
@@ -87,6 +113,13 @@ export class Unit extends GameObject {
     this.maxHp = this.maxHP()
     this.direction = new Vector(0, 0)
     this.impulse = new Vector(0, 0)
+  }
+
+  /** The wire carries the snapped index, not the vector (see `facing`). */
+  serialise (fields: Set<string>): ReturnType<GameObject['serialise']> {
+    const result = super.serialise(fields)
+    if (result !== null && 'facing' in result) (result as Record<string, unknown>).facing = this._facingIndex
+    return result
   }
 
   get direction (): Vector {

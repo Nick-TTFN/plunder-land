@@ -50,7 +50,10 @@ export class GameObject {
     'lifetime',
     'maxVelocity',
     'name',
-    'maxHp'
+    'maxHp',
+    // A Unit's `World.FACING_INDEX(facing)`, one byte, 0-5 (see Unit.facing).
+    // Appended: this table is a wire contract, see CLAUDE.md "Wire format".
+    'facing'
   ]
 
   constructor (
@@ -88,7 +91,8 @@ export class GameObject {
       'radius',
       'lifetime',
       'name',
-      'maxHp'
+      'maxHp',
+      'facing'
     ])
 
     if (radius) {
@@ -326,6 +330,10 @@ export class GameObject {
           break
         case 'maxHp':
           raw.push(this.getBuffer2(value))
+          break
+        case 'facing':
+          // Already the snapped index: Unit.serialise swaps the vector for it.
+          raw.push(this.getBuffer(value))
           break
         case 'name':
           raw.push(Buffer.from(value), Buffer.alloc(1)); break

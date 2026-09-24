@@ -28,6 +28,8 @@ import { IceBreathEffect } from './vfx/icebreath.effect'
 import { MeleeAttackEffect } from './vfx/meleeattack.effect'
 import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
+import { BlastEffect } from './vfx/blast.effect'
+import Unit from './objects/unit'
 import { type GameObject } from './objects/gameobject'
 import { type HUD } from './ui/components/hud'
 import { type Socket } from 'socket.io-client'
@@ -275,7 +277,10 @@ export class Game extends Container {
       'lifetime',
       'maxVelocity',
       'name',
-      'maxHp'
+      'maxHp',
+      // A unit's hex facing, 0-5 into Hex.DIRECTIONS. Only for looks: effects
+      // carry their own aim (decision #21).
+      'facing'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -336,6 +341,9 @@ export class Game extends Container {
           break
         case 'maxHp':
           value = (buffer[offset++] << 8) + buffer[offset++]
+          break
+        case 'facing':
+          value = buffer[offset++]
           break
         case 'name':
           value = ''
@@ -431,6 +439,8 @@ export class Game extends Container {
 
     if (data.maxVelocity !== undefined) (obj as any).maxVelocity = data.maxVelocity
 
+    if (data.facing !== undefined && obj instanceof Unit) obj.facingIndex = data.facing
+
     if (own) {
       Game.PLAYER = obj as Player
 
@@ -513,6 +523,12 @@ export class Game extends Container {
     this.LOOKUP[data.id] = obj
   }
 
+  /** The plane layer for a tag: where an effect on that plane is drawn. */
+  layerOf (tag: number | undefined): Container | undefined {
+    if (this.layers == null || this.tags == null) return undefined
+    return this.layers[this.tags.indexOf(tag ?? 0)]
+  }
+
   overflow (value: number, limit: number): number {
     if (value >= limit) value -= 2 * limit
     return value
@@ -565,17 +581,25 @@ export class Game extends Container {
     // An aimed effect appends `[int16 q][int16 r]` (big-endian): the cell it
     // points at - the aimed cell for a ranged shot, the cone's tip for a breath
     // (decision #21, CLAUDE.md "Wire format"). A 4-byte record is unaimed.
-    // Parsed here so the layout is owned in one place; drawing along it is
-    // `effects-render`, and until then the effects ignore it.
+    // Types 5 and 6, a fireball's and an icicle's blast, always carry the
+    // impact cell.
     let aimCell: Vector | undefined
     if (buffer.length >= offset + 4) {
       const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
       aimCell = new Vector(view.getInt16(offset), view.getInt16(offset + 2))
       offset += 4
     }
-    void aimCell
 
     const target = this.LOOKUP[targetid]
+
+    // A blast is drawn on its cell, not on its caster, who may be dead or out
+    // of view by the time the projectile lands. The caster only says which
+    // plane it is on.
+    if (type === 5 || type === 6) {
+      if (aimCell !== undefined) new BlastEffect(aimCell, target?.tag ?? Game.LOCAL.tag, type === 6)
+      return
+    }
+
     if (target === undefined) {
       console.warn('target not found for effect', buffer)
       return
@@ -583,11 +607,11 @@ export class Game extends Container {
 
     switch (type) {
       case 0:
-        new FireBreathEffect(target, lifetime)
+        new FireBreathEffect(target, lifetime, aimCell)
         break
 
       case 1:
-        new IceBreathEffect(target, lifetime)
+        new IceBreathEffect(target, lifetime, aimCell)
         break
 
       case 2:
@@ -595,7 +619,7 @@ export class Game extends Container {
         break
 
       case 3:
-        new RangedAttackEffect(target)
+        new RangedAttackEffect(target, aimCell)
         break
 
       case 4:
@@ -657,6 +681,8 @@ export class Game extends Container {
       }
 
       if (data.maxHp !== undefined && obj.setMaxHP) obj.setMaxHP(data.maxHp)
+
+      if (data.facing !== undefined && obj instanceof Unit) obj.facingIndex = data.facing
 
       if (data.hp !== undefined && obj.setHP) obj.setHP(data.hp)
 

@@ -23,6 +23,14 @@ export default class Unit extends GameObject {
 
   becameIdleAt: number = 0
 
+  /**
+   * The server's `facing` field: an index into `Hex.DIRECTIONS` (E, SE, SW, W,
+   * NW, NE), undefined until one arrives. Only for looks - a remote unit at rest
+   * faces this way, and unaimed effects point along it. Aimed effects carry
+   * their own cell (decision #21).
+   */
+  facingIndex: number | undefined
+
   maxHP: number = 0
   runAnimation: string | undefined
   idleAnimation: string | undefined
@@ -126,7 +134,11 @@ export default class Unit extends GameObject {
 
   update (dt: number): void {
     const states = this.states
-    if (states.length === 0) return
+    if (states.length === 0) {
+      // Never moved since we met it: only the facing from its create record.
+      if (this.facingIndex !== undefined) this.flip(this.facingIndex >= 2 && this.facingIndex <= 4)
+      return
+    }
 
     const now = performance.now()
     const renderTime = now - Session.interpolationDelay
@@ -193,18 +205,23 @@ export default class Unit extends GameObject {
 
     if (Math.abs(dx) + Math.abs(dy) < IDLE_EPSILON) {
       if (this.becameIdleAt === 0) this.becameIdleAt = now
-      if (now - this.becameIdleAt > 100) this.animation?.setDefault(this.idleAnimation)
+      if (now - this.becameIdleAt > 100) {
+        this.animation?.setDefault(this.idleAnimation)
+        // A remote unit at rest faces the way the server says it does: the
+        // rendered delta is zero, so there is nothing else to read, and a unit
+        // that turned without moving (or was met standing still) would face
+        // right forever. The locally predicted player passes its own motion
+        // and keeps the flip its last step gave it, which is the same answer
+        // a tick sooner. SW, W and NW (2, 3, 4) face left.
+        if (motionX === undefined && this.facingIndex !== undefined) {
+          this.flip(this.facingIndex >= 2 && this.facingIndex <= 4)
+        }
+      }
     } else {
       this.becameIdleAt = 0
       this.animation?.setDefault(this.runAnimation)
 
-      if (this.animation != null && Math.abs(dx) > 0.01) {
-        this.animation.scale.x = Math.abs(this.animation.scale.x) * (dx < 0 ? -1 : 1)
-        if (this.shadow != null) {
-          this.shadow.scale.x = this.animation.scale.x * 1.1
-          this.shadow.scale.y = this.animation.scale.y * 1.1
-        }
-      }
+      if (Math.abs(dx) > 0.01) this.flip(dx < 0)
     }
 
     if (this.animation != null && this.shadow != null) {
@@ -214,5 +231,15 @@ export default class Unit extends GameObject {
     }
 
     this.zIndex = this.y
+  }
+
+  /** Face the sprite (and its shadow) left or right. */
+  flip (left: boolean): void {
+    if (this.animation == null) return
+    this.animation.scale.x = Math.abs(this.animation.scale.x) * (left ? -1 : 1)
+    if (this.shadow != null) {
+      this.shadow.scale.x = this.animation.scale.x * 1.1
+      this.shadow.scale.y = this.animation.scale.y * 1.1
+    }
   }
 }

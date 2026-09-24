@@ -1,7 +1,5 @@
 import { Assets, Texture, AnimatedSprite, Point } from 'pixi.js'
 import { Vector } from '../utils/vector'
-import AnimationClip from '../animation/animationclip'
-import TWEEN from '@tweenjs/tween.js'
 import { Game } from '../game'
 
 export class Throwable extends AnimatedSprite {
@@ -46,27 +44,10 @@ export class Throwable extends AnimatedSprite {
   DEBUG_DRAW_COLLIDER (): void {}
 
   dispose (): void {
-    for (let i = 0; i < 10; i++) {
-      const parent = this.parent
-      setTimeout(() => {
-        const expl = new AnimationClip('explosion/expl')
-        expl.x = this.x + 50 * (Math.random() - 0.5)
-        expl.y = this.y + 50 * (Math.random() - 0.5)
-
-        new TWEEN.Tween(expl.scale)
-          .to({ x: 0, y: 0 }, 550)
-          .onStart(() => {
-            parent.addChild(expl)
-            expl.play()
-          })
-          .onComplete(() => {
-            expl.parent.removeChild(expl)
-          })
-          .start()
-        return expl
-      }, 300 * Math.random())
-    }
-
+    // The burst is the server's blast effect now (BlastEffect), drawn on the
+    // cells the blast damaged. The explosions scattered here were centred on
+    // the last position this client had, a tick behind the hit, and would have
+    // played on top of it about a cell and a half away.
     if (Game.FIREBALLS.includes(this)) { Game.FIREBALLS.splice(Game.FIREBALLS.indexOf(this), 1) }
 
     // super.destroy();
