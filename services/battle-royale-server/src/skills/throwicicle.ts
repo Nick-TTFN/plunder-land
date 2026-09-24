@@ -28,6 +28,7 @@ export class Throwicicle extends Skill {
       this.owner.direction,
       300,
       this.owner.tag,
+      this.owner,
       this.explode.bind(this)
     )
     World.OBSTACLES.push(icicle)

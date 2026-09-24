@@ -1,4 +1,4 @@
-import { GameObject } from './gameobject'
+import { GameObject, ObjectType } from './gameobject'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Path } from '../utils/path'
@@ -304,6 +304,12 @@ export class Unit extends GameObject {
 
     for (const obstacle of World.OBSTACLES) {
       if (obstacle.tag !== this.tag) continue
+      // Projectiles share this list only so the world's tick can find them to
+      // update. They are not solid: a Throwable does its own hit test, which
+      // skips its caster. Treating one as an obstacle is what detonated every
+      // fireball and icicle on the unit that threw it. The client's collider
+      // set (game.ts) never included them either.
+      if (obstacle.type === ObjectType.Throwable) continue
 
       const sumWidth = obstacle.radius + this.radius
       const dx = obstacle.position.x - px
