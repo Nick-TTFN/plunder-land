@@ -24,7 +24,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 37 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 36 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 ```
 
@@ -47,7 +47,14 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   subclasses. Runtime-correct, type-unsafe. Fixing it properly means introducing a union
   or widening the base class — a real refactor, deliberately not done.
 
-Anything **outside** these two families is a new regression. Check before dismissing.
+- 9 strictness nits that predate 2026-09-24, listed by file so they can be recognised:
+  `game.ts` (four "possibly undefined", around `onObjectDestroyed` and the end of the file),
+  `skills/dash.ts` (one), `skills/skill.ts` (`uiTexture` not initialised),
+  `ui/elements/progressbar.ts` (`_timeoutId` not initialised) and `vfx/meleeattack.effect.ts`
+  (two implicit `any` parameters).
+
+Anything **outside** these three groups is a new regression. The count is 36 (measured
+2026-09-24); compare the sorted error list, not just the count, before dismissing.
 
 ## Running it locally
 
@@ -160,9 +167,10 @@ without it every reconciliation drags the player backwards by a fraction of a ti
 control run with the field forced to zero doubled the median correction (2.00 vs 1.00
 units) and introduced a systematic backward bias.
 
-**Client → server `pointer` is 4 bytes:** `[int8 dirX][int8 dirY][uint16 seq]`, direction
-scaled by 127. It is sampled once per server tick, not per pointer event. The server
-ignores any payload that is not a buffer of at least 4 bytes.
+**Client → server `pointer` is the route's waypoint cells:** `[uint8 count][int16 q][int16 r]
+× count[uint16 seq]`, big-endian. It is sampled once per server tick, not per pointer event.
+The server ignores a buffer shorter than its own count says (`Multiplayer.onPointer`). (It
+was a 4-byte direction before click-to-move routed along hex centres.)
 
 **Client → server `skill` is 5 bytes:** `[uint8 slot][int16 q][int16 r]`, **big-endian**,
 where (q, r) is the **absolute** axial cell aimed at (decision #21). Not an offset from the
@@ -205,11 +213,12 @@ append-only** — an index is a consumed boundary, so never reorder or remove on
 currently unreachable because `dirtyFields.add('direction')` / `('impulse')` are commented
 out in `gameobject.ts`. Add them to `fieldOrder` before ever re-enabling those.
 
-**Skills aim with `Unit.facing`, not `direction`, and `facing` is server-only.** `stop()` zeroes
-`direction`, so aiming with it made every skill fire at the caster's own feet once they stood
-still. `facing` is the last non-zero direction (unit length, East until the unit first moves),
-kept current by `Unit`'s `direction` setter. `fix-direction-on-wire` should send `facing`, not
-`direction`.
+**`Unit.facing` is the fallback aim and the "behind" reference, and it is server-only.**
+Aimed skills use the clicked cell (see `skill` above). Without an aim they use `facing`, and
+Dash and StoneWall always do. `stop()` zeroes `direction`, so anything reading `direction`
+fired at the caster's own feet once they stood still. `facing` is the last non-zero direction
+(unit length, East until the unit first moves), kept current by `Unit`'s `direction` setter.
+`effects-render` puts it on the wire as a 3-bit hex facing for sprites.
 
 `maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
