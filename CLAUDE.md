@@ -74,9 +74,12 @@ REDIS_PORT=6379
 
 **`services/saved/redis` must exist too**, and is also gitignored. It is redis's data volume;
 without it redis cannot write its snapshot, sets `stop-writes-on-bgsave-error`, and starts
-refusing every write. The game server's stats writes then throw `ReplyError: MISCONF` and it
-restart-loops — which from the browser looks like the game randomly dropping the connection
-and resetting the world, not like a missing directory. `mkdir -p services/saved/redis`.
+refusing every write. `mkdir -p services/saved/redis`. Before `d7a7deb` the game server's
+stats writes then threw `ReplyError: MISCONF` and it restart-looped, which from the browser
+looked like the game randomly dropping the connection and resetting the world. Now a failed
+stats write is caught and logged, throttled to one line a minute (`stats write failed: …`),
+and the world keeps running. Stats are simply lost, so that log line is the symptom to look
+for. (The `MISCONF` path is covered by the same catch but wasn't run; a dead Redis port was.)
 
 The client's server address lives in `src/config.ts` and defaults to production. Point it
 at a local server with a query param — no source edit needed:
@@ -355,7 +358,12 @@ per-visible-player one (break-even at about three visible players).
   changes as its owner, so the timer is cancelled when that object dies or exits. Never
   give a cleanup timer an owner that can die before the thing it cleans up. The only
   `setTimeout` left is the game loop's own scheduler in `index.ts`. Socket handlers
-  (`'skill'`, `pointer`) are still outside the boundary (`socket-handlers-in-boundary`).
+  (`'skill'`, `pointer`, and `void this.onStart(...)` on connect) are still outside the
+  boundary (`socket-handlers-in-boundary`).
+- **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`.** A rejected
+  `void` promise is an unhandled rejection, which ends the process, and no try/catch around
+  the tick can see it. With Redis down, every disconnect used to kill the server that way.
+  Failures log at most one line a minute (`ThrottledLog`).
 
 ## Skills
 
