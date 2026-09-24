@@ -562,6 +562,19 @@ export class Game extends Container {
     const targetid = (buffer[offset++] << 8) + buffer[offset++]
     const lifetime = buffer[offset++] * 100
 
+    // An aimed effect appends `[int16 q][int16 r]` (big-endian): the cell it
+    // points at - the aimed cell for a ranged shot, the cone's tip for a breath
+    // (decision #21, CLAUDE.md "Wire format"). A 4-byte record is unaimed.
+    // Parsed here so the layout is owned in one place; drawing along it is
+    // `effects-render`, and until then the effects ignore it.
+    let aimCell: Vector | undefined
+    if (buffer.length >= offset + 4) {
+      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+      aimCell = new Vector(view.getInt16(offset), view.getInt16(offset + 2))
+      offset += 4
+    }
+    void aimCell
+
     const target = this.LOOKUP[targetid]
     if (target === undefined) {
       console.warn('target not found for effect', buffer)

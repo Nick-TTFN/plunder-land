@@ -9,6 +9,7 @@ import FontFaceObserver from 'fontfaceobserver'
 import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
+import { Aim } from './skills/aim'
 
 import firebase from 'firebase/app'
 import 'firebase/analytics'
@@ -107,12 +108,16 @@ function onConnect (): void {
     Game.loader = new LoaderOverlay()
     app.stage.addChild(Game.loader)
 
-    // No 'pointermove' here on purpose. Re-routing while the pointer is held
-    // meant a full search per mouse-move event, which with the temporary
+    // No routing on 'pointermove', on purpose. Re-routing while the pointer is
+    // held meant a full search per mouse-move event, which with the temporary
     // map-wide window can sweep 130,000 cells - and click-to-move does not need
     // it. A click is a route.
     app.stage.on('pointerdown', onPointerDown)
     app.stage.on('pointerup', onPointerUp)
+    // The move handler only records where the mouse is, for aiming skills
+    // (decision #21). It must never route.
+    app.stage.on('pointermove', onPointerMove)
+    app.stage.on('pointerleave', () => { Aim.clear() })
 
     window.addEventListener(
       'keydown',
@@ -175,6 +180,12 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
   // Record the intent only. Sending happens on a fixed cadence in frame().
   if (_appendNext) Game.LOCAL.appendDestination(world.x, world.y)
   else Game.LOCAL.setDestination(world.x, world.y)
+}
+
+function onPointerMove (event: { target?: unknown, pointerType?: string, global: { x: number, y: number } }): void {
+  // Over the world only when nothing interactive is under the pointer - the
+  // same test onPointerDown uses. On the HUD, a skill press sends no aim.
+  Aim.track(event.global.x, event.global.y, event.pointerType, event.target === app.stage)
 }
 
 function onPointerUp (): void {

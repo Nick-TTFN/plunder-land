@@ -7,6 +7,7 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import { Hex } from '../utils/hex'
 import GuardPosition from '../ai/guardposition'
+import { type Vector } from '../utils/vector'
 
 export class Throwicicle extends Skill {
   static Damage = [35, 30, 55, 65]
@@ -17,19 +18,21 @@ export class Throwicicle extends Skill {
     super(owner, 4000)
   }
 
-  execute (): boolean {
+  execute (aimCell?: Vector): boolean {
     if (!super.execute()) return false
 
     // 1200 ms at 300 u/s is 360 units, 8 cells: out to base vision.
     const lifetime = 1200
+    // Through the centre of the aimed cell and on to its lifetime (decision #21).
+    const aim = Skill.aimDirection(this.owner, aimCell)
     const pos = this.owner.position.add(
-      this.owner.facing.multiply(this.owner.radius * 4)
+      aim.multiply(this.owner.radius * 4)
     )
     const icicle = new Throwable(
       pos.x,
       pos.y,
       lifetime,
-      this.owner.facing,
+      aim,
       300,
       this.owner.tag,
       this.owner,

@@ -164,6 +164,31 @@ units) and introduced a systematic backward bias.
 scaled by 127. It is sampled once per server tick, not per pointer event. The server
 ignores any payload that is not a buffer of at least 4 bytes.
 
+**Client → server `skill` is 5 bytes:** `[uint8 slot][int16 q][int16 r]`, **big-endian**,
+where (q, r) is the **absolute** axial cell aimed at (decision #21). Not an offset from the
+player: the predicting client and the server can disagree about the player's cell by one,
+and an offset would then land a cell off. The server takes the offset from its own position.
+A **bare number** (the original JSON form) is still accepted and means the slot with no
+aim; anything else, including a buffer under 5 bytes or a slot that is not a whole number
+in range, is ignored (`Multiplayer.parseSkill`, `Player.tryExecuteSkill`). The client sends
+the cell under the desktop mouse (`src/skills/aim.ts`), or a bare number when the mouse is
+off the map, on the HUD, on the player's own cell, or the input is touch. No aim, or an
+aim at the caster's own cell, fires along `facing`. Ranged, fireball and icicle fly toward
+the aimed cell's centre at any angle and on to their range; breaths snap the aim to one of
+six and **hold** it for their lifetime (`SectorArea.fixedDirection`), while an unaimed breath
+still follows facing. Dash, StoneWall, Melee and Defend ignore the aim. Mobs aim at their
+target's cell (`UseSkillOnTarget`).
+
+**`effect` records are `[int8 type][uint16 id][int8 lifetime / 100]`, plus `[int16 q][int16 r]`
+(big-endian) only when the effect was aimed.** The record's length prefix says which: 4 bytes
+unaimed, 8 aimed. The cell is where the effect points: the aimed cell for a ranged shot
+(type 3), the cone's tip for a breath (types 0 and 1: `rings` cells straight out from the
+caster's cell along the held direction, `SectorArea.tipCell`). The tip rather than the raw aim
+because the client can place the caster a cell off; one cell sideways at 3 rings turns the
+vector under 20 degrees, so snapping from the client's own view of the caster still lands on
+the server's direction. `Game.onEffect` parses it; drawing along it is `effects-render`.
+Fireball and icicle send no effect: they are `Throwable` objects and fly on their own records.
+
 `maxHp` is sent per unit so the client does not have to infer a health bar's scale from the
 first hp value it happens to see. **The field table is append-only** — new fields go on the
 end of `fieldOrder` (server) and `allFields` (client), and the two must stay identical.

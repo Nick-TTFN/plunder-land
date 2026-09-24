@@ -214,7 +214,37 @@ export default class Multiplayer {
   onSkill (connection: Connection, data): void {
     const player = connection.player
     if (player == null || player.exited || player.destroyed) return
-    player.tryExecuteSkill(data)
+    const press = Multiplayer.parseSkill(data)
+    if (press === undefined) return
+    player.tryExecuteSkill(press.slot, press.aimCell)
+  }
+
+  /**
+   * A skill press: `[uint8 slot][int16 q][int16 r]`, big-endian like every
+   * other multi-byte field on the wire, where (q, r) is the **absolute** axial
+   * cell aimed at (decision #21). Absolute rather than an offset from the
+   * player, because the predicting client and the server can disagree about
+   * the player's cell by one, and an offset would then land a cell off.
+   *
+   * A bare number is the old JSON form and still accepted: the slot with no
+   * aim, which fires along `facing`. Anything else - a string, an object, a
+   * buffer shorter than 5 bytes - is ignored, as `pointer` ignores a short
+   * packet. Longer buffers are read for their first 5 bytes, so a field can be
+   * appended later without breaking this server.
+   */
+  static parseSkill (data: unknown): { slot: number, aimCell?: Vector } | undefined {
+    if (typeof data === 'number') return { slot: data }
+
+    let buf: Buffer
+    if (Buffer.isBuffer(data)) buf = data
+    else if (data instanceof Uint8Array || data instanceof ArrayBuffer) buf = Buffer.from(data as any)
+    else return undefined
+
+    if (buf.length < 5) return undefined
+    return {
+      slot: buf.readUInt8(0),
+      aimCell: new Vector(buf.readInt16BE(1), buf.readInt16BE(3))
+    }
   }
 
   // outgoing traffic ========
@@ -271,11 +301,24 @@ export default class Multiplayer {
     obj.dirtyFields.clear()
   }
 
-  effect (type: number, originator: Unit, lifetime: number): void {
-    const data = Buffer.alloc(4)
+  /**
+   * `[int8 type][uint16 originator id][int8 lifetime / 100]`, then, only for an
+   * aimed effect, `[int16 q][int16 r]` (big-endian): the cell the effect points
+   * at. For a ranged shot that is the aimed cell; for a breath it is the tip of
+   * the cone, `rings` cells straight out along its held direction (see
+   * `SectorArea.tipCell`). The record's own length prefix says which form it
+   * is: 4 bytes means unaimed, 8 means aimed. Appended rather than inserted, so
+   * a client that reads only the first four bytes still works.
+   */
+  effect (type: number, originator: Unit, lifetime: number, aimCell?: Vector): void {
+    const data = Buffer.alloc(aimCell === undefined ? 4 : 8)
     data.writeInt8(type)
     data.writeUInt16BE(originator.id, 1)
     data.writeInt8(Math.floor(lifetime / 100), 3)
+    if (aimCell !== undefined) {
+      data.writeInt16BE(aimCell.x, 4)
+      data.writeInt16BE(aimCell.y, 6)
+    }
 
     for (const connection of this._connections) {
       if (

@@ -4,6 +4,7 @@ import { type Unit } from '../objects/unit'
 import World from '../objects/world'
 import Timers from '../objects/timers'
 import Multiplayer from '../network/multiplayer'
+import { type Vector } from '../utils/vector'
 
 export class FireBreath extends Skill {
   /**
@@ -16,14 +17,16 @@ export class FireBreath extends Skill {
     super(owner, 3000)
   }
 
-  execute () {
+  execute (aimCell?: Vector) {
     if (!super.execute()) return false
 
-    const area = new SectorArea(this.owner, FireBreath.RINGS)
+    // Aimed: snapped to one of six once, and held for the breath (decision #21).
+    const aimed = SectorArea.aimIndex(this.owner, aimCell)
+    const area = new SectorArea(this.owner, FireBreath.RINGS, aimed)
     area.setEffect(World.config.fire, true)
     World.AREA_EFFECT.push(area)
     const lifetime = 1000
-    Multiplayer.Instance.effect(0, this.owner, lifetime)
+    Multiplayer.Instance.effect(0, this.owner, lifetime, aimed !== undefined ? area.tipCell() : undefined)
 
     // No owner: the area must go even if its caster dies first.
     Timers.schedule(lifetime, () => {

@@ -122,10 +122,19 @@ export default class Player extends Unit {
     this.loot = 0
   }
 
-  tryExecuteSkill (index: number): void {
-    if (this.skills === undefined || this.skills.length <= index) { return }
+  /**
+   * `aimCell` is the absolute cell the player aimed at, or undefined for no aim
+   * (decision #21). Each skill decides what an aim means to it.
+   *
+   * The index comes off the wire, so anything that is not a whole number in
+   * range is ignored: `skills[-1]` or `skills[1.5]` is undefined and calling
+   * `execute` on it threw inside a socket handler.
+   */
+  tryExecuteSkill (index: number, aimCell?: Vector): void {
+    if (this.skills === undefined) return
+    if (!Number.isInteger(index) || index < 0 || index >= this.skills.length) return
 
-    this.skills[index].execute()
+    this.skills[index].execute(aimCell)
   }
 
   onCollideWithPlayer (target: GameObject): void {

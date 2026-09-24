@@ -1,6 +1,7 @@
 import { type Texture } from 'pixi.js'
 import { Game } from '../game'
 import { type GameObject } from '../objects/gameobject'
+import { Aim } from './aim'
 
 export class Skill {
   name: string | undefined
@@ -15,6 +16,9 @@ export class Skill {
   }
 
   execute (): void {
-    Game.socket.emit('skill', this.index)
+    if (this.index === undefined) return
+    // Every skill sends the cell under the mouse, or no aim; the server decides
+    // which skills use it (decision #21), so the client needs no per-skill list.
+    Game.socket.emit('skill', Aim.message(this.index, Aim.cell()))
   }
 }

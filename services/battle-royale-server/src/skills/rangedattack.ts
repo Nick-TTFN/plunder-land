@@ -4,6 +4,7 @@ import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
 import { type Unit } from '../objects/unit'
 import GuardPosition from '../ai/guardposition'
+import { type Vector } from '../utils/vector'
 
 export class RangedAttack extends Skill {
   range: number
@@ -14,9 +15,10 @@ export class RangedAttack extends Skill {
     this.range = 360
   }
 
-  execute () {
+  execute (aimCell?: Vector) {
+    // Toward the aimed cell at any angle and on to full range (decision #21).
     const endpoint = this.owner.position.add(
-      this.owner.facing.multiply(this.range)
+      Skill.aimDirection(this.owner, aimCell).multiply(this.range)
     )
     if (!super.execute()) return false
 
@@ -45,7 +47,7 @@ export class RangedAttack extends Skill {
       else GuardPosition.provoke(first, this.owner)
     }
 
-    Multiplayer.Instance.effect(3, this.owner, 1)
+    Multiplayer.Instance.effect(3, this.owner, 1, Skill.isAimed(this.owner, aimCell) ? aimCell : undefined)
     return true
   }
 }
