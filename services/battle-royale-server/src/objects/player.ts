@@ -1,17 +1,8 @@
 import { Unit } from './unit'
-import { Dash } from '../skills/dash'
-import { RangedAttack } from '../skills/rangedattack'
-import { Defend } from '../skills/defend'
-import { StoneWall } from '../skills/stonewall'
-import { ThrowFireball } from '../skills/throwfireball'
-import { Throwicicle } from '../skills/throwicicle'
-import { IceBreath } from '../skills/icebreath'
 import { GameObject, ObjectType } from './gameobject'
 import { Vector } from '../utils/vector'
-import Mob from './mob'
-import Boss from './boss'
-import { MeleeAttack } from '../skills/meleeattack'
 import { type Skill } from '../skills/skill'
+import { type Archetype, ARCHETYPES, buildSkills } from '../archetypes/archetypes'
 import World from './world'
 import Multiplayer from '../network/multiplayer'
 import Timers from './timers'
@@ -25,42 +16,26 @@ export class Stats {
   lifeTime?: number
 }
 export default class Player extends Unit {
-  /**
-   * Body radius, pinned rather than derived from HP (it was 2 * sqrt(maxHP),
-   * 14.1 at 50 HP and 20 at 100). A bigger body widens pickup reach past the
-   * 39-unit step where it starts sweeping three rows of cells, moves the
-   * fireball spawn point and widens the ranged hit. Per-robot values belong to
-   * `unit-archetypes`; keep it under Hex.SIZE / 2 so a unit fits beside a rock.
-   */
-  static BODY_RADIUS = 14
+  // Always set, by Unit's constructor; narrowed from Unit's optional one.
+  declare archetype: Archetype
 
   skills: Skill[]
   createdAt: number
   exited: boolean
   playerId: string
 
-  constructor (x: number, y: number, tag: number, playerId: string) {
-    super(ObjectType.Player, x, y, 0, tag)
+  /** Every player is a peep until `robot-type-on-join` lets them choose. */
+  constructor (x: number, y: number, tag: number, playerId: string, archetype: Archetype = ARCHETYPES.peep) {
+    super(ObjectType.Player, x, y, 0, tag, archetype)
     this.playerId = playerId
     this.name = playerId
-    this.maxVelocity = 140
-    this.loot = 0
 
-    this.setLevel(1)
+    this.setLevel(archetype.level ?? 1)
 
     // Order is the wire contract: the client sends the index of the slot it
-    // pressed, and `tryExecuteSkill` indexes straight into this array. The
-    // client's own skill list must stay in exactly this order.
-    this.skills = [
-      new Dash(this),
-      new MeleeAttack(this),
-      new RangedAttack(this),
-      new Defend(this),
-      new StoneWall(this),
-      new ThrowFireball(this),
-      new Throwicicle(this),
-      new IceBreath(this)
-    ]
+    // pressed, and `tryExecuteSkill` indexes straight into this array. Every
+    // robot's skills are PLAYER_SKILLS, which is in the client's order.
+    this.skills = buildSkills(this, archetype)
 
     this.createdAt = Date.now()
 
@@ -79,9 +54,9 @@ export default class Player extends Unit {
     for (let i = 0; i < World.CONSUMABLES.length; i++) {
       const obj = World.CONSUMABLES[i]
       if (obj.tag !== this.tag) { continue }
-      const sumWidth = obj.radius + this.radius
+      const reach = this.archetype.pickupReach ?? obj.radius + this.radius
       const sqr = obj.position.sub(this.position).getSquareMagnitude()
-      if (sqr < sumWidth * sumWidth) {
+      if (sqr < reach * reach) {
         // Bank it and heal for it. Splitting these into two pickup types is a
         // later decision; for now one consumable does both.
         this.addLoot(obj.loot)
@@ -118,7 +93,6 @@ export default class Player extends Unit {
   setLevel (value: number): void {
     this.level = value
     this.hp = this.maxHP()
-    this.radius = Player.BODY_RADIUS
     this.loot = 0
   }
 
@@ -154,9 +128,10 @@ export default class Player extends Unit {
 
     stats.kills = 1
 
-    if (value instanceof Boss) { stats.bossKills = 1 }
-
-    if (value instanceof Mob) { stats.mobKills = 1 }
+    // By archetype, into today's redis keys (see Archetype.killStats).
+    if (value instanceof Unit && value.archetype !== undefined) {
+      for (const key of value.archetype.killStats) stats[key] = 1
+    }
 
     console.log('stats', stats)
     for (const key in stats) {

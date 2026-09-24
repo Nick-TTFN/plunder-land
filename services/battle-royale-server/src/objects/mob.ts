@@ -1,38 +1,39 @@
 import { Unit } from './unit'
 import { ObjectType } from './gameobject'
-import GuardPosition from '../ai/guardposition'
 import Multiplayer from '../network/multiplayer'
 import Timers from './timers'
+import { type Archetype, ARCHETYPES, buildRoutines, buildSkills } from '../archetypes/archetypes'
 
+/**
+ * Any non-player unit: grunt, boss, and whatever else the archetype table says.
+ * The kind is the archetype, not a subclass (decision #23).
+ */
 export default class Mob extends Unit {
-  static Cooldown = 1000
+  // Always set, by Unit's constructor; narrowed from Unit's optional one.
+  declare archetype: Archetype
 
-  constructor (x: number, y: number, tag: number) {
-    super(ObjectType.Mob, x, y, 0, tag)
-    this.radius = 30
-    this.hp = this.maxHP()
-    this.maxVelocity = 100
-    this.loot = 50
+  /** `archetype` defaults to the grunt, which is what a plain `Mob` always was. */
+  constructor (x: number, y: number, tag: number, archetype: Archetype = ARCHETYPES.grunt) {
+    super(ObjectType.Mob, x, y, 0, tag, archetype)
 
-    this.addAIRoutine(new GuardPosition(this))
+    // The skills live only inside the routines that use them: a mob never
+    // receives a slot index, so it has no `skills` list of its own.
+    for (const routine of buildRoutines(this, archetype, buildSkills(this, archetype))) {
+      this.addAIRoutine(routine)
+    }
 
     Multiplayer.Instance.create(this)
-  }
 
-  maxHP () {
-    return 50
-  }
-
-  getDamage () {
-    return 10
+    // After the create, not in Unit's constructor: see Archetype.level.
+    if (archetype.level !== undefined) this.level = archetype.level
   }
 
   onCollideWithPlayer (target: Unit): void {
     if (this.canAttack) {
-      Timers.schedule(Mob.Cooldown, () => { this.canAttack = true }, this)
+      Timers.schedule(this.archetype.contact.cooldownMs, () => { this.canAttack = true }, this)
 
       this.canAttack = false
-      if (target.hit(this.getDamage())) { this.onKill(target) }
+      if (target.hit(this.archetype.contact.damage)) { this.onKill(target) }
     }
   }
 }

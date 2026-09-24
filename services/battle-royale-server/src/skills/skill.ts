@@ -6,6 +6,13 @@ export class Skill {
   owner: Unit
   cooldown: number
   executeTime: number
+  /**
+   * The archetype's override of this skill's damage (`SkillSpec.damage`), or
+   * undefined for the skill's own default. Set after construction by
+   * `buildSkills`. A skill's default belongs in its own `??` fallback, never
+   * in an initialiser here or on a subclass, or it would read as an override.
+   */
+  damage: number | undefined
   constructor (owner: Unit, cooldown: number) {
     this.owner = owner
     this.cooldown = cooldown
@@ -20,6 +27,16 @@ export class Skill {
 
     this.executeTime = Date.now()
     return true
+  }
+
+  /**
+   * Damage from a per-level table, unless the archetype overrides it. A unit
+   * with no level (a grunt) would read `table[undefined]`, which `hit` turns
+   * into NaN hp, so such an archetype must override every skill that calls
+   * this (archetypes.spec.ts checks the table).
+   */
+  protected byLevel (table: number[]): number {
+    return this.damage ?? table[this.owner.level]
   }
 
   /** True when `aimCell` names a cell other than the one the caster stands on. */

@@ -5,6 +5,7 @@ import { Path } from '../utils/path'
 import World from './world'
 import type Buff from '../buffs/buff'
 import { type IAIRoutine } from '../ai/findnearestconsumable'
+import { type Archetype } from '../archetypes/archetypes'
 
 // Below this squared distance two bodies count as coincident and the
 // normalised push-out would divide by zero.
@@ -100,19 +101,41 @@ export class Unit extends GameObject {
   armor: number = 0
   weapon: number = 0
 
+  /**
+   * What kind of unit this is (archetypes.ts). Undefined only for the bare
+   * units the specs build as targets, which set their own hp.
+   */
+  archetype: Archetype | undefined
+
+  /**
+   * With an archetype, its stats are applied here - radius, maxHp, hp, speed,
+   * loot - so they are in place before a subclass sends the create record.
+   * That order is the point: the boss used to set its radius after Mob's
+   * constructor had already sent a grunt-sized create.
+   *
+   * `radius` is only for bare units; with an archetype, its `body` is used.
+   */
   constructor (
     objType: number,
     x: number,
     y: number,
     radius: number,
-    tag: number
+    tag: number,
+    archetype?: Archetype
   ) {
     // Named `lifetime` before, but GameObject's fourth parameter is radius, so
     // that is what every caller was actually setting.
-    super(objType, x, y, radius, tag)
-    this.maxHp = this.maxHP()
+    super(objType, x, y, archetype?.body ?? radius, tag)
     this.direction = new Vector(0, 0)
     this.impulse = new Vector(0, 0)
+
+    this.archetype = archetype
+    if (archetype !== undefined) {
+      this.maxHp = archetype.maxHp
+      this.hp = archetype.maxHp
+      this.maxVelocity = archetype.speed
+      this.loot = archetype.loot
+    }
   }
 
   /** The wire carries the snapped index, not the vector (see `facing`). */
@@ -467,11 +490,7 @@ export class Unit extends GameObject {
   }
 
   maxHP (): number {
-    return World.config.hp
-  }
-
-  getDamage (): number {
-    return World.config.damage
+    return this.maxHp
   }
 
   hit (value: number): boolean {

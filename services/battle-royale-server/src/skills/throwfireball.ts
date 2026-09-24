@@ -66,7 +66,7 @@ export class ThrowFireball extends Skill {
       ObjectType.Player | ObjectType.Mob
     )) {
       if (collidee !== this.owner) {
-        if (collidee.hit(ThrowFireball.Damage[this.owner.level])) { this.owner.onKill(collidee) } else GuardPosition.provoke(collidee, this.owner)
+        if (collidee.hit(this.byLevel(ThrowFireball.Damage))) { this.owner.onKill(collidee) } else GuardPosition.provoke(collidee, this.owner)
       }
     }
     // No removal here: `World.updateProjectiles` sweeps the destroyed

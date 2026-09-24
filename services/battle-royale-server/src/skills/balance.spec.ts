@@ -7,7 +7,7 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import Player from '../objects/player'
 import Mob from '../objects/mob'
-import Boss from '../objects/boss'
+import { ARCHETYPES, type GuardSpec } from '../archetypes/archetypes'
 import { Unit } from '../objects/unit'
 import { ObjectType } from '../objects/gameobject'
 import GuardPosition from '../ai/guardposition'
@@ -59,6 +59,13 @@ function shooterAt (x: number, y: number): Player {
   const player = new Player(x, y, 0, 'shooter')
   World.PLAYERS.push(player)
   return player
+}
+
+/** An archetype's guard parameters, from the table rather than a copy of its numbers. */
+function guardSpec (key: 'grunt' | 'boss'): GuardSpec {
+  const spec = ARCHETYPES[key].routines.find((r) => r.kind === 'guard')
+  assert.ok(spec !== undefined, `${key} has no guard routine`)
+  return spec as GuardSpec
 }
 
 function guardOf (unit: Unit): GuardPosition {
@@ -121,7 +128,7 @@ test('a boss hit from range turns on the shooter and chases them', (t) => {
   const player = shooterAt(1000, 2000)
   // Six cells: beyond the 200-unit acquire distance and the 250-unit lose
   // distance, inside the 360-unit ranged range.
-  const boss = new Boss(1000 + 6 * Hex.SIZE, 2000, 0)
+  const boss = new Mob(1000 + 6 * Hex.SIZE, 2000, 0, ARCHETYPES.boss)
   World.MOBS.push(boss)
 
   tick() // the boss looks around, finds nothing in 200 units, and idles
@@ -140,13 +147,13 @@ test('a boss hit from range turns on the shooter and chases them', (t) => {
   assert.equal(boss.target, player, 'the boss gave up on a shooter it could still reach')
   assert.ok(boss.position.x < idleX - Hex.SIZE,
     `the boss did not close in: x ${idleX.toFixed(1)} -> ${boss.position.x.toFixed(1)}`)
-  assert.equal(boss.maxVelocity, GuardPosition.CHASE_SPEED)
+  assert.equal(boss.maxVelocity, guardSpec('boss').chaseSpeed)
 })
 
 test('a fireball from range turns a boss on the thrower', (t) => {
   mockTimers(t)
   const player = shooterAt(1000, 2000)
-  const boss = new Boss(1250, 2000, 0) // past the 200-unit acquire distance
+  const boss = new Mob(1250, 2000, 0, ARCHETYPES.boss) // past the 200-unit acquire distance
   World.MOBS.push(boss)
   tick()
   assert.equal(boss.target, undefined)
@@ -178,7 +185,7 @@ test('a provoked mob still gives up on a shooter who backs well out of reach', (
 
 test('a mob caught in another mob\'s breath does not turn on it', (t) => {
   mockTimers(t)
-  const boss = new Boss(1000, 2000, 0)
+  const boss = new Mob(1000, 2000, 0, ARCHETYPES.boss)
   const grunt = new Mob(1000 + 2 * Hex.SIZE, 2000, 0)
   World.MOBS.push(boss, grunt)
   guardOf(grunt).targetAquiredAt = Date.now() // no looking around this tick
@@ -216,7 +223,7 @@ test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
   World.MOBS.push(mob)
   tick()
   assert.equal(mob.target, undefined)
-  assert.equal(mob.maxVelocity, GuardPosition.IDLE_SPEED)
+  assert.equal(mob.maxVelocity, guardSpec('grunt').idleSpeed)
 
   assert.equal(new Throwicicle(player).execute(), true)
   for (let i = 0; i < 10 && mob.buffs.length === 0; i++) {
@@ -225,12 +232,12 @@ test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
   }
   assert.equal(mob.buffs.length, 1, 'the icicle never hit the mob')
   assert.equal(mob.target, player, 'the icicle did not provoke the mob')
-  assert.equal(mob.maxVelocity, GuardPosition.CHASE_SPEED / 2, 'the slow did not halve the chase')
+  assert.equal(mob.maxVelocity, guardSpec('grunt').chaseSpeed / 2, 'the slow did not halve the chase')
 
   // Hitting it again while it already chases you must not undo the slow.
   assert.equal(new RangedAttack(player).execute(), true)
   assert.ok(mob.hp < mob.maxHP() - World.config.ranged, 'the follow-up shot missed')
-  assert.equal(mob.maxVelocity, GuardPosition.CHASE_SPEED / 2, 'a second hit cancelled the slow')
+  assert.equal(mob.maxVelocity, guardSpec('grunt').chaseSpeed / 2, 'a second hit cancelled the slow')
   advance(t, 5000)
 })
 
@@ -324,7 +331,7 @@ test('IceBreath cones three rings ahead, not the fourth, not its own cell, not b
 test('FireBreath cones four rings ahead and not the fifth', (t) => {
   mockTimers(t)
   const at = cellCentre(0)
-  const boss = new Boss(at.x, at.y, 0)
+  const boss = new Mob(at.x, at.y, 0, ARCHETYPES.boss)
   boss.routines.length = 0 // no AI: the test drives the breath
   World.MOBS.push(boss)
   const fourth = mobAt(cellCentre(4))
@@ -509,7 +516,7 @@ for (const [name, make] of [
         Timers.clear()
         const player = shooterAt(1000, 2000)
         const x = 1150 + i
-        const mob = kind === 'grunt' ? new Mob(x, 2000, 0) : new Boss(x, 2000, 0)
+        const mob = kind === 'grunt' ? new Mob(x, 2000, 0) : new Mob(x, 2000, 0, ARCHETYPES.boss)
         mob.routines.length = 0 // stand still
         World.MOBS.push(mob)
 

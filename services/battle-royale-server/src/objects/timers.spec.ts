@@ -6,6 +6,7 @@ import World from './world'
 import Timers from './timers'
 import Player from './player'
 import Mob from './mob'
+import { ARCHETYPES } from '../archetypes/archetypes'
 import { Unit } from './unit'
 import { GameObject, ObjectType } from './gameobject'
 import type Throwable from './throwable'
@@ -142,7 +143,7 @@ test('a mob\'s attack cooldown is cancelled when the mob dies', (t) => {
   assert.equal(dying.canAttack, false)
 
   dying.destroy()
-  advance(t, Mob.Cooldown)
+  advance(t, ARCHETYPES.grunt.contact.cooldownMs)
 
   assert.equal(living.canAttack, true, 'the cooldown never ended')
   assert.equal(dying.canAttack, false, 'a dead mob\'s cooldown still ran')

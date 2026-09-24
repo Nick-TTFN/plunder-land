@@ -4,27 +4,26 @@ import { Random } from '../utils/random'
 import { type IAIRoutine } from './findnearestconsumable'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
+import { type GuardSpec } from '../archetypes/archetypes'
 
 export default class GuardPosition implements IAIRoutine {
-  static TARGET_AQUIRE_DISTANCE = 200
-  static TARGET_LOSE_DISTANCE = 250
-  static IDLE_SPEED = 30
-  static CHASE_SPEED = 100
+  /** This unit's parameters, from its archetype (acquire, lose, speeds, wander, refresh). */
+  spec: GuardSpec
   homePosition: Vector
   targetAquiredAt: number
-  target_REFRESH_RATE: number
   owner: Unit
   moveTarget: Vector | undefined
   /**
-   * How far the current target may get before it is dropped. TARGET_LOSE_DISTANCE
-   * for a target found by looking around; further for one that provoked the unit
+   * How far the current target may get before it is dropped. `spec.lose` for a
+   * target found by looking around; further for one that provoked the unit
    * from beyond it (see `provoke`).
    */
-  loseDistance: number = GuardPosition.TARGET_LOSE_DISTANCE
+  loseDistance: number
 
-  constructor (owner: Unit) {
+  constructor (owner: Unit, spec: GuardSpec) {
+    this.spec = spec
+    this.loseDistance = spec.lose
     this.homePosition = owner.position
-    this.target_REFRESH_RATE = 2000
     this.targetAquiredAt = 0
     this.owner = owner
     this.owner.target = undefined
@@ -55,8 +54,8 @@ export default class GuardPosition implements IAIRoutine {
     // player who backs off past that margin loses it, as they would anyway.
     const distance = attacker.position.sub(this.owner.position).getMagnitude()
     this.loseDistance = Math.max(
-      GuardPosition.TARGET_LOSE_DISTANCE,
-      distance + GuardPosition.TARGET_LOSE_DISTANCE - GuardPosition.TARGET_AQUIRE_DISTANCE
+      this.spec.lose,
+      distance + this.spec.lose - this.spec.acquire
     )
 
     if (this.owner.target === attacker) return
@@ -68,12 +67,12 @@ export default class GuardPosition implements IAIRoutine {
     // Known wrinkle: Slowdown.stop() adds back what it took, so if this (or the
     // 2 s refresh below) reassigned speed mid-slow, the unit runs fast until the
     // next refresh reassigns it again - at most one refresh period, mobs only.
-    this.owner.maxVelocity = GuardPosition.CHASE_SPEED
+    this.owner.maxVelocity = this.spec.chaseSpeed
   }
 
   private release (): void {
     this.owner.target = undefined
-    this.loseDistance = GuardPosition.TARGET_LOSE_DISTANCE
+    this.loseDistance = this.spec.lose
   }
 
   update (dt: number) {
@@ -101,18 +100,18 @@ export default class GuardPosition implements IAIRoutine {
 
     if (
       this.owner.target == null &&
-			this.targetAquiredAt < now - this.target_REFRESH_RATE
+			this.targetAquiredAt < now - this.spec.refreshMs
     ) {
       for (const target of World.FIND_AROUND(
         this.owner.position.x,
         this.owner.position.y,
         this.owner.tag,
-        GuardPosition.TARGET_AQUIRE_DISTANCE,
+        this.spec.acquire,
         ObjectType.Player
       )) { this.owner.target = target }
 
-      this.loseDistance = GuardPosition.TARGET_LOSE_DISTANCE
-      this.owner.maxVelocity = (this.owner.target != null) ? GuardPosition.CHASE_SPEED : GuardPosition.IDLE_SPEED
+      this.loseDistance = this.spec.lose
+      this.owner.maxVelocity = (this.owner.target != null) ? this.spec.chaseSpeed : this.spec.idleSpeed
 
       this.targetAquiredAt = now
     }
@@ -134,8 +133,8 @@ export default class GuardPosition implements IAIRoutine {
         if (this.moveTarget.sub(this.owner.position).getSquareMagnitude() < 100) { this.moveTarget = undefined }
       } else {
         this.moveTarget = new Vector(
-          this.homePosition.x + Random.RangeInt(-30, 30),
-          this.homePosition.y + Random.RangeInt(-30, 30)
+          this.homePosition.x + Random.RangeInt(-this.spec.wander, this.spec.wander),
+          this.homePosition.y + Random.RangeInt(-this.spec.wander, this.spec.wander)
         )
       }
 

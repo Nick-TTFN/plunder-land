@@ -7,7 +7,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { type GameObject } from './gameobject'
 import Mob from './mob'
-import Boss from './boss'
+import { ARCHETYPES } from '../archetypes/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -56,13 +56,13 @@ export default class World {
   // PLAYERS.concat(MOBS) array on every call.
   static UNIT_SOURCES: Unit[][] = [World.PLAYERS as unknown as Unit[], World.MOBS]
 
+  // Skill defaults only. Unit stats (max HP, contact damage) are in the
+  // archetype table, archetypes.ts.
   static config = {
-    damage: 10,
     defend: 0.5,
     // Per second, applied as `fire * dt` and floored per tick by `hit()`, so it
     // must be a multiple of 4 at 250 ms ticks: 60/s is 15 a tick, 60 a cast.
     fire: 60,
-    hp: 100,
     melee: 20,
     ranged: 12
   }
@@ -161,19 +161,19 @@ export default class World {
     if (World.MOBS.length < 50) {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
-      if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag))
+      if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag, ARCHETYPES.grunt))
     }
 
     // Bosses are counted separately. Both guards used to read MOBS.length, so
     // five spawned during the first few ticks and none was ever replaced once
     // the mob population had filled past ten.
     let bosses = 0
-    for (const mob of World.MOBS) if (mob instanceof Boss) bosses++
+    for (const mob of World.MOBS) if (mob.archetype === ARCHETYPES.boss) bosses++
 
     if (bosses < World.BOSS_COUNT) {
       const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
       const pos = this.getUnobstructedPosition(40, tag)
-      if (pos !== undefined) World.MOBS.push(new Boss(pos.x, pos.y, tag))
+      if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag, ARCHETYPES.boss))
     }
   }
 

@@ -7,7 +7,7 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import Player from '../objects/player'
 import Mob from '../objects/mob'
-import Boss from '../objects/boss'
+import { ARCHETYPES } from './archetypes'
 import { GameObject, ObjectType } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import GuardPosition from '../ai/guardposition'
@@ -52,13 +52,13 @@ import { Vector } from '../utils/vector'
  */
 
 /** STEP 1 FLIPS THIS to 40 (decision #23 Q5). The only expected difference. */
-const BOSS_CREATE_RADIUS = 30
+const BOSS_CREATE_RADIUS = 40
 
 // --- Construction and internals: the only lines step 1 may edit ------------------
 
 const makePlayer = (x: number, y: number, name = 'p1'): Player => new Player(x, y, 0, name)
-const makeGrunt = (x: number, y: number): Unit => new Mob(x, y, 0)
-const makeBoss = (x: number, y: number): Unit => new Boss(x, y, 0)
+const makeGrunt = (x: number, y: number): Unit => new Mob(x, y, 0, ARCHETYPES.grunt)
+const makeBoss = (x: number, y: number): Unit => new Mob(x, y, 0, ARCHETYPES.boss)
 /** The point an idle guard is walking to. */
 const wanderGoal = (unit: Unit): Vector | undefined =>
   (unit.routines.find((r) => r instanceof GuardPosition) as GuardPosition).moveTarget

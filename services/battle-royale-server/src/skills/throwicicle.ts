@@ -61,7 +61,7 @@ export class Throwicicle extends Skill {
       ObjectType.Player | ObjectType.Mob
     )) {
       if (collidee !== this.owner) {
-        let damage = Throwicicle.Damage[this.owner.level]
+        let damage = this.byLevel(Throwicicle.Damage)
         if (collidee.buffs.length > 0) damage += 10
 
         // Provoke before slowing: provoking raises a mob to chase speed, and the

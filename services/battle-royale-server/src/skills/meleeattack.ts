@@ -22,7 +22,7 @@ export class MeleeAttack extends Skill {
       ObjectType.Player | ObjectType.Mob
     )) {
       if (collidee !== this.owner) {
-        if (collidee.hit(World.config.melee + this.owner.weapon)) { this.owner.onKill(collidee) } else GuardPosition.provoke(collidee, this.owner)
+        if (collidee.hit((this.damage ?? World.config.melee) + this.owner.weapon)) { this.owner.onKill(collidee) } else GuardPosition.provoke(collidee, this.owner)
       }
     }
 

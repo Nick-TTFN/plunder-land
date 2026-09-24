@@ -6,7 +6,8 @@ import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
 import Timers from '../objects/timers'
 import Player from '../objects/player'
-import Boss from '../objects/boss'
+import Mob from '../objects/mob'
+import { ARCHETYPES } from '../archetypes/archetypes'
 import { Unit } from '../objects/unit'
 import { ObjectType } from '../objects/gameobject'
 import type Throwable from '../objects/throwable'
@@ -283,7 +284,7 @@ test('an unaimed breath still follows facing, with an unaimed effect', (t) => {
 test('a boss cones at its target, not along its facing', (t) => {
   mockTimers(t)
   const at = Hex.toPosition(Hex.toCell(new Vector(2000, 2000)))
-  const boss = new Boss(at.x, at.y, 0)
+  const boss = new Mob(at.x, at.y, 0, ARCHETYPES.boss)
   World.MOBS.push(boss)
   // The boss has never moved, so it faces East. Its target is two cells
   // North-West, which no facing-based cone could reach.
