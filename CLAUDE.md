@@ -304,6 +304,13 @@ per-visible-player one (break-even at about three visible players).
   `stats-*` hashes. This is why the tick has an error boundary — an uncaught throw would
   otherwise take every in-flight run down with the process. It also rules out serverless,
   edge, and sleep-enabled hosting: a sleep/wake cycle wipes the world.
+- **Delayed world work goes through `Timers` (`src/objects/timers.ts`), never `setTimeout`.**
+  A `setTimeout` callback runs outside the tick's error boundary. `Timers.run` is called
+  first in `World.update`, with a catch per timer. Give a timer the object whose state it
+  changes as its owner, so the timer is cancelled when that object dies or exits. Never
+  give a cleanup timer an owner that can die before the thing it cleans up. The only
+  `setTimeout` left is the game loop's own scheduler in `index.ts`. Socket handlers
+  (`'skill'`, `pointer`) are still outside the boundary (`socket-handlers-in-boundary`).
 
 ## Skills
 
