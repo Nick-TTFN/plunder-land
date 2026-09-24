@@ -329,7 +329,7 @@ per-visible-player one (break-even at about three visible players).
 
 ## Things that are deliberate
 
-- **One world per process.** `World.PLAYERS`, `MOBS`, `OBSTACLES`, `CONSUMABLES`,
+- **One world per process.** `World.PLAYERS`, `MOBS`, `OBSTACLES`, `PROJECTILES`, `CONSUMABLES`,
   `AREA_EFFECT`, `TAGS`, `mapSize`, `config` are all `static`, and `Multiplayer.Instance`
   is a static singleton. No rooms, no world reset without a restart, and multi-region means
   separate non-communicating worlds. Converting these to instance state is the one genuinely
@@ -370,10 +370,13 @@ facing snaps to one of the six `Hex.DIRECTIONS`, and each ring is the three forw
 neighbours of the ring before, so ring k has 2k+1 cells. No angle test. The client effects
 still draw the old distances (`vfx-match-cells`).
 
-**Projectiles are not solid.** A `Throwable` still lives in `World.OBSTACLES`, because that
-is how the tick finds it to update, but `Unit.update`'s push-out skips it, and it does its
-own hit test after moving, which never matches its owner. When it was solid, every fireball
-exploded on its caster.
+**Projectiles are not solid, and have their own list.** A `Throwable` lives in
+`World.PROJECTILES`, not `OBSTACLES`, so nothing pushes out of it. It does its own hit test
+after moving, and that test never matches its owner. When it was solid, every fireball
+exploded on its caster. `World.updateProjectiles` walks the list backwards and is the
+**only** place a projectile is removed. Splicing from inside `explode`, which runs within
+the projectile's own update, made the next projectile skip a tick. `OBSTACLES` holds only
+solid things, which is what the 300-obstacle rock refill counts.
 
 **StoneWall is placed behind the caster on purpose**, to block chasers. Do not "fix" it to
 the front.
