@@ -24,7 +24,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 36 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 34 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 ```
 
@@ -50,11 +50,12 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
 - 9 strictness nits that predate 2026-09-24, listed by file so they can be recognised:
   `game.ts` (four "possibly undefined", around `onObjectDestroyed` and the end of the file),
   `skills/dash.ts` (one), `skills/skill.ts` (`uiTexture` not initialised),
-  `ui/elements/progressbar.ts` (`_timeoutId` not initialised) and `vfx/meleeattack.effect.ts`
-  (two implicit `any` parameters).
+  `ui/elements/progressbar.ts` (`_timeoutId` not initialised). (The two implicit `any`
+  parameters in `vfx/meleeattack.effect.ts` went when that file was rewritten.)
 
-Anything **outside** these three groups is a new regression. The count is 36 (measured
-2026-09-24); compare the sorted error list, not just the count, before dismissing.
+Anything **outside** these three groups is a new regression. The count is 34 (measured
+2026-09-24 after `35e9b09`); compare the sorted error list, not just the count, before
+dismissing.
 
 ## Running it locally
 
@@ -194,8 +195,12 @@ unaimed, 8 aimed. The cell is where the effect points: the aimed cell for a rang
 caster's cell along the held direction, `SectorArea.tipCell`). The tip rather than the raw aim
 because the client can place the caster a cell off; one cell sideways at 3 rings turns the
 vector under 20 degrees, so snapping from the client's own view of the caster still lands on
-the server's direction. `Game.onEffect` parses it; drawing along it is `effects-render`.
-Fireball and icicle send no effect: they are `Throwable` objects and fly on their own records.
+the server's direction. **Types 5 and 6 are the fireball and icicle blasts**, always aimed:
+their cell is the blast's centre (the struck unit's cell, or the projectile's own cell on
+expiry). The client can't work that out for itself, because the destroy record carries no
+position and its last known position is a tick behind the hit. Effects draw the cells the
+server damages; the client's port of the cone and ring logic is `src/vfx/cells.ts`, and
+`effectcells.spec.ts` checks it against the server's.
 
 `maxHp` is sent per unit so the client does not have to infer a health bar's scale from the
 first hp value it happens to see. **The field table is append-only** — new fields go on the
@@ -207,18 +212,24 @@ hardcode these — see `src/net/session.ts`.
 Each record is a sequence of `[field index][payload]`, indexed into `GameObject.fieldOrder`
 (server) / `allFields` (client). **These two tables must stay identical and are
 append-only** — an index is a consumed boundary, so never reorder or remove one.
+`fieldtable.spec.ts` enforces that they're identical. **A new field index breaks old clients**:
+an old client stops parsing a record at an index it doesn't know, and fields are written
+in dirty order, not table order, so it can lose a position update in the same record.
+Ship the client before, or together with, the server.
 
 `direction` and `impulse` have serialiser cases on both sides but are **not** in
 `fieldOrder`, so `indexOf` returns -1 and they would encode as key index 255. They are
 currently unreachable because `dirtyFields.add('direction')` / `('impulse')` are commented
 out in `gameobject.ts`. Add them to `fieldOrder` before ever re-enabling those.
 
-**`Unit.facing` is the fallback aim and the "behind" reference, and it is server-only.**
+**`Unit.facing` is the fallback aim and the "behind" reference.**
 Aimed skills use the clicked cell (see `skill` above). Without an aim they use `facing`, and
 Dash and StoneWall always do. `stop()` zeroes `direction`, so anything reading `direction`
 fired at the caster's own feet once they stood still. `facing` is the last non-zero direction
 (unit length, East until the unit first moves), kept current by `Unit`'s `direction` setter.
-`effects-render` puts it on the wire as a 3-bit hex facing for sprites.
+On the wire it is field `facing` (index 13): the `World.FACING_INDEX` of the vector, one byte,
+0-5, marked dirty only when that index changes, so a unit walking straight sends nothing.
+Remote sprites at rest face it.
 
 `maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
@@ -367,8 +378,7 @@ struck** (or the projectile's own cell if it expires). Centring a distance blast
 projectile missed the unit it had just hit, because a projectile's 50-unit collider sets
 it off before the target is inside a 70-unit blast. Breath cones are `World.CONE_CELLS`: the
 facing snaps to one of the six `Hex.DIRECTIONS`, and each ring is the three forward
-neighbours of the ring before, so ring k has 2k+1 cells. No angle test. The client effects
-still draw the old distances (`vfx-match-cells`).
+neighbours of the ring before, so ring k has 2k+1 cells. No angle test.
 
 **Projectiles are not solid, and have their own list.** A `Throwable` lives in
 `World.PROJECTILES`, not `OBSTACLES`, so nothing pushes out of it. It does its own hit test
