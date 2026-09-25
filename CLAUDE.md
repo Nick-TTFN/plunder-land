@@ -319,6 +319,15 @@ routes and asserts identical positions each tick. Change one and that spec will 
 **`extractProgress` (19)** is a uint8, 0 when not extracting, else 1–254 as 255ths of the
 layer's time. It is sent on change only, to everyone in range, and never in a snapshot.
 
+**`loot32` (20) carries `loot` as a uint32**, capped to that range and rounded down.
+`GameObject.WIRE_NAME` maps the `loot` property to it. Index 5 `loot` (uint16) stays in the
+table, deprecated and never sent, because indices are append-only. The client still decodes
+it for older servers. A uint16 loot over 65,535 threw inside `World.update`, so the tick's
+catch skipped `flushAll` and **the whole world froze**, every tick, because loot stayed
+dirty. Any uint16/uint8 field fed by an unbounded value can do the same. Audit notes: effect
+lifetime is an int8 of ms/100, so a 12.8 s effect would throw; ids are uint16 but recycled a
+second after release, and a 200-bot stress run peaked at id 2,610.
+
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
 (key 1 = medkit, key 2 = bomb, 3–5 empty). The item table's shared half is the mirrored
