@@ -27,8 +27,10 @@ on 02, 10 up on 03. A mob or boss is pushed out of a portal like a rock and stay
 layer, so each layer keeps the danger designed for it. A player crosses at the spot the
 portal pushed them out to, 64 units from its centre, so no two gates a player could meet on
 one layer lie within `World.GATE_SPACING` (150) of each other, or a player would be caught
-by a second gate on arrival. New players join on layer 01 at a random point (safe placement
-is `safe-spawn-placement`). The airborne plane, its clouds and the half-alpha "ground seen
+by a second gate on arrival. New players join on layer 01 on a free cell centre at least
+`World.SPAWN_CLEARANCE` (3) cells from every portal, exit and boss, and from mobs when
+possible (`World.spawnCell`). A fully random spawn put about 1 join in 250 close enough to an
+exit to leave within a second. The airborne plane, its clouds and the half-alpha "ground seen
 from above" are gone; only the player's own layer is drawn.
 
 ## Verification path
@@ -173,8 +175,18 @@ lockfiles, and treat any dependency bump as something to smoke-test.
 
 ## Wire format
 
-Server → client messages (`create`, `create_own`, `update`, `destroy`, `effect`) are
-binary. Each event is **one** buffer containing length-prefixed records:
+Server → client messages (`create`, `create_own`, `update`, `destroy`, `effect`,
+`standings`) are binary. Each event is **one** buffer containing length-prefixed records.
+
+**`standings`** goes out about once a second (every `round(1000 / tick)` flushes, no timer),
+the same buffer to every connection. It carries one record per player, ranked on the server
+by carried loot: `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0]`. Status is 0 ACTIVE,
+1 EXTRACTED, 2 DEAD (a disconnect counts as DEAD). The enum is `Standing` in `world.ts`,
+copied by hand on the client, and append-only. Finished players linger 10 s in
+`World.FINISHED`, capped at 64. The client finds its own row by id while it's ACTIVE (ids
+are recycled after a player leaves). Either side can deploy first.
+
+The other events' records are laid out like this:
 
 ```
 [uint16 length][record bytes][uint16 length][record bytes]...
