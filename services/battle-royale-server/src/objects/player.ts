@@ -42,12 +42,6 @@ export default class Player extends Unit {
     Multiplayer.Instance.create(this)
   }
 
-  setGear (data: { damage: number, armor: number, speed: number }): void {
-    this.weapon = data.damage
-    this.armor = data.armor
-    this.maxVelocity = 180 + data.speed * 10
-  }
-
   update (dt: number): void {
     super.update(dt)
 

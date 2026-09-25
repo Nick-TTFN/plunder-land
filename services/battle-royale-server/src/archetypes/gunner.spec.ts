@@ -83,6 +83,9 @@ function addGunner (at: Vector = HOME): Mob {
 
 function addPlayer (at: Vector, name = 'p1'): Player {
   const player = new Player(at.x, at.y, 0, name)
+  // unit-archetypes step 3: an emptied pool, so hp measures the gunner's shots
+  // as it did before the pool existed. The pool is armor.spec.ts's.
+  player.armor = 0
   World.PLAYERS.push(player)
   return player
 }

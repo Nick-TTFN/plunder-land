@@ -157,12 +157,16 @@ const MAXVEL = (v: number): number[] => [10, Math.floor(v / 10)]
 const NAME = (s: string): number[] => [11, ...Buffer.from(s), 0]
 const MAXHP = (v: number): number[] => [12, ...u16(v)]
 const FACING = (v: number): number[] => [13, v]
+const ARMOR = (v: number): number[] => [14, ...u16(v)]
+const MAXARMOR = (v: number): number[] => [15, ...u16(v)]
 
 test('the byte helpers use today\'s field indices', () => {
   assert.deepEqual(
     GameObject.fieldOrder,
     ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
-      'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing']
+      'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing',
+      // unit-archetypes step 3 (the armor pool), deliberate: appended.
+      'armor', 'maxArmor']
   )
 })
 
@@ -178,12 +182,15 @@ test('player: stats at construction and after one update', () => {
   assert.equal(player.level, 1)
   assert.equal(player.loot, 0)
   assert.equal(player.maxVelocity, 140)
-  assert.equal(player.armor, 0)
+  // Step 3 (the armor pool), deliberate: was a flat 0, now a full pool of 50.
+  assert.equal(player.armor, 50)
+  assert.equal(player.maxArmor, 50)
   assert.equal(player.damageReduction, 0)
   assert.deepEqual(player.routines, [])
 
   player.update(DT)
   assert.equal(player.maxVelocity, 140)
+  assert.equal(player.armor, 50)
   assert.equal(player.hp, 100)
   assert.equal(player.maxHp, 100)
   assert.equal(player.radius, 14)
@@ -222,7 +229,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
 
   const expectedCreate = [
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...TAG(0), ...TO(0),
-    ...RADIUS(14), ...NAME('p1'), ...MAXHP(100), ...FACING(0)
+    ...RADIUS(14), ...NAME('p1'), ...MAXHP(100), ...FACING(0),
+    // Step 3 (the armor pool), deliberate: the pool goes on the end.
+    ...ARMOR(50), ...MAXARMOR(50)
   ]
   assert.deepEqual(createRecordOf(player).bytes, expectedCreate)
   assert.deepEqual(bytesOf(player, player.allFields), expectedCreate)
@@ -230,7 +239,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
   // What the joining player gets for itself (Multiplayer.admit).
   assert.deepEqual(bytesOf(player, player.allFieldsOwn), [
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...LOOT(0), ...TAG(0),
-    ...TO(0), ...RADIUS(14), ...MAXVEL(140), ...MAXHP(100)
+    ...TO(0), ...RADIUS(14), ...MAXVEL(140), ...MAXHP(100),
+    // Step 3, deliberate, as above.
+    ...ARMOR(50), ...MAXARMOR(50)
   ])
 })
 
@@ -310,6 +321,9 @@ function pinContact (t: TestContext, make: (x: number, y: number) => Unit, damag
   mockDate(t)
   const mob = addMob(make)
   const player = addPlayer(X + 30, Y)
+  // Step 3: an emptied pool, so hp still measures the mob's damage. The pool
+  // itself is armor.spec.ts's; the assertions below are unchanged.
+  player.armor = 0
 
   mob.update(DT)
   assert.equal(player.hp, 100 - damage, 'first contact hit')

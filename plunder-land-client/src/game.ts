@@ -280,7 +280,10 @@ export class Game extends Container {
       'maxHp',
       // A unit's hex facing, 0-5 into Hex.DIRECTIONS. Only for looks: effects
       // carry their own aim (decision #21).
-      'facing'
+      'facing',
+      // The armor pool (#16), uint16 each. Only units with a pool send them.
+      'armor',
+      'maxArmor'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -345,6 +348,12 @@ export class Game extends Container {
         case 'facing':
           value = buffer[offset++]
           break
+        case 'armor':
+          value = (buffer[offset++] << 8) + buffer[offset++]
+          break
+        case 'maxArmor':
+          value = (buffer[offset++] << 8) + buffer[offset++]
+          break
         case 'name':
           value = ''
 
@@ -361,6 +370,15 @@ export class Game extends Container {
     }
 
     return data
+  }
+
+  /**
+   * The armor pool's two fields onto the unit, for the HUD to read
+   * (`hud-rebuild`). Either may come alone in a delta.
+   */
+  applyArmor (unit: Unit, data: Record<string, unknown>): void {
+    if (typeof data.maxArmor === 'number') unit.maxArmor = data.maxArmor
+    if (typeof data.armor === 'number') unit.armor = data.armor
   }
 
   onObjectCreated (raw: Uint8Array, own = false): void {
@@ -440,6 +458,8 @@ export class Game extends Container {
     if (data.maxVelocity !== undefined) (obj as any).maxVelocity = data.maxVelocity
 
     if (data.facing !== undefined && obj instanceof Unit) obj.facingIndex = data.facing
+
+    if (obj instanceof Unit) this.applyArmor(obj, data)
 
     if (own) {
       Game.PLAYER = obj as Player
@@ -683,6 +703,8 @@ export class Game extends Container {
       if (data.maxHp !== undefined && obj.setMaxHP) obj.setMaxHP(data.maxHp)
 
       if (data.facing !== undefined && obj instanceof Unit) obj.facingIndex = data.facing
+
+      if (obj instanceof Unit) this.applyArmor(obj, data)
 
       if (data.hp !== undefined && obj.setHP) obj.setHP(data.hp)
 

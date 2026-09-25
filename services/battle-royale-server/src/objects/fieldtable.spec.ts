@@ -107,7 +107,8 @@ test('facing goes on the wire as its index in one byte after field index 13', ()
   const unit = unitOn(new Vector(20, 40))
   unit.facing = new Vector(-0.5, -0.8) // North-West, index 4
   const index = GameObject.fieldOrder.indexOf('facing')
-  assert.equal(index, GameObject.fieldOrder.length - 1, 'facing must be the last field')
+  // Was "the last field"; the armor pool (step 3) appended two after it.
+  assert.equal(index, 13, 'facing moved: the table is append-only')
   const bytes = unit.serialiseBinary(new Set(['facing']))
   assert.ok(bytes !== null)
   // [0 id][uint16 id][13][4]

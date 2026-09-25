@@ -32,6 +32,16 @@ export default class Unit extends GameObject {
   facingIndex: number | undefined
 
   maxHP: number = 0
+
+  /**
+   * The armor pool (#16): what is left and its size, from the server's `armor`
+   * and `maxArmor` fields. 0/0 for anything without a pool, which is every mob:
+   * the server sends neither field for them. Nothing draws these yet; the HUD
+   * bar is `hud-rebuild`'s.
+   */
+  armor: number = 0
+  maxArmor: number = 0
+
   runAnimation: string | undefined
   idleAnimation: string | undefined
 

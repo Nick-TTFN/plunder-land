@@ -98,8 +98,18 @@ export class Unit extends GameObject {
   buffs: Buff[] = []
   canAttack: boolean = true
   target: GameObject | undefined
-  armor: number = 0
+  // No `armor` field here: it is GameObject's accessor (see its comment).
   weapon: number = 0
+
+  /**
+   * The armor pool's refill clock (#16). `armorRefillAt` is the `Date.now()`
+   * before which the pool does not refill; every hit that does damage pushes
+   * it `archetype.armor.delayMs` ahead. `armorCarry` is the fraction of a
+   * point earned but not yet added, so the pool stays a whole number while the
+   * rate stays exact under a measured, jittering `dt`.
+   */
+  armorRefillAt: number = 0
+  armorCarry: number = 0
 
   /**
    * What kind of unit this is (archetypes.ts). Undefined only for the bare
@@ -135,6 +145,17 @@ export class Unit extends GameObject {
       this.hp = archetype.maxHp
       this.maxVelocity = archetype.speed
       this.loot = archetype.loot
+
+      // Only a unit with a pool sends one. A mob's is always 0/0, and the
+      // client reads a missing field as 0, so its records stay as they were.
+      if (archetype.armor.max > 0) {
+        this.maxArmor = archetype.armor.max
+        this.armor = archetype.armor.max
+        for (const fields of [this.allFields, this.allFieldsOwn]) {
+          fields.add('armor')
+          fields.add('maxArmor')
+        }
+      }
     }
   }
 
@@ -465,6 +486,10 @@ export class Unit extends GameObject {
       }
     }
 
+    // After every hit this tick can deal the unit itself, so a breath tick
+    // landing now has already pushed the delay back.
+    this.refillArmor(dt)
+
     px = px < 0 ? 0 : px
     px = px > World.mapSize ? World.mapSize : px
 
@@ -493,6 +518,25 @@ export class Unit extends GameObject {
     return this.maxHp
   }
 
+  /**
+   * `archetype.armor.refillPerSec`, once `delayMs` has passed since the last
+   * hit that did damage. A comparison against the clock, not a Timers entry:
+   * it moves on every hit, and re-arming a timer per hit is churn for nothing.
+   */
+  private refillArmor (dt: number): void {
+    if (this.armor >= this.maxArmor) {
+      this.armorCarry = 0
+      return
+    }
+    if (this.archetype === undefined || Date.now() < this.armorRefillAt) return
+
+    this.armorCarry += this.archetype.armor.refillPerSec * dt
+    const whole = Math.floor(this.armorCarry)
+    if (whole <= 0) return
+    this.armorCarry -= whole
+    this.armor = Math.min(this.maxArmor, this.armor + whole)
+  }
+
   hit (value: number): boolean {
     // A dead unit stays in its world list until the next tick sweeps it, and
     // FIND_IN_CELLS does not skip it, so a second hit in the same tick reached
@@ -500,11 +544,22 @@ export class Unit extends GameObject {
     // objects then share it) and the second killer was credited too.
     if (this.destroyed) return false
 
-    // Clamped: at armor 10 the multiplier hits zero, and above it went negative,
-    // so `hp -= inflictedDamage` healed - past maxHP, since only pickups clamp.
-    const multiplier = Math.max(0, Math.min(1, 1 - this.damageReduction - this.armor / 10))
-    const inflictedDamage = Math.floor(value * multiplier)
-    this.hp -= inflictedDamage
+    // Defend first, then the armor pool, then hp (#16). The reduction is
+    // clamped so a stacked one can never turn a hit into a heal.
+    const multiplier = Math.max(0, Math.min(1, 1 - this.damageReduction))
+    const damage = Math.floor(value * multiplier)
+
+    let absorbed = 0
+    if (damage > 0) {
+      absorbed = Math.min(this.armor, damage)
+      if (absorbed > 0) this.armor -= absorbed
+
+      // Only a hit that did damage holds the refill off. One floored to zero
+      // (a breath tick under Defend) must not keep a pool empty forever.
+      this.armorRefillAt = Date.now() + (this.archetype?.armor.delayMs ?? 0)
+      this.armorCarry = 0
+    }
+    this.hp -= damage - absorbed
 
     if (this.hp <= 0) {
       this.hp = 0

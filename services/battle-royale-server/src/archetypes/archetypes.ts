@@ -82,8 +82,10 @@ export interface Archetype {
   kind: 'robot' | 'mob'
   maxHp: number
   /**
-   * The armor pool (#16). **Not read yet**: the pool is step 3. Until then every
-   * unit's armor is `Unit.armor`, today's flat 0, and these are all zero.
+   * The armor pool (#16): `max` points that absorb damage before hp, refilled
+   * at `refillPerSec` once `delayMs` has passed without a damaging hit
+   * (Unit.hit, Unit.refillArmor). `max` 0 = no pool, and then the unit sends no
+   * armor fields at all.
    */
   armor: { max: number, refillPerSec: number, delayMs: number }
   /**
@@ -166,7 +168,8 @@ const peep: Archetype = {
   key: 'peep',
   kind: 'robot',
   maxHp: 100,
-  armor: NO_ARMOR,
+  // balance-pass §1 (#16): 50, refilling 12/s after 4 s without damage.
+  armor: Object.freeze({ max: 50, refillPerSec: 12, delayMs: 4000 }),
   speed: 140,
   // Pinned rather than derived from HP (it was 2 * sqrt(maxHP)): a bigger body
   // widens pickup reach, moves the fireball spawn point and widens the ranged

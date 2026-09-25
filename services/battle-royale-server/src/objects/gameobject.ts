@@ -36,6 +36,11 @@ export class GameObject {
   private _maxVelocity: number
   private _name: string
   private _maxHp: number
+  // 0 rather than undefined, so a unit with no pool (a mob, a bare spec unit)
+  // can be hit without arithmetic on undefined. A plain initialiser here is
+  // safe: this is the base, so nothing has written the field before it runs.
+  private _armor: number = 0
+  private _maxArmor: number = 0
 
   static fieldOrder: string[] = [
     'id',
@@ -53,7 +58,12 @@ export class GameObject {
     'maxHp',
     // A Unit's `World.FACING_INDEX(facing)`, one byte, 0-5 (see Unit.facing).
     // Appended: this table is a wire contract, see CLAUDE.md "Wire format".
-    'facing'
+    'facing',
+    // The armor pool (#16), uint16 each, like hp/maxHp. Only units with a pool
+    // put these in their snapshot sets (Unit's constructor), so a mob's create
+    // record doesn't carry them. Appended, as above.
+    'armor',
+    'maxArmor'
   ]
 
   constructor (
@@ -231,6 +241,34 @@ export class GameObject {
     this.dirtyFields.add('maxHp')
   }
 
+  /**
+   * The armor pool (#16): what is left of it, and its size. Damage comes off
+   * `armor` before `hp` (Unit.hit), and Unit.update refills it. A whole number
+   * always, because it goes on the wire as a uint16.
+   *
+   * These accessors are why `Unit` must not declare its own `armor` field:
+   * under define semantics a subclass field is defined on the instance after
+   * this constructor runs and shadows the accessor, so writes would never mark
+   * the field dirty and the client would never hear of them.
+   */
+  get armor () {
+    return this._armor
+  }
+
+  set armor (value) {
+    this._armor = value
+    this.dirtyFields.add('armor')
+  }
+
+  get maxArmor () {
+    return this._maxArmor
+  }
+
+  set maxArmor (value) {
+    this._maxArmor = value
+    this.dirtyFields.add('maxArmor')
+  }
+
   get name () {
     return this._name
   }
@@ -329,6 +367,12 @@ export class GameObject {
           raw.push(this.getBuffer(Math.floor(value / 10)))
           break
         case 'maxHp':
+          raw.push(this.getBuffer2(value))
+          break
+        case 'armor':
+          raw.push(this.getBuffer2(value))
+          break
+        case 'maxArmor':
           raw.push(this.getBuffer2(value))
           break
         case 'facing':

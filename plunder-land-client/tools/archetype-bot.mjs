@@ -28,7 +28,11 @@
  *   within 60 of the target (from any grunt: the wire does not say which one
  *   hit, so two grunts at once show as 250/750 ms gaps), and the spacing to the
  *   target while within 60. On death it rejoins as a new player and carries on;
- * - mob speeds, from position deltas between consecutive ticks.
+ * - mob speeds, from position deltas between consecutive ticks;
+ * - the armor pool (unit-archetypes step 3): every change to its own armor or
+ *   hp as one event with both deltas, whether hp ever fell while armor was
+ *   left, the refill steps, and the delay from the last damage to the first
+ *   refill. A contact hit is -10 in total, from armor, hp or both.
  *
  * Wire format: CLAUDE.md "Wire format". Uses only the client's socket.io-client.
  */
@@ -64,7 +68,7 @@ if (serverUrl === undefined) {
 
 // Must match the client's allFields (src/game.ts) and the server's fieldOrder.
 const FIELDS = ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
-  'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing']
+  'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing', 'armor', 'maxArmor']
 const TYPE_NAMES = { 1: 'Obstacle', 2: 'Consumable', 4: 'Player', 8: 'Portal', 16: 'Throwable', 32: 'Mob', 64: 'Exit' }
 const MOB = 32
 const GRUNT_MAX_HP = 50
@@ -93,7 +97,7 @@ function decode (buffer) {
     const key = FIELDS[buffer[o++]]
     if (key === undefined) throw new Error(`unknown field index ${buffer[o - 1]}`)
     switch (key) {
-      case 'id': case 'hp': case 'loot': case 'maxHp':
+      case 'id': case 'hp': case 'loot': case 'maxHp': case 'armor': case 'maxArmor':
         data[key] = (buffer[o++] << 8) + buffer[o++]; break
       case 'type': case 'level': case 'radius': case 'facing':
         data[key] = buffer[o++]; break
@@ -142,8 +146,16 @@ const results = {
   pointersSent: 0,
   gruntsTargeted: 0,
   firstContactAt: null,
-  unknownFieldErrors: 0
+  unknownFieldErrors: 0,
+  // The armor pool (step 3).
+  ownChanges: [],
+  hpFellWithArmorLeft: 0,
+  refillStepHistogram: {},
+  refillDelayMs: {},
+  mobCreatesWithArmor: 0
 }
+let lastDamageTick
+let refilledSinceDamage = true
 
 let objects = new Map()
 let ownId
@@ -188,6 +200,7 @@ function onCreate (raw) {
   for (const r of records) {
     let d
     try { d = decode(r) } catch { results.unknownFieldErrors++; continue }
+    if (d.type === MOB && (d.armor !== undefined || d.maxArmor !== undefined)) results.mobCreatesWithArmor++
     if (counting) {
       count(bucket.byType, TYPE_NAMES[d.type] ?? d.type)
       count(bucket.byTypeRadiusHpMaxHp, histKey(d))
@@ -234,7 +247,38 @@ function onUpdate (raw) {
         toGrunt: target ? Math.round(dist(target.position, pos)) : null,
         toBoss: boss ? Math.round(dist(boss.position, pos)) : null
       })
-      if (delta === -10 && target && dist(target.position, pos) < 60) {
+    }
+
+    // The pool: armor and hp as one event, since a hit may take from either.
+    const armorChanged = d.id === ownId && d.armor !== undefined && d.armor !== obj.armor
+    const hpChanged = d.id === ownId && d.hp !== undefined && d.hp !== obj.hp
+    if (armorChanged || hpChanged) {
+      const target = objects.get(targetId)
+      const pos = d.position ?? obj.position
+      const dArmor = (d.armor ?? obj.armor ?? 0) - (obj.armor ?? 0)
+      const dHp = (d.hp ?? obj.hp) - obj.hp
+      const armor = d.armor ?? obj.armor
+      results.ownChanges.push({
+        t: +((Date.now() - started) / 1000).toFixed(2),
+        tick,
+        dArmor,
+        dHp,
+        armor,
+        hp: d.hp ?? obj.hp,
+        toGrunt: target ? Math.round(dist(target.position, pos)) : null
+      })
+      if (dHp < 0 && armor > 0) results.hpFellWithArmorLeft++
+      if (dArmor < 0 || dHp < 0) {
+        lastDamageTick = tick
+        refilledSinceDamage = false
+      } else if (dArmor > 0) {
+        count(results.refillStepHistogram, dArmor)
+        if (!refilledSinceDamage && lastDamageTick !== undefined) {
+          count(results.refillDelayMs, (tick - lastDamageTick) * tickMs)
+          refilledSinceDamage = true
+        }
+      }
+      if (dArmor + dHp === -10 && target && dist(target.position, pos) < 60) {
         if (lastContactHitTick !== undefined) count(results.contactHitGapsMs, (tick - lastContactHitTick) * tickMs)
         lastContactHitTick = tick
       }
@@ -307,6 +351,8 @@ function join () {
   targetId = undefined
   snapshotTaken = false
   lastContactHitTick = undefined
+  lastDamageTick = undefined
+  refilledSinceDamage = true
   // A fresh socket per life: the server accepts one start_requested per connection.
   socket = io(serverUrl, { transports: ['websocket'], reconnectionDelay: 100, reconnectionDelayMax: 200 })
   socket.on('connect', () => {
