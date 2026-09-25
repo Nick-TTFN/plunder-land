@@ -245,6 +245,13 @@ On the wire it is field `facing` (index 13): the `World.FACING_INDEX` of the vec
 0-5, marked dirty only when that index changes, so a unit walking straight sends nothing.
 Remote sprites at rest face it.
 
+**`armor` (14) and `maxArmor` (15)** are uint16, like `hp`/`maxHp`, and are sent only by
+units that have an armor pool (players today). The client reads a missing field as 0. Damage
+goes Defend → armor → hp (`Unit.hit`). The pool refills at the archetype's rate once its delay
+has passed since the last hit that did damage (`Unit.refillArmor`). **Don't declare an `armor`
+field on `Unit` or any subclass**: it would shadow `GameObject`'s accessor, and armor changes
+would silently never be sent. The server typecheck (TS2610) catches it; swc alone does not.
+
 `maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
 known positions and never need a speed.
