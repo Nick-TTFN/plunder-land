@@ -159,6 +159,7 @@ const MAXHP = (v: number): number[] => [12, ...u16(v)]
 const FACING = (v: number): number[] => [13, v]
 const ARMOR = (v: number): number[] => [14, ...u16(v)]
 const MAXARMOR = (v: number): number[] => [15, ...u16(v)]
+const ARCHETYPE = (v: number): number[] => [16, v]
 
 test('the byte helpers use today\'s field indices', () => {
   assert.deepEqual(
@@ -166,7 +167,9 @@ test('the byte helpers use today\'s field indices', () => {
     ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
       'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing',
       // unit-archetypes step 3 (the armor pool), deliberate: appended.
-      'armor', 'maxArmor']
+      'armor', 'maxArmor',
+      // Step 4 (archetype id on the wire), deliberate: appended.
+      'archetype']
   )
 })
 
@@ -231,7 +234,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...TAG(0), ...TO(0),
     ...RADIUS(14), ...NAME('p1'), ...MAXHP(100), ...FACING(0),
     // Step 3 (the armor pool), deliberate: the pool goes on the end.
-    ...ARMOR(50), ...MAXARMOR(50)
+    ...ARMOR(50), ...MAXARMOR(50),
+    // Step 4, deliberate: then the archetype id (peep = 1).
+    ...ARCHETYPE(1)
   ]
   assert.deepEqual(createRecordOf(player).bytes, expectedCreate)
   assert.deepEqual(bytesOf(player, player.allFields), expectedCreate)
@@ -240,8 +245,8 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
   assert.deepEqual(bytesOf(player, player.allFieldsOwn), [
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...LOOT(0), ...TAG(0),
     ...TO(0), ...RADIUS(14), ...MAXVEL(140), ...MAXHP(100),
-    // Step 3, deliberate, as above.
-    ...ARMOR(50), ...MAXARMOR(50)
+    // Steps 3 and 4, deliberate, as above.
+    ...ARMOR(50), ...MAXARMOR(50), ...ARCHETYPE(1)
   ])
 })
 
@@ -375,7 +380,9 @@ test('grunt: create record bytes', () => {
   const mob = makeGrunt(X, Y)
   const expected = [
     ...ID(1), ...TYPE(32), ...POS(X, Y), ...HP(50), ...TAG(0), ...TO(0),
-    ...RADIUS(30), ...MAXHP(50), ...FACING(0)
+    ...RADIUS(30), ...MAXHP(50), ...FACING(0),
+    // Step 4 (archetype id on the wire), deliberate: grunt = 6.
+    ...ARCHETYPE(6)
   ]
   assert.deepEqual(createRecordOf(mob).bytes, expected)
   // A later join's snapshot of the same unmoved grunt is the same bytes.
@@ -445,7 +452,9 @@ test(`boss: create record goes out with radius ${BOSS_CREATE_RADIUS} (STEP 1 FLI
   // Everything else in the record stays. No level: Boss sets it after the create.
   assert.deepEqual(record.bytes, [
     ...ID(1), ...TYPE(32), ...POS(X, Y), ...HP(300), ...TAG(0), ...TO(0),
-    ...RADIUS(BOSS_CREATE_RADIUS), ...MAXHP(300), ...FACING(0)
+    ...RADIUS(BOSS_CREATE_RADIUS), ...MAXHP(300), ...FACING(0),
+    // Step 4, deliberate: boss = 7.
+    ...ARCHETYPE(7)
   ])
 })
 
@@ -453,7 +462,9 @@ test('boss: a later join\'s snapshot (allFields) bytes', () => {
   const boss = makeBoss(X, Y)
   assert.deepEqual(bytesOf(boss, boss.allFields), [
     ...ID(1), ...TYPE(32), ...POS(X, Y), ...HP(300), ...LEVEL(0), ...TAG(0), ...TO(0),
-    ...RADIUS(40), ...MAXHP(300), ...FACING(0)
+    ...RADIUS(40), ...MAXHP(300), ...FACING(0),
+    // Step 4, deliberate: boss = 7.
+    ...ARCHETYPE(7)
   ])
 })
 

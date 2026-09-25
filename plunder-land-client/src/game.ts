@@ -12,6 +12,7 @@ import { Consumable } from './objects/consumable'
 import { Obstacle } from './objects/obstacle'
 import { Vector } from './utils/vector'
 import { Hex } from './utils/hex'
+import { archetypeById } from './utils/archetypes'
 import { PathMarker } from './ui/elements/pathmarker'
 import { Timer } from './ui/elements/timer'
 import { Throwable } from './objects/throwable'
@@ -283,7 +284,12 @@ export class Game extends Container {
       'facing',
       // The armor pool (#16), uint16 each. Only units with a pool send them.
       'armor',
-      'maxArmor'
+      'maxArmor',
+      // The unit's archetype id, one unsigned byte, looked up in the mirrored
+      // utils/archetypes.ts. Only units built from an archetype send it, and
+      // only with the whole record (a create, or a full resend in `update`),
+      // never in a delta. Read only at construction.
+      'archetype'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -354,6 +360,9 @@ export class Game extends Container {
         case 'maxArmor':
           value = (buffer[offset++] << 8) + buffer[offset++]
           break
+        case 'archetype':
+          value = buffer[offset++]
+          break
         case 'name':
           value = ''
 
@@ -415,7 +424,9 @@ export class Game extends Container {
       }
 
       case 1 << 5:
-        obj = new Mob(data.radius)
+        // An id this build doesn't know gives undefined, and the mob draws
+        // today's sprite (archetypesprites.ts).
+        obj = new Mob(data.radius, archetypeById(data.archetype))
 
         const mob = (obj as Mob)
         mob.setHP(data.hp)
@@ -444,7 +455,7 @@ export class Game extends Container {
       }
 
       case 1 << 2:{
-        const player = new Player()
+        const player = new Player(archetypeById(data.archetype))
         player.setHP(data.hp)
         Game.PLAYERS.push(player)
         obj = player
@@ -468,7 +479,8 @@ export class Game extends Container {
         data.position?.x ?? obj.x,
         data.position?.y ?? obj.y,
         data.tag,
-        data.maxVelocity ?? 0
+        data.maxVelocity ?? 0,
+        data.radius ?? 0
       )
 
       Game.hud.setupStats()
@@ -745,6 +757,7 @@ export class Game extends Container {
       if (data.radius !== undefined && obj.radius !== data.radius) {
         obj.radius = data.radius
         if (obj.DEBUG_DRAW_COLLIDER) obj.DEBUG_DRAW_COLLIDER()
+        if (obj === Game.PLAYER && data.radius > 0) Game.LOCAL.radius = data.radius
       }
 
       if (obj._lastUpdate > 0) { obj.timeSinceUpdate = (Date.now() - obj._lastUpdate) / 1000 }

@@ -15,7 +15,10 @@ import { join } from 'node:path'
  * one-cell difference in WINDOW breaks that silently: the game keeps running and
  * players rubber-band near obstacles, with nothing in any log to explain it.
  */
-const MIRRORED = ['hex.ts', 'path.ts']
+// archetypes.ts: the archetype ids on the wire and the flags both sides will
+// simulate (Hopper's passesObstacles, Periscope's vision). A drifted id draws
+// the wrong sprite; a drifted flag makes prediction fight the server.
+const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts']
 
 const SERVER = __dirname
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'utils')

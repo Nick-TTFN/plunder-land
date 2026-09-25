@@ -12,6 +12,7 @@ import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
+import { ARCHETYPE_INFO, type ArchetypeInfo } from '../utils/archetypes'
 
 /**
  * Every kind of unit, as data (decision #23, design `ideas/unit-archetypes-design.md`).
@@ -75,11 +76,13 @@ export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec
 /** The redis `stats-<player>` hash keys a kill of this unit increments, besides `kills`. */
 export type KillStat = 'mobKills' | 'bossKills'
 
-export interface Archetype {
-  /** Wire value once step 4 puts it on the wire. Append-only, never reused. */
-  id: number
-  key: string
-  kind: 'robot' | 'mob'
+/**
+ * `id`, `key`, `kind`, `passesObstacles` and `vision` come from the mirrored
+ * `utils/archetypes.ts`, which the client shares: each entry below spreads its
+ * `ARCHETYPE_INFO` row first and must not set those five itself
+ * (archetypes.spec.ts checks it). `id` is the `archetype` wire field.
+ */
+export interface Archetype extends ArchetypeInfo {
   maxHp: number
   /**
    * The armor pool (#16): `max` points that absorb damage before hp, refilled
@@ -109,14 +112,10 @@ export interface Archetype {
   level?: number
   /** Centre to centre. null = today's reach, the consumable's radius plus the body. */
   pickupReach: number | null
-  /** Fog radius, robots only. **Not read yet** (step 5); null = no fog, as today. */
-  vision: number | null
   /** Loot carried at spawn. */
   loot: number
   /** Damage dealt by touching a player, at most once per `cooldownMs`. */
   contact: { damage: number, cooldownMs: number }
-  /** Hopper (#15). **Not read yet** (step 6). */
-  passesObstacles: boolean
   /**
    * Stats keys a kill of this unit counts toward. The keys are a consumed
    * boundary (redis hashes) and keep today's names. A boss kill counts as both
@@ -164,9 +163,7 @@ const GUARD: GuardSpec = Object.freeze({
 const NO_ARMOR = Object.freeze({ max: 0, refillPerSec: 0, delayMs: 0 })
 
 const peep: Archetype = {
-  id: 1,
-  key: 'peep',
-  kind: 'robot',
+  ...ARCHETYPE_INFO.peep,
   maxHp: 100,
   // balance-pass §1 (#16): 50, refilling 12/s after 4 s without damage.
   armor: Object.freeze({ max: 50, refillPerSec: 12, delayMs: 4000 }),
@@ -177,37 +174,29 @@ const peep: Archetype = {
   body: 14,
   level: 1,
   pickupReach: null,
-  vision: null,
   loot: 0,
   contact: { damage: 0, cooldownMs: 0 },
-  passesObstacles: false,
   killStats: [],
   skills: PLAYER_SKILLS as SkillSpec[],
   routines: []
 }
 
 const grunt: Archetype = {
-  id: 6,
-  key: 'grunt',
-  kind: 'mob',
+  ...ARCHETYPE_INFO.grunt,
   maxHp: 50,
   armor: NO_ARMOR,
   speed: 100,
   body: 30,
   pickupReach: null,
-  vision: null,
   loot: 50,
   contact: { damage: 10, cooldownMs: 1000 },
-  passesObstacles: false,
   killStats: ['mobKills'],
   skills: [],
   routines: [GUARD]
 }
 
 const boss: Archetype = {
-  id: 7,
-  key: 'boss',
-  kind: 'mob',
+  ...ARCHETYPE_INFO.boss,
   maxHp: 300,
   armor: NO_ARMOR,
   speed: 100,
@@ -216,10 +205,8 @@ const boss: Archetype = {
   // kept because it is on the wire (a join snapshot carries it).
   level: 0,
   pickupReach: null,
-  vision: null,
   loot: 500,
   contact: { damage: 30, cooldownMs: 1000 },
-  passesObstacles: false,
   killStats: ['mobKills', 'bossKills'],
   skills: [{ skill: FireBreath }],
   // Guard first: it picks the target that UseSkillOnTarget breathes at.
@@ -232,9 +219,7 @@ const boss: Archetype = {
  * `contact.damage` is 0.
  */
 const gunner: Archetype = {
-  id: 8,
-  key: 'gunner',
-  kind: 'mob',
+  ...ARCHETYPE_INFO.gunner,
   maxHp: 40,
   armor: NO_ARMOR,
   // Dead, like grunt and boss's 100 (the guard sets 30 or 80 before the first
@@ -243,10 +228,8 @@ const gunner: Archetype = {
   speed: 80,
   body: 24,
   pickupReach: null,
-  vision: null,
   loot: 75,
   contact: { damage: 0, cooldownMs: 0 },
-  passesObstacles: false,
   killStats: ['mobKills'],
   // Range 300, not 270 (decision #24). `withinCells` counts cells, and a
   // target in a cell 6 away can stand up to ~293 units from a gunner on its

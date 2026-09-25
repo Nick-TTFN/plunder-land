@@ -3,6 +3,7 @@ import { type Texture, Sprite, Point, ColorMatrixFilter } from 'pixi.js'
 import { GameObject } from './gameobject'
 import { TextEffect } from '../ui/elements/texteffect'
 import { Session } from '../net/session'
+import { type ArchetypeInfo } from '../utils/archetypes'
 
 interface State {
   /** Client clock at which this state arrived. */
@@ -46,14 +47,26 @@ export default class Unit extends GameObject {
   idleAnimation: string | undefined
 
   /**
+   * What kind of unit this is, from the server's `archetype` field (index 16).
+   * Undefined when none was sent or the id is one this build doesn't know;
+   * `initAnimation` then draws the type's pre-archetype sprite
+   * (`archetypesprites.ts`). Assigned in this class's constructor before
+   * `initAnimation` runs, which is why it is a constructor parameter: a
+   * subclass field would not exist yet at that point.
+   */
+  archetype: ArchetypeInfo | undefined
+
+  /**
    * Recent authoritative states, oldest first. Rendering runs deliberately
    * behind the newest of these so there is always a state on both sides of the
    * render time to interpolate between.
    */
   readonly states: State[] = []
 
-  constructor (radius: number = 0) {
+  constructor (radius: number = 0, archetype?: ArchetypeInfo) {
     super()
+
+    this.archetype = archetype
 
     if (radius > 0) {
       this.radius = radius

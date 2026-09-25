@@ -33,6 +33,12 @@
  *   hp as one event with both deltas, whether hp ever fell while armor was
  *   left, the refill steps, and the delay from the last damage to the first
  *   refill. A contact hit is -10 in total, from armor, hp or both.
+ * - the archetype id (step 4, field 16): creates by (type, archetype, radius,
+ *   maxHp), player and mob creates that carry none, and updates that carry
+ *   one. An update carries it only as part of a full resend (the whole
+ *   allFields set, sent to a connection an object changed out of range of,
+ *   `Multiplayer.update`), which also carries `type`; a delta without `type`
+ *   that carries it would be a bug. A resend's id must match the create's.
  *
  * Wire format: CLAUDE.md "Wire format". Uses only the client's socket.io-client.
  */
@@ -68,9 +74,10 @@ if (serverUrl === undefined) {
 
 // Must match the client's allFields (src/game.ts) and the server's fieldOrder.
 const FIELDS = ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
-  'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing', 'armor', 'maxArmor']
+  'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing', 'armor', 'maxArmor', 'archetype']
 const TYPE_NAMES = { 1: 'Obstacle', 2: 'Consumable', 4: 'Player', 8: 'Portal', 16: 'Throwable', 32: 'Mob', 64: 'Exit' }
 const MOB = 32
+const PLAYER = 4
 const GRUNT_MAX_HP = 50
 const BOSS_MAX_HP = 300
 
@@ -99,7 +106,7 @@ function decode (buffer) {
     switch (key) {
       case 'id': case 'hp': case 'loot': case 'maxHp': case 'armor': case 'maxArmor':
         data[key] = (buffer[o++] << 8) + buffer[o++]; break
-      case 'type': case 'level': case 'radius': case 'facing':
+      case 'type': case 'level': case 'radius': case 'facing': case 'archetype':
         data[key] = buffer[o++]; break
       case 'position':
         data[key] = { x: (buffer[o++] << 8) + buffer[o++], y: (buffer[o++] << 8) + buffer[o++] }; break
@@ -133,8 +140,8 @@ const results = {
   hello: null,
   joins: 0,
   deaths: 0,
-  snapshot: { byType: {}, byTypeRadiusHpMaxHp: {} },
-  live: { byType: {}, byTypeRadiusHpMaxHp: {} },
+  snapshot: { byType: {}, byTypeRadiusHpMaxHp: {}, byTypeArchetype: {} },
+  live: { byType: {}, byTypeRadiusHpMaxHp: {}, byTypeArchetype: {} },
   liveMobRadiusChanges: {},
   createOwn: [],
   hpDeltas: [],
@@ -152,7 +159,12 @@ const results = {
   hpFellWithArmorLeft: 0,
   refillStepHistogram: {},
   refillDelayMs: {},
-  mobCreatesWithArmor: 0
+  mobCreatesWithArmor: 0,
+  // The archetype id (step 4).
+  unitCreatesWithoutArchetype: 0,
+  fullResendsWithArchetype: 0,
+  deltasWithArchetype: 0,
+  archetypeMismatches: 0
 }
 let lastDamageTick
 let refilledSinceDamage = true
@@ -201,9 +213,13 @@ function onCreate (raw) {
     let d
     try { d = decode(r) } catch { results.unknownFieldErrors++; continue }
     if (d.type === MOB && (d.armor !== undefined || d.maxArmor !== undefined)) results.mobCreatesWithArmor++
+    if ((d.type === MOB || d.type === PLAYER) && d.archetype === undefined) results.unitCreatesWithoutArchetype++
     if (counting) {
       count(bucket.byType, TYPE_NAMES[d.type] ?? d.type)
       count(bucket.byTypeRadiusHpMaxHp, histKey(d))
+      if (d.archetype !== undefined) {
+        count(bucket.byTypeArchetype, `${TYPE_NAMES[d.type] ?? d.type} archetype=${d.archetype} r=${d.radius} maxHp=${d.maxHp}`)
+      }
     }
     objects.set(d.id, { ...d, createdLive: snapshotTaken })
   }
@@ -227,6 +243,11 @@ function onUpdate (raw) {
     let d
     try { d = decode(r) } catch { results.unknownFieldErrors++; continue }
     const obj = objects.get(d.id)
+    if (d.archetype !== undefined) {
+      if (d.type !== undefined) results.fullResendsWithArchetype++
+      else results.deltasWithArchetype++
+      if (obj !== undefined && obj.archetype !== undefined && obj.archetype !== d.archetype) results.archetypeMismatches++
+    }
     if (obj === undefined) { objects.set(d.id, { ...d }); continue }
 
     if (d.radius !== undefined && obj.createdLive && obj.type === MOB && d.radius !== obj.radius) {
@@ -383,8 +404,8 @@ function finish () {
   for (const h of results.hpDeltas) count(deltas, h.delta)
   const out = {
     ...results,
-    snapshot: { byType: sorted(results.snapshot.byType), byTypeRadiusHpMaxHp: sorted(results.snapshot.byTypeRadiusHpMaxHp) },
-    live: { byType: sorted(results.live.byType), byTypeRadiusHpMaxHp: sorted(results.live.byTypeRadiusHpMaxHp) },
+    snapshot: { byType: sorted(results.snapshot.byType), byTypeRadiusHpMaxHp: sorted(results.snapshot.byTypeRadiusHpMaxHp), byTypeArchetype: sorted(results.snapshot.byTypeArchetype) },
+    live: { byType: sorted(results.live.byType), byTypeRadiusHpMaxHp: sorted(results.live.byTypeRadiusHpMaxHp), byTypeArchetype: sorted(results.live.byTypeArchetype) },
     hpDeltaHistogram: deltas,
     spacingWhileTouching: results.spacingWhileTouching,
     mobSpeeds: { idleOrChase: sorted(results.mobSpeeds.idleOrChase), touchingPlayer: sorted(results.mobSpeeds.touchingPlayer) },

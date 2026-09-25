@@ -63,7 +63,12 @@ export class GameObject {
     // put these in their snapshot sets (Unit's constructor), so a mob's create
     // record doesn't carry them. Appended, as above.
     'armor',
-    'maxArmor'
+    'maxArmor',
+    // The unit's archetype id (utils/archetypes.ts), one unsigned byte. Only a
+    // unit built from an archetype sends it, and only in its snapshot sets: it
+    // never changes, so it is never dirty. Unit.serialise swaps the archetype
+    // object for its id. Appended, as above.
+    'archetype'
   ]
 
   constructor (
@@ -375,6 +380,13 @@ export class GameObject {
         case 'maxArmor':
           raw.push(this.getBuffer2(value))
           break
+        case 'archetype': {
+          // Unsigned, unlike getBuffer: ids are append-only and may pass 127.
+          const byte = Buffer.alloc(1)
+          byte.writeUInt8(value)
+          raw.push(byte)
+          break
+        }
         case 'facing':
           // Already the snapped index: Unit.serialise swaps the vector for it.
           raw.push(this.getBuffer(value))

@@ -7,12 +7,14 @@ import { StoneWall, ThrowFireball, ThrowIcicle, IceBreath } from '../skills/plac
 import { type Skill } from '../skills/skill'
 import { AnimationStates } from '../animation/animationstates'
 import Unit from './unit'
+import { lookFor } from './archetypesprites'
+import { type ArchetypeInfo } from '../utils/archetypes'
 
 export default class Player extends Unit {
   skills: Skill[]
 
-  constructor () {
-    super()
+  constructor (archetype?: ArchetypeInfo) {
+    super(0, archetype)
 
     // Must match Player.skills on the server: the index of the pressed slot is
     // the whole payload of the `skill` message.
@@ -30,8 +32,9 @@ export default class Player extends Unit {
   }
 
   initAnimation (): void {
-    this.runAnimation = 'player/run/run'
-    this.idleAnimation = 'player/idle/idle'
+    const look = lookFor('robot', this.archetype)
+    this.runAnimation = look.run
+    this.idleAnimation = look.idle ?? look.run
 
     this.animation = new AnimationStates(
       this.idleAnimation,
@@ -44,6 +47,7 @@ export default class Player extends Unit {
     this.animation.addClip('player/melee_3/attack', 0.2, new Point(0.5, 1))
     this.animation.addClip('player/melee_4/attack', 0.2, new Point(0.5, 1))
     this.animation.addClip('player/die/die', 0.1, new Point(0.36, 1))
+    if (look.tint !== undefined) this.animation.tint = look.tint
     this.animation.play()
     this.addChild(this.animation)
   }

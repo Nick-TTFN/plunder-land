@@ -73,6 +73,14 @@ const PATH_LOOKAHEAD = 1
  */
 export class LocalPlayer {
   maxVelocity: number = 140
+
+  /**
+   * Our body's collider radius, for the push-out in `_step`. It must be the
+   * server's, or prediction and the authority push out to different distances
+   * and every brush past a rock is a correction. Comes from `create_own`'s
+   * `radius` (see `reset`); `RADIUS` until then.
+   */
+  radius: number = LocalPlayer.RADIUS
   tag: number | undefined
 
   /** Authoritative-plus-prediction position. What the game logic should believe. */
@@ -128,11 +136,12 @@ export class LocalPlayer {
   /** True once the server has told us where we start. */
   ready: boolean = false
 
-  reset (x: number, y: number, tag: number | undefined, maxVelocity: number): void {
+  reset (x: number, y: number, tag: number | undefined, maxVelocity: number, radius: number = 0): void {
     this.x = x
     this.y = y
     this.tag = tag
     if (maxVelocity > 0) this.maxVelocity = maxVelocity
+    if (radius > 0) this.radius = radius
     this._offsetX = 0
     this._offsetY = 0
     this.stop()
@@ -419,7 +428,7 @@ export class LocalPlayer {
     for (const c of this._colliders()) {
       if (c.tag !== this.tag) continue
 
-      const sumWidth = c.radius + PLAYER_RADIUS
+      const sumWidth = c.radius + this.radius
       const cdx = c.x - x
       const cdy = c.y - y
       const sqr = cdx * cdx + cdy * cdy
@@ -445,10 +454,9 @@ export class LocalPlayer {
   }
 
   /**
-   * Mirrors the server's `Player.BODY_RADIUS` (14), which is pinned rather than
-   * derived from HP. Until `unit-archetypes` sends it, keep the two in step.
+   * The fallback radius until `create_own` says otherwise: peep's body (14,
+   * server `archetypes.ts`). Only used between construction and the first
+   * `reset`, when there is nothing to push out of anyway.
    */
   static RADIUS = 14
 }
-
-const PLAYER_RADIUS = LocalPlayer.RADIUS
