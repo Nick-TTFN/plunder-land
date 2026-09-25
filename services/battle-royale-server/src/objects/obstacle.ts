@@ -27,7 +27,7 @@ export default class Obstacle extends GameObject {
     super(ObjectType.Obstacle, centre.x, centre.y, Hex.RADIUS, tag, lifetime)
 
     this.cell = cell
-    World.block(cell.x, cell.y, tag)
+    World.block(cell.x, cell.y, tag, this)
 
     Multiplayer.Instance.create(this)
   }

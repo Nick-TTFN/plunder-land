@@ -29,7 +29,19 @@ class Connection {
    * the end, back through the first waypoint.
    */
   lastWaypoints: Vector[] = []
-  pendingObjectIDs: Record<string, boolean> | undefined
+  /**
+   * What this connection was last sent of each object: object id to that
+   * object's `changedAt` at the time. An object whose `changedAt` has moved
+   * past it changed while out of this connection's range, and is sent whole
+   * the next time it is in range (`Multiplayer.update`). Bounded by the
+   * largest id (ids are recycled), and dropped with the connection.
+   */
+  seen = new Map<number, number>()
+  /**
+   * `Multiplayer`'s change counter when this connection's join snapshot was
+   * built: every object it has not been sent since is known as of then.
+   */
+  joinedAt: number = 0
 
   get id (): string {
     return this.socket?.id
@@ -196,7 +208,7 @@ export default class Multiplayer {
       connection.player = undefined // before destroy, so no stats are written for it
       if (player !== undefined) {
         const i = World.PLAYERS.indexOf(player)
-        if (i >= 0) World.PLAYERS.splice(i, 1)
+        if (i >= 0) World.removeUnitAt(World.PLAYERS as unknown as Unit[], i)
         player.destroy()
       }
       delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
@@ -205,7 +217,7 @@ export default class Multiplayer {
   }
 
   private admit (connection: Connection, player: Player): void {
-    connection.player = player
+    this.attach(connection, player)
 
     this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
 
@@ -434,6 +446,38 @@ export default class Multiplayer {
   static readonly ID_SHAPE = /^[0-9a-f]{6,32}$/
 
   // outgoing traffic ========
+
+  /**
+   * Counts every `update` that carried changes. An object's `changedAt` and a
+   * connection's `seen` / `joinedAt` are values of it. Static, like the world
+   * it counts for, and only ever increases.
+   */
+  private static _changes = 0
+
+  /**
+   * Each player's connection, for the players `World.INTEREST` finds. Weak, and
+   * always checked against `connection.player`, so a player whose connection
+   * has moved on (death, exit, disconnect) is never sent anything through it.
+   */
+  private static readonly _connectionOf = new WeakMap<Player, Connection>()
+
+  /** The connection whose live player `player` is, if any. */
+  private connectionOf (player: Player): Connection | undefined {
+    const connection = Multiplayer._connectionOf.get(player)
+    return connection?.player === player ? connection : undefined
+  }
+
+  /**
+   * Make `player` this connection's player: it starts receiving what happens
+   * around it, knowing everything as of now (the join snapshot is built next).
+   */
+  private attach (connection: Connection, player: Player): void {
+    connection.player = player
+    connection.seen = new Map()
+    connection.joinedAt = Multiplayer._changes
+    Multiplayer._connectionOf.set(player, connection)
+  }
+
   create (obj: GameObject): void {
     const data = obj.serialiseBinary(obj.allFields)
     for (const connection of this._connections) {
@@ -444,46 +488,63 @@ export default class Multiplayer {
     obj.dirtyFields.clear()
   }
 
+  /**
+   * Send `obj`'s changes to every connection whose player is on its layer and
+   * inside the interest box around it (`withinBounds`, `INTEREST_RADIUS`), and
+   * its whole record instead to one that missed a change while it was out of
+   * range.
+   *
+   * Hex-cells P1: the candidates come from `World.INTEREST` (the 3 x 3 coarse
+   * buckets around the object), not from every connection, and "missed a
+   * change" is a comparison of counters rather than a flag written to every
+   * out-of-range connection on every change: `obj.changedAt` against what the
+   * connection was last sent (`seen`, or its `joinedAt`). It used to mark a
+   * `pendingObjectIDs` entry on each of those connections, which cost the
+   * whole connection list for every moving object every tick. Same records:
+   * a change made while out of range still brings the whole record on
+   * re-entry, and one made in range still goes as a delta.
+   *
+   * One difference, at id reuse only: the old flag was keyed by id and
+   * outlived its object, so a new object on a recycled id could be sent whole
+   * once for its predecessor's change. The counters are ordered in time, so
+   * that no longer happens.
+   */
   update (obj: GameObject): void {
+    const changed = obj.dirtyFields.size > 0
+    const missedIfBefore = obj.changedAt
+    const stamp = changed ? ++Multiplayer._changes : obj.changedAt
     let fullData
     let changedData
-    let data
 
-    for (const connection of this._connections) {
-      if (
-        (connection.player != null) &&
-        connection.player.tag === obj.tag &&
-        connection.player.position.withinBounds(
-          obj.position.x,
-          obj.position.y,
-          500
-        )
-      ) {
-        if (connection.pendingObjectIDs?.[obj.id] ?? false) {
-          if (fullData == null) {
-            fullData = obj.serialiseBinary(
-              connection.player === obj ? obj.allFieldsOwn : obj.allFields
-            )
-          }
-          data = fullData
-          connection.pendingObjectIDs[obj.id] = false
-        } else {
-          if (changedData == null) changedData = obj.serialiseBinary(obj.dirtyFields)
-          data = changedData
+    for (const player of World.interestCandidates(obj.position.x, obj.position.y)) {
+      if (player.tag !== obj.tag) continue
+      if (!player.position.withinBounds(obj.position.x, obj.position.y, Multiplayer.INTEREST_RADIUS)) continue
+      const connection = this.connectionOf(player)
+      if (connection === undefined) continue
+
+      let data
+      if (missedIfBefore > (connection.seen.get(obj.id) ?? connection.joinedAt)) {
+        if (fullData == null) {
+          fullData = obj.serialiseBinary(
+            connection.player === obj ? obj.allFieldsOwn : obj.allFields
+          )
         }
-
-        if (data == null) continue
-
-        if (this._buffer[connection.id] === undefined) { this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] } }
-
-        this._buffer[connection.id].update.push(data)
+        data = fullData
+      } else if (changed) {
+        if (changedData == null) changedData = obj.serialiseBinary(obj.dirtyFields)
+        data = changedData
       } else {
-        if (obj.dirtyFields.size > 0) {
-          if (connection.pendingObjectIDs === undefined) connection.pendingObjectIDs = {}
-          connection.pendingObjectIDs[obj.id] = true
-        }
+        continue
       }
+      connection.seen.set(obj.id, stamp)
+
+      if (data == null) continue
+
+      if (this._buffer[connection.id] === undefined) { this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] } }
+
+      this._buffer[connection.id].update.push(data)
     }
+    obj.changedAt = stamp
     obj.dirtyFields.clear()
   }
 
@@ -506,18 +567,14 @@ export default class Multiplayer {
       data.writeInt16BE(aimCell.y, 6)
     }
 
-    for (const connection of this._connections) {
-      if (
-        connection.player?.position.withinBounds(
-          originator.position.x,
-          originator.position.y,
-          Multiplayer.INTEREST_RADIUS
-        )
-      ) {
-        if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
+    // Every layer, as it always was: this test has never looked at the tag.
+    for (const player of World.interestCandidates(originator.position.x, originator.position.y)) {
+      if (!player.position.withinBounds(originator.position.x, originator.position.y, Multiplayer.INTEREST_RADIUS)) continue
+      const connection = this.connectionOf(player)
+      if (connection === undefined) continue
+      if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
 
-        this._buffer[connection.id].effect.push(data)
-      }
+      this._buffer[connection.id].effect.push(data)
     }
   }
 
@@ -539,10 +596,11 @@ export default class Multiplayer {
     data.writeInt16BE(cell.y, 6)
 
     const centre = Hex.toPosition(cell)
-    for (const connection of this._connections) {
-      const player = connection.player
-      if (player == null || player.tag !== tag) continue
+    for (const player of World.interestCandidates(centre.x, centre.y)) {
+      if (player.tag !== tag) continue
       if (!player.position.withinBounds(centre.x, centre.y, Multiplayer.INTEREST_RADIUS)) continue
+      const connection = this.connectionOf(player)
+      if (connection === undefined) continue
       if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
       this._buffer[connection.id].effect.push(data)
     }

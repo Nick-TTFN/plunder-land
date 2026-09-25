@@ -43,21 +43,29 @@ export interface SkillSpec {
   range?: number
 }
 
+/**
+ * A guard's ranges are **rings** (hex-cells P1, decision #32): `h` is
+ * `Hex.distance` between the unit's cell and the player's, and every test
+ * includes its boundary. They were world units until 2026-09-25.
+ */
 export interface GuardSpec {
   kind: 'guard'
-  /** A player nearer than this (strictly) is noticed. */
+  /** A player at `h <= acquire` is noticed (the nearest, ties to the lowest id). */
   acquire: number
-  /** A target this far away (or further) is dropped. */
+  /**
+   * The target is kept while `h <= lose` and dropped at `h > lose`. (As units
+   * this was the other way round: dropped at `>= lose`.)
+   */
   lose: number
   idleSpeed: number
   chaseSpeed: number
-  /** An idle unit wanders to home + RangeInt(-wander, wander) on each axis. */
+  /** An idle unit walks to the centre of a random free cell within this many rings of home. */
   wander: number
   /** How long an empty scan blocks the next one, in ms. */
   refreshMs: number
   /**
-   * While chasing, a target nearer than this (strictly) is not closed on: the
-   * unit stops where it is. 0 = never stop, which is how grunt and boss chase.
+   * While chasing, a target at `h <= standoff` is not closed on: the unit
+   * stops where it is. 0 = never stop, which is how grunt and boss chase.
    * It does not back away from a target that walks up to it.
    */
   standoff: number
@@ -114,7 +122,11 @@ export interface Archetype extends ArchetypeInfo {
    * delta. Setting it earlier would add a field to the record.
    */
   level?: number
-  /** Centre to centre. null = today's reach, the consumable's radius plus the body. */
+  /**
+   * Rings from the unit's cell within which it picks up loot and items. null
+   * means 0, its own cell (decision #32). It was a centre-to-centre distance,
+   * with null the pickup's radius plus the body.
+   */
   pickupReach: number | null
   /** Loot carried at spawn. */
   loot: number
@@ -152,14 +164,19 @@ export const PLAYER_SKILLS: readonly SkillSpec[] = Object.freeze([
   { skill: IceBreath }
 ])
 
-/** Today's GuardPosition, shared by grunt and boss. */
+/**
+ * The GuardPosition shared by grunt and boss. Rings, decision #32 (Dez's
+ * `ideas/hex-ring-values.md`, accepted 2026-09-25): noticed at 4 (median 183
+ * units walking straight in, against 200 before), dropped beyond 5 (median
+ * 225, against 250), wander 1 ring (7 goals, against home +/- 30 units).
+ */
 const GUARD: GuardSpec = Object.freeze({
   kind: 'guard',
-  acquire: 200,
-  lose: 250,
+  acquire: 4,
+  lose: 5,
   idleSpeed: 30,
   chaseSpeed: 100,
-  wander: 30,
+  wander: 1,
   refreshMs: 2000,
   standoff: 0
 })
@@ -246,17 +263,20 @@ const gunner: Archetype = {
   // the mirrored row, which is also what the client draws the beam at.
   skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: rangedCellsOf(ARCHETYPE_INFO.gunner) }],
   routines: [
+    // Rings, decision #32: noticed at 6 (every acquired target is inside its
+    // 6-cell shot), dropped beyond 7. Was 270 / 315 units.
     Object.freeze({
       kind: 'guard',
-      acquire: 270,
-      lose: 315,
+      acquire: 6,
+      lose: 7,
       idleSpeed: 30,
       chaseSpeed: 80,
-      wander: 30,
+      wander: 1,
       refreshMs: 2000,
       // 5 cells, so a target stepping back one cell is still inside the
-      // 6-cell range. Provisional (decision #23 Q3): Dez retunes after a playtest.
-      standoff: 225
+      // 6-cell range (#23 Q3 counted it as 5 cells; it was 225 units).
+      // Provisional: Dez retunes after a playtest.
+      standoff: 5
     }),
     { kind: 'useSkillOnTarget', skill: 0, withinCells: 6 }
   ]

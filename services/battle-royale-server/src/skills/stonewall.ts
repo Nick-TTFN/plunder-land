@@ -33,14 +33,16 @@ export class StoneWall extends Skill {
    * rest of the wall is still placed.
    *
    * - **Off the map, a rock, or another stone** (`World.isBlocked`). The stacking
-   *   case matters beyond tidiness: `World.BLOCKED` is a Set, not a count, so
-   *   the first of two blockers on a cell to go would release it and leave the
-   *   other as an obstacle you can walk through. Skipping is what lets a stone's
-   *   expiry unblock its cell unconditionally.
-   * - **A portal or an exit.** Neither is in `BLOCKED` (you have to walk into
-   *   them), so `isBlocked` misses them. A stone on one would make it
-   *   unroutable and, via the push-out, unreachable for the wall's lifetime.
-   * - **A unit standing on it** - the occupied-cell rule in the hex design
+   *   case matters beyond tidiness: `World.BLOCKED` holds one blocker per
+   *   cell, not a count, so the first of two blockers on a cell to go would
+   *   release it and leave the other as an obstacle you can walk through.
+   *   Skipping is what lets a stone's expiry unblock its cell unconditionally.
+   * - **A portal or an exit** (`World.GATES_ON`). Neither is in `BLOCKED` (you
+   *   have to walk into them), so `isBlocked` misses them. A stone on one would
+   *   make it unroutable and, via the push-out, unreachable for the wall's
+   *   lifetime.
+   * - **A unit standing on it** (`World.UNITS_ON`, live units only) - the
+   *   occupied-cell rule in the hex design
    *   record: a wall never seals anyone inside terrain. A stone is a rock
    *   (radius `Hex.RADIUS`, 22.5), so it pushes exactly as a rock would: a
    *   player (14) on a neighbouring cell's centre is clear of it (36.5 < 45),
@@ -49,21 +51,8 @@ export class StoneWall extends Skill {
    */
   static canPlace (cell: Vector, tag: number): boolean {
     if (World.isBlocked(cell.x, cell.y, tag)) return false
-
-    const key = Hex.key(cell.x, cell.y)
-    for (const obstacle of World.OBSTACLES) {
-      if (obstacle.tag !== tag) continue
-      const at = Hex.toCell(obstacle.position)
-      if (Hex.key(at.x, at.y) === key) return false
-    }
-    for (const source of World.UNIT_SOURCES) {
-      for (const unit of source) {
-        if (unit.tag !== tag || unit.destroyed) continue
-        const at = unit.cell
-        if (Hex.key(at.x, at.y) === key) return false
-      }
-    }
-    return true
+    if (World.GATES_ON(cell.x, cell.y, tag).length > 0) return false
+    return !World.UNITS_ON(cell.x, cell.y, tag).some((unit) => !unit.destroyed)
   }
 
   execute (): boolean {
@@ -79,14 +68,11 @@ export class StoneWall extends Skill {
       const centre = Hex.toPosition(cell)
       const lifetime = StoneWall.LIFETIME
       const stone = new Obstacle(centre.x, centre.y, tag, lifetime)
-      World.OBSTACLES.push(stone)
+      World.addObstacle(stone)
       Timers.schedule(lifetime, () => {
         stone.destroy()
-        // Guarded: if the stone has already left the list, indexOf is -1 and
-        // splice(-1, 1) would remove the last obstacle instead - someone
-        // else's rock, portal or exit.
-        const index = World.OBSTACLES.indexOf(stone)
-        if (index !== -1) World.OBSTACLES.splice(index, 1)
+        // Only if still listed: a bomb may have taken it already.
+        World.removeObstacle(stone)
       }, stone)
     }
     return true

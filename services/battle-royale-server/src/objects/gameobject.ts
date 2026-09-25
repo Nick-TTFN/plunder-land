@@ -22,6 +22,14 @@ export class ObjectType {
 export class GameObject {
   static id = 0
   id: number = 0
+  /**
+   * `Multiplayer`'s change counter at this object's last update that carried
+   * changes, 0 if none since it was created. A connection that was last
+   * brought up to date before this missed a change, and gets the whole record
+   * when the object is next in its range (`Multiplayer.update`). Not a wire
+   * field.
+   */
+  changedAt: number = 0
   static FreedIDs: number[] = []
   destroyed: boolean
   dirtyFields: Set<string>
@@ -179,6 +187,7 @@ export class GameObject {
   set position (value) {
     this._position = value
     this.dirtyFields.add('position')
+    this.placed()
   }
 
   get direction () {
@@ -233,7 +242,17 @@ export class GameObject {
   set tag (value) {
     this._tag = value
     this.dirtyFields.add('tag')
+    this.placed()
   }
+
+  /**
+   * Called after every write to `position` or `tag`, including the first ones
+   * in this constructor, before any subclass field exists. `Unit` refiles
+   * itself in the world's cell indexes here (hex-cells P1), so no caller that
+   * moves a unit can forget to. Nothing for anything else: pickups and gates
+   * never move, and projectiles are not indexed.
+   */
+  protected placed (): void {}
 
   get to () {
     return this._to

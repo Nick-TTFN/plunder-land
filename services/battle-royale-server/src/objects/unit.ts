@@ -220,6 +220,11 @@ export class Unit extends GameObject {
     this.routines.push(value)
   }
 
+  /** Refile in `World.UNITS` / `World.INTEREST` (see `GameObject.placed`). */
+  protected placed (): void {
+    World.unitMoved(this)
+  }
+
   /** The cell this unit is standing in. */
   get cell (): Vector {
     return Hex.toCell(this.position)

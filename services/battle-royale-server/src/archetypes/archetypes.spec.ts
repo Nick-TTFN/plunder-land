@@ -171,27 +171,33 @@ test('a range override on a skill with no range throws rather than being ignored
 
 // --- pickup reach ---------------------------------------------------------------
 
-/** Whether a player of `archetype` picks up a radius-20 consumable `distance` away. */
-function picksUpAt (archetype: Archetype, distance: number): boolean {
+// hex-cells P1, deliberate (decision #32): pickupReach is in rings from the
+// player's cell, null = 0 (its own cell). It pinned a radius (the pickup's
+// plus the body, or a fixed centre-to-centre distance) before.
+
+/** Whether a player of `archetype` on a cell centre picks up a consumable on the centre of the cell `rings` east. */
+function picksUpAt (archetype: Archetype, rings: number): boolean {
   World.CONSUMABLES.length = 0
-  const player = new Player(1000, 2000, 0, 'picker', archetype)
+  const home = Hex.toCell(new Vector(1000, 2000))
+  const at = Hex.toPosition(home)
+  const player = new Player(at.x, at.y, 0, 'picker', archetype)
   player.hp = 50 // so the pickup's heal is not what is being measured
-  World.CONSUMABLES.push(new Consumable(1000 + distance, 2000, 0, 20 as never, 5))
+  const drop = Hex.toPosition(new Vector(home.x + rings, home.y))
+  World.CONSUMABLES.push(new Consumable(drop.x, drop.y, 0, 20 as never, 5))
   player.update(0.25)
   return World.CONSUMABLES.length === 0
 }
 
-test('pickupReach null is today\'s reach: the consumable\'s radius plus the body', () => {
+test('pickupReach null is the player\'s own cell', () => {
   assert.equal(ARCHETYPES.peep.pickupReach, null)
-  const reach = 20 + ARCHETYPES.peep.body
-  assert.equal(picksUpAt(ARCHETYPES.peep, reach - 1), true, `missed a pickup at ${reach - 1}`)
-  assert.equal(picksUpAt(ARCHETYPES.peep, reach), false, `picked up at ${reach}`)
+  assert.equal(picksUpAt(ARCHETYPES.peep, 0), true, 'missed a pickup on its own cell')
+  assert.equal(picksUpAt(ARCHETYPES.peep, 1), false, 'picked up from the next cell')
 })
 
-test('a fixed pickupReach replaces the radius sum', () => {
-  const magnet = { ...ARCHETYPES.peep, pickupReach: 60 }
-  assert.equal(picksUpAt(magnet, 59), true)
-  assert.equal(picksUpAt(magnet, 60), false)
+test('a fixed pickupReach is a ring count', () => {
+  const magnet = { ...ARCHETYPES.peep, pickupReach: 2 }
+  assert.equal(picksUpAt(magnet, 2), true)
+  assert.equal(picksUpAt(magnet, 3), false)
 })
 
 // --- kill stats ---------------------------------------------------------------

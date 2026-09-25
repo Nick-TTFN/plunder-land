@@ -322,6 +322,9 @@ test('the effect record is 4 bytes unaimed and 8 with the aim appended', () => {
   const player = playerOnCell()
   const connection = { id: 'c', player }
   ;(mp as any)._connections = [connection]
+  // hex-cells P1: effects find their recipients through World.INTEREST and the
+  // player's registered connection, not by walking _connections.
+  ;(mp as any).attach(connection, player)
   ;(mp as any)._buffer = {}
 
   mp.effect(3, player, 1)

@@ -92,15 +92,18 @@ export function detonate (thrower: Player, item: Item, use: BombUse, cell: Vecto
     }
   }
 
-  // Backwards, so a splice cannot skip the next entry. Only a timed Obstacle
-  // is a stone (World.isRock); destroying it releases its cell and cancels its
-  // own expiry timer, which is owned by the stone.
-  for (let i = World.OBSTACLES.length - 1; i >= 0; i--) {
-    const obstacle = World.OBSTACLES[i]
-    if (!(obstacle instanceof Obstacle) || World.isRock(obstacle)) continue
-    if (obstacle.tag !== tag || obstacle.destroyed) continue
-    if (Hex.distance(cell, obstacle.cell) > item.rings) continue
-    obstacle.destroy()
-    World.OBSTACLES.splice(i, 1)
+  // By cell (`World.BLOCKED` names each cell's blocker), not a scan of OBSTACLES. Only a timed
+  // Obstacle is a stone (World.isRock); destroying it releases its cell and
+  // cancels its own expiry timer, which is owned by the stone. Collected first,
+  // because destroying one edits BLOCKED.
+  const stones: Obstacle[] = []
+  World.forKeysWithin(cell, item.rings, (key) => {
+    const obstacle = World.BLOCKED.get(tag)?.get(key)
+    if (!(obstacle instanceof Obstacle) || World.isRock(obstacle) || obstacle.destroyed) return
+    stones.push(obstacle)
+  })
+  for (const stone of stones) {
+    stone.destroy()
+    World.removeObstacle(stone)
   }
 }

@@ -16,7 +16,7 @@ import { ARCHETYPES } from './archetypes'
 
 /**
  * unit-archetypes step 2: the gunner (design section 1 and section 7 row 2,
- * decision #23). It holds off at `standoff` 225, fires RangedAttack for 10
+ * decision #23). It holds off at `standoff` 5 cells, fires RangedAttack for 10
  * every 1500 ms or more only while its target is within 6 cells, deals no
  * contact damage, and is provoked like a grunt.
  *
@@ -25,10 +25,10 @@ import { ARCHETYPES } from './archetypes'
  * behaviour.
  *
  * `Math.random` is pinned for every test. An idle guard picks a wander goal
- * with it (home +/- 30), and one step toward a random goal decided whether a
- * gunner crossed into the next cell before or after it came in range: the
- * provoked test failed about half its runs that way. At 0.5 the goal is home
- * itself, so an idle gunner stays put.
+ * with it (a cell of home's 1-ring patch), and one step toward a random goal
+ * decided whether a gunner crossed into the next cell before or after it came
+ * in range: the provoked test failed about half its runs that way. At 0.5 the
+ * goal is home itself (the middle of the patch), so an idle gunner stays put.
  */
 
 const DT = 0.25
@@ -112,7 +112,9 @@ test('gunner: stats, skill overrides and routines from its table row', () => {
   const guard = gunner.routines[0] as GuardPosition
   assert.deepEqual(
     [guard.spec.acquire, guard.spec.lose, guard.spec.idleSpeed, guard.spec.chaseSpeed, guard.spec.standoff],
-    [270, 315, 30, 80, 225])
+    // hex-cells P1, deliberate (decision #32): acquire, lose and standoff are
+    // rings. Was [270, 315, 30, 80, 225] in units.
+    [6, 7, 30, 80, 5])
   const use = gunner.routines[1] as UseSkillOnTarget
   assert.equal(use.withinCells, 6)
   assert.ok(use.skill instanceof RangedAttack)
@@ -131,25 +133,25 @@ test('grunt and boss keep standoff 0 and no withinCells (today\'s behaviour)', (
 
 // --- standoff -------------------------------------------------------------------
 
-test('gunner: closes on a target, then holds just inside 225 and never touches', (t) => {
+// hex-cells P1, deliberate (decision #32): the standoff is 5 rings. This held
+// "just inside 225 units, in [205, 225)".
+test('gunner: closes on a target, then holds at 5 cells and never touches', (t) => {
   mockDate(t)
   const gunner = addGunner()
-  const player = addPlayer(HOME.add(new Vector(260, 0)))
+  const player = addPlayer(east(6))
+  const rings = (): number => Hex.distance(Hex.toCell(gunner.position), Hex.toCell(player.position))
 
   let nearest = Infinity
   for (let i = 0; i < 40; i++) {
     gunner.update(DT)
     advance(t, 250)
-    const distance = player.position.sub(gunner.position).getMagnitude()
-    nearest = Math.min(nearest, distance)
+    nearest = Math.min(nearest, rings())
   }
 
   assert.equal(gunner.target, player)
-  const distance = player.position.sub(gunner.position).getMagnitude()
-  // It walks at 80 u/s (20 a tick) and stops on the first tick that ends
-  // inside 225, so it holds somewhere in [205, 225).
-  assert.ok(distance < 225 && distance >= 205, `holding at ${distance}`)
-  assert.ok(nearest >= 205, `came as close as ${nearest}`)
+  // It stops on the first tick that ends 5 cells from the target.
+  assert.equal(rings(), 5, 'holding at the wrong distance')
+  assert.equal(nearest, 5, `came as close as ${nearest} cells`)
   assert.equal(gunner.direction.getSquareMagnitude(), 0, 'still moving while inside the standoff')
 })
 

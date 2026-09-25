@@ -3,6 +3,7 @@ import { type Vector } from '../utils/vector'
 import { GameObject, ObjectType } from './gameobject'
 import { type Unit } from './unit'
 import World from './world'
+import { Hex } from '../utils/hex'
 
 /**
  * A projectile. It finds its own targets; nothing collides with it.
@@ -60,26 +61,62 @@ export default class Throwable extends GameObject {
     super.update(dt)
   }
 
-  /** The first live unit on this plane that the projectile overlaps, owner excluded. */
+  /**
+   * A live unit on this plane that the projectile overlaps, owner excluded:
+   * the nearest, ties to the lowest id. Still a disc test (P3 moves it onto
+   * cells); only the candidates come from `World.UNITS`, the cells within
+   * `Throwable.hitRings` of the projectile's. It used to test every unit in
+   * the world and take the first in list order, players before mobs.
+   */
   findHit (): Unit | undefined {
     const x = this.position.x
     const y = this.position.y
+    let hit: Unit | undefined
+    let hitSq = Infinity
 
-    for (const source of World.UNIT_SOURCES) {
-      for (const unit of source) {
+    World.forKeysWithin(Hex.toCell(this.position), Throwable.hitRings(this.radius), (key) => {
+      for (const unit of World.UNITS.at(this.tag, key)) {
         if (unit === this.owner) continue
         if (unit.destroyed) continue
-        if (unit.tag !== this.tag) continue
 
         const sumWidth = unit.radius + this.radius
         const dx = unit.position.x - x
         const dy = unit.position.y - y
-        if (dx * dx + dy * dy < sumWidth * sumWidth) return unit
+        const sq = dx * dx + dy * dy
+        if (sq >= sumWidth * sumWidth) continue
+        if (sq < hitSq || (sq === hitSq && hit !== undefined && unit.id < hit.id)) {
+          hit = unit
+          hitSq = sq
+        }
       }
-    }
+    })
 
-    return undefined
+    return hit
   }
+
+  /**
+   * How many rings around the projectile's cell can hold a unit it overlaps.
+   * A unit it touches has its centre within `radius` + the unit's body of the
+   * projectile, and each centre is at most a cell's circumradius (`Hex.SIZE`
+   * / sqrt 3, about 26) from its own cell's centre, so the two cell centres
+   * are within that sum plus two circumradii. Rings out to the last whose
+   * nearest centre (`World.ringDistance`) is still inside it: 3 for a
+   * 50-unit projectile and a 40-unit boss (142 against 117 and 156).
+   *
+   * The body is `World.UNIT_BODY_MAX`, the largest in the archetype table and
+   * among the units the index has seen, so a bigger unit widens it.
+   */
+  static hitRings (radius: number): number {
+    const reach = radius + World.UNIT_BODY_MAX + 2 * Hex.SIZE / Math.sqrt(3)
+    const cached = Throwable._hitRings.get(reach)
+    if (cached !== undefined) return cached
+    let rings = 0
+    while (World.ringDistance(rings + 1) < reach) rings++
+    Throwable._hitRings.set(reach, rings)
+    return rings
+  }
+
+  private static readonly _hitRings = new Map<number, number>()
 
   onCollide (target: Unit) {
     super.onCollide(target)

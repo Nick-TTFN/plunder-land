@@ -22,6 +22,7 @@ import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
 import { Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
 
 /**
  * unit-archetypes, step 0(a): today's Player, Mob (grunt) and Boss, pinned
@@ -267,10 +268,25 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
 // --- Guard behaviour, shared by grunt and boss ------------------------------------
 
 /**
+ * The centre of the cell `rings` east of the cell under (X, Y), along the q
+ * axis, so exactly `rings` from it by `Hex.distance`.
+ */
+const cellsEast = (rings: number): Vector => {
+  const home = Hex.toCell(new Vector(X, Y))
+  return Hex.toPosition(new Vector(home.x + rings, home.y))
+}
+
+/**
  * GuardPosition as it behaves today, by placement rather than by reading its
- * statics: notices a player under 200 (not at 200), drops it at 250 (not at
- * 249), idles at 30 and chases at 100, rescans an empty neighbourhood only
- * after more than 2000 ms, and wanders to home +/- [-30, 29] on each axis.
+ * statics: notices a player 4 rings away (not 5), keeps it at 5 rings (drops
+ * it at 6), idles at 30 and chases at 100, rescans an empty neighbourhood only
+ * after more than 2000 ms, and wanders to the centre of a cell of home's
+ * 1-ring patch.
+ *
+ * hex-cells P1, deliberate (decision #32, Nick's OK): acquire, lose and
+ * wander are rings. This pinned acquire at 199 yes / 200 no, lose at 249
+ * kept / 250 dropped, and the wander goals at home + (-30, -30) and
+ * (+29, +29).
  */
 function pinGuard (t: TestContext, make: (x: number, y: number) => Unit): void {
   mockDate(t)
@@ -282,28 +298,30 @@ function pinGuard (t: TestContext, make: (x: number, y: number) => Unit): void {
   assert.equal(idle.maxVelocity, 30, 'idle speed')
   World.MOBS.length = 0
 
-  // Acquire: 199 yes, 200 no.
-  for (const [distance, expected] of [[199, true], [200, false]] as const) {
+  // Acquire: 4 rings yes, 5 no. (Was 199 yes, 200 no.)
+  for (const [rings, expected] of [[4, true], [5, false]] as const) {
     World.PLAYERS.length = 0
     World.MOBS.length = 0
     const mob = addMob(make)
-    const player = addPlayer(X + distance, Y)
+    const at = cellsEast(rings)
+    const player = addPlayer(at.x, at.y)
     mob.update(DT)
-    assert.equal(mob.target === player, expected, `acquired at ${distance}`)
-    assert.equal(mob.maxVelocity, expected ? 100 : 30, `speed after a scan at ${distance}`)
+    assert.equal(mob.target === player, expected, `acquired at ${rings} rings`)
+    assert.equal(mob.maxVelocity, expected ? 100 : 30, `speed after a scan at ${rings} rings`)
   }
 
-  // Lose: 249 kept, 250 dropped. Tested before the unit moves in its update.
-  for (const [distance, kept] of [[249, true], [250, false]] as const) {
+  // Lose: 5 rings kept, 6 dropped. (Was 249 kept, 250 dropped.) Tested before
+  // the unit moves in its update.
+  for (const [rings, kept] of [[5, true], [6, false]] as const) {
     World.PLAYERS.length = 0
     World.MOBS.length = 0
     const mob = addMob(make)
     const player = addPlayer(X + 100, Y)
     mob.update(DT)
     assert.equal(mob.target, player)
-    player.position = mob.position.add(new Vector(distance, 0))
+    player.position = cellsEast(rings)
     mob.update(DT)
-    assert.equal(mob.target === player, kept, `target kept at ${distance}`)
+    assert.equal(mob.target === player, kept, `target kept at ${rings} rings`)
   }
 
   // Refresh: an empty scan at t0 blocks the next until strictly after t0 + 2000.
@@ -319,17 +337,21 @@ function pinGuard (t: TestContext, make: (x: number, y: number) => Unit): void {
   scanner.update(DT)
   assert.equal(scanner.target, late, 'no rescan at 2001 ms')
 
-  // Wander box corners, and home is the spawn point.
+  // Wander goals: the first and last cells of home's 1-ring patch, and home is
+  // the spawn point's cell. (Was the box corners home + (-30, -30) and
+  // home + (+29, +29).)
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   const wanderer = addMob(make)
   t.mock.method(Math, 'random', () => 0)
   wanderer.update(DT)
-  assert.deepEqual([wanderGoal(wanderer)?.x, wanderGoal(wanderer)?.y], [X - 30, Y - 30])
+  const west = cellsEast(-1)
+  assert.deepEqual([wanderGoal(wanderer)?.x, wanderGoal(wanderer)?.y], [west.x, west.y])
   clearWanderGoal(wanderer)
   t.mock.method(Math, 'random', () => 0.99999)
   wanderer.update(DT)
-  assert.deepEqual([wanderGoal(wanderer)?.x, wanderGoal(wanderer)?.y], [X + 29, Y + 29])
+  const east = cellsEast(1)
+  assert.deepEqual([wanderGoal(wanderer)?.x, wanderGoal(wanderer)?.y], [east.x, east.y])
 }
 
 /**
@@ -382,7 +404,7 @@ test('grunt: one GuardPosition, and nothing else', () => {
   assert.deepEqual(mob.routines.map((r) => r.constructor), [GuardPosition])
 })
 
-test('grunt: guard behaviour (acquire 200, lose 250, speeds 30/100, refresh 2000, wander 30)', (t) => {
+test('grunt: guard behaviour (acquire 4 rings, lose 5 rings, speeds 30/100, refresh 2000, wander 1 ring)', (t) => {
   pinGuard(t, makeGrunt)
 })
 
@@ -447,7 +469,7 @@ test('boss: breathes (effect 0) on a target, then not again until 3000 ms', (t) 
   assert.equal(effects.length, 2, 'did not breathe again at 3000 ms')
 })
 
-test('boss: guard behaviour (acquire 200, lose 250, speeds 30/100, refresh 2000, wander 30)', (t) => {
+test('boss: guard behaviour (acquire 4 rings, lose 5 rings, speeds 30/100, refresh 2000, wander 1 ring)', (t) => {
   pinGuard(t, makeBoss)
 })
 

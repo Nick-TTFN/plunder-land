@@ -9,7 +9,8 @@ import Timers from './timers'
 import { INVENTORY_SLOTS } from '../utils/items'
 import { type Item } from '../archetypes/archetypes'
 import { itemForSlot, useItem } from '../items/use'
-import { Hex } from '../utils/hex'
+import type Consumable from './consumable'
+import type ItemPickup from './itempickup'
 
 export class Stats {
   kills?: number
@@ -96,33 +97,7 @@ export default class Player extends Unit {
     if (this.destroyed) return
 
     this.applyHeal(dt)
-
-    for (let i = 0; i < World.CONSUMABLES.length; i++) {
-      const obj = World.CONSUMABLES[i]
-      if (obj.tag !== this.tag) { continue }
-      const reach = this.archetype.pickupReach ?? obj.radius + this.radius
-      const sqr = obj.position.sub(this.position).getSquareMagnitude()
-      if (sqr < reach * reach) {
-        // Banks it, and nothing else. It used to heal by the same amount too;
-        // healing is the medkit's job now (decision #5).
-        this.addLoot(obj.loot)
-        obj.destroy()
-        World.CONSUMABLES.splice(i, 1)
-        break
-      }
-    }
-
-    // One item a tick, like loot. A full stack leaves the pickup where it is.
-    for (let i = 0; i < World.ITEMS.length; i++) {
-      const obj = World.ITEMS[i]
-      if (obj.tag !== this.tag || obj.destroyed) continue
-      const reach = this.archetype.pickupReach ?? obj.radius + this.radius
-      if (obj.position.sub(this.position).getSquareMagnitude() >= reach * reach) continue
-      if (!this.addItem(obj.kind)) continue
-      obj.destroy()
-      World.ITEMS.splice(i, 1)
-      break
-    }
+    this.pickUp()
 
     for (const mob of World.MOBS) {
       if (mob === this) { continue }
@@ -145,6 +120,46 @@ export default class Player extends Unit {
           this.position = new Vector(mob.position.x - sumWidth, mob.position.y)
         }
       }
+    }
+  }
+
+  /**
+   * Take at most one loot pickup and one item a tick, from the cells within
+   * `pickupReach` rings of the player's cell: 0 (and null) is the player's own
+   * cell (decision #32). It was a radius, the pickup's plus the body. Natural
+   * pickups and item drops sit on cell centres, and a route runs centre to
+   * centre, so a walk collects exactly what it did; it now does so on
+   * entering the cell rather than 10-15 units earlier.
+   *
+   * Through `World.PICKUPS`, never a scan of the lists. Removing one does an
+   * `indexOf` on its list, once per pickup taken.
+   */
+  private pickUp (): void {
+    const reach = this.archetype.pickupReach ?? 0
+    let loot: Consumable | undefined
+    let item: ItemPickup | undefined
+    World.forKeysWithin(this.cell, reach, (key) => {
+      for (const obj of World.PICKUPS.at(this.tag, key)) {
+        if (obj.destroyed) continue
+        if (obj.type === ObjectType.Consumable) {
+          if (loot === undefined) loot = obj as Consumable
+        } else if (item === undefined && this.countOf((obj as ItemPickup).kind) < (obj as ItemPickup).kind.maxStack) {
+          // One a tick, like loot. A full stack leaves the pickup where it is.
+          item = obj as ItemPickup
+        }
+      }
+    })
+
+    if (loot !== undefined) {
+      // Banks it, and nothing else. It used to heal by the same amount too;
+      // healing is the medkit's job now (decision #5).
+      this.addLoot(loot.loot)
+      loot.destroy()
+      World.PICKUPS.remove(World.CONSUMABLES, loot)
+    }
+    if (item !== undefined && this.addItem(item.kind)) {
+      item.destroy()
+      World.PICKUPS.remove(World.ITEMS, item)
     }
   }
 
@@ -203,16 +218,10 @@ export default class Player extends Unit {
     this.extractProgress = 0
   }
 
-  /** True if the cell under this player is an exit's cell on their layer. */
+  /** True if the cell under this player is an exit's cell on their layer (`World.GATES`). */
   onExit (): boolean {
     const here = this.cell
-    for (const obj of World.OBSTACLES) {
-      // By type code, not instanceof: exit.ts imports this module.
-      if (obj.type !== ObjectType.Exit || obj.tag !== this.tag) continue
-      const cell = Hex.toCell(obj.position)
-      if (cell.x === here.x && cell.y === here.y) return true
-    }
-    return false
+    return World.isExit(here.x, here.y, this.tag)
   }
 
   /**

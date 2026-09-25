@@ -6,7 +6,7 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Random } from '../utils/random'
 import Portal from './portal'
-import { type GameObject } from './gameobject'
+import { type GameObject, ObjectType } from './gameobject'
 import Mob from './mob'
 import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item } from '../archetypes/archetypes'
 import { type Unit } from './unit'
@@ -16,6 +16,10 @@ import Timers from './timers'
 // Type-only: throwable.ts imports this module, so a value import would add
 // another edge to the import cycle described in world.spec.ts.
 import type Throwable from './throwable'
+import { CellIndex } from '../utils/cellindex'
+// Read inside functions only (the interest bucket size): multiplayer imports
+// this module, so its default export is not defined yet while this one loads.
+import Multiplayer from '../network/multiplayer'
 
 /**
  * A player's status on the standings board. The values are the status bytes of
@@ -124,10 +128,12 @@ export default class World {
   static FINISHED: FinishedPlayer[] = []
 
   /**
-   * Blocked cells per plane, as `Hex.key` values.
+   * Blocked cells per plane: `Hex.key` to the obstacle that blocks it (a rock
+   * or a StoneWall stone), or null for a cell blocked through `block` with no
+   * obstacle named (only specs do that).
    *
    * Sparse on purpose: about 270 obstacles sit in a grid of roughly 15,000
-   * cells, so a Set costs a few hundred entries instead of one byte per cell
+   * cells, so a Map costs a few hundred entries instead of one byte per cell
    * per plane. That matters because the plan is many worlds per box, and this
    * is per-world state.
    *
@@ -135,7 +141,7 @@ export default class World {
    * releases it on destroy. Nothing else may write to it - a cell blocked
    * without an obstacle to explain it is invisible in every log.
    */
-  static BLOCKED: Map<number, Set<number>> = new Map()
+  static BLOCKED: Map<number, Map<number, GameObject | null>> = new Map()
 
   /**
    * Rocks, stone-wall stones, portals, exits. All solid, except that an exit
@@ -159,9 +165,156 @@ export default class World {
   static MOBS: Unit[] = []
   static AREA_EFFECT: Area[] = []
 
-  // Iterated in place by the spatial queries. Previously they built a fresh
-  // PLAYERS.concat(MOBS) array on every call.
+  // The two unit lists, for the few whole-list passes left (`block`'s
+  // re-route) and as the membership of `UNITS`. Previously the spatial queries
+  // built a fresh PLAYERS.concat(MOBS) array on every call.
   static UNIT_SOURCES: Unit[][] = [World.PLAYERS as unknown as Unit[], World.MOBS]
+
+  /**
+   * Players and mobs by layer and cell (`Hex.key` of the cell under the
+   * centre), hex-cells P1. Every unit query goes through it: `FIND_IN_CELLS`,
+   * `NEAREST_IN_CELLS`, `FIRST_ON_LINE`, `UNITS_ON`, the projectile hit test
+   * and StoneWall's occupancy check. Membership is `PLAYERS` and `MOBS`; see
+   * `CellIndex` for how it stays exact. Add and remove units with `addUnit` /
+   * `removeUnitAt`; a unit that moves or changes layer refiles itself
+   * (`Unit.placed`).
+   */
+  static UNITS = new CellIndex<Unit>(
+    () => World.UNIT_SOURCES,
+    (unit) => unit.tag,
+    (unit) => World.cellKeyOf(unit.position)
+  )
+
+  /**
+   * Players by coarse square bucket, `Multiplayer.INTEREST_RADIUS` on a side,
+   * every layer together: who might receive an object's update or an effect
+   * (`Multiplayer.update`, `effect`, `effectAt`). The 3 x 3 buckets around a
+   * point hold every player inside the interest box around it, so the box
+   * test itself is unchanged; this only stops it running against every
+   * connection. Membership is `PLAYERS`, kept by the same helpers as `UNITS`.
+   */
+  static INTEREST = new CellIndex<Player>(
+    () => [World.PLAYERS],
+    () => 0,
+    (player) => World.bucketKeyOf(player.position.x, player.position.y)
+  )
+
+  /**
+   * Loot (`CONSUMABLES`) and items (`ITEMS`) on the ground, by layer and cell.
+   * Pickups are same-cell (decision #32). Add and remove through its `push` /
+   * `removeAt` / `remove`, never on the lists directly.
+   */
+  static PICKUPS = new CellIndex<Consumable | ItemPickup>(
+    () => [World.CONSUMABLES, World.ITEMS],
+    (pickup) => pickup.tag,
+    (pickup) => World.cellKeyOf(pickup.position)
+  )
+
+  /**
+   * Portals and exits, by layer and cell: the exit check (`Player.onExit`),
+   * StoneWall's gate skip, a wander goal's and a drop's gate skip, spawn
+   * clearance and the rock keep-out. Its list is `OBSTACLES`, filtered, so
+   * every change to `OBSTACLES` goes through `addObstacle` /
+   * `removeObstacleAt` / `removeObstacle`. By type code, not `instanceof`:
+   * portal.ts and exit.ts import player.ts, which imports this module.
+   */
+  static GATES = new CellIndex<GameObject>(
+    () => [World.OBSTACLES],
+    (gate) => gate.tag,
+    (gate) => World.cellKeyOf(gate.position),
+    (obj) => obj.type === ObjectType.Portal || obj.type === ObjectType.Exit
+  )
+
+  /** `Hex.key` of the cell under a world position. */
+  static cellKeyOf (position: Vector): number {
+    const cell = Hex.toCell(position)
+    return Hex.key(cell.x, cell.y)
+  }
+
+  /** The `INTEREST` bucket holding a world position. */
+  static bucketKeyOf (x: number, y: number): number {
+    const size = Multiplayer.INTEREST_RADIUS
+    return Hex.key(Math.floor(x / size), Math.floor(y / size))
+  }
+
+  /**
+   * The players who could be inside the interest box around (x, y), every
+   * layer: the 3 x 3 `INTEREST` buckets around it. A bucket is as wide as the
+   * box's half-width, and `Vector.withinBounds` is strict, so a player inside
+   * the box is never more than one bucket away on either axis. Callers still
+   * run the box test (and the layer test, where they have one).
+   */
+  static interestCandidates (x: number, y: number): Player[] {
+    const size = Multiplayer.INTEREST_RADIUS
+    const bx = Math.floor(x / size)
+    const by = Math.floor(y / size)
+    const result: Player[] = []
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (const player of World.INTEREST.at(0, Hex.key(bx + dx, by + dy))) result.push(player)
+      }
+    }
+    return result
+  }
+
+  /**
+   * The largest unit body there can be: the biggest in `ARCHETYPES`, or any
+   * bigger one added through `addUnit` (bare units, as specs build). What the
+   * projectile hit test's candidate rings allow for (`Throwable.hitRings`).
+   */
+  static get UNIT_BODY_MAX (): number {
+    let most = World._bodySeen
+    for (const archetype of Object.values(ARCHETYPES)) most = Math.max(most, archetype.body)
+    return most
+  }
+
+  private static _bodySeen = 0
+
+  /** Push `unit` onto `list` (PLAYERS or MOBS), indexed. The only way the server adds a unit. */
+  static addUnit (list: Unit[], unit: Unit): void {
+    World._bodySeen = Math.max(World._bodySeen, unit.radius ?? 0)
+    World.UNITS.sync()
+    World.INTEREST.sync()
+    list.push(unit)
+    World.UNITS.insert(unit)
+    if (list === (World.PLAYERS as unknown as Unit[])) World.INTEREST.insert(unit as Player)
+    World.UNITS.record()
+    World.INTEREST.record()
+  }
+
+  /** Splice entry `index` out of `list` (PLAYERS or MOBS), unindexed. */
+  static removeUnitAt (list: Unit[], index: number): void {
+    World.UNITS.sync()
+    World.INTEREST.sync()
+    const [unit] = list.splice(index, 1)
+    if (unit !== undefined) {
+      World.UNITS.delete(unit)
+      World.INTEREST.delete(unit as Player)
+    }
+    World.UNITS.record()
+    World.INTEREST.record()
+  }
+
+  /** A unit's position or layer changed (`Unit.placed`): refile it. */
+  static unitMoved (unit: Unit): void {
+    World.UNITS.moved(unit)
+    World.INTEREST.moved(unit as Player)
+  }
+
+  /** Push onto `OBSTACLES`, keeping `GATES` in step. */
+  static addObstacle (obj: GameObject): void {
+    World.GATES.push(World.OBSTACLES, obj)
+  }
+
+  /** Splice entry `index` out of `OBSTACLES`, keeping `GATES` in step. */
+  static removeObstacleAt (index: number): void {
+    World.GATES.removeAt(World.OBSTACLES, index)
+  }
+
+  /** Remove `obj` from `OBSTACLES` if it is there. */
+  static removeObstacle (obj: GameObject): boolean {
+    return World.GATES.remove(World.OBSTACLES, obj)
+  }
 
   // Skill defaults only. Unit stats (max HP, contact damage) are in the
   // archetype table, archetypes.ts.
@@ -223,7 +376,7 @@ export default class World {
       })
       if (crowded) continue
 
-      World.OBSTACLES.push(to === undefined ? new Exit(pos.x, pos.y, tag) : new Portal(pos.x, pos.y, to, tag))
+      World.addObstacle(to === undefined ? new Exit(pos.x, pos.y, tag) : new Portal(pos.x, pos.y, to, tag))
       return
     }
   }
@@ -235,7 +388,7 @@ export default class World {
   static createPlayer (playerId: string, name?: unknown): Player {
     const pos = Hex.toPosition(World.spawnCell(World.LAYERS[0].tag).cell)
     const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, undefined, name)
-    World.PLAYERS.push(player)
+    World.addUnit(World.PLAYERS as unknown as Unit[], player)
     return player
   }
 
@@ -271,9 +424,10 @@ export default class World {
   static spawnCell (tag: number): { cell: Vector, fallback: boolean } {
     const hazards: Vector[] = []
     const mobs: Vector[] = []
-    for (const obj of World.OBSTACLES) {
-      if (obj.tag === tag && (obj instanceof Portal || obj instanceof Exit)) hazards.push(Hex.toCell(obj.position))
+    for (const gates of World.GATES.buckets(tag).values()) {
+      for (const gate of gates) hazards.push(Hex.toCell(gate.position))
     }
+    // Once per join, and MOBS is the fixed mob population (81), not players.
     for (const mob of World.MOBS) {
       if (mob.tag !== tag || mob.destroyed) continue
       if (mob.archetype === ARCHETYPES.boss) hazards.push(Hex.toCell(mob.position))
@@ -337,12 +491,12 @@ export default class World {
         World.finish(player, Standing.DEAD)
         this.createLootFrom(player)
         this.createItemsFrom(player)
-        World.PLAYERS.splice(i, 1)
+        World.removeUnitAt(World.PLAYERS as unknown as Unit[], i)
         continue
       }
       if (player.exited) {
         World.finish(player, Standing.EXTRACTED)
-        World.PLAYERS.splice(i, 1)
+        World.removeUnitAt(World.PLAYERS as unknown as Unit[], i)
         continue
       }
       player.update(dt)
@@ -354,14 +508,14 @@ export default class World {
       const consumable = World.CONSUMABLES[i]
       if (consumable.expiresAt > 0 && now > consumable.expiresAt) {
         consumable.destroy()
-        World.CONSUMABLES.splice(i, 1)
+        World.PICKUPS.removeAt(World.CONSUMABLES, i)
       }
     }
     for (let i = World.ITEMS.length - 1; i >= 0; i--) {
       const item = World.ITEMS[i]
       if (item.expiresAt > 0 && now > item.expiresAt) {
         item.destroy()
-        World.ITEMS.splice(i, 1)
+        World.PICKUPS.removeAt(World.ITEMS, i)
       }
     }
 
@@ -373,7 +527,7 @@ export default class World {
       const mob = World.MOBS[i]
       if (mob.destroyed) {
         this.createLootFrom(mob)
-        World.MOBS.splice(i, 1)
+        World.removeUnitAt(World.MOBS, i)
         continue
       }
       mob.update(dt)
@@ -421,7 +575,7 @@ export default class World {
       // break, not continue: nothing else ends this loop, so skipping without
       // adding one spins forever inside the tick.
       if (pos === undefined) break
-      World.OBSTACLES.push(new Obstacle(pos.x, pos.y, tag))
+      World.addObstacle(new Obstacle(pos.x, pos.y, tag))
       rocks++
     }
 
@@ -437,7 +591,7 @@ export default class World {
         // parameter's `= undefined` default types it as undefined; the
         // constructor reads it as a number (`radius || RangeInt(15, 25)`).
         const radius = Random.RangeInt(15, 25)
-        World.CONSUMABLES.push(new Consumable(
+        World.PICKUPS.push(World.CONSUMABLES, new Consumable(
           pos.x, pos.y, tag, radius as unknown as undefined, Math.round(radius * layer.lootMultiplier)
         ))
       }
@@ -462,7 +616,7 @@ export default class World {
       }
       if (natural >= count) continue
       const pos = this.getUnobstructedPosition(40, tag)
-      if (pos !== undefined) World.ITEMS.push(new ItemPickup(pos.x, pos.y, tag, item))
+      if (pos !== undefined) World.PICKUPS.push(World.ITEMS, new ItemPickup(pos.x, pos.y, tag, item))
     }
   }
 
@@ -495,7 +649,7 @@ export default class World {
     // update would send it, and the client floats any loot change over a unit
     // as a "+88" the moment it comes into view.
     mob.dirtyFields.delete('loot')
-    World.MOBS.push(mob)
+    World.addUnit(World.MOBS, mob)
   }
 
   /**
@@ -520,9 +674,17 @@ export default class World {
     }
   }
 
-  createLootFrom (value) {
+  /**
+   * Scatter a dead unit's loot: drops worth about a fifth of it each (at least
+   * 50 a tier), each on a random free cell centre within `DROP_RINGS` of the
+   * cell it died on (`dropCells`), as items already were. Decision #32: a
+   * pickup is same-cell now, and the old random offset of up to 100 units
+   * each way could put a drop on a rock's cell, where nobody can ever stand.
+   */
+  createLootFrom (value: Unit): void {
     const dropTier = Math.max(50, Math.floor(value.loot / 5))
     let lootLeft = value.loot
+    const free = lootLeft > 0 ? World.dropCells(value.cell, value.tag) : []
 
     while (lootLeft > 0) {
       const newDropValue = Math.min(
@@ -531,45 +693,58 @@ export default class World {
       )
       lootLeft -= newDropValue
 
-      World.CONSUMABLES.push(
-        new Consumable(
-          value.position.x + Random.RangeInt(-100, 100),
-          value.position.y + Random.RangeInt(-100, 100),
-          value.tag,
-          undefined,
-          newDropValue,
-          World.DROPPED_LOOT_LIFETIME
-        )
-      )
+      const at = Hex.toPosition(free[Random.RangeInt(0, free.length)])
+      World.PICKUPS.push(World.CONSUMABLES, new Consumable(
+        at.x,
+        at.y,
+        value.tag,
+        undefined,
+        newDropValue,
+        World.DROPPED_LOOT_LIFETIME
+      ))
     }
   }
 
-  /** How far from the body a dead player's items land, in rings (2 = 19 cells). */
+  /** How far from the body a dead unit's loot and items land, in rings (2 = 19 cells). */
   static DROP_RINGS = 2
 
   /**
-   * Scatter a dead player's inventory: one pickup per item carried, each on a
-   * random free cell centre within `DROP_RINGS` of the cell they died on, so
-   * none lands inside a rock where it could never be reached. Each expires
-   * after `DROPPED_LOOT_LIFETIME`, like dropped loot, for the same reason.
-   * On the death cell itself if nothing around it is free.
+   * The cells a death drop may land on: every cell within `DROP_RINGS` of
+   * `origin` that is on the map, not blocked (`isBlocked`: no rock or stone)
+   * and not a portal's. A drop on a rock could never be reached, and a portal
+   * is solid to players, so one on a portal's cell could never be stood on
+   * either. Exit cells stay: players stand on them. The origin alone if
+   * nothing around it qualifies.
    */
-  createItemsFrom (player: Player): void {
-    const carried = player.takeInventory()
-    if (carried.length === 0) return
-
-    const origin = player.cell
+  static dropCells (origin: Vector, tag: number): Vector[] {
     const free: Vector[] = []
     const rings = World.DROP_RINGS
     for (let dq = -rings; dq <= rings; dq++) {
       const lo = Math.max(-rings, -dq - rings)
       const hi = Math.min(rings, -dq + rings)
       for (let dr = lo; dr <= hi; dr++) {
-        if (!World.isBlocked(origin.x + dq, origin.y + dr, player.tag)) free.push(new Vector(origin.x + dq, origin.y + dr))
+        const q = origin.x + dq
+        const r = origin.y + dr
+        if (World.isBlocked(q, r, tag)) continue
+        if (World.GATES_ON(q, r, tag).some((gate) => gate.type === ObjectType.Portal)) continue
+        free.push(new Vector(q, r))
       }
     }
     if (free.length === 0) free.push(origin)
+    return free
+  }
 
+  /**
+   * Scatter a dead player's inventory: one pickup per item carried, each on a
+   * random cell of `dropCells`, so none lands inside a rock where it could
+   * never be reached. Each expires after `DROPPED_LOOT_LIFETIME`, like dropped
+   * loot, for the same reason.
+   */
+  createItemsFrom (player: Player): void {
+    const carried = player.takeInventory()
+    if (carried.length === 0) return
+
+    const free = World.dropCells(player.cell, player.tag)
     for (const { item, count } of carried) {
       for (let n = 0; n < count; n++) this.dropItem(item, free[Random.RangeInt(0, free.length)], player.tag)
     }
@@ -577,7 +752,7 @@ export default class World {
 
   private dropItem (item: Item, cell: Vector, tag: number): void {
     const at = Hex.toPosition(cell)
-    World.ITEMS.push(new ItemPickup(at.x, at.y, tag, item, World.DROPPED_LOOT_LIFETIME))
+    World.PICKUPS.push(World.ITEMS, new ItemPickup(at.x, at.y, tag, item, World.DROPPED_LOOT_LIFETIME))
   }
 
   /** True if this cell blocks movement on this plane, or is off the map. */
@@ -586,19 +761,21 @@ export default class World {
     return World.BLOCKED.get(tag)?.has(Hex.key(q, r)) ?? false
   }
 
-  static block (q: number, r: number, tag: number): void {
+  /** Block a cell on `tag`, by `by` (the obstacle on it; `Obstacle` always names itself). */
+  static block (q: number, r: number, tag: number, by: GameObject | null = null): void {
     let cells = World.BLOCKED.get(tag)
     if (cells === undefined) {
-      cells = new Set()
+      cells = new Map()
       World.BLOCKED.set(tag, cells)
     }
-    cells.add(Hex.key(q, r))
+    cells.set(Hex.key(q, r), by)
 
     // Anything already routed through this cell has to be re-routed now, or it
     // walks into the new wall and stands there pressing against it. Done here
     // rather than in StoneWall so no future caller can forget it. Cheap: units
     // without a path return from `pathCrosses` immediately, which is every unit
-    // during the world's initial fill.
+    // during the world's initial fill. A whole-list pass, but once per new
+    // obstacle (a StoneWall stone, a rock refilled after a bomb), not per tick.
     for (const source of World.UNIT_SOURCES) {
       for (const unit of source) {
         if (unit.tag !== tag) continue
@@ -674,11 +851,15 @@ export default class World {
   static gateKeepOut (tag: number): Set<number> {
     const cells = new Set<number>()
     const rings = World.GATE_ROCK_RINGS
-    for (const gate of World.OBSTACLES) {
+    const gates: GameObject[] = []
+    for (const layer of World.TAGS) {
+      for (const bucket of World.GATES.buckets(layer).values()) gates.push(...bucket)
+    }
+    for (const gate of gates) {
       // `to` is only meaningful on a portal: every object defaults it to 0,
       // which is also layer 01's tag.
-      const here = (gate instanceof Portal || gate instanceof Exit) && gate.tag === tag
-      const arrives = gate instanceof Portal && gate.to === tag && gate.tag !== tag
+      const here = gate.tag === tag
+      const arrives = gate.type === ObjectType.Portal && gate.to === tag && gate.tag !== tag
       if (!here && !arrives) continue
       const centre = Hex.toCell(gate.position)
       for (let dq = -rings; dq <= rings; dq++) {
@@ -792,14 +973,71 @@ export default class World {
     typeMask: number
   ): Unit[] {
     const result = new Array<Unit>()
-    for (const source of World.UNIT_SOURCES) {
-      for (const unit of source) {
-        if (unit.tag !== tag) continue
-        if ((unit.type & typeMask) === 0) continue
-        if (Hex.distance(origin, Hex.toCell(unit.position)) <= rings) result.push(unit)
+    World.forKeysWithin(origin, rings, (key) => {
+      for (const unit of World.UNITS.at(tag, key)) {
+        if ((unit.type & typeMask) !== 0) result.push(unit)
+      }
+    })
+    return result
+  }
+
+  /**
+   * Call `fn` with the `Hex.key` of every cell within `rings` of `origin`
+   * (`rings` 0 is the origin alone), and its distance in rings. Off-map cells
+   * included: nothing is filed there, so they cost a lookup and find nothing.
+   */
+  static forKeysWithin (origin: Vector, rings: number, fn: (key: number, distance: number) => void): void {
+    for (let dq = -rings; dq <= rings; dq++) {
+      const lo = Math.max(-rings, -dq - rings)
+      const hi = Math.min(rings, -dq + rings)
+      for (let dr = lo; dr <= hi; dr++) {
+        fn(Hex.key(origin.x + dq, origin.y + dr), (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2)
       }
     }
-    return result
+  }
+
+  /**
+   * The unit nearest `origin` by rings, within `rings` of it, of a type in
+   * `typeMask`, on `tag`, that `accept` takes (default: any not destroyed).
+   * Ties go to the lowest id, so the answer does not depend on the order units
+   * were filed in. Undefined if there is none. Hex-cells P1: this is the AI's
+   * notice test, which took the *last* match of a radius scan before.
+   */
+  static NEAREST_IN_CELLS (
+    origin: Vector,
+    rings: number,
+    tag: number,
+    typeMask: number,
+    accept: (unit: Unit) => boolean = (unit) => !unit.destroyed
+  ): Unit | undefined {
+    let best: Unit | undefined
+    let bestDistance = Infinity
+    World.forKeysWithin(origin, rings, (key, distance) => {
+      if (distance > bestDistance) return
+      for (const unit of World.UNITS.at(tag, key)) {
+        if ((unit.type & typeMask) === 0 || !accept(unit)) continue
+        if (distance < bestDistance || (best !== undefined && unit.id < best.id)) {
+          best = unit
+          bestDistance = distance
+        }
+      }
+    })
+    return best
+  }
+
+  /** The units standing on cell (q, r) of layer `tag`, dead ones included until the sweep. Do not mutate. */
+  static UNITS_ON (q: number, r: number, tag: number): readonly Unit[] {
+    return World.UNITS.at(tag, Hex.key(q, r))
+  }
+
+  /** The portals and exits on cell (q, r) of layer `tag`. Do not mutate. */
+  static GATES_ON (q: number, r: number, tag: number): readonly GameObject[] {
+    return World.GATES.at(tag, Hex.key(q, r))
+  }
+
+  /** True if cell (q, r) of layer `tag` holds an exit. */
+  static isExit (q: number, r: number, tag: number): boolean {
+    return World.GATES_ON(q, r, tag).some((gate) => gate.type === ObjectType.Exit)
   }
 
   /**
@@ -880,59 +1118,23 @@ export default class World {
     typeMask: number,
     exclude?: Unit
   ): Unit | undefined {
-    const order = new Map<number, number>()
-    cells.forEach((cell, i) => {
-      const key = Hex.key(cell.x, cell.y)
-      if (!order.has(key)) order.set(key, i)
-    })
-
-    let first: Unit | undefined
-    let firstIndex = Infinity
-    let firstSq = Infinity
-    for (const source of World.UNIT_SOURCES) {
-      for (const unit of source) {
+    // Cell by cell along the line: the first cell with anyone on it decides.
+    // A cell repeated later in the line is already settled by then.
+    for (const cell of cells) {
+      let first: Unit | undefined
+      let firstSq = Infinity
+      for (const unit of World.UNITS_ON(cell.x, cell.y, tag)) {
         if (unit === exclude || unit.destroyed) continue
-        if (unit.tag !== tag) continue
         if ((unit.type & typeMask) === 0) continue
-        const cell = Hex.toCell(unit.position)
-        const index = order.get(Hex.key(cell.x, cell.y))
-        if (index === undefined || index > firstIndex) continue
         const sq = unit.position.sub(from).getSquareMagnitude()
-        if (index < firstIndex || sq < firstSq) {
+        if (sq < firstSq) {
           first = unit
-          firstIndex = index
           firstSq = sq
         }
       }
+      if (first !== undefined) return first
     }
-    return first
-  }
-
-  static FIND_AROUND (
-    x: number,
-    y: number,
-    tag: number,
-    radius: number,
-    typeMask: number
-  ) {
-    const sqRadius = radius * radius
-    const result = new Array<Unit>()
-    for (const source of World.UNIT_SOURCES) {
-      for (const units of source) {
-        if (units.tag !== tag) continue
-
-        if ((units.type & typeMask) === 0) continue
-
-        const dx = units.position.x - x
-        const dy = units.position.y - y
-        const sqDistance = dx * dx + dy * dy
-
-        if (sqDistance < sqRadius) {
-          result.push(units)
-        }
-      }
-    }
-    return result
+    return undefined
   }
 
   static FIND_BETWEEN_POINTS (

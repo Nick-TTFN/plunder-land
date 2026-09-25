@@ -1,28 +1,47 @@
 import { Vector } from '../utils/vector'
-import { GameObject, ObjectType } from '../objects/gameobject'
+import { ObjectType } from '../objects/gameobject'
 import { Random } from '../utils/random'
+import { Hex } from '../utils/hex'
 import { type IAIRoutine } from './findnearestconsumable'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
 import { type GuardSpec } from '../archetypes/archetypes'
 
+/**
+ * A mob's watch over its spot: notice a player, chase it, drop it, wander.
+ *
+ * **Every range is in rings** (hex-cells P1, decisions #31 and #32): `h` is
+ * `Hex.distance` between the mob's cell and the player's, and each test
+ * includes its boundary. Noticed at `h <= acquire`, kept while
+ * `h <= loseRings`, held off at `h <= standoff` (0 = never), and an idle mob
+ * walks to the centre of a random free cell within `wander` rings of home.
+ * Contact damage is not here: it stays on the bodies' overlap in P1 (#32).
+ */
 export default class GuardPosition implements IAIRoutine {
   /** This unit's parameters, from its archetype (acquire, lose, speeds, wander, refresh). */
   spec: GuardSpec
   homePosition: Vector
   targetAquiredAt: number
   owner: Unit
+  /** The wander goal: a cell centre, or undefined between goals. */
   moveTarget: Vector | undefined
   /**
-   * How far the current target may get before it is dropped. `spec.lose` for a
-   * target found by looking around; further for one that provoked the unit
-   * from beyond it (see `provoke`).
+   * How many rings away the current target may get and still be kept.
+   * `spec.lose` for a target found by looking around; further for one that
+   * provoked the unit from beyond it (see `provoke`).
    */
-  loseDistance: number
+  loseRings: number
+
+  /**
+   * Rings past the distance of a provoking hit that the chase lasts, when that
+   * is beyond `spec.lose` (decision #32: `max(lose, hitRings + 1)`). It was
+   * `lose - acquire` in units (#19), which is one ring at today's values.
+   */
+  static PROVOKE_MARGIN_RINGS = 1
 
   constructor (owner: Unit, spec: GuardSpec) {
     this.spec = spec
-    this.loseDistance = spec.lose
+    this.loseRings = spec.lose
     this.homePosition = owner.position
     this.targetAquiredAt = 0
     this.owner = owner
@@ -49,14 +68,10 @@ export default class GuardPosition implements IAIRoutine {
     if (attacker.destroyed || (attacker as any).exited === true) return
     if (attacker.tag !== this.owner.tag) return
 
-    // Chase from wherever the hit came, with the same margin the unit normally
-    // gets between noticing a target and giving up on it. No new tunable: a
-    // player who backs off past that margin loses it, as they would anyway.
-    const distance = attacker.position.sub(this.owner.position).getMagnitude()
-    this.loseDistance = Math.max(
-      this.spec.lose,
-      distance + this.spec.lose - this.spec.acquire
-    )
+    // Chase from wherever the hit came, a ring further than that, and never
+    // less than the usual lose range. A player who backs off past it loses it.
+    const rings = Hex.distance(this.owner.cell, attacker.cell)
+    this.loseRings = Math.max(this.spec.lose, rings + GuardPosition.PROVOKE_MARGIN_RINGS)
 
     if (this.owner.target === attacker) return
     this.owner.target = attacker
@@ -72,7 +87,7 @@ export default class GuardPosition implements IAIRoutine {
 
   private release (): void {
     this.owner.target = undefined
-    this.loseDistance = this.spec.lose
+    this.loseRings = this.spec.lose
   }
 
   update (dt: number) {
@@ -102,48 +117,74 @@ export default class GuardPosition implements IAIRoutine {
       this.owner.target == null &&
 			this.targetAquiredAt < now - this.spec.refreshMs
     ) {
-      for (const target of World.FIND_AROUND(
-        this.owner.position.x,
-        this.owner.position.y,
-        this.owner.tag,
+      // The nearest live player within `acquire` rings, ties to the lowest id
+      // (hex-cells P1). It took the last match of a radius scan, and a dead or
+      // extracted one as readily as a live one, which the release above then
+      // dropped a tick later with the rescan blocked for `refreshMs`.
+      this.owner.target = World.NEAREST_IN_CELLS(
+        this.owner.cell,
         this.spec.acquire,
-        ObjectType.Player
-      )) { this.owner.target = target }
+        this.owner.tag,
+        ObjectType.Player,
+        (unit) => !unit.destroyed && (unit as any).exited !== true
+      )
 
-      this.loseDistance = this.spec.lose
+      this.loseRings = this.spec.lose
       this.owner.maxVelocity = (this.owner.target != null) ? this.spec.chaseSpeed : this.spec.idleSpeed
 
       this.targetAquiredAt = now
     }
 
     if ((this.owner.target != null) && !this.owner.target.destroyed) {
-      const sqDistance = this.owner.target.position
-        .sub(this.owner.position)
-        .getSquareMagnitude()
-      if (sqDistance < this.loseDistance * this.loseDistance) {
-        if (sqDistance < this.spec.standoff * this.spec.standoff) {
+      const target = this.owner.target
+      const rings = Hex.distance(this.owner.cell, Hex.toCell(target.position))
+      if (rings <= this.loseRings) {
+        if (this.spec.standoff > 0 && rings <= this.spec.standoff) {
           // Close enough: hold here rather than close in (standoff 0 never
           // gets here). Zeroing `direction` keeps `facing`, and the unit's
           // skills aim at the target's cell, not along facing.
           this.owner.direction = new Vector(0, 0)
         } else {
-          this.owner.setDirectionTo(
-            this.owner.target.position.x,
-            this.owner.target.position.y
-          )
+          this.owner.setDirectionTo(target.position.x, target.position.y)
         }
       } else this.release()
     } else {
       if (this.moveTarget != null) {
         if (this.moveTarget.sub(this.owner.position).getSquareMagnitude() < 100) { this.moveTarget = undefined }
       } else {
-        this.moveTarget = new Vector(
-          this.homePosition.x + Random.RangeInt(-this.spec.wander, this.spec.wander),
-          this.homePosition.y + Random.RangeInt(-this.spec.wander, this.spec.wander)
-        )
+        this.moveTarget = this.wanderGoal()
       }
 
       if (this.moveTarget != null) { this.owner.setDirectionTo(this.moveTarget.x, this.moveTarget.y) }
     }
+  }
+
+  /**
+   * The centre of a random free cell within `spec.wander` rings of home
+   * (decision #32: 1 ring, 7 cells). Free is on the map, not blocked, and not
+   * a portal's or exit's cell (both are solid to mobs, so a goal there could
+   * never be reached). Home's own cell if none is. The cells are taken in
+   * `World.forKeysWithin` order, which puts home in the middle of the 1-ring
+   * patch: a `Math.random` of 0.5 picks home when all seven are free.
+   *
+   * It was home plus a random offset of up to 30 units on each axis, which
+   * landed in the home cell about half the time and in ring 1 otherwise.
+   */
+  wanderGoal (): Vector {
+    const home = Hex.toCell(this.homePosition)
+    const tag = this.owner.tag
+    const free: Vector[] = []
+    const rings = this.spec.wander
+    for (let dq = -rings; dq <= rings; dq++) {
+      const lo = Math.max(-rings, -dq - rings)
+      const hi = Math.min(rings, -dq + rings)
+      for (let dr = lo; dr <= hi; dr++) {
+        const q = home.x + dq
+        const r = home.y + dr
+        if (World.isBlocked(q, r, tag) || World.GATES_ON(q, r, tag).length > 0) continue
+        free.push(new Vector(q, r))
+      }
+    }
+    return Hex.toPosition(free.length > 0 ? free[Random.RangeInt(0, free.length)] : home)
   }
 }
