@@ -144,14 +144,14 @@ test('no override leaves the skill\'s own cooldown, damage and range', () => {
   const [ranged] = skillsFor({ skills: [{ skill: RangedAttack }] }) as RangedAttack[]
   assert.equal(ranged.cooldown, 750)
   assert.equal(ranged.damage, undefined)
-  assert.equal(ranged.range, 360)
+  assert.equal(ranged.range, 8) // cells (decision #25)
 })
 
 test('cooldownMs, damage and range overrides are applied', () => {
-  const [ranged] = skillsFor({ skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: 270 }] }) as RangedAttack[]
+  const [ranged] = skillsFor({ skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: 5 }] }) as RangedAttack[]
   assert.equal(ranged.cooldown, 1500)
   assert.equal(ranged.damage, 10)
-  assert.equal(ranged.range, 270)
+  assert.equal(ranged.range, 5)
 })
 
 test('a damage override is what a shot actually deals', () => {

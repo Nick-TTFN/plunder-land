@@ -5,12 +5,15 @@
  * **This file imports nothing, on purpose.** The server's test suite imports it
  * (`services/battle-royale-server/src/skills/effectcells.spec.ts`) and checks
  * every function and constant here against the server's own: `World.FACING_INDEX`,
- * `World.CONE_CELLS`, the skills' `RINGS` and ranged range, and
- * `Hex.DIRECTIONS`. The client's `Vector` extends a pixi `Point`, so importing
- * `utils/hex.ts` from here would drag pixi into the server's tests.
+ * `World.CONE_CELLS`, `World.FIRST_ON_LINE`, the skills' `RINGS` and ranged
+ * ranges, and `Hex.DIRECTIONS`. The client's `Vector` extends a pixi `Point`,
+ * so importing `utils/hex.ts` from here would drag pixi into the server's tests.
  *
  * It is a port, not a mirror: `utils/hex.ts` is byte-identical in both packages
- * and must stay so, and none of this belongs there.
+ * and must stay so, and none of this belongs there. The one exception is the
+ * ranged shot's line, `Hex.line`: it is plain grid maths and its tie-break has
+ * to agree to the last bit, so it lives in the mirror and the effect imports it
+ * from there (decision #25).
  */
 
 export interface Cell { x: number, y: number }
@@ -37,8 +40,15 @@ export const BLAST_RINGS = 1
 export const FIRE_BREATH_RINGS = 4
 /** Server `IceBreath.RINGS`. */
 export const ICE_BREATH_RINGS = 3
-/** Server `RangedAttack.range`, in world units (8 cells). */
-export const RANGED_RANGE = 360
+/** Server `RangedAttack.RANGE_CELLS`: a player's ranged range, in cells. */
+export const RANGED_RANGE_CELLS = 8
+/**
+ * The ranged range of every mob that has RangedAttack, in cells: the gunner's
+ * `range` override. The client cannot tell archetypes apart yet, so a mob's
+ * shot is drawn at this range and a player's at `RANGED_RANGE_CELLS`; the spec
+ * fails if any mob archetype's range stops matching.
+ */
+export const RANGED_RANGE_MOB_CELLS = 6
 
 /**
  * Port of `World.FACING_INDEX`: the DIRECTIONS index nearest to a world-space
@@ -112,37 +122,45 @@ export function directionToward (from: Cell, to: Cell): number {
   return facingIndex(dq + dr / 2, dr * Math.sqrt(3) / 2)
 }
 
-export interface Body { x: number, y: number, radius: number }
+export interface Body {
+  /** Where the viewer draws the unit. */
+  x: number
+  y: number
+  /** The cell under `x`, `y` (`cellOf`), which is what decides if it is on the line. */
+  cell: Cell
+}
 
 /**
- * Port of how `RangedAttack` picks what it hits: of the bodies
- * `World.FIND_BETWEEN_POINTS` finds on the segment (x1,y1)-(x2,y2), the one
- * whose centre is nearest the start. Returns its index in `bodies`, or -1.
+ * Port of `World.FIRST_ON_LINE`, `RangedAttack`'s hit test (decision #25): the
+ * body standing on the earliest cell of `line` (a `Hex.line`, caster's cell
+ * first), and of several on that cell the one nearest (fromX, fromY). Returns
+ * its index in `bodies`, or -1 if nobody is on the line. The caller leaves the
+ * caster out.
  *
  * The client runs it over the positions it is drawing, which lag the server's
- * by the interpolation delay, so for a moving target the drawn end can differ
- * from the one the server hit. The damage number is the authority.
+ * by the interpolation delay, so a beam at a unit crossing a cell edge can
+ * stop on a different unit than the one the server hit. The damage number is
+ * the authority.
  */
-export function firstOnLine (x1: number, y1: number, x2: number, y2: number, bodies: Body[]): number {
-  const sqLength = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
-  if (sqLength === 0) return -1
-  const minx = Math.min(x1, x2)
-  const maxx = Math.max(x1, x2)
-  const miny = Math.min(y1, y2)
-  const maxy = Math.max(y1, y2)
+export function firstOnLine (line: Cell[], fromX: number, fromY: number, bodies: Body[]): number {
+  const order = new Map<number, number>()
+  line.forEach((cell, i) => {
+    const k = key(cell.x, cell.y)
+    if (!order.has(k)) order.set(k, i)
+  })
 
   let found = -1
-  let nearest = Infinity
+  let foundIndex = Infinity
+  let foundSq = Infinity
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i]
-    if (b.x + b.radius < minx || b.x - b.radius > maxx) continue
-    if (b.y + b.radius < miny || b.y - b.radius > maxy) continue
-    const area = (x2 - x1) * (y1 - b.y) - (y2 - y1) * (x1 - b.x)
-    if ((area * area) / sqLength >= b.radius * b.radius) continue
-    const sq = (b.x - x1) * (b.x - x1) + (b.y - y1) * (b.y - y1)
-    if (sq < nearest) {
-      nearest = sq
+    const index = order.get(key(b.cell.x, b.cell.y))
+    if (index === undefined || index > foundIndex) continue
+    const sq = (b.x - fromX) * (b.x - fromX) + (b.y - fromY) * (b.y - fromY)
+    if (index < foundIndex || sq < foundSq) {
       found = i
+      foundIndex = index
+      foundSq = sq
     }
   }
   return found

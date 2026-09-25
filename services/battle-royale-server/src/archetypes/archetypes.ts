@@ -35,7 +35,10 @@ export interface SkillSpec {
   skill: SkillClass
   damage?: number
   cooldownMs?: number
-  /** Only for a skill that has a `range` (RangedAttack); anything else throws. */
+  /**
+   * Only for a skill that has a `range` (RangedAttack, in cells since
+   * decision #25); anything else throws.
+   */
   range?: number
 }
 
@@ -231,10 +234,9 @@ const gunner: Archetype = {
   loot: 75,
   contact: { damage: 0, cooldownMs: 0 },
   killStats: ['mobKills'],
-  // Range 300, not 270 (decision #24). `withinCells` counts cells, and a
-  // target in a cell 6 away can stand up to ~293 units from a gunner on its
-  // own cell centre (270 + the cell's far edge). At 270 the shot fell short.
-  skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: 300 }],
+  // Range 6 cells, the same as `withinCells` below, so every target it fires
+  // at is on its line's reach (decision #25; it was 300 units, #24).
+  skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: 6 }],
   routines: [
     Object.freeze({
       kind: 'guard',

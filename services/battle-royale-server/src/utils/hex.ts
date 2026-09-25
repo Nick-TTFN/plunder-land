@@ -156,6 +156,56 @@ export class Hex {
   }
 
   /**
+   * The nudge added to every point of a `line` before it is rounded, in axial
+   * q and r (cube s gets -3e-6). Three different sizes, summing to zero in
+   * cube space.
+   *
+   * A line that runs exactly along the edge between two cells samples points
+   * that are an exact tie, and without it which cell wins would be decided by
+   * `Math.round` rounding halves up and by the order of the comparisons in
+   * `round` - an accident of the code rather than a rule. The nudge decides
+   * every such tie the same way, toward where it points: the cell with the
+   * lower cube s, and of two with equal s the one with the higher r. It is far
+   * too small (millionths of a cell, against a margin of at least
+   * 1 / (2 * distance) on a sample that is not a tie) to move anything else.
+   * Pinned by hex.spec.ts.
+   */
+  static readonly LINE_NUDGE_Q = 1e-6
+  static readonly LINE_NUDGE_R = 2e-6
+
+  /**
+   * The cells on the straight line from `from` through `toward`, `length`
+   * steps long, `from` first: `length + 1` cells, and cell i is exactly i steps
+   * from `from`. When `toward` is within `length` it is on the line at index
+   * `Hex.distance(from, toward)`, and the line carries on past it in the same
+   * direction. `toward` equal to `from` gives no direction, and returns `[from]`
+   * alone.
+   *
+   * Standard hex line drawing: interpolate in cube space and round each sample
+   * to its cell, with `LINE_NUDGE_*` to settle ties. `RangedAttack` hits the
+   * first unit on these cells (decision #25) and the client draws its beam
+   * over them, which is why it lives in this mirrored file: the two must pick
+   * the same cells, ties included.
+   *
+   * The sample is `(toward - from) * i / n` rather than a precomputed step
+   * times i, so the aimed cell's own sample is exact.
+   */
+  static line (from: Vector, toward: Vector, length: number): Vector[] {
+    const n = Hex.distance(from, toward)
+    const cells = [new Vector(from.x, from.y)]
+    if (n === 0) return cells
+    const dq = toward.x - from.x
+    const dr = toward.y - from.y
+    for (let i = 1; i <= length; i++) {
+      cells.push(Hex.round(
+        from.x + Hex.LINE_NUDGE_Q + (dq * i) / n,
+        from.y + Hex.LINE_NUDGE_R + (dr * i) / n
+      ))
+    }
+    return cells
+  }
+
+  /**
    * Index into DIRECTIONS for the step from `from` to `to`, or -1 if they are
    * not neighbours. This is how a facing is derived from a path.
    */

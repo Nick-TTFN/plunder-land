@@ -144,3 +144,91 @@ test('a blocking cell leaves its neighbours standable', () => {
   assert.ok(Hex.RADIUS + player < Hex.SIZE, 'push-out reaches past the next cell centre')
   assert.equal(Hex.RADIUS, Hex.SIZE / 2)
 })
+
+// --- line (decision #25) ------------------------------------------------------
+
+const LINE_ORIGINS = [new Vector(0, 0), new Vector(-3, 51), new Vector(40, -20)]
+
+const cellsOf = (cells: Vector[]): number[][] => cells.map((c) => [c.x, c.y])
+
+test('a line is length + 1 cells from its start, each one step further out and next to the last', () => {
+  for (const from of LINE_ORIGINS) {
+    for (const d of disc(10)) {
+      if (d.x === 0 && d.y === 0) continue
+      const toward = from.add(d)
+      for (const length of [0, 1, 5, 8, 12]) {
+        const line = Hex.line(from, toward, length)
+        assert.equal(line.length, length + 1)
+        for (let i = 0; i <= length; i++) {
+          assert.equal(Hex.distance(from, line[i]), i, `${d.x},${d.y} length ${length}: cell ${i}`)
+          if (i > 0) assert.equal(Hex.distance(line[i - 1], line[i]), 1, `${d.x},${d.y}: cells ${i - 1} and ${i} not adjacent`)
+        }
+      }
+    }
+  }
+})
+
+test('the aimed cell is on its own line, at its distance, whenever it is within the length', () => {
+  for (const from of LINE_ORIGINS) {
+    for (const d of disc(8)) {
+      if (d.x === 0 && d.y === 0) continue
+      const toward = from.add(d)
+      const line = Hex.line(from, toward, 8)
+      const at = line[Hex.distance(from, toward)]
+      assert.deepEqual([at.x, at.y], [toward.x, toward.y], `aimed ${d.x},${d.y} from ${from.x},${from.y}`)
+    }
+  }
+})
+
+test('aiming further out along the same line gives the same line', () => {
+  // So a shot's cells depend on its direction, not on how far away the click was.
+  for (const d of disc(4)) {
+    if (d.x === 0 && d.y === 0) continue
+    const base = cellsOf(Hex.line(new Vector(0, 0), d, 12))
+    for (const k of [2, 3, 5]) {
+      assert.deepEqual(cellsOf(Hex.line(new Vector(0, 0), d.multiply(k), 12)), base, `${d.x},${d.y} x${k}`)
+    }
+  }
+})
+
+test('a line along a cell edge breaks every tie the same way: lower s, then higher r', () => {
+  // Toward DIRECTIONS[d] + DIRECTIONS[d + 1] the line runs exactly along the
+  // edge between the two, and every odd sample is a tie. Pinned: this is the
+  // LINE_NUDGE rule, and both packages must draw the same cells.
+  const expected = [
+    [[0, 0], [0, 1], [1, 1], [1, 2], [2, 2]],
+    [[0, 0], [0, 1], [-1, 2], [-1, 3], [-2, 4]],
+    [[0, 0], [-1, 1], [-2, 1], [-3, 2], [-4, 2]],
+    [[0, 0], [-1, 0], [-1, -1], [-2, -1], [-2, -2]],
+    [[0, 0], [1, -1], [1, -2], [2, -3], [2, -4]],
+    [[0, 0], [1, 0], [2, -1], [3, -1], [4, -2]]
+  ]
+  for (let d = 0; d < 6; d++) {
+    const a = Hex.DIRECTIONS[d]
+    const b = Hex.DIRECTIONS[(d + 1) % 6]
+    const edge = new Vector(a.x + b.x, a.y + b.y)
+    for (const from of LINE_ORIGINS) {
+      const got = cellsOf(Hex.line(from, from.add(edge), 4)).map(([q, r]) => [q - from.x, r - from.y])
+      assert.deepEqual(got, expected[d], `edge ${d} from ${from.x},${from.y}`)
+    }
+  }
+})
+
+test('the line between two cells is the same cells whichever end it is drawn from', () => {
+  for (const from of LINE_ORIGINS) {
+    for (const d of disc(8)) {
+      const n = Hex.distance(new Vector(0, 0), d)
+      if (n === 0) continue
+      const to = from.add(d)
+      assert.deepEqual(
+        cellsOf(Hex.line(to, from, n).reverse()),
+        cellsOf(Hex.line(from, to, n)),
+        `${from.x},${from.y} to ${to.x},${to.y}`
+      )
+    }
+  }
+})
+
+test('a line toward its own start has no direction and is just the start', () => {
+  assert.deepEqual(cellsOf(Hex.line(new Vector(4, -2), new Vector(4, -2), 8)), [[4, -2]])
+})

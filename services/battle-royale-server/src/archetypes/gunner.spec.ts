@@ -116,7 +116,7 @@ test('gunner: stats, skill overrides and routines from its table row', () => {
   const use = gunner.routines[1] as UseSkillOnTarget
   assert.equal(use.withinCells, 6)
   assert.ok(use.skill instanceof RangedAttack)
-  assert.deepEqual([use.skill.damage, use.skill.cooldown, use.skill.range], [10, 1500, 300])
+  assert.deepEqual([use.skill.damage, use.skill.cooldown, use.skill.range], [10, 1500, 6])
   assert.equal(use.skill.owner, gunner)
 })
 
@@ -275,7 +275,7 @@ test('gunner: a player at 0 hp that it touches is not killed or credited by the 
 test('gunner: a player shooting it from beyond acquire range is chased and shot back', (t) => {
   mockDate(t)
   const gunner = addGunner()
-  // 7 cells (315): beyond acquire (270), inside the player's 360 range.
+  // 7 cells (315): beyond acquire (270), inside the player's 8-cell range.
   const player = addPlayer(east(7))
   gunner.update(DT)
   assert.equal(gunner.target, undefined, 'noticed a player beyond acquire')

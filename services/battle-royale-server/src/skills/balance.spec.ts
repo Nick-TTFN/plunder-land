@@ -125,9 +125,13 @@ test('a ranged shot reaches eight cells and no further', () => {
 
 test('a boss hit from range turns on the shooter and chases them', (t) => {
   mockTimers(t)
+  // Pinned so the idle tick's wander goal is home itself. The shot is unaimed
+  // and runs along the shooter's row of cells (decision #25), and a random
+  // wander step moved the mob out of that row in about a quarter of runs.
+  t.mock.method(Math, 'random', () => 0.5)
   const player = shooterAt(1000, 2000)
   // Six cells: beyond the 200-unit acquire distance and the 250-unit lose
-  // distance, inside the 360-unit ranged range.
+  // distance, inside the 8-cell ranged range.
   const boss = new Mob(1000 + 6 * Hex.SIZE, 2000, 0, ARCHETYPES.boss)
   World.MOBS.push(boss)
 
@@ -170,6 +174,10 @@ test('a fireball from range turns a boss on the thrower', (t) => {
 
 test('a provoked mob still gives up on a shooter who backs well out of reach', (t) => {
   mockTimers(t)
+  // Pinned so the idle tick's wander goal is home itself. The shot is unaimed
+  // and runs along the shooter's row of cells (decision #25), and a random
+  // wander step moved the mob out of that row in about a quarter of runs.
+  t.mock.method(Math, 'random', () => 0.5)
   const player = shooterAt(1000, 2000)
   const mob = new Mob(1000 + 6 * Hex.SIZE, 2000, 0)
   World.MOBS.push(mob)

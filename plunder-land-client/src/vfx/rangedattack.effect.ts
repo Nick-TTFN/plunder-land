@@ -4,23 +4,25 @@ import { Game } from '../game'
 import { type GameObject } from '../objects/gameobject'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
-import { RANGED_RANGE, firstOnLine, type Body } from './cells'
-import { CellHighlight, cellOf, directionVector, facingOf, layerOf } from './cellhighlight'
+import { RANGED_RANGE_CELLS, RANGED_RANGE_MOB_CELLS, firstOnLine, type Body, type Cell } from './cells'
+import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
 
 /**
- * A beam from the caster to where the shot stops: the first unit on the line
- * (N4, decision #16), or the end of its 8-cell range.
+ * A beam from the caster to where the shot stops: the first unit on its hex
+ * line (decision #25, N4), or the end of its range.
  *
- * Aimed shots fly toward the aimed cell's centre at any angle (decision #21);
- * the record carries that cell. An unaimed one goes along the caster's hex
- * facing, which is the nearest of six to the server's continuous facing, so
- * it can be up to 30 degrees out. It used to fly 1000 units along
- * `owner.direction`, which never reached the client, so it drew nothing.
+ * The line is `Hex.line` from the caster's cell through the aimed cell the
+ * record carries, on to the range in cells, which is the same call on the same
+ * mirrored file the server hits with. An unaimed shot, or one aimed at the
+ * caster's own cell, runs the line along the caster's hex facing, as the
+ * server's `RangedAttack.lineOf` does. The cells it crossed are lit faintly so
+ * the path the shot took is the one on the ground.
  *
- * The stopping unit is found with `firstOnLine`, the port of the server's own
- * pick, run over the positions this client is drawing. Those lag the server
- * by the interpolation delay, so a beam at a moving target can stop on a
- * different unit than the one the server hit.
+ * The stopping unit is found with `firstOnLine`, the port of the server's
+ * `World.FIRST_ON_LINE`, run over the positions this client is drawing. Those
+ * lag the server by the interpolation delay, so a beam at a unit crossing a
+ * cell edge can stop on a different unit than the one the server hit, and a
+ * client that places the caster one cell off draws a line one cell off.
  */
 export class RangedAttackEffect {
   constructor (owner: GameObject, aimCell?: Vector) {
@@ -28,33 +30,42 @@ export class RangedAttackEffect {
     if (layer === undefined) return
 
     const from = new Vector(owner.x, owner.y)
-    let dir: Vector
     const own = cellOf(owner)
-    if (aimCell !== undefined && (aimCell.x !== own.x || aimCell.y !== own.y)) {
-      const centre = Hex.toPosition(aimCell)
-      dir = new Vector(centre.x - from.x, centre.y - from.y).normalised()
-    } else {
-      dir = directionVector(facingOf(owner))
-    }
+    const ownCell = new Vector(own.x, own.y)
+    const toward = aimCell !== undefined && (aimCell.x !== own.x || aimCell.y !== own.y)
+      ? aimCell
+      : Hex.neighbour(ownCell, facingOf(owner))
+    // The only mob with RangedAttack is the gunner, and the client cannot tell
+    // archetypes apart yet (see RANGED_RANGE_MOB_CELLS).
+    const range = (Game.MOBS as GameObject[]).includes(owner) ? RANGED_RANGE_MOB_CELLS : RANGED_RANGE_CELLS
+    const line: Cell[] = Hex.line(ownCell, toward, range).map((c) => ({ x: c.x, y: c.y }))
 
-    const far = new Vector(from.x + dir.x * RANGED_RANGE, from.y + dir.y * RANGED_RANGE)
     const candidates: GameObject[] = []
     for (const unit of [...Game.PLAYERS, ...Game.MOBS] as GameObject[]) {
       if (unit === owner || unit.killed || !unit.visible || unit.tag !== owner.tag) continue
       candidates.push(unit)
     }
-    const bodies: Body[] = candidates.map((u) => ({ x: u.x, y: u.y, radius: u.radius }))
-    const hit = firstOnLine(from.x, from.y, far.x, far.y, bodies)
+    const bodies: Body[] = candidates.map((u) => ({ x: u.x, y: u.y, cell: cellOf(u) }))
+    const hit = firstOnLine(line, from.x, from.y, bodies)
 
-    let length = RANGED_RANGE
+    let end: Vector
+    let crossed: Cell[]
     if (hit >= 0) {
-      // Stop where the line passes the struck unit's centre.
+      // Stop on the struck unit.
       const b = bodies[hit]
-      length = Math.max(0, (b.x - from.x) * dir.x + (b.y - from.y) * dir.y)
-      const struck = cellOf(b)
-      CellHighlight.flash(owner.tag, [struck], 0x88ffff, 300)
+      end = new Vector(b.x, b.y)
+      const at = line.findIndex((c) => c.x === b.cell.x && c.y === b.cell.y)
+      crossed = line.slice(1, at)
+      CellHighlight.flash(owner.tag, [b.cell], 0x88ffff, 300)
+    } else {
+      const last = line[line.length - 1]
+      end = Hex.toPosition(new Vector(last.x, last.y))
+      crossed = line.slice(1)
     }
-    const end = new Vector(from.x + dir.x * length, from.y + dir.y * length)
+    // Dimmer than the struck cell: the path, not the hit.
+    if (crossed.length > 0) CellHighlight.flash(owner.tag, crossed, 0x2f6f7a, 300)
+    const length = Math.hypot(end.x - from.x, end.y - from.y)
+    const fullLength = RANGED_RANGE_CELLS * Hex.SIZE
 
     const beam = new Graphics()
     beam.eventMode = 'none'
@@ -72,7 +83,7 @@ export class RangedAttackEffect {
     layer.addChild(beam)
 
     // The head crosses the full range in 120 ms, the tail follows it in.
-    const travel = 120 * (length / RANGED_RANGE) + 30
+    const travel = 120 * Math.min(1, length / fullLength) + 30
     new TWEEN.Tween(state)
       .to({ head: 1 }, travel)
       .onUpdate(redraw)

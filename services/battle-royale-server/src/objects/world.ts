@@ -425,6 +425,53 @@ export default class World {
     return result
   }
 
+  /**
+   * The first unit standing on `cells` (a `Hex.line`), walking the line in
+   * order: the unit on the earliest cell, and of several on that cell the one
+   * whose centre is nearest `from`. A unit is on a cell if the cell under its
+   * centre is, as in `FIND_IN_CELLS`, so a big unit whose body spills into a
+   * line cell is not on it. `exclude` (the caster) and destroyed units are
+   * skipped. Undefined if nobody is on the line.
+   *
+   * This is `RangedAttack`'s hit test (decision #25). The client's port is
+   * `firstOnLine` in `plunder-land-client/src/vfx/cells.ts`, checked against
+   * this by `effectcells.spec.ts`.
+   */
+  static FIRST_ON_LINE (
+    cells: Vector[],
+    from: Vector,
+    tag: number,
+    typeMask: number,
+    exclude?: Unit
+  ): Unit | undefined {
+    const order = new Map<number, number>()
+    cells.forEach((cell, i) => {
+      const key = Hex.key(cell.x, cell.y)
+      if (!order.has(key)) order.set(key, i)
+    })
+
+    let first: Unit | undefined
+    let firstIndex = Infinity
+    let firstSq = Infinity
+    for (const source of World.UNIT_SOURCES) {
+      for (const unit of source) {
+        if (unit === exclude || unit.destroyed) continue
+        if (unit.tag !== tag) continue
+        if ((unit.type & typeMask) === 0) continue
+        const cell = Hex.toCell(unit.position)
+        const index = order.get(Hex.key(cell.x, cell.y))
+        if (index === undefined || index > firstIndex) continue
+        const sq = unit.position.sub(from).getSquareMagnitude()
+        if (index < firstIndex || sq < firstSq) {
+          first = unit
+          firstIndex = index
+          firstSq = sq
+        }
+      }
+    }
+    return first
+  }
+
   static FIND_AROUND (
     x: number,
     y: number,

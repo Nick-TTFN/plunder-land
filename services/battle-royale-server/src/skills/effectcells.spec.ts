@@ -17,6 +17,9 @@ import { ThrowFireball } from './throwfireball'
 import { Throwicicle } from './throwicicle'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import Mob from '../objects/mob'
+import type UseSkillOnTarget from '../ai/useskillontarget'
+import { ARCHETYPES } from '../archetypes/archetypes'
 // The client's port. It imports nothing, so this pulls no pixi into the server.
 import * as Client from '../../../../plunder-land-client/src/vfx/cells'
 
@@ -96,7 +99,27 @@ test('the client\'s ring counts and ranged range equal the skills\'', () => {
   assert.equal(Client.FIRE_BREATH_RINGS, FireBreath.RINGS)
   assert.equal(Client.ICE_BREATH_RINGS, IceBreath.RINGS)
   const owner = playerOn(new Vector(20, 40))
-  assert.equal(Client.RANGED_RANGE, new RangedAttack(owner).range)
+  assert.equal(Client.RANGED_RANGE_CELLS, new RangedAttack(owner).range)
+  assert.equal(Client.RANGED_RANGE_CELLS, RangedAttack.RANGE_CELLS)
+})
+
+test('every archetype\'s ranged range is the one the client draws it at: robots the default, mobs RANGED_RANGE_MOB_CELLS', () => {
+  // The client cannot tell archetypes apart yet, so it draws any mob's shot at
+  // RANGED_RANGE_MOB_CELLS. A mob given another range must fail here, not
+  // draw a beam that ends somewhere the shot did not.
+  let mobsWithRanged = 0
+  for (const archetype of Object.values(ARCHETYPES)) {
+    for (const spec of archetype.skills) {
+      if (spec.skill !== RangedAttack) continue
+      if (archetype.kind === 'mob') {
+        assert.equal(spec.range, Client.RANGED_RANGE_MOB_CELLS, archetype.key)
+        mobsWithRanged++
+      } else {
+        assert.equal(spec.range, undefined, `${archetype.key}: a robot's range is not drawn`)
+      }
+    }
+  }
+  assert.ok(mobsWithRanged > 0, 'no mob has RangedAttack: RANGED_RANGE_MOB_CELLS checks nothing')
 })
 
 test('the client\'s facingIndex equals World.FACING_INDEX all the way round, halfway facings included', () => {
@@ -143,44 +166,110 @@ test('the client\'s discCells is exactly the cells FIND_IN_CELLS takes', () => {
   }
 })
 
-test('the client\'s firstOnLine picks the unit RangedAttack hits', () => {
-  // Deterministic scatter; the shooter fires along a spread of aims.
+test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit RangedAttack hits', () => {
+  // Deterministic scatter: players and gunners firing aimed and unaimed shots
+  // into a crowd with shared cells, so line order, same-cell nearness, range
+  // and the facing fallback all get compared.
   let seed = 7
   const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+  const offsetCell = (c: Vector, spread: number): Vector =>
+    new Vector(c.x + Math.floor(rand() * (2 * spread + 1)) - spread, c.y + Math.floor(rand() * (2 * spread + 1)) - spread)
+  const home = new Vector(20, 40)
   let compared = 0
   let hits = 0
-  for (let trial = 0; trial < 200; trial++) {
+  let sameCell = 0
+  let unaimed = 0
+  for (let trial = 0; trial < 400; trial++) {
     World.MOBS.length = 0
     World.PLAYERS.length = 0
-    const shooter = playerOn(new Vector(20, 40))
+    const gunnerShot = trial % 4 === 3
+    const at = Hex.toPosition(home).add(new Vector(rand() * 30 - 15, rand() * 30 - 15))
+    let shooter: Unit
+    let skill: RangedAttack
+    if (gunnerShot) {
+      const gunner = new Mob(at.x, at.y, 0, ARCHETYPES.gunner)
+      World.MOBS.push(gunner)
+      shooter = gunner
+      skill = (gunner.routines[1] as UseSkillOnTarget).skill as RangedAttack
+    } else {
+      const player = new Player(at.x, at.y, 0, 'caster')
+      World.PLAYERS.push(player)
+      shooter = player
+      skill = new RangedAttack(player)
+    }
+    shooter.facing = new Vector(rand() * 2 - 1, rand() * 2 - 1)
+
     const mobs: Unit[] = []
-    for (let i = 0; i < 6; i++) {
-      const cell = new Vector(20 + Math.floor(rand() * 17) - 8, 40 + Math.floor(rand() * 17) - 8)
+    for (let i = 0; i < 8; i++) {
+      // Every third one shares the previous one's cell.
+      const cell = i % 3 === 2 ? mobs[i - 1].cell : offsetCell(home, 8)
       const mob = mobOn(cell)
       mob.position = mob.position.add(new Vector(rand() * 20 - 10, rand() * 20 - 10))
       mobs.push(mob)
     }
-    // Mostly at a mob's cell, so there is something to hit and to hit first.
-    const aim = trial % 3 === 0
-      ? new Vector(20 + Math.floor(rand() * 17) - 8, 40 + Math.floor(rand() * 17) - 8)
-      : mobs[Math.floor(rand() * mobs.length)].cell
-    if (aim.x === 20 && aim.y === 40) continue
+    // Mostly at a mob's cell, sometimes anywhere, sometimes no aim at all.
+    const pick = trial % 5
+    const aim = pick === 0
+      ? undefined
+      : pick === 1 ? offsetCell(home, 8) : mobs[Math.floor(rand() * mobs.length)].cell
+    const own = shooter.cell
 
     const before = mobs.map((m) => m.hp)
-    assert.equal(new RangedAttack(shooter).execute(aim), true)
+    assert.equal(skill.execute(aim), true)
     const struck = mobs.findIndex((m, i) => m.hp !== before[i])
 
-    const dir = Hex.toPosition(aim).sub(shooter.position).normalised()
-    const end = shooter.position.add(dir.multiply(Client.RANGED_RANGE))
+    // What the client does: the line from its view of the caster's cell (here
+    // the same), through the aim or along the wire facing, at the drawn range.
+    const aimed = aim !== undefined && (aim.x !== own.x || aim.y !== own.y)
+    const toward = aimed ? aim : Hex.neighbour(own, World.FACING_INDEX(shooter.facing))
+    const range = gunnerShot ? Client.RANGED_RANGE_MOB_CELLS : Client.RANGED_RANGE_CELLS
     const got = Client.firstOnLine(
-      shooter.position.x, shooter.position.y, end.x, end.y,
-      mobs.map((m) => ({ x: m.position.x, y: m.position.y, radius: m.radius }))
+      Hex.line(own, toward, range),
+      shooter.position.x, shooter.position.y,
+      mobs.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell }))
     )
     assert.equal(got, struck, `trial ${trial}`)
     compared++
     if (struck >= 0) hits++
+    if (struck >= 0 && mobs.some((m, i) => i !== struck && m.cell.x === mobs[struck].cell.x && m.cell.y === mobs[struck].cell.y)) sameCell++
+    if (!aimed) unaimed++
   }
-  assert.ok(compared > 150 && hits > 20, `only ${compared} shots, ${hits} hits: the sample says nothing`)
+  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50,
+    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed: the sample says too little`)
+})
+
+test('the client\'s firstOnLine and World.FIRST_ON_LINE agree on a line with two units in one cell', () => {
+  const line = Hex.line(new Vector(20, 40), new Vector(26, 40), 8)
+  const c = Hex.toPosition(new Vector(23, 40))
+  const far = mobOn(new Vector(23, 40))
+  far.position = c.add(new Vector(15, 0))
+  const near = mobOn(new Vector(23, 40))
+  near.position = c.add(new Vector(-15, 0))
+  const from = Hex.toPosition(new Vector(20, 40))
+  const server = World.FIRST_ON_LINE(line, from, 0, ObjectType.Mob)
+  const client = Client.firstOnLine(line, from.x, from.y, [far, near].map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell })))
+  assert.equal(server, near)
+  assert.equal(client, 1)
+})
+
+test('the client\'s firstOnLine and World.FIRST_ON_LINE both go by line order, not by distance', () => {
+  // An edge-diagonal line zigzags: a point on the far side of cell 1 is
+  // further from the caster than one on the near side of cell 2.
+  const origin = new Vector(20, 40)
+  const line = Hex.line(origin, new Vector(22, 42), 8)
+  const from = Hex.toPosition(origin)
+  const early = mobOn(line[1])
+  early.position = Hex.toPosition(line[1]).add(new Vector(0, 20))
+  const late = mobOn(line[2])
+  late.position = Hex.toPosition(line[2]).add(new Vector(-12, -16))
+  assert.deepEqual([early.cell.x, early.cell.y], [line[1].x, line[1].y])
+  assert.deepEqual([late.cell.x, late.cell.y], [line[2].x, line[2].y])
+  assert.ok(early.position.sub(from).getMagnitude() > late.position.sub(from).getMagnitude(), 'no such pair: the test says nothing')
+
+  const server = World.FIRST_ON_LINE(line, from, 0, ObjectType.Mob)
+  const client = Client.firstOnLine(line, from.x, from.y, [late, early].map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell })))
+  assert.equal(server, early)
+  assert.equal(client, 1)
 })
 
 // --- the effect record says enough to draw the right cells --------------------
