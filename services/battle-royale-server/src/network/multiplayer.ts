@@ -128,10 +128,14 @@ export default class Multiplayer {
     const connection = new Connection()
     connection.socket = socket
 
-    socket.on('start_requested', (playerId) => {
+    socket.on('start_requested', (data) => {
       if (connection.started) return
-      connection.started = true
-      Multiplayer.guarded(() => { this.onStart(connection, playerId) })
+      Multiplayer.guarded(() => {
+        const start = Multiplayer.parseStart(data)
+        if (start === undefined) return
+        connection.started = true
+        this.onStart(connection, start.id, start.name)
+      })
     })
     // Registered here rather than in onStart, so a start that fails and is
     // retried does not register them twice. Before a start they do nothing:
@@ -177,10 +181,10 @@ export default class Multiplayer {
    * has been emitted to the joining client (`hello` goes out just before that
    * flush), and `started` is cleared so it can ask again.
    */
-  onStart (connection: Connection, playerId: string): void {
+  onStart (connection: Connection, playerId: string, name?: unknown): void {
     let player: Player | undefined
     try {
-      player = World.createPlayer(playerId)
+      player = World.createPlayer(playerId, name)
       this.admit(connection, player)
     } catch (e) {
       connection.started = false
@@ -360,6 +364,25 @@ export default class Multiplayer {
       slot: buf.readUInt8(0),
       aimCell: new Vector(buf.readInt16BE(1), buf.readInt16BE(3))
     }
+  }
+
+  /**
+   * `start_requested` is `{ id, name }`: the client's persistent id and the
+   * name it typed, which may be missing or empty. `name` is passed on raw and
+   * cleaned by Player (`Player.sanitiseName`), so its type and content
+   * are not checked here.
+   *
+   * A bare string is the old form, the id alone, and is still accepted so a
+   * client from before names keeps working for one release (player-names,
+   * 2026-09-25); remove it after that. Anything without a non-empty string id
+   * is ignored and leaves the connection free to ask again.
+   */
+  static parseStart (data: unknown): { id: string, name?: unknown } | undefined {
+    if (typeof data === 'string') return data !== '' ? { id: data } : undefined
+    if (data === null || typeof data !== 'object') return undefined
+    const { id, name } = data as { id?: unknown, name?: unknown }
+    if (typeof id !== 'string' || id === '') return undefined
+    return { id, name }
   }
 
   // outgoing traffic ========

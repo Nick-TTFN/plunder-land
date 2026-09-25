@@ -220,14 +220,17 @@ export class Game extends Container {
     Game.popups.show(new GameEnterPopup(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (playerId: string): Promise<void> {
+  async onStartRequested (playerId: string, name: string): Promise<void> {
     Game.socket.on('hello', (data) => { Session.onHello(data) })
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
     Game.socket.on('effect', this.onEffects.bind(this))
     Game.socket.on('update', this.onObjectsUpdated.bind(this))
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
-    Game.socket.emit('start_requested', playerId)
+    // `{ id, name }`: the id is the player's identity (stats are keyed by it),
+    // the name only what others see. The server sanitises and caps the name,
+    // and gives an empty one a callsign made from the id.
+    Game.socket.emit('start_requested', { id: playerId, name })
 
     Game.hud.setupGameUI()
   }
@@ -363,16 +366,17 @@ export class Game extends Container {
         case 'archetype':
           value = buffer[offset++]
           break
-        case 'name':
-          value = ''
-
-          while (offset < buffer.length) {
-            const code = buffer[offset++]
-            if (code === 0) { break }
-            value += String.fromCharCode(code)
-          }
-
+        case 'name': {
+          // NUL-terminated UTF-8 (the server writes Buffer.from(name)). It used
+          // to be read one byte per char code, which turns any name outside
+          // ASCII into mojibake - harmless while every name was a hex id,
+          // wrong now that players type their own.
+          const start = offset
+          while (offset < buffer.length && buffer[offset] !== 0) offset++
+          value = new TextDecoder().decode(buffer.subarray(start, offset))
+          offset++ // the NUL
           break
+        }
       }
 
       if (value !== undefined) data[key] = value
@@ -494,29 +498,10 @@ export class Game extends Container {
       if (obj.main != null) obj.main.tint = 0xffbb00
     }
 
-    if (data.name !== undefined) {
-      const label = new Text(data.name, {
-        fontFamily: '"Trebuchet MS", Helvetica, sans-serif',
-        fontSize: 10,
-        fill: 'white',
-        stroke: 'black',
-        strokeThickness: 1
-      })
-
-      // move into name component of gameobject
-      const name = new Container()
-      const graphics = new Graphics()
-      graphics.alpha = 0.4
-      graphics
-        .beginFill(0x000000)
-        .drawRect(-3, 0, label.width + 5, label.height + 2)
-        .endFill()
-      name.addChild(graphics)
-      name.addChild(label)
-
-      name.x = -(label.width + 5) / 2
-      name.y = -50
-      obj.addChild(name)
+    // Your own robot reads YOU; its create_own record carries no name anyway.
+    if (obj instanceof Player) {
+      if (own) obj.setLabel(Player.OWN_LABEL, true)
+      else if (typeof data.name === 'string') obj.setLabel(data.name)
     }
 
     if (data.position !== undefined) {

@@ -87,12 +87,15 @@ export default class World {
     }
   }
 
-  static createPlayer (playerId: string): Player {
+  /** `name` is the one the player typed, raw; Player's constructor sanitises it. */
+  static createPlayer (playerId: string, name?: unknown): Player {
     const player = new Player(
       Random.RangeInt(0, World.mapSize),
       Random.RangeInt(0, World.mapSize),
       World.TAGS[Random.RangeInt(0, World.TAGS.length)],
-      playerId
+      playerId,
+      undefined,
+      name
     )
     World.PLAYERS.push(player)
     return player

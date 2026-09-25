@@ -232,7 +232,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
 
   const expectedCreate = [
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...TAG(0), ...TO(0),
-    ...RADIUS(14), ...NAME('p1'), ...MAXHP(100), ...FACING(0),
+    // player-names, deliberate: a player who gave no name is sent as its id's
+    // callsign (Player.callsign('p1')), no longer as the id itself.
+    ...RADIUS(14), ...NAME('GEAR-59'), ...MAXHP(100), ...FACING(0),
     // Step 3 (the armor pool), deliberate: the pool goes on the end.
     ...ARMOR(50), ...MAXARMOR(50),
     // Step 4, deliberate: then the archetype id (peep = 1).

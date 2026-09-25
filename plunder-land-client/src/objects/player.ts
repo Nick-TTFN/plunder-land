@@ -1,4 +1,4 @@
-import { Point } from 'pixi.js'
+import { Container, Graphics, Point, Text } from 'pixi.js'
 import { Dash } from '../skills/dash'
 import { MeleeAttack } from '../skills/meleeattack'
 import { RangedAttack } from '../skills/rangedattack'
@@ -12,6 +12,11 @@ import { type ArchetypeInfo } from '../utils/archetypes'
 
 export default class Player extends Unit {
   skills: Skill[]
+
+  /** The text drawn over the robot: the player's name, or "YOU" for your own. */
+  static OWN_LABEL = 'YOU'
+
+  label: Container | undefined
 
   constructor (archetype?: ArchetypeInfo) {
     super(0, archetype)
@@ -50,6 +55,40 @@ export default class Player extends Unit {
     if (look.tint !== undefined) this.animation.tint = look.tint
     this.animation.play()
     this.addChild(this.animation)
+  }
+
+  /**
+   * Draws `text` over the robot, replacing any label already there. Remote
+   * players get the `name` from their create record, which the server has
+   * already sanitised and capped (server `Player.sanitiseName`); the local
+   * player gets OWN_LABEL, since its own create record carries no name.
+   * `own` also picks the colour, so YOU stands out from a remote player's name.
+   */
+  setLabel (text: string, own: boolean = false): void {
+    if (this.label !== undefined) this.removeChild(this.label)
+
+    const label = new Text(text, {
+      fontFamily: '"Trebuchet MS", Helvetica, sans-serif',
+      fontSize: 10,
+      fill: own ? 0xffe066 : 'white',
+      stroke: 'black',
+      strokeThickness: 1
+    })
+
+    const container = new Container()
+    const graphics = new Graphics()
+    graphics.alpha = 0.4
+    graphics
+      .beginFill(0x000000)
+      .drawRect(-3, 0, label.width + 5, label.height + 2)
+      .endFill()
+    container.addChild(graphics)
+    container.addChild(label)
+
+    container.x = -(label.width + 5) / 2
+    container.y = -50
+    this.addChild(container)
+    this.label = container
   }
 
   dispose (): void {
