@@ -24,7 +24,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 34 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 33 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
@@ -64,8 +64,9 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   `ui/elements/progressbar.ts` (`_timeoutId` not initialised). (The two implicit `any`
   parameters in `vfx/meleeattack.effect.ts` went when that file was rewritten.)
 
-Anything **outside** these three groups is a new regression. The count is 34 (measured
-2026-09-24 after `35e9b09`); compare the sorted error list, not just the count, before
+Anything **outside** these three groups is a new regression. The count is 33 (measured
+2026-09-25: the Defend effect's `Point` anchor went with its rewrite); compare the sorted
+error list, not just the count, before
 dismissing.
 
 ## Running it locally
@@ -415,6 +416,11 @@ closest one, listed in `src/skills/placeholders.ts`. The key letter on the butto
 distinguishes them until real art exists. Also missing and wanted: `player/magic/frame` and
 `player/shoot/shot` clips (Defend and RangedAttack used to call them and only logged an
 error), and an icicle projectile sprite — thrown icicles currently render as fireballs.
+Also a **shield** (Defend) and a **snowflake** (IceBreath): both are drawn with `Graphics`
+for now, because the sprite names they used were never in the atlas. A name missing from the
+atlas isn't a harmless blank: pixi fetches it as a URL and throws an uncaught error on every
+use. `textures.spec.ts` (server) fails on any literal sprite or animation name the client
+uses that isn't in `atlas.json`/`hex.json`.
 
 **Every area of effect is a set of hex cells, not a radius.** A unit is inside if the cell
 under its centre is. `World.FIND_IN_CELLS` covers rings around a cell: melee is 2 rings

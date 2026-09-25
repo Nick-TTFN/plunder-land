@@ -1,22 +1,36 @@
 import TWEEN from '@tweenjs/tween.js'
-import { Texture, Sprite, Point } from 'pixi.js'
+import { Graphics } from 'pixi.js'
 import { type GameObject } from '../objects/gameobject'
 
+/**
+ * A shield ring around the defender for the skill's lifetime.
+ *
+ * Drawn, not a sprite: it loaded a texture named shield.png, which is in
+ * neither atlas, so pixi fetched `/shield.png` as a URL, got a 404, and the
+ * failed load was an uncaught error on every Defend press - the dev server's
+ * full-screen overlay, a silent console error in production. Swap in real art
+ * once it exists (listed in CLAUDE.md "Skills"); `textures.spec.ts` on the
+ * server fails if a sprite name is not in an atlas.
+ */
 export class DefendEffect {
   constructor (owner: GameObject, lifetime: number) {
-    const defendEffect = new Sprite(Texture.from('shield.png'))
-    defendEffect.anchor = new Point(0.5, 0.7)
-    defendEffect.width = defendEffect.height = defendEffect.alpha = 0
+    const radius = owner.radius * 2.5
+    const shield = new Graphics()
+    shield.lineStyle(3, 0x9fd4ff, 0.9)
+    shield.beginFill(0x9fd4ff, 0.18)
+    shield.drawCircle(0, 0, radius)
+    shield.endFill()
+    shield.y = -owner.radius * 0.5
+    shield.scale.set(0)
+    shield.alpha = 0
+    owner.addChild(shield)
 
-    new TWEEN.Tween(defendEffect)
-      .to({ width: owner.radius * 5, height: owner.radius * 5, alpha: 1 }, 1000)
-      .onStart(() => {
-        owner.addChild(defendEffect)
-      })
-      .start()
+    new TWEEN.Tween(shield.scale).to({ x: 1, y: 1 }, 300).start()
+    new TWEEN.Tween(shield).to({ alpha: 1 }, 300).start()
 
     setTimeout(() => {
-      owner.removeChild(defendEffect)
+      shield.parent?.removeChild(shield)
+      shield.destroy()
     }, lifetime)
   }
 }
