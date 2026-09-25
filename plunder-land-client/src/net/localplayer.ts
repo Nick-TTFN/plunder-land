@@ -454,6 +454,19 @@ export class LocalPlayer {
   }
 
   /**
+   * The object types the local player is pushed out of: obstacles (1) and
+   * portals (1 << 3). Not exits (1 << 6): an exit is a pad a player stands on
+   * to extract, and the server skips it in the push-out for players only
+   * (server `Exit.solidFor`, called from `Unit.update`). Mobs are still pushed
+   * off exits there, but nothing here simulates a mob.
+   *
+   * `Game.onObjectCreated` adds an object to the colliders `_step` reads only
+   * if its type is in this list. `extract.spec.ts` (server) runs this class
+   * against `Unit.update` on the same layout; change the two together.
+   */
+  static SOLID_TYPES: readonly number[] = [1, 1 << 3]
+
+  /**
    * The fallback radius until `create_own` says otherwise: peep's body (14,
    * server `archetypes.ts`). Only used between construction and the first
    * `reset`, when there is nothing to push out of anyway.

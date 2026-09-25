@@ -92,8 +92,9 @@ test('the server table has exactly the mirrored keys, and takes the six shared f
 test('archetype is field index 16, after maxArmor', () => {
   assert.equal(GameObject.fieldOrder.indexOf('maxArmor'), 15)
   assert.equal(GameObject.fieldOrder.indexOf('archetype'), 16)
-  // usable-items appended `item` (17) and `inventory` (18) after it.
-  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory'], 'a field after inventory: update this spec')
+  // usable-items appended `item` (17) and `inventory` (18) after it, and
+  // extract-channel appended `extractProgress` (19).
+  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress'], 'a field after extractProgress: update this spec')
 })
 
 function units (): Array<[string, Unit, number]> {

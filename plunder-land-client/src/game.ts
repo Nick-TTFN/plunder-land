@@ -15,6 +15,7 @@ import { Hex } from './utils/hex'
 import { archetypeById } from './utils/archetypes'
 import { PathMarker } from './ui/elements/pathmarker'
 import { Timer } from './ui/elements/timer'
+import { ExtractRing } from './ui/elements/extractring'
 import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
@@ -74,9 +75,10 @@ export class Game extends Container {
   static loader: any
 
   /**
-   * Colliders the local prediction has to respect. The server pushes units out
-   * of everything in its OBSTACLES list, which includes portals and exits, so
-   * this has to hold all three or prediction walks through them and snaps back.
+   * Colliders the local prediction has to respect: whatever in the server's
+   * OBSTACLES list pushes a player out, which is rocks and portals but not
+   * exits (`LocalPlayer.SOLID_TYPES`). Missing one, prediction walks through it
+   * and snaps back; holding an exit, it stops short of the pad's centre.
    */
   static COLLIDERS: Collider[] = []
 
@@ -323,7 +325,10 @@ export class Game extends Container {
       // player only; a change reaches every client in range, like loot. (No
       // square brackets in these comments: fieldtable.spec.ts reads this table
       // with a regex that stops at the first closing one.)
-      'inventory'
+      'inventory',
+      // How far a player is through extracting, one unsigned byte: 0 not
+      // extracting, 1-254 in 255ths of the layer's time. Only ever a delta.
+      'extractProgress'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -407,6 +412,9 @@ export class Game extends Container {
           value = counts
           break
         }
+        case 'extractProgress':
+          value = buffer[offset++]
+          break
         case 'name': {
           // NUL-terminated UTF-8 (the server writes Buffer.from(name)). It used
           // to be read one byte per char code, which turns any name outside
@@ -582,9 +590,10 @@ export class Game extends Container {
       obj.DEBUG_DRAW_COLLIDER()
     }
 
-    // Obstacles, portals and exits all sit in the server's OBSTACLES list and
-    // all push units out, so local prediction has to know about all three.
-    if (data.type === 1 || data.type === (1 << 3) || data.type === (1 << 6)) {
+    // Obstacles and portals push the player out, so local prediction has to
+    // know about them. Exits sit in the server's OBSTACLES list too, but a
+    // player walks onto one to extract (LocalPlayer.SOLID_TYPES).
+    if (LocalPlayer.SOLID_TYPES.includes(data.type)) {
       Game.COLLIDERS.push(obj as unknown as Collider)
     }
 
@@ -761,6 +770,10 @@ export class Game extends Container {
       if (data.facing !== undefined && obj instanceof Unit) obj.facingIndex = data.facing
 
       if (obj instanceof Unit) this.applyArmor(obj, data)
+
+      if (typeof data.extractProgress === 'number' && obj instanceof Player) {
+        ExtractRing.show(obj, data.extractProgress, obj.radius)
+      }
 
       if (data.hp !== undefined && obj.setHP) obj.setHP(data.hp)
 

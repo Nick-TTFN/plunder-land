@@ -173,7 +173,9 @@ test('the byte helpers use today\'s field indices', () => {
       'archetype',
       // usable-items, deliberate: an item pickup's kind and a player's
       // inventory, appended.
-      'item', 'inventory']
+      'item', 'inventory',
+      // extract-channel (progress byte), deliberate: appended.
+      'extractProgress']
   )
 })
 

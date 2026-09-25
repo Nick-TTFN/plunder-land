@@ -47,6 +47,9 @@ export class GameObject {
   // safe: this is the base, so nothing has written the field before it runs.
   private _armor: number = 0
   private _maxArmor: number = 0
+  // 0 rather than undefined for the same reason: `extractProgress` is compared
+  // before it is written (Player.channelExtract).
+  private _extractProgress: number = 0
 
   static fieldOrder: string[] = [
     'id',
@@ -82,7 +85,13 @@ export class GameObject {
     // the fixed kind in each slot (utils/items.ts). In `allFieldsOwn` only, but
     // like `loot` a change goes out as a delta to every connection in range.
     // Appended, as above.
-    'inventory'
+    'inventory',
+    // How far a player is through extracting on an exit, one unsigned byte:
+    // 0 not extracting, 1-254 the fraction of the layer's `extractMs` done, in
+    // 255ths. Dirty-tracked only, never in a snapshot set: it changes on every
+    // tick of a channel, so a viewer who comes into range mid-channel has it by
+    // the next tick anyway (see Player.channelExtract). Appended, as above.
+    'extractProgress'
   ]
 
   constructor (
@@ -288,6 +297,16 @@ export class GameObject {
     this.dirtyFields.add('maxArmor')
   }
 
+  /** See 'extractProgress' in `fieldOrder`. Written only by Player. */
+  get extractProgress () {
+    return this._extractProgress
+  }
+
+  set extractProgress (value) {
+    this._extractProgress = value
+    this.dirtyFields.add('extractProgress')
+  }
+
   get name () {
     return this._name
   }
@@ -320,6 +339,16 @@ export class GameObject {
   }
 
   onCollide (target) { }
+
+  /**
+   * Whether `unit` is pushed out of this, for things in `World.OBSTACLES`.
+   * Everything there is solid to everyone except an exit to a player (Exit):
+   * the exit pad is a zone a player stands on to extract. The client's half is
+   * `LocalPlayer.SOLID_TYPES`, and `extract.spec.ts` holds the two together.
+   */
+  solidFor (unit: GameObject): boolean {
+    return true
+  }
 
   serialise (fields: Set<string>) {
     if (!fields?.size) return null
@@ -417,6 +446,13 @@ export class GameObject {
           bytes.writeUInt8(counts.length)
           counts.forEach((count, i) => { bytes.writeUInt8(count, 1 + i) })
           raw.push(bytes)
+          break
+        }
+        case 'extractProgress': {
+          // Unsigned, like archetype: the progress runs to 254.
+          const byte = Buffer.alloc(1)
+          byte.writeUInt8(value)
+          raw.push(byte)
           break
         }
         case 'facing':

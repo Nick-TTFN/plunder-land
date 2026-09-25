@@ -58,8 +58,15 @@ export default class World {
    * A portal leaves the player where it pushed them out, 64 from its centre
    * (its radius 50 + a peep's body 14), only now on the other layer. A gate
    * there within 128 of the portal's centre would catch them on arrival and
-   * send them on again, or extract them, in the same tick. 150 clears that
-   * with a margin.
+   * send them on again in the same tick. 150 clears that with a margin.
+   *
+   * Exits no longer push players out and no longer extract on contact: a
+   * player extracts by standing on the exit's own cell (Player.onExit). An
+   * exit at least 150 from the portal is at least 86 from where the player
+   * lands, and no cell reaches further than 45 from its centre, so the arrival
+   * cell is never an exit's. A player can now stand at an exit's centre, but
+   * the nearest portal on that layer is 150 away and pushes out only to 64,
+   * so standing on an exit can't touch a portal either. The spacing stands.
    */
   static GATE_SPACING = 150
   static mapSize: number
@@ -99,7 +106,10 @@ export default class World {
    */
   static BLOCKED: Map<number, Set<number>> = new Map()
 
-  /** Solid things only: rocks, stone-wall stones, portals, exits. */
+  /**
+   * Rocks, stone-wall stones, portals, exits. All solid, except that an exit
+   * is a pad a player stands on (`GameObject.solidFor`).
+   */
   static OBSTACLES: GameObject[] = []
   /**
    * Fireballs and icicles in flight. Their own list, not OBSTACLES: they are

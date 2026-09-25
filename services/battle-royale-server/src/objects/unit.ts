@@ -442,6 +442,11 @@ export class Unit extends GameObject {
       // solid, and pushing out of one is what detonated every fireball and
       // icicle on the unit that threw it. The client's collider set (game.ts)
       // never included them either.
+      //
+      // An exit is a pad a player stands on, not a wall (Exit.solidFor). The
+      // client's `LocalPlayer._step` skips it the same way, by never having it
+      // among its colliders; change one and the other must follow.
+      if (!obstacle.solidFor(this)) continue
 
       const sumWidth = obstacle.radius + this.radius
       const dx = obstacle.position.x - px

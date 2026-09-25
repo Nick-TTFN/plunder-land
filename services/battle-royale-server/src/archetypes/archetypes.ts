@@ -347,6 +347,12 @@ export interface LayerSpec {
   /** Natural pickups only. Death drops are uncapped and expire on their own. */
   naturalLoot: number
   exits: number
+  /**
+   * How long a player must stay on one of this layer's exits to extract, in
+   * ms (#16, #26: 5 / 7 / 9 s). Leaving the pad or taking damage starts it
+   * over (`Player.channelExtract`).
+   */
+  extractMs: number
   /** Portals to the layer above. 0 on the top layer. */
   portalsUp: number
   /** Portals to the layer below. 0 on the bottom layer. */
@@ -385,6 +391,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     rocks: 136,
     naturalLoot: 150,
     exits: 4,
+    extractMs: 5000,
     portalsUp: 0,
     portalsDown: 10,
     mobs: [
@@ -403,6 +410,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     rocks: 136,
     naturalLoot: 150,
     exits: 4,
+    extractMs: 7000,
     portalsUp: 5,
     portalsDown: 5,
     mobs: [
@@ -421,6 +429,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     rocks: 136,
     naturalLoot: 150,
     exits: 4,
+    extractMs: 9000,
     portalsUp: 10,
     portalsDown: 0,
     mobs: [

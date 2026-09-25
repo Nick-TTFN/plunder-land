@@ -9,6 +9,7 @@ import Timers from './timers'
 import { INVENTORY_SLOTS } from '../utils/items'
 import { type Item } from '../archetypes/archetypes'
 import { itemForSlot, useItem } from '../items/use'
+import { Hex } from '../utils/hex'
 
 export class Stats {
   kills?: number
@@ -74,7 +75,19 @@ export default class Player extends Unit {
     Multiplayer.Instance.create(this)
   }
 
+  /**
+   * How long this player has been on an exit, in ms, or undefined while they
+   * are not extracting. Counted from the first tick that found them on the
+   * pad, which counts as 0 (see `channelExtract`).
+   */
+  extractElapsed: number | undefined
+
   update (dt: number): void {
+    // Before moving, so the channel is judged on the position every client was
+    // last sent, and its progress goes out in this tick's update rather than
+    // the next one's. An extraction ends the update: the player is gone.
+    if (this.channelExtract(dt)) return
+
     super.update(dt)
 
     // Something in this tick's own update (a breath's area) can kill it. A
@@ -127,6 +140,92 @@ export default class Player extends Unit {
           mob.position.y - sumWidth * delta.y / magnitude)
       }
     }
+  }
+
+  /**
+   * One tick of extracting (#16). Returns true if the player extracted.
+   *
+   * A player is on an exit when the cell under their centre is the exit's
+   * cell, the way every area in the game is a set of cells (decision #18).
+   * The pad's 50-unit radius draws a little wider than the cell; the cell is
+   * what counts. Exits are not solid to players (Exit.solidFor), so a player
+   * who clicks one comes to rest on its centre.
+   *
+   * The first tick on the pad counts as 0 and each later one adds its `dt`,
+   * so at 250 ms ticks a 5 s layer extracts on the 20th tick after the one
+   * that first found the player there. Stepping off the pad, or a hit that
+   * does damage (`hit`), starts it over from nothing on the next tick on it.
+   * A per-tick check rather than a `Timers` entry: it is cancelled on any
+   * tick the player is off the pad, and it has to report progress every tick
+   * anyway.
+   *
+   * A layer missing from `LAYERS` has no extraction time and nobody extracts
+   * there: fails closed. No such layer exists; every tag comes from `LAYERS`.
+   */
+  channelExtract (dt: number): boolean {
+    const extractMs = World.LAYERS.find((layer) => layer.tag === this.tag)?.extractMs
+    if (extractMs === undefined || !this.onExit()) {
+      this.cancelExtract()
+      return false
+    }
+
+    this.extractElapsed = this.extractElapsed === undefined ? 0 : this.extractElapsed + dt * 1000
+    if (this.extractElapsed >= extractMs) {
+      this.exit()
+      return true
+    }
+
+    // 1-254: 0 means not extracting, and 255 would be done, which is never
+    // sent because the player is gone by then.
+    const progress = Math.max(1, Math.min(254, Math.floor(255 * this.extractElapsed / extractMs)))
+    if (progress !== this.extractProgress) this.extractProgress = progress
+    return false
+  }
+
+  /**
+   * Stop extracting, and tell everyone in range, if extracting.
+   *
+   * A player still on the pad starts again on the next tick, and if that tick
+   * comes before this 0 is sent (a hit between ticks, or from a mob acting
+   * after this player in the tick), clients see the progress fall straight
+   * back to 1 instead. Either way the ring starts over. Measured with a bot:
+   * a melee hit took a channel from 89 to 1, and it extracted 5.02 s later.
+   */
+  cancelExtract (): void {
+    if (this.extractElapsed === undefined) return
+    this.extractElapsed = undefined
+    this.extractProgress = 0
+  }
+
+  /** True if the cell under this player is an exit's cell on their layer. */
+  onExit (): boolean {
+    const here = this.cell
+    for (const obj of World.OBSTACLES) {
+      // By type code, not instanceof: exit.ts imports this module.
+      if (obj.type !== ObjectType.Exit || obj.tag !== this.tag) continue
+      const cell = Hex.toCell(obj.position)
+      if (cell.x === here.x && cell.y === here.y) return true
+    }
+    return false
+  }
+
+  /**
+   * A hit that does damage, to the armor pool or to hp, cancels an extraction
+   * (#16 Q6). "Does damage" is the rule the armor refill already uses: after
+   * Defend, before armor, so armor soaking the whole hit still cancels it and
+   * a hit Defend floors to 0 does not.
+   *
+   * An extracted player can't be hit. They stay in `PLAYERS` until the next
+   * tick, and a mob acting later in the tick they extracted on could otherwise
+   * kill them after their destroy had gone out; `World.update` tests
+   * `destroyed` before `exited`, so it would then drop the loot they banked.
+   */
+  hit (value: number): boolean {
+    if (this.exited) return false
+    const before = this.hp + this.armor
+    const killed = super.hit(value)
+    if (!killed && this.hp + this.armor < before) this.cancelExtract()
+    return killed
   }
 
   addLoot (value: number): void {
