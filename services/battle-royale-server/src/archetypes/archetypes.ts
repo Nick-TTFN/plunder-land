@@ -81,10 +81,10 @@ export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec
 export type KillStat = 'mobKills' | 'bossKills'
 
 /**
- * `id`, `key`, `kind`, `passesObstacles` and `vision` come from the mirrored
- * `utils/archetypes.ts`, which the client shares: each entry below spreads its
- * `ARCHETYPE_INFO` row first and must not set those five itself
- * (archetypes.spec.ts checks it). `id` is the `archetype` wire field.
+ * `id`, `key`, `kind`, `passesObstacles`, `vision` and `rangedCells` come from
+ * the mirrored `utils/archetypes.ts`, which the client shares: each entry below
+ * spreads its `ARCHETYPE_INFO` row first and must not set those six itself
+ * (wire.spec.ts checks it). `id` is the `archetype` wire field.
  */
 export interface Archetype extends ArchetypeInfo {
   maxHp: number
@@ -166,6 +166,12 @@ const GUARD: GuardSpec = Object.freeze({
 
 const NO_ARMOR = Object.freeze({ max: 0, refillPerSec: 0, delayMs: 0 })
 
+/** A mirrored row's `rangedCells`, for a RangedAttack override. Null there is a table error. */
+function rangedCellsOf (info: ArchetypeInfo): number {
+  if (info.rangedCells === null) throw new Error(`${info.key}: RangedAttack needs rangedCells in utils/archetypes.ts`)
+  return info.rangedCells
+}
+
 const peep: Archetype = {
   ...ARCHETYPE_INFO.peep,
   maxHp: 100,
@@ -236,8 +242,9 @@ const gunner: Archetype = {
   contact: { damage: 0, cooldownMs: 0 },
   killStats: ['mobKills'],
   // Range 6 cells, the same as `withinCells` below, so every target it fires
-  // at is on its line's reach (decision #25; it was 300 units, #24).
-  skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: 6 }],
+  // at is on its line's reach (decision #25; it was 300 units, #24). Read from
+  // the mirrored row, which is also what the client draws the beam at.
+  skills: [{ skill: RangedAttack, damage: 10, cooldownMs: 1500, range: rangedCellsOf(ARCHETYPE_INFO.gunner) }],
   routines: [
     Object.freeze({
       kind: 'guard',

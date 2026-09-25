@@ -76,12 +76,12 @@ test('archetypeById finds every entry, and nothing for 0, undefined or an unknow
   assert.equal(archetypeById(200), undefined)
 })
 
-test('the server table has exactly the mirrored keys, and takes the five shared fields from the mirror', () => {
+test('the server table has exactly the mirrored keys, and takes the six shared fields from the mirror', () => {
   assert.deepEqual(Object.keys(ARCHETYPES).sort(), [...KEYS].sort())
   for (const key of KEYS) {
     const row: Archetype = ARCHETYPES[key]
     const info = ARCHETYPE_INFO[key]
-    for (const field of ['id', 'key', 'kind', 'passesObstacles', 'vision'] as const) {
+    for (const field of ['id', 'key', 'kind', 'passesObstacles', 'vision', 'rangedCells'] as const) {
       assert.equal(row[field], info[field], `${key}.${field} is written down twice and disagrees`)
     }
   }

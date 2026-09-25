@@ -19,7 +19,8 @@ import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import Mob from '../objects/mob'
 import type UseSkillOnTarget from '../ai/useskillontarget'
-import { ARCHETYPES } from '../archetypes/archetypes'
+import { ARCHETYPES, buildSkills } from '../archetypes/archetypes'
+import { ARCHETYPE_INFO, archetypeById } from '../utils/archetypes'
 // The client's port. It imports nothing, so this pulls no pixi into the server.
 import * as Client from '../../../../plunder-land-client/src/vfx/cells'
 
@@ -103,23 +104,50 @@ test('the client\'s ring counts and ranged range equal the skills\'', () => {
   assert.equal(Client.RANGED_RANGE_CELLS, RangedAttack.RANGE_CELLS)
 })
 
-test('every archetype\'s ranged range is the one the client draws it at: robots the default, mobs RANGED_RANGE_MOB_CELLS', () => {
-  // The client cannot tell archetypes apart yet, so it draws any mob's shot at
-  // RANGED_RANGE_MOB_CELLS. A mob given another range must fail here, not
-  // draw a beam that ends somewhere the shot did not.
-  let mobsWithRanged = 0
+test('every archetype\'s built ranged range is the one the client draws it at, looked up by its wire id', () => {
+  // The client reads the `archetype` field, finds the mirrored row with
+  // archetypeById and draws the beam at rangedRangeCells(row.rangedCells).
+  // Any archetype whose built RangedAttack has another range must fail here,
+  // not draw a beam that ends somewhere the shot did not.
+  const owner = playerOn(new Vector(20, 40))
+  const covered = new Set<string>()
   for (const archetype of Object.values(ARCHETYPES)) {
-    for (const spec of archetype.skills) {
-      if (spec.skill !== RangedAttack) continue
-      if (archetype.kind === 'mob') {
-        assert.equal(spec.range, Client.RANGED_RANGE_MOB_CELLS, archetype.key)
-        mobsWithRanged++
-      } else {
-        assert.equal(spec.range, undefined, `${archetype.key}: a robot's range is not drawn`)
-      }
+    const info = archetypeById(archetype.id)
+    assert.ok(info !== undefined, `${archetype.key}: id ${archetype.id} is not in the mirrored table`)
+    const ranged = buildSkills(owner, archetype).filter((s): s is RangedAttack => s instanceof RangedAttack)
+    if (ranged.length === 0) {
+      assert.equal(info.rangedCells, null, `${archetype.key} has no RangedAttack but its row gives it a range`)
+      continue
+    }
+    for (const skill of ranged) {
+      assert.equal(Client.rangedRangeCells(info.rangedCells, archetype.kind === 'mob'), skill.range, archetype.key)
+      covered.add(archetype.kind)
     }
   }
-  assert.ok(mobsWithRanged > 0, 'no mob has RangedAttack: RANGED_RANGE_MOB_CELLS checks nothing')
+  // Both kinds, so neither branch of the fallback is standing in for a real row.
+  assert.deepEqual([...covered].sort(), ['mob', 'robot'], 'no robot or no mob has RangedAttack: this checks less than it says')
+})
+
+test('the drawn range comes from the row when there is one, whatever the unit type', () => {
+  // The two fallbacks equal peep's and gunner's ranges, so the test above
+  // cannot tell a lookup from a fallback. A value neither default has can.
+  assert.equal(Client.rangedRangeCells(5, true), 5)
+  assert.equal(Client.rangedRangeCells(5, false), 5)
+  assert.equal(Client.rangedRangeCells(11, true), 11)
+})
+
+test('an unknown archetype, or one with no rangedCells, draws at today\'s range: players 8, mobs 6', () => {
+  assert.equal(Client.RANGED_RANGE_CELLS, 8)
+  assert.equal(Client.RANGED_RANGE_MOB_CELLS, 6)
+  for (const id of [undefined, 0, 2, 200]) {
+    // What the effect passes for an id this build doesn't know.
+    const rangedCells = archetypeById(id)?.rangedCells
+    assert.equal(Client.rangedRangeCells(rangedCells, false), 8, `player, id ${String(id)}`)
+    assert.equal(Client.rangedRangeCells(rangedCells, true), 6, `mob, id ${String(id)}`)
+  }
+  // A known row with no RangedAttack (a newer server gave it one).
+  assert.equal(Client.rangedRangeCells(ARCHETYPE_INFO.grunt.rangedCells, true), 6)
+  assert.equal(Client.rangedRangeCells(null, false), 8)
 })
 
 test('the client\'s facingIndex equals World.FACING_INDEX all the way round, halfway facings included', () => {
@@ -222,7 +250,7 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
     // the same), through the aim or along the wire facing, at the drawn range.
     const aimed = aim !== undefined && (aim.x !== own.x || aim.y !== own.y)
     const toward = aimed ? aim : Hex.neighbour(own, World.FACING_INDEX(shooter.facing))
-    const range = gunnerShot ? Client.RANGED_RANGE_MOB_CELLS : Client.RANGED_RANGE_CELLS
+    const range = Client.rangedRangeCells(archetypeById(shooter.archetype?.id)?.rangedCells, gunnerShot)
     const got = Client.firstOnLine(
       Hex.line(own, toward, range),
       shooter.position.x, shooter.position.y,

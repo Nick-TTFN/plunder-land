@@ -4,7 +4,8 @@ import { Game } from '../game'
 import { type GameObject } from '../objects/gameobject'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
-import { RANGED_RANGE_CELLS, RANGED_RANGE_MOB_CELLS, firstOnLine, type Body, type Cell } from './cells'
+import Unit from '../objects/unit'
+import { RANGED_RANGE_CELLS, firstOnLine, rangedRangeCells, type Body, type Cell } from './cells'
 import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
 
 /**
@@ -35,9 +36,10 @@ export class RangedAttackEffect {
     const toward = aimCell !== undefined && (aimCell.x !== own.x || aimCell.y !== own.y)
       ? aimCell
       : Hex.neighbour(ownCell, facingOf(owner))
-    // The only mob with RangedAttack is the gunner, and the client cannot tell
-    // archetypes apart yet (see RANGED_RANGE_MOB_CELLS).
-    const range = (Game.MOBS as GameObject[]).includes(owner) ? RANGED_RANGE_MOB_CELLS : RANGED_RANGE_CELLS
+    // The shooter's archetype's range; an unknown archetype falls back to the
+    // unit type's default (rangedRangeCells).
+    const archetype = owner instanceof Unit ? owner.archetype : undefined
+    const range = rangedRangeCells(archetype?.rangedCells, (Game.MOBS as GameObject[]).includes(owner))
     const line: Cell[] = Hex.line(ownCell, toward, range).map((c) => ({ x: c.x, y: c.y }))
 
     const candidates: GameObject[] = []

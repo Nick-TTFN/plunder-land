@@ -5,12 +5,15 @@
  * **Mirrored in the client at the same path and the two copies must stay byte
  * identical**, like `hex.ts` and `path.ts`. `mirror.spec.ts` fails if they
  * drift. The server's full table (`archetypes/archetypes.ts`) takes these
- * fields from here, so nothing in this file is written down twice.
+ * fields from here, so nothing in this file is written down twice. The one
+ * exception is a robot's `rangedCells`, which restates `RangedAttack.RANGE_CELLS`
+ * (see the field).
  *
  * Only what the client needs goes in this file: the id, the key its sprite is
- * looked up by, the kind, and the two flags the client will simulate itself
- * (`passesObstacles` for Hopper's prediction, `vision` for Periscope's fog).
- * Stats, skills and AI stay on the server.
+ * looked up by, the kind, the two flags the client will simulate itself
+ * (`passesObstacles` for Hopper's prediction, `vision` for Periscope's fog),
+ * and the ranged range the client draws a shot at. Stats, skills and AI stay
+ * on the server.
  *
  * **Ids are append-only**, like field indices: never reuse or renumber one.
  * 0 means none was sent. Robots are 1-5 (2-5 are reserved for the robots that
@@ -29,13 +32,21 @@ export interface ArchetypeInfo {
   readonly passesObstacles: boolean
   /** Fog radius, robots only. Not read yet (step 5); null = no fog, as today. */
   readonly vision: number | null
+  /**
+   * RangedAttack's range in cells (decision #25), or null for an archetype
+   * without RangedAttack. The client draws a shot's beam this far
+   * (`vfx/cells.ts`). The server's gunner override reads it; a robot's range
+   * is `RangedAttack.RANGE_CELLS`, which every robot shares through
+   * `PLAYER_SKILLS`. effectcells.spec.ts fails if a built skill disagrees.
+   */
+  readonly rangedCells: number | null
 }
 
 export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Object.freeze({
-  peep: Object.freeze({ id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: null }),
-  grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', passesObstacles: false, vision: null }),
-  boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', passesObstacles: false, vision: null }),
-  gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', passesObstacles: false, vision: null })
+  peep: Object.freeze({ id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: null, rangedCells: 8 }),
+  grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null }),
+  boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null }),
+  gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', passesObstacles: false, vision: null, rangedCells: 6 })
 })
 
 /** The entry with this wire id, or undefined for 0 and for any id this build doesn't know. */

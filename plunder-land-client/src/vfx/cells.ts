@@ -40,15 +40,31 @@ export const BLAST_RINGS = 1
 export const FIRE_BREATH_RINGS = 4
 /** Server `IceBreath.RINGS`. */
 export const ICE_BREATH_RINGS = 3
-/** Server `RangedAttack.RANGE_CELLS`: a player's ranged range, in cells. */
+/**
+ * Server `RangedAttack.RANGE_CELLS`: a player's ranged range, in cells. The
+ * fallback for a player whose archetype this build doesn't know.
+ */
 export const RANGED_RANGE_CELLS = 8
 /**
- * The ranged range of every mob that has RangedAttack, in cells: the gunner's
- * `range` override. The client cannot tell archetypes apart yet, so a mob's
- * shot is drawn at this range and a player's at `RANGED_RANGE_CELLS`; the spec
- * fails if any mob archetype's range stops matching.
+ * The gunner's range, in cells: the fallback for a mob whose archetype this
+ * build doesn't know, which is what every mob's shot was drawn at before the
+ * client could tell archetypes apart.
  */
 export const RANGED_RANGE_MOB_CELLS = 6
+
+/**
+ * How far to draw a unit's ranged shot, in cells: its archetype's
+ * `rangedCells` from the mirrored `utils/archetypes.ts`, which is the range the
+ * server built its RangedAttack with. Pass `undefined` for no archetype or one
+ * this build doesn't know, and null for one the table says has no RangedAttack
+ * (only a newer server could make that shoot); both fall back to the unit
+ * type's default. Takes the value, not the row, so this file still imports
+ * nothing.
+ */
+export function rangedRangeCells (rangedCells: number | null | undefined, isMob: boolean): number {
+  if (typeof rangedCells === 'number') return rangedCells
+  return isMob ? RANGED_RANGE_MOB_CELLS : RANGED_RANGE_CELLS
+}
 
 /**
  * Port of `World.FACING_INDEX`: the DIRECTIONS index nearest to a world-space
