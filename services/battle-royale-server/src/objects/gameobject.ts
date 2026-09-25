@@ -57,6 +57,8 @@ export class GameObject {
     'position',
     'hp',
     'level',
+    // Deprecated: a uint16, which a big haul overflowed. Never written since
+    // `loot32`; kept so no index moves, and still read by the client.
     'loot',
     'tag',
     'to',
@@ -91,8 +93,19 @@ export class GameObject {
     // 255ths. Dirty-tracked only, never in a snapshot set: it changes on every
     // tick of a channel, so a viewer who comes into range mid-channel has it by
     // the next tick anyway (see Player.channelExtract). Appended, as above.
-    'extractProgress'
+    'extractProgress',
+    // Carried loot as a uint32 (loot-wire-overflow). The `loot` property goes
+    // out under this index; see WIRE_NAME. Appended, as above.
+    'loot32'
   ]
+
+  /**
+   * Properties that go on the wire under a different field than their own
+   * name. `loot` is the only one: its uint16 field threw ERR_OUT_OF_RANGE for
+   * a haul over 65,535, from inside the tick, so dirty tracking and the
+   * snapshot sets keep saying `loot` and only the encoding changes.
+   */
+  static WIRE_NAME: Readonly<Record<string, string>> = Object.freeze({ loot: 'loot32' })
 
   constructor (
     type: number,
@@ -369,7 +382,7 @@ export class GameObject {
       const value = dataObj[key]
       if (value === undefined) continue
 
-      raw.push(this.getBuffer(GameObject.fieldOrder.indexOf(key)))
+      raw.push(this.getBuffer(GameObject.fieldOrder.indexOf(GameObject.WIRE_NAME[key] ?? key)))
       switch (key) {
         case 'id':
           raw.push(this.getBuffer2(value))
@@ -396,9 +409,14 @@ export class GameObject {
         case 'level':
           raw.push(this.getBuffer(value))
           break
-        case 'loot':
-          raw.push(this.getBuffer2(value))
+        case 'loot': {
+          // As `loot32`. Saturated and whole, like the standings row: the
+          // client only displays it, and the banked total comes from here.
+          const wide = Buffer.alloc(4)
+          wide.writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(value))))
+          raw.push(wide)
           break
+        }
         case 'tag':
           raw.push(this.getBuffer(value))
           break

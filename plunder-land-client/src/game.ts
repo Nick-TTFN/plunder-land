@@ -298,6 +298,8 @@ export class Game extends Container {
       'position',
       'hp',
       'level',
+      // Deprecated, a uint16: no server since loot32 writes it. Still read, so
+      // this client works against an older server.
       'loot',
       'tag',
       'to',
@@ -328,7 +330,10 @@ export class Game extends Container {
       'inventory',
       // How far a player is through extracting, one unsigned byte: 0 not
       // extracting, 1-254 in 255ths of the layer's time. Only ever a delta.
-      'extractProgress'
+      'extractProgress',
+      // Carried loot as a uint32, replacing the uint16 loot field, which a haul
+      // over 65,535 overflowed. Stored under loot, so nothing downstream changes.
+      'loot32'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -371,6 +376,11 @@ export class Game extends Container {
           break
         case 'loot':
           value = (buffer[offset++] << 8) + buffer[offset++]
+          break
+        case 'loot32':
+          // Left undefined in value, so it is stored as loot rather than loot32.
+          data.loot = ((buffer[offset++] << 24) >>> 0) + (buffer[offset++] << 16) +
+            (buffer[offset++] << 8) + buffer[offset++]
           break
         case 'tag':
           value = this.overflow(buffer[offset++], 128)

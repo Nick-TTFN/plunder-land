@@ -149,7 +149,9 @@ const TYPE = (v: number): number[] => [1, v]
 const POS = (x: number, y: number): number[] => [2, ...u16(x), ...u16(y)]
 const HP = (v: number): number[] => [3, ...u16(v)]
 const LEVEL = (v: number): number[] => [4, v]
-const LOOT = (v: number): number[] => [5, ...u16(v)]
+// loot-wire-overflow, deliberate: loot goes out as `loot32`, a uint32; the old
+// uint16 index 5 is never written. lootwire.spec.ts pins the index (20).
+const LOOT = (v: number): number[] => [GameObject.fieldOrder.indexOf('loot32'), v >>> 24, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]
 const TAG = (v: number): number[] => [6, v & 0xff]
 const TO = (v: number): number[] => [7, v & 0xff]
 const RADIUS = (v: number): number[] => [8, v]
@@ -175,7 +177,9 @@ test('the byte helpers use today\'s field indices', () => {
       // inventory, appended.
       'item', 'inventory',
       // extract-channel (progress byte), deliberate: appended.
-      'extractProgress']
+      'extractProgress',
+      // loot-wire-overflow, deliberate: carried loot as a uint32, appended.
+      'loot32']
   )
 })
 

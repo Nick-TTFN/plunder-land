@@ -75,7 +75,7 @@ if (serverUrl === undefined) {
 // Must match the client's allFields (src/game.ts) and the server's fieldOrder.
 const FIELDS = ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
   'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing', 'armor', 'maxArmor', 'archetype',
-  'item', 'inventory']
+  'item', 'inventory', 'extractProgress', 'loot32']
 const TYPE_NAMES = { 1: 'Obstacle', 2: 'Consumable', 4: 'Player', 8: 'Portal', 16: 'Throwable', 32: 'Mob', 64: 'Exit' }
 const MOB = 32
 const PLAYER = 4
@@ -108,7 +108,11 @@ function decode (buffer) {
       case 'id': case 'hp': case 'loot': case 'maxHp': case 'armor': case 'maxArmor':
         data[key] = (buffer[o++] << 8) + buffer[o++]; break
       case 'type': case 'level': case 'radius': case 'facing': case 'archetype': case 'item':
+      case 'extractProgress':
         data[key] = buffer[o++]; break
+      case 'loot32':
+        // uint32 big-endian, stored as loot (loot-wire-overflow, field 20; 5 is no longer sent)
+        data.loot = ((buffer[o++] << 24) >>> 0) + (buffer[o++] << 16) + (buffer[o++] << 8) + buffer[o++]; break
       case 'inventory': {
         // [uint8 slot count][uint8 count per slot] (usable-items, fields 17-18)
         const n = buffer[o++]
