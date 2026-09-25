@@ -260,8 +260,11 @@ an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
 
 **Client → server `start_requested` is `{ id, name }`** (`Multiplayer.parseStart`). A bare
 string, the id alone, is still accepted for one release; drop it after that. The id is the
-client's persistent per-browser id, and **Redis stats are keyed by id, never by name**. The
-name is sanitised by `Player.sanitiseName`: NFKC, no control, zero-width, bidi, private-use
+client's persistent per-browser id: exactly 6 lowercase hex digits (`genRanHex(6)` in the enter
+popup). The server accepts only `Multiplayer.ID_SHAPE` = `/^[0-9a-f]{6,32}$/` and ignores
+anything else, so specs must use hex ids too. **Redis stats are keyed by id, never by name**.
+The raw name is cut to `Player.NAME_RAW_MAX` (256 UTF-16 units) first, so a huge name costs
+nothing, and then sanitised by `Player.sanitiseName`: NFKC, no control, zero-width, bidi, private-use
 or blank-looking characters, no `< > & " '` or backtick, at most 16 code points, and "YOU" is
 reserved (every client labels its own robot YOU). An empty result becomes a callsign hashed
 from the id (`Player.callsign`, for example `ROOK-42`), so a reconnect keeps it. It travels
