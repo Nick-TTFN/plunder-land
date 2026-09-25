@@ -97,6 +97,34 @@ client 28, server 0.)
 
 Running and smoke-testing locally: CLAUDE.md, "Running it locally".
 
+## Running Beck lanes in parallel
+
+Learned running two or three Beck worktrees at once through M0 and M1 (2026-09-24/25). Put
+rules 1–3 in every Beck brief, and follow 4–6 at every hand-back.
+
+1. **A Beck worktree is created at a stale commit (`2458cf0`), not at `main`.** It happened on
+   every spawn. The brief must say: "`git log --oneline -1` must show `<current main>`; if
+   it doesn't and the tree is clean, reset to `main`."
+2. **Assign wire indices centrally.** Two lanes appending to `fieldOrder` will take the same
+   index (extraction and items both took 17). Tell each lane which index is free, or have it
+   keep the index in one constant and ask at merge. `fieldtable.spec.ts` catches a
+   client/server mismatch, not a collision in intent.
+3. **Leave Nick's local stack alone.** Each Beck runs its own server and its own Redis
+   container on spare ports, never 6379 or 8000, and stops its processes **by PID, never
+   with `pkill -f`**. A pattern kill takes out other lanes' servers too.
+4. **Merge one lane at a time, rebase the others, then run the full suite at least 10
+   times.** Rebases silently broke the other lane's new specs more than once, and rare flakes
+   only showed on the combined code. Capture a flake by name in a loop; never wave it
+   through. So far every one came from a spec ticking a random `new World()` (CLAUDE.md).
+5. **Review the diff before merging.** Look closely at accessor and field changes (the
+   class-field shadowing trap in CLAUDE.md) and at anything the hand-back calls "code-read
+   only".
+6. **A stalled Beck (the 600 s watchdog) can be resumed.** Check its worktree first, then send
+   a narrow "finish only X, and check no mutation is still applied" message.
+
+And check any value, pattern or count before putting it in a brief. An example gets built
+literally: an id pattern given as "for example" would have locked out every real client.
+
 ## Deploy
 
 - **The client deploys to Firebase Hosting (project `plunderland`) on any push to `main`**,
