@@ -87,7 +87,7 @@ test('a disconnect with Redis down leaves the world running', async () => {
 
   const { socket, fire } = fakeSocket('s1')
   multiplayer.onConnect(socket)
-  fire('start_requested', 'p1')
+  fire('start_requested', '111111')
   await settle()
   assert.equal(World.PLAYERS.length, 1)
 
@@ -105,7 +105,7 @@ test('a disconnect with Redis down leaves the world running', async () => {
   // The world goes on: a new player joins and the tick keeps running.
   const next = fakeSocket('s2')
   multiplayer.onConnect(next.socket)
-  next.fire('start_requested', 'p2')
+  next.fire('start_requested', '222222')
   for (let tick = 2; tick <= 5; tick++) {
     world.update(0.25)
     multiplayer.flushAll(tick, 250)
@@ -122,7 +122,7 @@ test('a kill with Redis down is handled too', async () => {
 
   const { socket, fire } = fakeSocket('s1')
   multiplayer.onConnect(socket)
-  fire('start_requested', 'killer')
+  fire('start_requested', 'ffffff')
   const player = World.PLAYERS[0] as Player
   const mob = new Mob(player.position.x, player.position.y, player.tag)
 

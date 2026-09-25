@@ -301,6 +301,23 @@ export default class Player extends Unit {
   static NAME_MAX = 16
 
   /**
+   * Longest raw name looked at, in UTF-16 units. The rest is dropped before
+   * any other step, so a megabyte name costs the NFKC pass and the regexes no
+   * more than this does (bound-player-id, 2026-09-25). The client's field
+   * stops at 16 units; 256 leaves room for padding and stripped characters,
+   * and every name within it sanitises exactly as it did without the cut.
+   */
+  static NAME_RAW_MAX = 256
+
+  /** The first NAME_RAW_MAX units of `raw`, without ending on half a surrogate pair. */
+  static precut (raw: string): string {
+    if (raw.length <= Player.NAME_RAW_MAX) return raw
+    const end = Player.NAME_RAW_MAX
+    const code = raw.charCodeAt(end - 1)
+    return raw.slice(0, code >= 0xD800 && code <= 0xDBFF ? end - 1 : end)
+  }
+
+  /**
    * Taken by the client's own label: every client draws "YOU" over its own
    * robot, so a remote player called YOU would pass for the viewer.
    */
@@ -348,7 +365,7 @@ export default class Player extends Unit {
    */
   static sanitiseName (raw: unknown): string {
     if (typeof raw !== 'string') return ''
-    let name = raw.normalize('NFKC')
+    let name = Player.precut(raw).normalize('NFKC')
     // Line breaks and tabs separate words; the control strip would glue them.
     name = name.replace(/[\t\n\v\f\r\u2028\u2029]/g, ' ')
     name = name.replace(Player._INVISIBLE, '')

@@ -130,8 +130,8 @@ function timesFreed (id: number): number {
 
 test('a skill whose execute throws is contained, and other players\' inputs still apply', () => {
   const { multiplayer, world } = setup()
-  const a = join(multiplayer, 'a')
-  const b = join(multiplayer, 'b')
+  const a = join(multiplayer, 'aaaaaa')
+  const b = join(multiplayer, 'bbbbbb')
 
   a.player.skills[1].execute = () => { throw new Error('broken skill') }
   let bCast = 0
@@ -158,8 +158,8 @@ test('a skill whose execute throws is contained, and other players\' inputs stil
 
 test('a pointer that throws is contained too', () => {
   const { multiplayer } = setup()
-  const a = join(multiplayer, 'a')
-  const b = join(multiplayer, 'b')
+  const a = join(multiplayer, 'aaaaaa')
+  const b = join(multiplayer, 'bbbbbb')
 
   a.player.setWaypoints = () => { throw new Error('broken route') }
   const goal = Hex.toCell(b.player.position).add(Hex.DIRECTIONS[0].multiply(2))
@@ -173,8 +173,8 @@ test('a pointer that throws is contained too', () => {
 
 test('inputs apply in arrival order, across connections, whatever throws between them', () => {
   const { multiplayer } = setup()
-  const a = join(multiplayer, 'a')
-  const b = join(multiplayer, 'b')
+  const a = join(multiplayer, 'aaaaaa')
+  const b = join(multiplayer, 'bbbbbb')
 
   const order: string[] = []
   for (const [name, p] of [['a', a.player], ['b', b.player]] as const) {
@@ -201,7 +201,7 @@ test('inputs apply in arrival order, across connections, whatever throws between
 
 test('a start that throws while building the snapshot leaves no half-joined player', async () => {
   const { multiplayer, world } = setup()
-  const watcher = join(multiplayer, 'watcher')
+  const watcher = join(multiplayer, 'eeeeee')
   watcher.emitted.length = 0
 
   // One object in the world that cannot be serialised: every join sends it.
@@ -211,12 +211,12 @@ test('a start that throws while building the snapshot leaves no half-joined play
 
   const joiner = fakeSocket('joiner')
   multiplayer.onConnect(joiner.socket)
-  assert.doesNotThrow(() => { joiner.fire('start_requested', 'joiner') })
+  assert.doesNotThrow(() => { joiner.fire('start_requested', 'cccccc') })
   await settle()
 
   assert.deepEqual(unhandled, [], 'the throw escaped as a rejection')
   assert.equal(logged.length, 1)
-  assert.deepEqual(World.PLAYERS.map((p) => p.playerId), ['watcher'], 'a half-joined player stayed in the world')
+  assert.deepEqual(World.PLAYERS.map((p) => p.playerId), ['eeeeee'], 'a half-joined player stayed in the world')
   assert.deepEqual(joiner.emitted, [], 'the joiner was sent a hello for a join that failed')
 
   // Nothing is left pointing at the ghost, so the next ticks run clean and
@@ -232,8 +232,8 @@ test('a start that throws while building the snapshot leaves no half-joined play
 
   // Once the cause is gone, the same connection can join.
   World.CONSUMABLES.length = 0
-  joiner.fire('start_requested', 'joiner')
-  assert.deepEqual(World.PLAYERS.map((p) => p.playerId).sort(), ['joiner', 'watcher'])
+  joiner.fire('start_requested', 'cccccc')
+  assert.deepEqual(World.PLAYERS.map((p) => p.playerId).sort(), ['cccccc', 'eeeeee'])
   assert.ok(joiner.emitted.includes('hello'))
 })
 
@@ -243,7 +243,7 @@ test('a start that throws creating the player is contained', async () => {
 
   const joiner = fakeSocket('joiner')
   multiplayer.onConnect(joiner.socket)
-  assert.doesNotThrow(() => { joiner.fire('start_requested', 'joiner') })
+  assert.doesNotThrow(() => { joiner.fire('start_requested', 'cccccc') })
   await settle()
 
   assert.deepEqual(unhandled, [])
@@ -267,7 +267,7 @@ test('a unit killed twice in one tick frees its id once, and credits one kill', 
 
 test('a player killed between ticks who then disconnects frees its id once', async () => {
   const { multiplayer, redis } = setup()
-  const victim = join(multiplayer, 'victim')
+  const victim = join(multiplayer, 'dddddd')
 
   // A melee run from a socket handler kills between ticks, so the victim's
   // connection still points at it when the disconnect arrives.

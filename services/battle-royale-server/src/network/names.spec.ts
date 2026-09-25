@@ -354,7 +354,7 @@ test('a malformed start is ignored and does not latch the connection: a good one
   assert.equal(World.PLAYERS.length, 1)
   assert.equal(lastPlayer().name, 'NOVA')
   // And a second start on the same connection is still refused.
-  a.fire('start_requested', { id: 'other', name: 'ROOK' })
+  a.fire('start_requested', { id: 'fedcba', name: 'ROOK' })
   assert.equal(World.PLAYERS.length, 1)
 })
 

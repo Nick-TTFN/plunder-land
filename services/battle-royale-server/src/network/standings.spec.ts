@@ -82,7 +82,7 @@ function setup (tickMs = 250): { multiplayer: Multiplayer, world: World } {
 function join (multiplayer: Multiplayer, socketId: string, name: string): { player: Player, sent: Recorded[] } {
   const s = fakeSocket(socketId)
   multiplayer.onConnect(s.socket)
-  s.fire('start_requested', { id: `pid-${socketId}`, name })
+  s.fire('start_requested', { id: Buffer.from(socketId).toString('hex').padStart(6, '0'), name })
   const player = World.PLAYERS[World.PLAYERS.length - 1]
   s.sent.length = 0 // drop the join's own traffic
   return { player, sent: s.sent }
@@ -168,7 +168,7 @@ test('the own row carries the id the client got in create_own', () => {
   const { multiplayer } = setup()
   const s = fakeSocket('me')
   multiplayer.onConnect(s.socket)
-  s.fire('start_requested', { id: 'pid-me', name: 'SAME' })
+  s.fire('start_requested', { id: 'abcdef', name: 'SAME' })
   join(multiplayer, 'other', 'SAME') // same name: only the id tells them apart
 
   const own = s.sent.find((e) => e.event === 'create_own')

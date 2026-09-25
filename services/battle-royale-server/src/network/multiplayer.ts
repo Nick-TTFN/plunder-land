@@ -403,16 +403,35 @@ export default class Multiplayer {
    *
    * A bare string is the old form, the id alone, and is still accepted so a
    * client from before names keeps working for one release (player-names,
-   * 2026-09-25); remove it after that. Anything without a non-empty string id
-   * is ignored and leaves the connection free to ask again.
+   * 2026-09-25); remove it after that. Anything without an id of the shape
+   * below is ignored and leaves the connection free to ask again.
    */
   static parseStart (data: unknown): { id: string, name?: unknown } | undefined {
-    if (typeof data === 'string') return data !== '' ? { id: data } : undefined
+    if (typeof data === 'string') return Multiplayer.ID_SHAPE.test(data) ? { id: data } : undefined
     if (data === null || typeof data !== 'object') return undefined
     const { id, name } = data as { id?: unknown, name?: unknown }
-    if (typeof id !== 'string' || id === '') return undefined
+    if (typeof id !== 'string' || !Multiplayer.ID_SHAPE.test(id)) return undefined
     return { id, name }
   }
+
+  /**
+   * The shape of a player id. It becomes the Redis key `stats-${id}`, so it is
+   * bounded here rather than trusted (bound-player-id, 2026-09-25).
+   *
+   * Every shipped client makes it the same way, `genRanHex(6)` in the client's
+   * `GameEnterPopup`: six lowercase hex digits, one `Math.floor(random * 16)`
+   * each. That has been true since 2023-08-02 (27e2c3d), under the storage key
+   * `plunderland_test_address` until the revival renamed it to
+   * `plunderland_player_id`, and it is what the deployed client (origin/main)
+   * sends. The range 6-32 is headroom for a longer id later; the charset is
+   * not widened, so a new format needs a change here.
+   *
+   * Not accepted: the wallet addresses (`0x` plus 40 mixed-case hex) the client
+   * sent before 27e2c3d. That client needed a wallet and a token transfer on
+   * a testnet to start, and it is not what origin/main serves, so no browser
+   * can load it from the game's hosting.
+   */
+  static readonly ID_SHAPE = /^[0-9a-f]{6,32}$/
 
   // outgoing traffic ========
   create (obj: GameObject): void {

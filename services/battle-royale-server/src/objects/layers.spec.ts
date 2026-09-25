@@ -212,7 +212,7 @@ test('hello carries the layer tags, top first', () => {
     emit: (event: string, data: unknown) => { sent.push([event, data]); return true }
   } as unknown as Socket
   multiplayer.onConnect(socket)
-  handlers.start_requested('joiner')
+  handlers.start_requested('cccccc')
 
   const hello = sent.find(([event]) => event === 'hello')?.[1] as { layers: number[] }
   assert.deepEqual(hello.layers, [0, -1, -2])
