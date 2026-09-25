@@ -302,7 +302,8 @@ would silently never be sent. The server typecheck (TS2610) catches it; swc alon
 **`archetype` (16)** is a uint8 id, sent in every unit's create and never as a delta: peep 1,
 grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
 indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
-flag and vision. The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
+flag, vision and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
+id: players 8, mobs 6). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
 falls back to today's sprite for an unknown id. An object that comes back into a
 connection's range is re-sent whole in `update`, so a full record can arrive there too.
 
