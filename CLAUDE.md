@@ -26,8 +26,11 @@ never hardcodes a tag**.
 on 02, 10 up on 03. A mob or boss is pushed out of a portal like a rock and stays on its
 layer, so each layer keeps the danger designed for it. A player crosses at the spot the
 portal pushed them out to, 64 units from its centre, so no two gates a player could meet on
-one layer lie within `World.GATE_SPACING` (150) of each other, or a player would be caught
-by a second gate on arrival. New players join on layer 01 on a free cell centre at least
+one layer lie within `World.GATE_SPACING` of each other, or a player would be caught by a
+second gate on arrival. `GATE_SPACING` is derived: `2 × (Portal.RADIUS + MAX_ROBOT_BODY) +
+GATE_MARGIN` (22), which is 150 today and grows with the largest robot body. **Rocks stay 2
+rings clear** of every gate and every portal landing spot (`World.getRockPosition`,
+`GATE_ROCK_RINGS`, also derived), so a pad is always reachable and nobody lands in a rock. New players join on layer 01 on a free cell centre at least
 `World.SPAWN_CLEARANCE` (3) cells from every portal, exit and boss, and from mobs when
 possible (`World.spawnCell`). A fully random spawn put about 1 join in 250 close enough to an
 exit to leave within a second. The airborne plane, its clouds and the half-alpha "ground seen
@@ -376,6 +379,13 @@ server starts a tick later, so the client always finishes first; clearing the wa
 arrival made the next input packet a "stop" that landed on a server still short of the
 destination. `LocalPlayer._arrive` keeps the destination so the packet keeps asking for it, and
 the server's `sameCells` check makes the repeat free. `stop()` stays for a real stop.
+
+**A layer change ends the route, on both sides** (`Unit.changeLayer`, `LocalPlayer.changeLayer`):
+set the tag, then `stop()`. The client calls it when the tag arrives, a tick or so late.
+Until then it stays pressed against the portal, which is where the server put its player,
+and the server ignores its repeated old-route packets (`sameCells`), so there's no
+correction. `extract.spec.ts`'s mirror harness covers it with the tag 1–3 ticks late. Known
+gap: a new click in that window is planned on the old layer and shows as a correction.
 
 `HexTerrain` (`src/objects/hexterrain.ts`) draws the ground as one sprite per cell, pooled,
 rebuilt only when the camera's own cell changes. Two things about it are load-bearing:
