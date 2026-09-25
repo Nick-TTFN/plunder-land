@@ -225,6 +225,15 @@ end of `fieldOrder` (server) and `allFields` (client), and the two must stay ide
 **`hello`** is emitted once on join: `{ tick, map, interest }`. Nothing on the client may
 hardcode these — see `src/net/session.ts`.
 
+**Client → server `start_requested` is `{ id, name }`** (`Multiplayer.parseStart`). A bare
+string, the id alone, is still accepted for one release; drop it after that. The id is the
+client's persistent per-browser id, and **Redis stats are keyed by id, never by name**. The
+name is sanitised by `Player.sanitiseName`: NFKC, no control, zero-width, bidi, private-use
+or blank-looking characters, no `< > & " '` or backtick, at most 16 code points, and "YOU" is
+reserved (every client labels its own robot YOU). An empty result becomes a callsign hashed
+from the id (`Player.callsign`, for example `ROOK-42`), so a reconnect keeps it. It travels
+in the existing `name` field, NUL-terminated UTF-8.
+
 Each record is a sequence of `[field index][payload]`, indexed into `GameObject.fieldOrder`
 (server) / `allFields` (client). **These two tables must stay identical and are
 append-only** — an index is a consumed boundary, so never reorder or remove one.
