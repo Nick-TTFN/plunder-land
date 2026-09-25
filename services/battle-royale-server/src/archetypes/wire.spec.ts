@@ -92,7 +92,8 @@ test('the server table has exactly the mirrored keys, and takes the five shared 
 test('archetype is field index 16, after maxArmor', () => {
   assert.equal(GameObject.fieldOrder.indexOf('maxArmor'), 15)
   assert.equal(GameObject.fieldOrder.indexOf('archetype'), 16)
-  assert.equal(GameObject.fieldOrder.length, 17, 'a field after archetype: update this spec')
+  // usable-items appended `item` (17) and `inventory` (18) after it.
+  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory'], 'a field after inventory: update this spec')
 })
 
 function units (): Array<[string, Unit, number]> {
@@ -113,10 +114,11 @@ test('every archetype unit\'s create record ends with [16, id], and its serialis
   }
 })
 
-test('the player\'s create_own also ends with [16, 1]', () => {
+test('the player\'s create_own carries [16, 1], followed only by its inventory', () => {
   const player = new Player(X, Y, 0, 'p1')
   const own = [...(player.serialiseBinary(player.allFieldsOwn) as Buffer)]
-  assert.deepEqual(own.slice(-2), [16, 1])
+  // usable-items: the inventory (field 18, five empty slots) now comes last.
+  assert.deepEqual(own.slice(-9), [16, 1, 18, 5, 0, 0, 0, 0, 0])
 })
 
 test('archetype is never dirty, so it never goes in a delta', () => {

@@ -29,6 +29,9 @@ import { MeleeAttackEffect } from './vfx/meleeattack.effect'
 import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
+import { BombEffect } from './vfx/bomb.effect'
+import { ItemPickup } from './objects/itempickup'
+import { itemById } from './utils/items'
 import Unit from './objects/unit'
 import { type GameObject } from './objects/gameobject'
 import { type HUD } from './ui/components/hud'
@@ -311,11 +314,20 @@ export class Game extends Container {
       // utils/archetypes.ts. Only units built from an archetype send it, and
       // only with the whole record (a create, or a full resend in `update`),
       // never in a delta. Read only at construction.
-      'archetype'
+      'archetype',
+      // An item pickup's kind, one unsigned byte: its id in the mirrored
+      // utils/items.ts. Only in an item pickup's create.
+      'item',
+      // A player's inventory: a uint8 slot count, then a uint8 count per slot,
+      // by the fixed slot each kind lives in (utils/items.ts). Read for the own
+      // player only; a change reaches every client in range, like loot. (No
+      // square brackets in these comments: fieldtable.spec.ts reads this table
+      // with a regex that stops at the first closing one.)
+      'inventory'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
-    const data: Record<string, number | Vector | string> = {}
+    const data: Record<string, number | Vector | string | number[]> = {}
     let offset = 0
     while (offset < buffer.length) {
       let value
@@ -385,6 +397,16 @@ export class Game extends Container {
         case 'archetype':
           value = buffer[offset++]
           break
+        case 'item':
+          value = buffer[offset++]
+          break
+        case 'inventory': {
+          const slots = buffer[offset++]
+          const counts: number[] = []
+          for (let i = 0; i < slots; i++) counts.push(buffer[offset++])
+          value = counts
+          break
+        }
         case 'name': {
           // NUL-terminated UTF-8 (the server writes Buffer.from(name)). It used
           // to be read one byte per char code, which turns any name outside
@@ -483,6 +505,14 @@ export class Game extends Container {
         break
       }
 
+      case 1 << 7: {
+        // A usable item on the ground (decision #12). Drawn with Graphics: the
+        // atlas has no item art. An id this build doesn't know draws a plain
+        // marker rather than nothing.
+        obj = new ItemPickup(itemById(data.item), data.radius)
+        break
+      }
+
       case 1 << 2:{
         const player = new Player(archetypeById(data.archetype))
         player.setHP(data.hp)
@@ -515,6 +545,8 @@ export class Game extends Container {
 
       Game.hud.setupStats()
       Game.hud.setupSkills(Game.PLAYER.skills)
+      Game.hud.setupInventory()
+      if (Array.isArray(data.inventory)) Game.hud.updateInventory(data.inventory)
 
       this.updateLayerVisibility(data.tag)
     }
@@ -635,6 +667,15 @@ export class Game extends Container {
       return
     }
 
+    // A bomb's fuse (7) and its blast (8), on the bomb's cell. The server sends
+    // them only to players on the bomb's own layer (`Multiplayer.effectAt`), so
+    // the viewer's layer is the right one. The originator is not looked up: by
+    // the blast the thrower may be dead and its id reused.
+    if (type === 7 || type === 8) {
+      if (aimCell !== undefined) new BombEffect(aimCell, Game.LOCAL.tag, type === 8, lifetime)
+      return
+    }
+
     if (target === undefined) {
       console.warn('target not found for effect', buffer)
       return
@@ -729,6 +770,8 @@ export class Game extends Container {
         obj.setLevel(data.level)
         if (obj === Game.PLAYER) Game.hud.updateStats(data)
       }
+
+      if (Array.isArray(data.inventory) && obj === Game.PLAYER) Game.hud.updateInventory(data.inventory)
 
       if (data.loot !== undefined && data.loot !== obj.loot) {
         // Was `+${data.loot < obj.loot ? data.loot : data.loot - obj.loot}`, which

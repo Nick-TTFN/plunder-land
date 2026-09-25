@@ -6,6 +6,9 @@ import { type Archetype, ARCHETYPES, buildSkills } from '../archetypes/archetype
 import World from './world'
 import Multiplayer from '../network/multiplayer'
 import Timers from './timers'
+import { INVENTORY_SLOTS } from '../utils/items'
+import { type Item } from '../archetypes/archetypes'
+import { itemForSlot, useItem } from '../items/use'
 
 export class Stats {
   kills?: number
@@ -23,6 +26,25 @@ export default class Player extends Unit {
   createdAt: number
   exited: boolean
   playerId: string
+
+  /**
+   * How many of each item the player carries, by fixed slot (utils/items.ts).
+   * Private behind `inventory` so every change goes through `addItem` /
+   * `tryUseItem`, which mark the field dirty. The `inventory` accessor lives on
+   * this class and no subclass may declare a field of that name (the `armor`
+   * trap, CLAUDE.md "Wire format").
+   */
+  private readonly _inventory: number[] = new Array<number>(INVENTORY_SLOTS).fill(0)
+
+  /**
+   * A medkit in progress: hp still to give, the rate, and the fraction of a
+   * point earned but not yet given (like `armorCarry`), so hp stays whole while
+   * the rate stays exact under a jittering `dt`. Applied in `update`, which
+   * stops running the moment the player dies or exits, so death ends it.
+   */
+  private _healLeft = 0
+  private _healPerSec = 0
+  private _healCarry = 0
 
   /**
    * Every player is a peep until `robot-type-on-join` lets them choose.
@@ -46,11 +68,21 @@ export default class Player extends Unit {
 
     this.createdAt = Date.now()
 
+    // The owner's own record only. Its create for everyone else stays as it was.
+    this.allFieldsOwn.add('inventory')
+
     Multiplayer.Instance.create(this)
   }
 
   update (dt: number): void {
     super.update(dt)
+
+    // Something in this tick's own update (a breath's area) can kill it. A
+    // corpse picks nothing up and heals nothing: what it carries is dropped by
+    // the next sweep (World.update).
+    if (this.destroyed) return
+
+    this.applyHeal(dt)
 
     for (let i = 0; i < World.CONSUMABLES.length; i++) {
       const obj = World.CONSUMABLES[i]
@@ -58,15 +90,25 @@ export default class Player extends Unit {
       const reach = this.archetype.pickupReach ?? obj.radius + this.radius
       const sqr = obj.position.sub(this.position).getSquareMagnitude()
       if (sqr < reach * reach) {
-        // Bank it and heal for it. Splitting these into two pickup types is a
-        // later decision; for now one consumable does both.
+        // Banks it, and nothing else. It used to heal by the same amount too;
+        // healing is the medkit's job now (decision #5).
         this.addLoot(obj.loot)
-        this.hp += (obj.loot)
-        if (this.hp > this.maxHP()) { this.hp = this.maxHP() }
         obj.destroy()
         World.CONSUMABLES.splice(i, 1)
         break
       }
+    }
+
+    // One item a tick, like loot. A full stack leaves the pickup where it is.
+    for (let i = 0; i < World.ITEMS.length; i++) {
+      const obj = World.ITEMS[i]
+      if (obj.tag !== this.tag || obj.destroyed) continue
+      const reach = this.archetype.pickupReach ?? obj.radius + this.radius
+      if (obj.position.sub(this.position).getSquareMagnitude() >= reach * reach) continue
+      if (!this.addItem(obj.kind)) continue
+      obj.destroy()
+      World.ITEMS.splice(i, 1)
+      break
     }
 
     for (const mob of World.MOBS) {
@@ -89,6 +131,95 @@ export default class Player extends Unit {
 
   addLoot (value: number): void {
     this.loot += value
+  }
+
+  // Items ========
+
+  /** The `inventory` wire field: the count in each slot. Read-only; see `_inventory`. */
+  get inventory (): readonly number[] {
+    return this._inventory
+  }
+
+  /** How many of `item` the player carries. */
+  countOf (item: Item): number {
+    return this._inventory[item.slot] ?? 0
+  }
+
+  /** One more of `item`, unless the stack is full. True if it was taken. */
+  addItem (item: Item): boolean {
+    if (this.countOf(item) >= item.maxStack) return false
+    this._inventory[item.slot]++
+    this.dirtyFields.add('inventory')
+    return true
+  }
+
+  /**
+   * Empty every slot and return what was in it, for the death drop. The field
+   * is not marked: the player is gone, and its destroy record carries id and
+   * hp only.
+   */
+  takeInventory (): Array<{ item: Item, count: number }> {
+    const out: Array<{ item: Item, count: number }> = []
+    for (let slot = 0; slot < this._inventory.length; slot++) {
+      const item = itemForSlot(slot)
+      const count = this._inventory[slot]
+      this._inventory[slot] = 0
+      if (item !== undefined && count > 0) out.push({ item, count })
+    }
+    return out
+  }
+
+  /**
+   * Use the item in a 0-based `slot`, aimed at the absolute cell `aimCell` or
+   * not aimed at all (decision #21). Refused, and nothing is spent, unless the
+   * slot is a whole number in range, it holds one, and the item itself accepts
+   * (`useItem`: the aim's range, a heal already running, full hp).
+   * True if one was used.
+   */
+  tryUseItem (slot: number, aimCell?: Vector): boolean {
+    if (this.destroyed || this.exited) return false
+    if (!Number.isInteger(slot) || slot < 0 || slot >= INVENTORY_SLOTS) return false
+    const item = itemForSlot(slot)
+    if (item === undefined || this._inventory[slot] <= 0) return false
+
+    if (!useItem(this, item, aimCell)) return false
+
+    this._inventory[slot]--
+    this.dirtyFields.add('inventory')
+    return true
+  }
+
+  /** True while a medkit is still healing. */
+  get healing (): boolean {
+    return this._healLeft > 0
+  }
+
+  /**
+   * Start healing `amount` hp over `durationMs`. Refused (false) while one is
+   * already running, or at full hp, so a medkit is never spent for nothing.
+   */
+  startHeal (amount: number, durationMs: number): boolean {
+    if (this.healing || this.hp >= this.maxHP()) return false
+    this._healLeft = amount
+    this._healPerSec = amount / (durationMs / 1000)
+    this._healCarry = 0
+    return true
+  }
+
+  /**
+   * One tick of a heal in progress: the rate times `dt`, in whole points, never
+   * more than is left. hp above the maximum is lost, but still counts against
+   * what is left, so a heal always ends on time.
+   */
+  private applyHeal (dt: number): void {
+    if (this._healLeft <= 0) return
+    this._healCarry += this._healPerSec * dt
+    const whole = Math.min(this._healLeft, Math.floor(this._healCarry))
+    if (whole <= 0) return
+    this._healCarry -= whole
+    this._healLeft -= whole
+    const hp = Math.min(this.maxHP(), this.hp + whole)
+    if (hp !== this.hp) this.hp = hp
   }
 
   setLevel (value: number): void {

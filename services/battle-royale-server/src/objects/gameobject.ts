@@ -11,6 +11,12 @@ export class ObjectType {
   static Throwable = 1 << 4
   static Mob = 1 << 5
   static Exit = 1 << 6
+  /**
+   * A usable item lying on the ground (`ItemPickup`). 128 does not fit the
+   * signed byte `getBuffer` writes, so `type` goes on the wire unsigned; the
+   * client has always read it unsigned, and every older type is below 128.
+   */
+  static Item = 1 << 7
 }
 
 export class GameObject {
@@ -68,7 +74,15 @@ export class GameObject {
     // unit built from an archetype sends it, and only in its snapshot sets: it
     // never changes, so it is never dirty. Unit.serialise swaps the archetype
     // object for its id. Appended, as above.
-    'archetype'
+    'archetype',
+    // An item pickup's kind: its `utils/items.ts` id, one unsigned byte. Only
+    // `ItemPickup` sends it, in its create. Appended, as above.
+    'item',
+    // A player's inventory: `[uint8 slots][uint8 count] * slots`, the count of
+    // the fixed kind in each slot (utils/items.ts). In `allFieldsOwn` only, but
+    // like `loot` a change goes out as a delta to every connection in range.
+    // Appended, as above.
+    'inventory'
   ]
 
   constructor (
@@ -331,9 +345,13 @@ export class GameObject {
         case 'id':
           raw.push(this.getBuffer2(value))
           break
-        case 'type':
-          raw.push(this.getBuffer(value))
+        case 'type': {
+          // Unsigned: ObjectType.Item is 128 (see ObjectType).
+          const byte = Buffer.alloc(1)
+          byte.writeUInt8(value)
+          raw.push(byte)
           break
+        }
         case 'position':
           raw.push(this.getBufferVec2(value))
           break
@@ -385,6 +403,20 @@ export class GameObject {
           const byte = Buffer.alloc(1)
           byte.writeUInt8(value)
           raw.push(byte)
+          break
+        }
+        case 'item': {
+          const byte = Buffer.alloc(1)
+          byte.writeUInt8(value)
+          raw.push(byte)
+          break
+        }
+        case 'inventory': {
+          const counts = value as readonly number[]
+          const bytes = Buffer.alloc(1 + counts.length)
+          bytes.writeUInt8(counts.length)
+          counts.forEach((count, i) => { bytes.writeUInt8(count, 1 + i) })
+          raw.push(bytes)
           break
         }
         case 'facing':

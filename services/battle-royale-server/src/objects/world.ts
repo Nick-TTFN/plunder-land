@@ -1,4 +1,5 @@
 import Consumable from './consumable'
+import ItemPickup from './itempickup'
 import Player from './player'
 import Obstacle from './obstacle'
 import { Vector } from '../utils/vector'
@@ -7,7 +8,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { type GameObject } from './gameobject'
 import Mob from './mob'
-import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS } from '../archetypes/archetypes'
+import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item } from '../archetypes/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -107,6 +108,12 @@ export default class World {
    */
   static PROJECTILES: Throwable[] = []
   static CONSUMABLES: Consumable[] = []
+  /**
+   * Usable items on the ground (decision #12). Their own list, not CONSUMABLES:
+   * they are not loot and must not count toward a layer's loot cap. Removed by
+   * pickup (`Player.update`) and expiry (`World.update`) only.
+   */
+  static ITEMS: ItemPickup[] = []
   static PLAYERS: Player[] = []
   static MOBS: Unit[] = []
   static AREA_EFFECT: Area[] = []
@@ -288,6 +295,7 @@ export default class World {
       if (player.destroyed) {
         World.finish(player, Standing.DEAD)
         this.createLootFrom(player)
+        this.createItemsFrom(player)
         World.PLAYERS.splice(i, 1)
         continue
       }
@@ -306,6 +314,13 @@ export default class World {
       if (consumable.expiresAt > 0 && now > consumable.expiresAt) {
         consumable.destroy()
         World.CONSUMABLES.splice(i, 1)
+      }
+    }
+    for (let i = World.ITEMS.length - 1; i >= 0; i--) {
+      const item = World.ITEMS[i]
+      if (item.expiresAt > 0 && now > item.expiresAt) {
+        item.destroy()
+        World.ITEMS.splice(i, 1)
       }
     }
 
@@ -393,6 +408,18 @@ export default class World {
       }
       if (alive < count) this.spawnMob(archetype, layer)
     }
+
+    // Natural item pickups, one of each short kind a tick, like loot. A death
+    // drop has an expiry and does not count.
+    for (const { item, count } of layer.items) {
+      let natural = 0
+      for (const pickup of World.ITEMS) {
+        if (pickup.tag === tag && pickup.kind === item && pickup.expiresAt === 0) natural++
+      }
+      if (natural >= count) continue
+      const pos = this.getUnobstructedPosition(40, tag)
+      if (pos !== undefined) World.ITEMS.push(new ItemPickup(pos.x, pos.y, tag, item))
+    }
   }
 
   /**
@@ -471,6 +498,42 @@ export default class World {
         )
       )
     }
+  }
+
+  /** How far from the body a dead player's items land, in rings (2 = 19 cells). */
+  static DROP_RINGS = 2
+
+  /**
+   * Scatter a dead player's inventory: one pickup per item carried, each on a
+   * random free cell centre within `DROP_RINGS` of the cell they died on, so
+   * none lands inside a rock where it could never be reached. Each expires
+   * after `DROPPED_LOOT_LIFETIME`, like dropped loot, for the same reason.
+   * On the death cell itself if nothing around it is free.
+   */
+  createItemsFrom (player: Player): void {
+    const carried = player.takeInventory()
+    if (carried.length === 0) return
+
+    const origin = player.cell
+    const free: Vector[] = []
+    const rings = World.DROP_RINGS
+    for (let dq = -rings; dq <= rings; dq++) {
+      const lo = Math.max(-rings, -dq - rings)
+      const hi = Math.min(rings, -dq + rings)
+      for (let dr = lo; dr <= hi; dr++) {
+        if (!World.isBlocked(origin.x + dq, origin.y + dr, player.tag)) free.push(new Vector(origin.x + dq, origin.y + dr))
+      }
+    }
+    if (free.length === 0) free.push(origin)
+
+    for (const { item, count } of carried) {
+      for (let n = 0; n < count; n++) this.dropItem(item, free[Random.RangeInt(0, free.length)], player.tag)
+    }
+  }
+
+  private dropItem (item: Item, cell: Vector, tag: number): void {
+    const at = Hex.toPosition(cell)
+    World.ITEMS.push(new ItemPickup(at.x, at.y, tag, item, World.DROPPED_LOOT_LIFETIME))
   }
 
   /** True if this cell blocks movement on this plane, or is off the map. */

@@ -4,12 +4,14 @@ import { PlayerStats } from './playerstats'
 import { MiniMap } from './minimap'
 import { type Skill } from '../../skills/skill'
 import { ToolKit } from './toolkit'
+import { Inventory } from './inventory'
 
 export class HUD extends Container {
   controlsMap = new Map<string, TapHandler>()
   map: MiniMap | undefined
   playerStats: PlayerStats | undefined
   skillBar: Container | undefined
+  inventory: Inventory | undefined
   constructor () {
     super()
 
@@ -33,6 +35,17 @@ export class HUD extends Container {
   updateStats (data: { level: number, loot: number }): void {
     if (this.playerStats == null) return
     this.playerStats.update(data)
+  }
+
+  setupInventory (): void {
+    if (this.inventory != null) return
+    this.inventory = new Inventory()
+    this.addChild(this.inventory)
+    this.updateLayout()
+  }
+
+  updateInventory (counts: number[]): void {
+    this.inventory?.update(counts)
   }
 
   setupSkills (value: any[]): void {
@@ -105,9 +118,21 @@ export class HUD extends Container {
       this.skillBar.x = window.innerWidth - 100
       this.skillBar.y = window.innerHeight - 100
     }
+
+    // Bottom left: the skill bar grows leftward from the bottom right.
+    if (this.inventory != null) {
+      this.inventory.x = 20
+      this.inventory.y = window.innerHeight - 20 - this.inventory.height
+    }
   }
 
   onKeyDown (e: { key: string }): void {
+    // Keys 1-5 use an item (the mockup), slot 0-4.
+    const slot = '12345'.indexOf(e.key)
+    if (e.key.length === 1 && slot >= 0) {
+      this.inventory?.use(slot)
+      return
+    }
     this.invokeKeyBoundSkill(e.key)
   }
 
@@ -136,6 +161,11 @@ export class HUD extends Container {
       this.skillBar.removeChildren()
       this.removeChild(this.skillBar)
       this.skillBar = undefined
+    }
+
+    if (this.inventory != null) {
+      this.removeChild(this.inventory)
+      this.inventory = undefined
     }
   }
 }

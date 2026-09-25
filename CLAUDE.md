@@ -517,8 +517,9 @@ other's cell. The skip is what makes a stone's unconditional unblock safe.
   the attacker is more than max(250, the distance at the hit + 50) away, and always switches
   to whoever hit it last. Breath damage has no attacker attached, so being inside a player's
   cone counts as a hit.
-- **A pickup both banks and heals.** One consumable does double duty; splitting them into
-  separate loot and health pickups is a later decision, not an oversight.
+- **A loot pickup banks and does not heal** (decision #5, `usable-items`). It used to do both;
+  healing is the medkit's job now. Items are not loot (#12): a medkit or bomb is an
+  `ItemPickup` in `World.ITEMS`, never a `Consumable`.
 - **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (30s); natural spawns do not.**
   The world's own spawner is bounded by a count, drops were not.
 - **Impulse decay is a constant applied to the magnitude** (`IMPULSE_FRICTION`, currently 3.0).

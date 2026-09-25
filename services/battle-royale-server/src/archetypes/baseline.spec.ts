@@ -160,6 +160,7 @@ const FACING = (v: number): number[] => [13, v]
 const ARMOR = (v: number): number[] => [14, ...u16(v)]
 const MAXARMOR = (v: number): number[] => [15, ...u16(v)]
 const ARCHETYPE = (v: number): number[] => [16, v]
+const INVENTORY = (...counts: number[]): number[] => [18, counts.length, ...counts]
 
 test('the byte helpers use today\'s field indices', () => {
   assert.deepEqual(
@@ -169,7 +170,10 @@ test('the byte helpers use today\'s field indices', () => {
       // unit-archetypes step 3 (the armor pool), deliberate: appended.
       'armor', 'maxArmor',
       // Step 4 (archetype id on the wire), deliberate: appended.
-      'archetype']
+      'archetype',
+      // usable-items, deliberate: an item pickup's kind and a player's
+      // inventory, appended.
+      'item', 'inventory']
   )
 })
 
@@ -248,7 +252,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...LOOT(0), ...TAG(0),
     ...TO(0), ...RADIUS(14), ...MAXVEL(140), ...MAXHP(100),
     // Steps 3 and 4, deliberate, as above.
-    ...ARMOR(50), ...MAXARMOR(50), ...ARCHETYPE(1)
+    ...ARMOR(50), ...MAXARMOR(50), ...ARCHETYPE(1),
+    // usable-items, deliberate: the owner's own inventory, five empty slots.
+    ...INVENTORY(0, 0, 0, 0, 0)
   ])
 })
 

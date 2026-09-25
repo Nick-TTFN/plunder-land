@@ -13,6 +13,7 @@ import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
 import { ARCHETYPE_INFO, type ArchetypeInfo } from '../utils/archetypes'
+import { ITEM_INFO, type ItemInfo } from '../utils/items'
 
 /**
  * Every kind of unit, as data (decision #23, design `ideas/unit-archetypes-design.md`).
@@ -256,6 +257,61 @@ const gunner: Archetype = {
 
 export const ARCHETYPES = Object.freeze({ peep, grunt, boss, gunner })
 
+/**
+ * What using an item does. **One case per behaviour, not per item**: a new item
+ * that heals or blasts is a new row in `ITEMS` with its own numbers, and only a
+ * new kind of behaviour needs code (`src/items/use.ts`).
+ */
+export type ItemUse =
+  /** `amount` hp over `durationMs`, applied each tick in `Player.update`; ends on death. */
+  | { kind: 'heal', amount: number, durationMs: number }
+  /**
+   * Thrown to a cell (the `aimRange` and `rings` of its `ItemInfo`); after
+   * `fuseMs` every unit on the disc takes `damage`, the thrower included, and
+   * every StoneWall stone on it is destroyed (`src/items/bomb.ts`).
+   */
+  | { kind: 'bomb', damage: number, fuseMs: number }
+
+/**
+ * A usable item (decision #12). `id`, `key`, `slot`, `label`, `aimRange` and
+ * `rings` come from the mirrored `utils/items.ts`, spread first, like an
+ * archetype's `ARCHETYPE_INFO` row.
+ */
+export interface Item extends ItemInfo {
+  /** Most a player can carry. A pickup that would go over is left on the ground. */
+  maxStack: number
+  use: ItemUse
+}
+
+/**
+ * Every usable item, as data. Values are the balance pass section 1 "Items"
+ * (decision #16). Neither item has a cooldown there, so there is no cooldown
+ * field: a medkit can't be used while one is healing, which is the only limit
+ * the spec implies. Add one as a field here when an item needs it.
+ */
+export const ITEMS: Readonly<Record<ItemInfo['key'], Item>> = Object.freeze({
+  // +40 HP over 2 s, which is 5 a tick at 250 ms. Max stack 3.
+  medkit: Object.freeze({
+    ...ITEM_INFO.medkit,
+    maxStack: 3,
+    use: Object.freeze({ kind: 'heal', amount: 40, durationMs: 2000 })
+  }),
+  // 60, no falloff, everyone on the disc including the thrower (N3). A 1500 ms
+  // fuse telegraphed on the cells. Breaks StoneWall stones. Max stack 2.
+  bomb: Object.freeze({
+    ...ITEM_INFO.bomb,
+    maxStack: 2,
+    use: Object.freeze({ kind: 'bomb', damage: 60, fuseMs: 1500 })
+  })
+}) as Readonly<Record<ItemInfo['key'], Item>>
+
+/** One entry of a layer's standing item population. */
+export interface LayerItems {
+  item: Item
+  /** Natural pickups of this kind kept on the layer, replacing a taken one a tick. */
+  count: number
+}
+
 /** One entry of a layer's standing mob population. */
 export interface LayerMobs {
   archetype: Archetype
@@ -290,6 +346,11 @@ export interface LayerSpec {
   portalsDown: number
   /** Spawned in this order each tick, one of each that is short. */
   mobs: LayerMobs[]
+  /**
+   * Natural item pickups, topped up one of each short kind a tick. What a dead
+   * player drops is on top and does not count (it expires on its own).
+   */
+  items: LayerItems[]
 }
 
 /**
@@ -307,6 +368,8 @@ export interface LayerSpec {
  * gunners 0/8/14, bosses 0/2/3 replace the world-wide 5 bosses and 8 gunners
  * with the rest grunts up to 50 (37 when all were up). That is 81 units where
  * there were 50: the balance pass's "76 overall" counts grunts and gunners only.
+ *
+ * Items are #26's provisional counts: medkits 8/10/12 and bombs 3/5/7.
  */
 export const LAYERS: readonly LayerSpec[] = Object.freeze([
   {
@@ -321,6 +384,10 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       { archetype: grunt, count: 22 },
       { archetype: gunner, count: 0 },
       { archetype: boss, count: 0 }
+    ],
+    items: [
+      { item: ITEMS.medkit, count: 8 },
+      { item: ITEMS.bomb, count: 3 }
     ]
   },
   {
@@ -335,6 +402,10 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       { archetype: grunt, count: 18 },
       { archetype: gunner, count: 8 },
       { archetype: boss, count: 2 }
+    ],
+    items: [
+      { item: ITEMS.medkit, count: 10 },
+      { item: ITEMS.bomb, count: 5 }
     ]
   },
   {
@@ -349,6 +420,10 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       { archetype: grunt, count: 14 },
       { archetype: gunner, count: 14 },
       { archetype: boss, count: 3 }
+    ],
+    items: [
+      { item: ITEMS.medkit, count: 12 },
+      { item: ITEMS.bomb, count: 7 }
     ]
   }
 ])

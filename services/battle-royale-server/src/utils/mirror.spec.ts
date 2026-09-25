@@ -18,7 +18,9 @@ import { join } from 'node:path'
 // archetypes.ts: the archetype ids on the wire and the flags both sides will
 // simulate (Hopper's passesObstacles, Periscope's vision). A drifted id draws
 // the wrong sprite; a drifted flag makes prediction fight the server.
-const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts']
+// items.ts: the item ids on the wire and the fixed slot each kind lives in. A
+// drifted slot makes a key use a different item than the readout shows.
+const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts']
 
 const SERVER = __dirname
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'utils')

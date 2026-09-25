@@ -4,6 +4,7 @@ import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
 import World, { Standing } from '../objects/world'
 import { Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
 
@@ -152,6 +153,10 @@ export default class Multiplayer {
     socket.on('skill', (data) => {
       Multiplayer.guarded(() => { this.onSkill(connection, data) })
     })
+    // On arrival too, like `skill`: the heal or the fuse starts from the press.
+    socket.on('use_item', (data) => {
+      Multiplayer.guarded(() => { this.onUseItem(connection, data) })
+    })
     this._connections.push(connection)
   }
 
@@ -208,6 +213,7 @@ export default class Multiplayer {
       ...World.OBSTACLES,
       ...World.PROJECTILES,
       ...World.CONSUMABLES,
+      ...World.ITEMS,
       ...World.PLAYERS,
       ...World.MOBS
     ]
@@ -348,6 +354,20 @@ export default class Multiplayer {
   }
 
   /**
+   * Use an item: the same bytes as a skill press (`parseSkill`), where `slot`
+   * is the 0-based inventory slot (key 1 is slot 0) and (q, r) the absolute
+   * cell aimed at. A bare number is the slot with no aim. The medkit ignores
+   * the aim; `Player.tryUseItem` validates everything else.
+   */
+  onUseItem (connection: Connection, data): void {
+    const player = connection.player
+    if (player == null || player.exited || player.destroyed) return
+    const press = Multiplayer.parseSkill(data)
+    if (press === undefined) return
+    player.tryUseItem(press.slot, press.aimCell)
+  }
+
+  /**
    * A skill press: `[uint8 slot][int16 q][int16 r]`, big-endian like every
    * other multi-byte field on the wire, where (q, r) is the **absolute** axial
    * cell aimed at (decision #21). Absolute rather than an offset from the
@@ -479,6 +499,33 @@ export default class Multiplayer {
 
         this._buffer[connection.id].effect.push(data)
       }
+    }
+  }
+
+  /**
+   * An aimed effect that belongs to a cell rather than to its originator: the
+   * same record as `effect`, but sent to connections whose player is on `tag`
+   * and within the interest radius of the cell's centre. A bomb lands up to 6
+   * cells from its thrower and the fuse outlives them, so the thrower's
+   * position says nothing about who can see it, and `effect`'s check ignores
+   * the layer. `originatorId` is carried but the client does not look it up
+   * for these types: by the blast it may be dead, and its id reused.
+   */
+  effectAt (type: number, originatorId: number, lifetime: number, cell: Vector, tag: number): void {
+    const data = Buffer.alloc(8)
+    data.writeInt8(type)
+    data.writeUInt16BE(originatorId, 1)
+    data.writeInt8(Math.floor(lifetime / 100), 3)
+    data.writeInt16BE(cell.x, 4)
+    data.writeInt16BE(cell.y, 6)
+
+    const centre = Hex.toPosition(cell)
+    for (const connection of this._connections) {
+      const player = connection.player
+      if (player == null || player.tag !== tag) continue
+      if (!player.position.withinBounds(centre.x, centre.y, Multiplayer.INTEREST_RADIUS)) continue
+      if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
+      this._buffer[connection.id].effect.push(data)
     }
   }
 
