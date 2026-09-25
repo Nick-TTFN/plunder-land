@@ -286,6 +286,25 @@ export class Unit extends GameObject {
     this.direction = new Vector(0, 0)
   }
 
+  /**
+   * Move to layer `tag`, and stop if that is a change.
+   *
+   * A route is planned against one layer's rocks, and the destination was
+   * chosen on that layer's map, so it means nothing on another. Walking it on
+   * from a portal's arrival spot crossed the new layer along cells nobody
+   * chose (gate-hygiene). **Mirrored by `LocalPlayer.changeLayer`**, which the
+   * client runs when the new tag reaches it; `extract.spec.ts` walks both.
+   *
+   * `Connection.lastWaypoints` is left alone on purpose: the client goes on
+   * sending the old route until the tag reaches it, and `onPointer` ignores
+   * those packets as repeats instead of planning them on the new layer.
+   */
+  changeLayer (tag: number): void {
+    if (tag === this.tag) return
+    this.tag = tag
+    this.stop()
+  }
+
   /** True if any cell still to be walked is this one. */
   pathCrosses (q: number, r: number): boolean {
     for (let i = this.pathIndex; i < this.path.length; i++) {

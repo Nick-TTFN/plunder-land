@@ -235,6 +235,26 @@ export class LocalPlayer {
   }
 
   /**
+   * The server says we are on layer `tag`. Stop if that is a change.
+   *
+   * Mirrors server `Unit.changeLayer`, which a portal runs as it moves the
+   * player: a route planned on one layer means nothing on another, so both
+   * sides drop it. The server acts a tick or so before this runs. Nothing is
+   * lost in between: the portal holds us against it on the old layer at the
+   * same spot it put the server's player, and the packets still asking for the
+   * old route are ignored as repeats (`sameCells` in `onPointer`). Emptying the
+   * waypoints makes the next packet a stop, which the server already is.
+   *
+   * Not `_arrive`: a hop is not arriving, and the destination has to go too,
+   * or the next packet asks the server to plan it on the new layer.
+   */
+  changeLayer (tag: number): void {
+    if (tag === this.tag) return
+    this.tag = tag
+    this.stop()
+  }
+
+  /**
    * We have finished the walk. Drop the route but keep the destination.
    *
    * Deliberately not `stop()`. The client walks in real time and the server

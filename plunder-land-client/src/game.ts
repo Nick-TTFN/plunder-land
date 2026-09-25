@@ -817,7 +817,8 @@ export class Game extends Container {
 
       if (data.tag !== undefined && data.tag !== obj.tag) {
         obj.tag = data.tag
-        if (obj === Game.PLAYER) Game.LOCAL.tag = data.tag
+        // A layer change ends the route on both sides (LocalPlayer.changeLayer).
+        if (obj === Game.PLAYER) Game.LOCAL.changeLayer(data.tag)
         this.layerOf(obj.tag)?.addChild(obj)
 
         if (obj === Game.PLAYER) this.updateLayerVisibility(data.tag)

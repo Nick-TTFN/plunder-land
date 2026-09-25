@@ -55,20 +55,51 @@ export default class World {
    * a player could meet on the same layer: two on one layer, or a portal and
    * any gate on the layer it leads to.
    *
-   * A portal leaves the player where it pushed them out, 64 from its centre
-   * (its radius 50 + a peep's body 14), only now on the other layer. A gate
-   * there within 128 of the portal's centre would catch them on arrival and
-   * send them on again in the same tick. 150 clears that with a margin.
+   * A portal leaves the player where it pushed them out, `Portal.RADIUS` +
+   * their body from its centre (64 for a peep: 50 + 14), only now on the
+   * other layer. Another portal there within twice that of the first one's
+   * centre would catch them on arrival and send them on again in the same
+   * tick. So the spacing is twice the arrival distance of the **largest robot
+   * body** (`MAX_ROBOT_BODY`), plus `GATE_MARGIN`: 2 * (50 + 14) + 22 = 150
+   * for today's table. Derived, not written down, so a bigger robot raises it
+   * (gate-hygiene); only mobs are bigger today, and portals don't move mobs.
    *
    * Exits no longer push players out and no longer extract on contact: a
    * player extracts by standing on the exit's own cell (Player.onExit). An
-   * exit at least 150 from the portal is at least 86 from where the player
-   * lands, and no cell reaches further than 45 from its centre, so the arrival
-   * cell is never an exit's. A player can now stand at an exit's centre, but
-   * the nearest portal on that layer is 150 away and pushes out only to 64,
-   * so standing on an exit can't touch a portal either. The spacing stands.
+   * exit at least `GATE_SPACING` from the portal is at least
+   * `Portal.RADIUS + MAX_ROBOT_BODY + GATE_MARGIN` (86) from where the player
+   * lands, and no cell reaches further than `Hex.SIZE` (45) from its centre
+   * (its corners are about 26 out), so the arrival cell is never an exit's.
+   * By the same sum, a player anywhere on an exit's cell is out of reach of
+   * every portal on that layer. `gates.spec.ts` checks both for every robot.
+   *
+   * A getter because portal.ts sits in the import cycle world.spec.ts
+   * describes: `Portal` may not be defined yet while this class is.
    */
-  static GATE_SPACING = 150
+  static get GATE_SPACING (): number {
+    return 2 * (Portal.RADIUS + World.MAX_ROBOT_BODY) + World.GATE_MARGIN
+  }
+
+  /**
+   * Headroom in `GATE_SPACING` over the least spacing that works, for a
+   * same-tick shove on arrival (another player's push-out). 22 is what the
+   * spacing carried when it was written down as 150 for a 14 body; keeping it
+   * keeps today's layout unchanged.
+   */
+  static GATE_MARGIN = 22
+
+  /**
+   * The largest body among the robots (the player archetypes) in `ARCHETYPES`.
+   * Portals move players only, so this is the body a portal hop allows for.
+   */
+  static get MAX_ROBOT_BODY (): number {
+    let most = 0
+    for (const archetype of Object.values(ARCHETYPES)) {
+      if (archetype.kind === 'robot') most = Math.max(most, archetype.body)
+    }
+    return most
+  }
+
   static mapSize: number
 
   /**
@@ -382,8 +413,11 @@ export default class World {
 
     let rocks = 0
     for (const obj of World.OBSTACLES) if (obj.tag === tag && World.isRock(obj)) rocks++
+    // Built only when a rock is due: that is one tick in most, and the scan
+    // walks every obstacle.
+    const keepOut = rocks < layer.rocks ? World.gateKeepOut(tag) : new Set<number>()
     while (rocks < layer.rocks) {
-      const pos = this.getUnobstructedPosition(40, tag)
+      const pos = this.getRockPosition(tag, keepOut)
       // break, not continue: nothing else ends this loop, so skipping without
       // adding one spins forever inside the tick.
       if (pos === undefined) break
@@ -587,6 +621,96 @@ export default class World {
       }
     }
     return true
+  }
+
+  /**
+   * Rings around a gate's cell that the rock refill leaves empty: 2 for
+   * today's table (the gate's cell, its 6 neighbours and the 12 beyond).
+   *
+   * Gates are not in `BLOCKED` (they are walked into on purpose), so the
+   * refill could not see them and put rocks on portal and exit cells
+   * (gate-hygiene). A rock on an exit's cell sat on the pad, and one beside a
+   * gate narrowed the way on to it.
+   *
+   * Derived: the fewest rings that keep every rock clear of a player held
+   * against a portal, or put down by one on the other layer. Both stand
+   * `Portal.RADIUS` + body from the portal's centre, so a rock must be a
+   * further body + `Hex.RADIUS` (its collider) out: 50 + 14 + 14 + 22.5 =
+   * 100.5 for a peep. Cells two steps away can be 78 from the centre (cells
+   * are `Hex.SIZE` apart), three steps 119, so two rings. A bigger robot
+   * raises it. Exits use the same rings; any ring at all keeps a pad
+   * reachable from every side.
+   *
+   * A getter for the same import-cycle reason as `GATE_SPACING`.
+   */
+  static get GATE_ROCK_RINGS (): number {
+    const clear = Portal.RADIUS + 2 * World.MAX_ROBOT_BODY + Hex.RADIUS
+    for (let rings = 0; rings < 64; rings++) {
+      if (World.ringDistance(rings + 1) >= clear) return rings
+    }
+    throw new Error(`no ring count keeps rocks ${clear} from a portal`)
+  }
+
+  /** The least distance from a cell's centre to the centre of a cell exactly `k` steps away. */
+  static ringDistance (k: number): number {
+    const origin = new Vector(0, 0)
+    let least = Infinity
+    for (let dq = -k; dq <= k; dq++) {
+      for (let dr = -k; dr <= k; dr++) {
+        const cell = new Vector(dq, dr)
+        if (Hex.distance(origin, cell) !== k) continue
+        least = Math.min(least, Hex.toPosition(cell).getMagnitude())
+      }
+    }
+    return least
+  }
+
+  /**
+   * `Hex.key`s of the cells on layer `tag` within `GATE_ROCK_RINGS` of a gate
+   * cell: every portal and exit on the layer, and every portal on another
+   * layer that leads here, at its own position, because that is where it puts
+   * players down.
+   */
+  static gateKeepOut (tag: number): Set<number> {
+    const cells = new Set<number>()
+    const rings = World.GATE_ROCK_RINGS
+    for (const gate of World.OBSTACLES) {
+      // `to` is only meaningful on a portal: every object defaults it to 0,
+      // which is also layer 01's tag.
+      const here = (gate instanceof Portal || gate instanceof Exit) && gate.tag === tag
+      const arrives = gate instanceof Portal && gate.to === tag && gate.tag !== tag
+      if (!here && !arrives) continue
+      const centre = Hex.toCell(gate.position)
+      for (let dq = -rings; dq <= rings; dq++) {
+        const lo = Math.max(-rings, -dq - rings)
+        const hi = Math.min(rings, -dq + rings)
+        for (let dr = lo; dr <= hi; dr++) cells.add(Hex.key(centre.x + dq, centre.y + dr))
+      }
+    }
+    return cells
+  }
+
+  /**
+   * Where the refill puts a world rock on layer `tag`: what
+   * `getUnobstructedPosition(40, tag)` would pick, but never a cell in
+   * `keepOut` (`gateKeepOut`). Its own function rather than a filter on the
+   * shared one, which also places loot, items and mobs, none of which is
+   * kept off gates. Bounded at 40 tries like it, and undefined after.
+   */
+  private getRockPosition (tag: number, keepOut: Set<number>): Vector | undefined {
+    const rings = Math.ceil(40 / Hex.SIZE)
+
+    for (let attempts = 0; attempts < 40; attempts++) {
+      const cell = Hex.toCell(new Vector(
+        Random.RangeInt(0, World.mapSize),
+        Random.RangeInt(0, World.mapSize)
+      ))
+
+      if (keepOut.has(Hex.key(cell.x, cell.y))) continue
+      if (World.isClear(cell.x, cell.y, tag, rings)) return Hex.toPosition(cell)
+    }
+
+    return undefined
   }
 
   /**

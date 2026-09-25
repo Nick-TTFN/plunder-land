@@ -400,3 +400,136 @@ test('mirror: both are pushed out of a portal identically', () => {
   const last = track.server[track.server.length - 1]
   assert.equal(Math.round(last.sub(portal.position).getMagnitude()), portal.radius + 14)
 })
+
+// --- a portal hop ends the route (gate-hygiene) -------------------------------
+//
+// A route is planned against one layer's rocks. A portal moves the player to
+// another layer at the spot it pushed them out to, and a route that carried on
+// from there walked the new layer along cells chosen on the old one. Both
+// sides now stop on a layer change: the server as the portal moves the player
+// (`Unit.changeLayer`), the client when that tag reaches it
+// (`LocalPlayer.changeLayer`, called from `Game.onObjectUpdated`).
+
+function portalOn (tag: number, to: number, cell: Vector = EXIT_CELL): Portal {
+  const at = Hex.toPosition(cell)
+  const portal = new Portal(at.x, at.y, to, tag)
+  World.OBSTACLES.push(portal)
+  return portal
+}
+
+test('a portal hop mid-route stops the player where the portal put them', () => {
+  const portal = portalOn(TOP, MIDDLE)
+  // Through the portal's cell and four cells beyond it.
+  const player = playerOn(TOP, new Vector(26, 40))
+  player.setWaypoints([new Vector(34, 40)])
+  assert.ok(player.path.length > 0)
+
+  let hopped = false
+  for (let n = 0; n < 12 && !hopped; n++) {
+    player.update(TICK)
+    hopped = player.tag === MIDDLE
+  }
+  assert.ok(hopped, 'the player never went through the portal')
+  const landed = player.position
+  assert.equal(Math.round(landed.sub(portal.position).getMagnitude()), portal.radius + player.radius)
+  assert.deepEqual(player.path, [], 'the route planned on layer 01 survived the hop')
+  assert.deepEqual(player.waypoints, [], 'the waypoints survived the hop')
+
+  for (let n = 0; n < 8; n++) player.update(TICK)
+  assert.equal(player.tag, MIDDLE)
+  assert.deepEqual(player.position, landed, 'the player walked on across layer 02')
+})
+
+test('a portal to the player\'s own layer is not a hop and leaves the route alone', () => {
+  portalOn(TOP, TOP)
+  const player = playerOn(TOP, new Vector(26, 40))
+  player.setWaypoints([new Vector(34, 40)])
+  for (let n = 0; n < 6; n++) player.update(TICK)
+  assert.ok(player.path.length > 0, 'a same-layer contact ended the route')
+  assert.equal(player.waypoints.length, 1)
+})
+
+test('a mob pushed out of a portal keeps its route: it never changes layer', () => {
+  portalOn(TOP, MIDDLE)
+  const at = Hex.toPosition(new Vector(26, 40))
+  const mob = new Unit(ObjectType.Mob, at.x, at.y, 14, TOP)
+  mob.maxVelocity = 140
+  World.MOBS.push(mob)
+  mob.setWaypoints([new Vector(34, 40)])
+  for (let n = 0; n < 8; n++) mob.update(TICK)
+  assert.equal(mob.tag, TOP)
+  assert.ok(mob.path.length > 0)
+})
+
+interface LayeredLocal extends Local {
+  tag: number
+  changeLayer: (tag: number) => void
+}
+
+/**
+ * `walkBoth` across a portal, with the tag reaching the client `delay` ticks
+ * after the server changed it, the way an `update` record does. What the
+ * client does with it is what `Game.onObjectUpdated` does: hand it to
+ * `LocalPlayer.changeLayer`. Colliders carry their tag, and `_step` skips any
+ * not on the client's current layer, as in the game.
+ */
+function walkAcross (from: Vector, to: Vector, ticks: number, delay: number): { server: Vector[], client: Vector[], local: LayeredLocal, player: Player } {
+  const player = playerOn(TOP, from)
+  const colliders = World.OBSTACLES
+    .filter((obj) => (LocalPlayer.SOLID_TYPES as number[]).includes(obj.type))
+    .map((obj) => ({ x: obj.position.x, y: obj.position.y, radius: obj.radius, tag: obj.tag }))
+  const local: LayeredLocal = new LocalPlayer(() => colliders, (q: number, r: number) => World.isBlocked(q, r, local.tag))
+  local.reset(player.position.x, player.position.y, TOP, player.maxVelocity, player.radius)
+
+  player.setWaypoints([to])
+  local.waypoints = [new Vector(to.x, to.y)]
+  local.repath()
+  assert.ok(local.path.length > 0 && player.path.length > 0, 'no route')
+
+  const tags: number[] = []
+  const server: Vector[] = []
+  const client: Vector[] = []
+  for (let n = 0; n < ticks; n++) {
+    player.update(TICK)
+    tags.push(player.tag)
+    const arrived = tags[n - delay]
+    // Game.onObjectUpdated, on a tag that differs from the one it holds.
+    if (arrived !== undefined && arrived !== local.tag) local.changeLayer(arrived)
+    local.predict(TICK)
+    server.push(player.position)
+    client.push(new Vector(local.x, local.y))
+  }
+  return { server, client, local, player }
+}
+
+test('mirror: an ordinary arrival still keeps the client\'s destination, and a same-layer tag changes nothing', () => {
+  // CLAUDE.md, "Arriving does not clear the waypoints, only the path".
+  const track = walkAcross(new Vector(26, 40), new Vector(30, 40), 8, 1)
+  assertSameTrack(track)
+  assert.deepEqual(track.local.path, [])
+  assert.deepEqual(track.local.waypoints.map((c) => [c.x, c.y]), [[30, 40]], 'arrival dropped the destination')
+  track.local.changeLayer(TOP)
+  assert.equal(track.local.waypoints.length, 1, 'a tag equal to the current one stopped the player')
+})
+
+const HOP_ROUTES = [
+  { name: 'through the portal', to: new Vector(34, 40) },
+  { name: 'onto the portal', to: EXIT_CELL }
+]
+
+for (const delay of [1, 2, 3]) for (const route of HOP_ROUTES) {
+  test(`mirror: a portal hop ${route.name} stops both sides at the same spot (tag ${delay} tick${delay > 1 ? 's' : ''} late)`, () => {
+    const portal = portalOn(TOP, MIDDLE)
+    // A rock on layer 02 across the old route, so walking on would show.
+    const rock = Hex.toPosition(new Vector(32, 40))
+    World.OBSTACLES.push(new Obstacle(rock.x, rock.y, MIDDLE))
+    const track = walkAcross(new Vector(26, 40), route.to, 16, delay)
+    assertSameTrack(track)
+    assert.equal(track.player.tag, MIDDLE)
+    assert.equal(track.local.tag, MIDDLE)
+    assert.deepEqual(track.local.path, [])
+    assert.deepEqual(track.local.waypoints, [], 'the next input packet would still ask for the old route')
+    const last = track.server[track.server.length - 1]
+    assert.equal(Math.round(last.sub(portal.position).getMagnitude()), portal.radius + 14)
+  })
+}
