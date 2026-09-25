@@ -196,8 +196,9 @@ aim; anything else, including a buffer under 5 bytes or a slot that is not a who
 in range, is ignored (`Multiplayer.parseSkill`, `Player.tryExecuteSkill`). The client sends
 the cell under the desktop mouse (`src/skills/aim.ts`), or a bare number when the mouse is
 off the map, on the HUD, on the player's own cell, or the input is touch. No aim, or an
-aim at the caster's own cell, fires along `facing`. Ranged, fireball and icicle fly toward
-the aimed cell's centre at any angle and on to their range; breaths snap the aim to one of
+aim at the caster's own cell, fires along `facing`. Fireball and icicle fly toward the aimed
+cell's centre at any angle and on to their range. Ranged walks a hex line of cells toward the
+aimed cell (see "Every area of effect" under Skills). Breaths snap the aim to one of
 six and **hold** it for their lifetime (`SectorArea.fixedDirection`), while an unaimed breath
 still follows facing. Dash, StoneWall, Melee and Defend ignore the aim. Mobs aim at their
 target's cell (`UseSkillOnTarget`).
@@ -252,6 +253,13 @@ has passed since the last hit that did damage (`Unit.refillArmor`). **Don't decl
 field on `Unit` or any subclass**: it would shadow `GameObject`'s accessor, and armor changes
 would silently never be sent. The server typecheck (TS2610) catches it; swc alone does not.
 
+**`archetype` (16)** is a uint8 id, sent in every unit's create and never as a delta: peep 1,
+grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
+indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
+flag and vision. The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
+falls back to today's sprite for an unknown id. An object that comes back into a
+connection's range is re-sent whole in `update`, so a full record can arrive there too.
+
 `maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
 known positions and never need a speed.
@@ -263,8 +271,8 @@ raw in milliseconds throws `ERR_OUT_OF_RANGE` for every real value including 100
 
 ## The grid, and how it is drawn
 
-`Hex.SIZE` is **45 world units** and `utils/hex.ts` + `utils/path.ts` are byte-identical in
-both packages (`mirror.spec.ts` enforces it). It was 35, picked so 140 u/s covered one cell
+`Hex.SIZE` is **45 world units** and `utils/hex.ts`, `utils/path.ts` and `utils/archetypes.ts`
+are byte-identical in both packages (`mirror.spec.ts` enforces it). It was 35, picked so 140 u/s covered one cell
 per 250 ms tick; that coincidence lost to legibility — the player sprite is 50 px and the
 game draws at 1:1, so a 35-unit cell was smaller than the character standing on it. Movement
 is continuous along the path, so nothing depended on it and no speed changed.
@@ -415,7 +423,12 @@ struck** (or the projectile's own cell if it expires). Centring a distance blast
 projectile missed the unit it had just hit, because a projectile's 50-unit collider sets
 it off before the target is inside a 70-unit blast. Breath cones are `World.CONE_CELLS`: the
 facing snaps to one of the six `Hex.DIRECTIONS`, and each ring is the three forward
-neighbours of the ring before, so ring k has 2k+1 cells. No angle test.
+neighbours of the ring before, so ring k has 2k+1 cells. No angle test. **Ranged is a hex
+line** (`Hex.line`, mirrored): cube lerp and round from the caster's cell toward the aimed
+cell, on to the range in cells (players 8, gunner 6). It hits the first unit on those cells
+(`World.FIRST_ON_LINE`), which includes one on the caster's own cell. A fixed nudge makes ties
+break the same way on both sides (pinned in `hex.spec.ts`). Aiming at a cell's centre and
+testing distance to the segment missed about 29% of targets 6 cells away.
 
 **Projectiles are not solid, and have their own list.** A `Throwable` lives in
 `World.PROJECTILES`, not `OBSTACLES`, so nothing pushes out of it. It does its own hit test
