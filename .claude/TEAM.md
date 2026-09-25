@@ -85,24 +85,24 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
 ## Verification
 
 ```
-cd plunder-land-client           && npm run typecheck   # baseline 36 errors, see CLAUDE.md
+cd plunder-land-client           && npm run typecheck   # baseline 28 errors, see CLAUDE.md
 cd services/battle-royale-server && npm run typecheck   # must stay at 0
 cd services/battle-royale-server && npm test            # node --test over src/**/*.spec.ts
 ```
 
 The client has no tests, and its build does not run the typechecker, so a client build
-passing proves nothing about types. Any client error outside the two known families listed in
-CLAUDE.md is a regression. (Measured 2026-09-24: client 36, server 0. CLAUDE.md's command
-comment says 37 and its heading says 36; 36 is the measured value.)
+passing proves nothing about types. Any client error outside the three known groups listed in
+CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-09-25:
+client 28, server 0.)
 
 Running and smoke-testing locally: CLAUDE.md, "Running it locally".
 
 ## Deploy
 
 - **The client deploys to Firebase Hosting (project `plunderland`) on any push to `main`**,
-  via `.github/workflows/firebase-hosting-merge.yml`. Local `main` is 7 commits ahead of
-  `origin/main` (as of 2026-09-24) and has never been pushed, so **the first push is a
-  release.** Push only when Nick says so, for that push.
+  via `.github/workflows/firebase-hosting-merge.yml`. Local `main` is well ahead of
+  `origin/main` (check with `git rev-list --count origin/main..main`) and has never been
+  pushed, so **the first push is a release.** Push only when Nick says so, for that push.
 - The server is not deployed anywhere. There is no server deploy sequence yet.
 - There is no config endpoint to poll, so a client deploy can only be reported as pushed.
   Report the GitHub Actions run's result if it can be read; otherwise say it is unverified.
