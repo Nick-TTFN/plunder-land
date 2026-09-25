@@ -7,7 +7,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { type GameObject } from './gameobject'
 import Mob from './mob'
-import { type Archetype, type LayerSpec, LAYERS } from '../archetypes/archetypes'
+import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS } from '../archetypes/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -181,21 +181,100 @@ export default class World {
   }
 
   /**
-   * Joins on the top layer (#26). Where on it is still any random point:
-   * safe placement is `safe-spawn-placement`. `name` is the one the player
-   * typed, raw; Player's constructor sanitises it.
+   * Joins on the top layer (#26), at a cell centre `spawnCell` picks. `name`
+   * is the one the player typed, raw; Player's constructor sanitises it.
    */
   static createPlayer (playerId: string, name?: unknown): Player {
-    const player = new Player(
-      Random.RangeInt(0, World.mapSize),
-      Random.RangeInt(0, World.mapSize),
-      World.LAYERS[0].tag,
-      playerId,
-      undefined,
-      name
-    )
+    const pos = Hex.toPosition(World.spawnCell(World.LAYERS[0].tag).cell)
+    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, undefined, name)
     World.PLAYERS.push(player)
     return player
+  }
+
+  /**
+   * Least hex distance (`Hex.distance`, in cells) from a new player's cell to
+   * any exit, portal or boss on its layer, and to any other mob.
+   * Provisional (`safe-spawn-placement`; Dez may retune). A random spawn used
+   * to land close enough to an exit to extract within a second about one join
+   * in 250.
+   */
+  static SPAWN_CLEARANCE = 3
+  /** Random cells `spawnCell` tries before it falls back to a full scan. */
+  static SPAWN_TRIES = 40
+
+  /**
+   * Where a new player on layer `tag` starts: a random cell that is on the
+   * map, not blocked, and at least `SPAWN_CLEARANCE` cells from every gate
+   * (portal or exit) and boss on the layer, and from every other live mob.
+   *
+   * Mobs are included because it is cheap (22 on layer 01) and a grunt on the
+   * next cell attacks before the player has seen the screen. They are the soft
+   * rule: mobs move, so the check only holds at the moment of joining, and
+   * the fallback drops it before it drops anything else.
+   *
+   * After `SPAWN_TRIES` random cells, `fallback` is true and every cell of the
+   * map is scanned instead: a random free cell clear of gates, bosses and mobs;
+   * failing that, one clear of gates and bosses only; failing that, the free
+   * cell furthest from the nearest gate or boss; and only if no cell at all is
+   * free off a gate, the furthest cell regardless. It lands on a gate's own
+   * cell only if every cell of the map holds one. In 10,000 spawns into fresh
+   * worlds the scan never ran (`spawn.spec.ts`).
+   */
+  static spawnCell (tag: number): { cell: Vector, fallback: boolean } {
+    const hazards: Vector[] = []
+    const mobs: Vector[] = []
+    for (const obj of World.OBSTACLES) {
+      if (obj.tag === tag && (obj instanceof Portal || obj instanceof Exit)) hazards.push(Hex.toCell(obj.position))
+    }
+    for (const mob of World.MOBS) {
+      if (mob.tag !== tag || mob.destroyed) continue
+      if (mob.archetype === ARCHETYPES.boss) hazards.push(Hex.toCell(mob.position))
+      else mobs.push(Hex.toCell(mob.position))
+    }
+    const nearest = (cell: Vector, from: Vector[]): number => {
+      let best = Infinity
+      for (const other of from) best = Math.min(best, Hex.distance(cell, other))
+      return best
+    }
+    const n = World.SPAWN_CLEARANCE
+
+    for (let attempt = 0; attempt < World.SPAWN_TRIES; attempt++) {
+      const cell = Hex.toCell(new Vector(Random.RangeInt(0, World.mapSize), Random.RangeInt(0, World.mapSize)))
+      if (World.isBlocked(cell.x, cell.y, tag)) continue
+      if (nearest(cell, hazards) >= n && nearest(cell, mobs) >= n) return { cell, fallback: false }
+    }
+
+    // The scan. Bounds from the map's corners, padded by one; `onMap` trims.
+    const low = Hex.toCell(new Vector(0, World.mapSize))
+    const high = Hex.toCell(new Vector(World.mapSize, 0))
+    const rMax = Hex.toCell(new Vector(World.mapSize, World.mapSize)).y + 1
+    const clear: Vector[] = []
+    const gateClear: Vector[] = []
+    let furthestFree: Vector | undefined
+    let furthestFreeDistance = -1
+    let furthestAny: Vector | undefined
+    let furthestAnyDistance = -1
+    for (let r = -1; r <= rMax; r++) {
+      for (let q = low.x - 1; q <= high.x + 1; q++) {
+        if (!Hex.onMap(q, r, World.mapSize)) continue
+        const cell = new Vector(q, r)
+        const d = nearest(cell, hazards)
+        if (d > furthestAnyDistance) { furthestAny = cell; furthestAnyDistance = d }
+        if (World.isBlocked(q, r, tag)) continue
+        if (d > furthestFreeDistance) { furthestFree = cell; furthestFreeDistance = d }
+        if (d < n) continue
+        gateClear.push(cell)
+        if (nearest(cell, mobs) >= n) clear.push(cell)
+      }
+    }
+    const pick = clear.length > 0 ? clear : gateClear
+    if (pick.length > 0) return { cell: pick[Random.RangeInt(0, pick.length)], fallback: true }
+    // A free cell on a gate (gates are not in BLOCKED) loses to a blocked cell
+    // off it: a rock pushes the player out, a gate extracts or moves them. A
+    // map with no cell centre on it at all is a configuration error.
+    const last = furthestFreeDistance > 0 ? furthestFree : furthestAny
+    if (last === undefined) throw new Error(`no cell on a ${World.mapSize}-unit map`)
+    return { cell: last, fallback: true }
   }
 
   update (dt: number): void {
