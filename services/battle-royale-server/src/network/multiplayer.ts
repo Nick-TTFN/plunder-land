@@ -2,7 +2,7 @@ import { type Socket } from 'socket.io'
 import { type GameObject } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
-import World from '../objects/world'
+import World, { Standing } from '../objects/world'
 import { Vector } from '../utils/vector'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
@@ -239,7 +239,11 @@ export default class Multiplayer {
     this.flush(connection, 0)
   }
 
-  flush (connection: Connection, tick: number): void {
+  /**
+   * `standings`, when given, is this tick's standings board: the same buffer
+   * for every connection, sent under the same gate as the buffered events.
+   */
+  flush (connection: Connection, tick: number, standings?: Buffer): void {
     const buffered = this._buffer[connection.id]
 
     // Always drop the buffer, even for a socket that never started a run.
@@ -254,6 +258,8 @@ export default class Multiplayer {
           connection.socket.emit(event, Multiplayer.packRecords(records))
         }
       }
+
+      if (standings !== undefined) connection.socket.emit('standings', standings)
 
       // The update packet goes out every tick even when it carries no records.
       // Its header is the client's clock and its input acknowledgement, and
@@ -535,10 +541,73 @@ export default class Multiplayer {
   }
 
   flushAll (tick: number, dtMs: number = 0): void {
+    const standings = this.standingsDue() ? Multiplayer.buildStandings() : undefined
     for (const connection of this._connections) {
       if (connection.player != null) connection.ackElapsedMs += dtMs
-      this.flush(connection, tick)
+      this.flush(connection, tick, standings)
     }
+  }
+
+  // Standings ========
+
+  /** How often the standings board goes out, in ms. Counted in ticks. */
+  static STANDINGS_INTERVAL_MS = 1000
+  private _ticksSinceStandings = 0
+
+  /**
+   * True on every `STANDINGS_INTERVAL_MS / tickLengthMs`-th call (every 4th at
+   * 250 ms ticks, and every tick if the tick is a second or longer). Counted
+   * per `flushAll` call, which is once per tick, rather than read off the
+   * tick number or the clock: no timer, and nothing a spec's tick numbering
+   * can upset.
+   */
+  private standingsDue (): boolean {
+    const every = Math.max(1, Math.round(Multiplayer.STANDINGS_INTERVAL_MS / this.tickLengthMs))
+    this._ticksSinceStandings++
+    if (this._ticksSinceStandings < every) return false
+    this._ticksSinceStandings = 0
+    return true
+  }
+
+  /**
+   * The `standings` event: every player in the world plus those who finished
+   * in the last `World.FINISHED_LINGER_MS`, ranked by loot (most first, ties by
+   * id), packed with `packRecords`. One record per player:
+   *
+   * `[uint16 id][uint8 status][uint32 loot][name, UTF-8][0]`, big-endian.
+   *
+   * Status is a `Standing`: 0 ACTIVE, 1 EXTRACTED, 2 DEAD. The rank is the
+   * record's position. The client finds its own row by id **and** ACTIVE: ids
+   * are recycled a second after a player leaves, so a lingering finished row
+   * can carry the id of a newer object, but no two live players share one.
+   * Fields after the NUL are for later additions (the layer, say) and an older
+   * client ignores them. World-wide, not per plane.
+   *
+   * A player killed or extracted during this tick is still in PLAYERS until
+   * the next tick's sweep moves it to FINISHED; its flags give its status here,
+   * so it does not drop off the board for that tick.
+   */
+  static buildStandings (): Buffer {
+    const rows: Array<{ id: number, status: Standing, loot: number, name: string }> = []
+    for (const player of World.PLAYERS) {
+      const status = player.destroyed ? Standing.DEAD : player.exited ? Standing.EXTRACTED : Standing.ACTIVE
+      rows.push({ id: player.id, status, loot: player.loot ?? 0, name: player.name ?? '' })
+    }
+    for (const finished of World.FINISHED) rows.push(finished)
+
+    rows.sort((a, b) => (b.loot - a.loot) || (a.id - b.id))
+
+    const records = rows.map((row) => {
+      const name = Buffer.from(row.name, 'utf8')
+      const record = Buffer.alloc(7 + name.length + 1)
+      record.writeUInt16BE(row.id)
+      record.writeUInt8(row.status, 2)
+      record.writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(row.loot))), 3)
+      name.copy(record, 7)
+      // The final byte is already 0: Buffer.alloc zero-fills.
+      return record
+    })
+    return Multiplayer.packRecords(records)
   }
 
   onDisconnect (socket: Socket): void {

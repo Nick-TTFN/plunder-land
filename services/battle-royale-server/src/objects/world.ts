@@ -16,6 +16,27 @@ import Timers from './timers'
 // another edge to the import cycle described in world.spec.ts.
 import type Throwable from './throwable'
 
+/**
+ * A player's status on the standings board. The values are the status bytes of
+ * the `standings` event (`Multiplayer.buildStandings`), so they are
+ * append-only.
+ */
+export enum Standing {
+  ACTIVE = 0,
+  EXTRACTED = 1,
+  DEAD = 2
+}
+
+/** A player who has left the world, as the standings board remembers them. */
+export interface FinishedPlayer {
+  id: number
+  name: string
+  loot: number
+  status: Standing
+  /** `Date.now()` when they were recorded. */
+  at: number
+}
+
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
   static DROPPED_LOOT_LIFETIME = 30000
@@ -41,6 +62,27 @@ export default class World {
    */
   static GATE_SPACING = 150
   static mapSize: number
+
+  /**
+   * How long a player who extracted or died stays on the standings board, in
+   * ms. Ten boards at one a second: long enough to be noticed, short enough
+   * that the board is about who is playing now.
+   */
+  static FINISHED_LINGER_MS = 10_000
+  /**
+   * Hard cap on `FINISHED`, whatever the linger. Reached only if more than this
+   * many players finish inside one linger window; the oldest go first.
+   */
+  static FINISHED_MAX = 64
+  /**
+   * Players who left `PLAYERS` recently, for the standings board. Oldest first.
+   *
+   * Eviction: an entry leaves at the first tick at least FINISHED_LINGER_MS
+   * after it was added (`evictFinished`, top of `update`), or earlier when
+   * FINISHED_MAX newer entries push it out (`finish`). Written only by those
+   * two, so it is bounded by FINISHED_MAX even if the tick stalls.
+   */
+  static FINISHED: FinishedPlayer[] = []
 
   /**
    * Blocked cells per plane, as `Hex.key` values.
@@ -160,15 +202,18 @@ export default class World {
     // First, so work that fell due between ticks lands before anything moves,
     // exactly where a setTimeout firing between ticks used to leave it.
     Timers.run(Date.now())
+    World.evictFinished(Date.now())
 
     for (let i = World.PLAYERS.length - 1; i >= 0; i--) {
       const player = World.PLAYERS[i]
       if (player.destroyed) {
+        World.finish(player, Standing.DEAD)
         this.createLootFrom(player)
         World.PLAYERS.splice(i, 1)
         continue
       }
       if (player.exited) {
+        World.finish(player, Standing.EXTRACTED)
         World.PLAYERS.splice(i, 1)
         continue
       }
@@ -269,6 +314,24 @@ export default class World {
       }
       if (alive < count) this.spawnMob(archetype, layer)
     }
+  }
+
+  /**
+   * Remember a player leaving `PLAYERS`, for the standings board. Their loot is
+   * what they carried at the end: banked on an exit, dropped on a death.
+   */
+  static finish (player: Player, status: Standing, now: number = Date.now()): void {
+    World.FINISHED.push({ id: player.id, name: player.name, loot: player.loot, status, at: now })
+    if (World.FINISHED.length > World.FINISHED_MAX) {
+      World.FINISHED.splice(0, World.FINISHED.length - World.FINISHED_MAX)
+    }
+  }
+
+  /** Forget finished players whose linger is over. FINISHED is oldest first. */
+  static evictFinished (now: number): void {
+    let expired = 0
+    while (expired < World.FINISHED.length && now - World.FINISHED[expired].at >= World.FINISHED_LINGER_MS) expired++
+    if (expired > 0) World.FINISHED.splice(0, expired)
   }
 
   /** One mob of `archetype` on `layer`, carrying the layer's loot, if a free spot turns up. */

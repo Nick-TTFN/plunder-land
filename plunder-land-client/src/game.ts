@@ -37,6 +37,7 @@ import { type PopupManager } from './ui/popups/popupmanager'
 import { Exit } from './objects/exit'
 import { Session } from './net/session'
 import { LocalPlayer, type Collider } from './net/localplayer'
+import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 
 /** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
 const UPDATE_HEADER_BYTES = 8
@@ -61,6 +62,8 @@ export class Game extends Container {
   static hud: HUD
   static socketBytes: number
   static PLAYER: Player | undefined
+  /** `PLAYER`'s object id, which client objects do not carry themselves. */
+  static PLAYER_ID: number | undefined
   static RENDERER: Renderer
   static popups: PopupManager
   static Instance: Game
@@ -197,6 +200,8 @@ export class Game extends Container {
     Game.socket.off('effect')
     Game.socket.off('update')
     Game.socket.off('destroy')
+    Game.socket.off('standings')
+    Leaderboard.Instance?.setStandings([], undefined)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     Game.popups.show(new GameEnterPopup(this.onStartRequested.bind(this)))
   }
@@ -208,6 +213,7 @@ export class Game extends Container {
     Game.socket.on('effect', this.onEffects.bind(this))
     Game.socket.on('update', this.onObjectsUpdated.bind(this))
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
+    Game.socket.on('standings', this.onStandings.bind(this))
     // `{ id, name }`: the id is the player's identity (stats are keyed by it),
     // the name only what others see. The server sanitises and caps the name,
     // and gives an empty one a callsign made from the id.
@@ -244,6 +250,16 @@ export class Game extends Container {
 
   onOwnObjectsCreated (data: ArrayBuffer): void {
     for (const entry of this.unpackRecords(data)) this.onObjectCreated(entry, true)
+  }
+
+  /** The standings board, about once a second, already ranked by the server. */
+  onStandings (data: ArrayBuffer): void {
+    const rows: StandingRow[] = []
+    for (const entry of this.unpackRecords(data)) {
+      const row = decodeStanding(entry)
+      if (row !== undefined) rows.push(row)
+    }
+    Leaderboard.Instance?.setStandings(rows, Game.PLAYER_ID)
   }
 
   // Each event now arrives as one buffer holding many length-prefixed records
@@ -487,6 +503,7 @@ export class Game extends Container {
 
     if (own) {
       Game.PLAYER = obj as Player
+      Game.PLAYER_ID = data.id
 
       Game.LOCAL.reset(
         data.position?.x ?? obj.x,
@@ -779,6 +796,7 @@ export class Game extends Container {
         if (data.hp === 0) { new TextEffect('Game Over', this, 0, 0) } else { new TextEffect('Win!', this, 0, 0, 64, 'green') }
         setTimeout(this.start.bind(this), 2000)
         Game.PLAYER = undefined
+        Game.PLAYER_ID = undefined
         Game.hud.clearGameUI()
       }
 
