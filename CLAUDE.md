@@ -307,6 +307,18 @@ id: players 8, mobs 6). The client picks a sprite by id (`src/objects/archetypes
 falls back to today's sprite for an unknown id. An object that comes back into a
 connection's range is re-sent whole in `update`, so a full record can arrive there too.
 
+**Extraction is a channel, and exits are zones.** A player whose centre is on an exit's cell
+counts down that layer's `LAYERS.extractMs` (5 / 7 / 9 s). The check runs each tick at the
+top of `Player.update` (`channelExtract`). Stepping off cancels it, and so does any hit that
+lowers hp + armor (a hit that Defend floors to 0 doesn't). Finishing calls `player.exit()`,
+and an exited player can't be hit. **Exits aren't solid to players but stay solid to mobs, on
+both sides identically:** `GameObject.solidFor(unit)` on the server, and
+`LocalPlayer.SOLID_TYPES` (rocks and portals) deciding what enters the client's `COLLIDERS`.
+`extract.spec.ts` runs the client's real `LocalPlayer` and a server `Player` over the same
+routes and asserts identical positions each tick. Change one and that spec will tell you.
+**`extractProgress` (19)** is a uint8, 0 when not extracting, else 1–254 as 255ths of the
+layer's time. It is sent on change only, to everyone in range, and never in a snapshot.
+
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
 (key 1 = medkit, key 2 = bomb, 3–5 empty). The item table's shared half is the mirrored
@@ -454,9 +466,9 @@ per-visible-player one (break-even at about three visible players).
   lists still return it, so anything that damages, credits or destroys a unit must check
   `destroyed` first. `Unit.hit` does. A second hit on a corpse used to free its id twice
   and credit a second kill.
-- **Tests that tick a real `new World()` get random exits, portals and mobs.** An exit
-  extracts a player, a portal moves a player to another layer, and every gate is solid and
-  pushes any unit off its spot. Two test flakes came from this (`c14d74a`, `34835e1`; both
+- **Tests that tick a real `new World()` get random exits, portals and mobs.** A player
+  standing on an exit extracts after the layer's `extractMs`, a portal moves a player to
+  another layer, and gates are solid to mobs (portals are solid to players too; exits aren't). Two test flakes came from this (`c14d74a`, `34835e1`; both
   from a portal moving a mob, which it no longer does). Clear `World.OBSTACLES`/`BLOCKED`/
   `MOBS` after building the world unless the test is about the map, and assert only what
   holds wherever the gates land when it is (`layers.spec.ts`).

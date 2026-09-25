@@ -3,9 +3,9 @@ import { GameObject, ObjectType } from './gameobject'
 import Player from './player'
 
 /**
- * A way to the layer `to`. Solid, like every gate: it sits in
- * `World.OBSTACLES`, so `Unit.update` pushes every unit out of it before
- * calling `onCollide`.
+ * A way to the layer `to`. Solid to every unit (unlike an exit, which players
+ * stand on to extract): it sits in `World.OBSTACLES`, so `Unit.update` pushes
+ * every unit out of it before calling `onCollide`.
  */
 export default class Portal extends GameObject {
   constructor (x: number, y: number, to: number | undefined, tag: number) {
