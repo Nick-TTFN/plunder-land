@@ -230,7 +230,10 @@ export default class Multiplayer {
     connection.socket.emit('hello', {
       tick: this.tickLengthMs,
       map: World.mapSize,
-      interest: Multiplayer.INTEREST_RADIUS
+      interest: Multiplayer.INTEREST_RADIUS,
+      // Every layer's tag, top (01) first. The client builds its planes from
+      // this and labels portals by position in it, so it never hardcodes a tag.
+      layers: World.TAGS
     })
 
     this.flush(connection, 0)

@@ -22,7 +22,7 @@ import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
-import { type Archetype, ARCHETYPES, PLAYER_SKILLS, buildSkills } from './archetypes'
+import { type Archetype, ARCHETYPES, LAYERS, PLAYER_SKILLS, buildSkills } from './archetypes'
 
 /**
  * The archetype table's own rules (decision #23). What each unit does today
@@ -217,29 +217,44 @@ test('kill stats keep today\'s redis keys: a boss counts as a mob kill and a bos
 
 // --- spawner --------------------------------------------------------------------
 
-test('the spawner keeps BOSS_COUNT bosses and GUNNER_COUNT gunners by archetype, and fills the rest with grunts', () => {
+// DELIBERATE CHANGE (decision #26, `three-ground-layers`): this pinned 5 bosses
+// and 8 gunners world-wide with grunts filling the rest of 50 (37). The counts
+// are now per layer, from LAYERS: grunts 22/18/14, gunners 0/8/14, bosses
+// 0/2/3: 76 grunts and gunners (the balance pass's "76 overall") plus 5
+// bosses, 81 units. The by-archetype replacement it checked still holds.
+test('the spawner keeps each layer\'s mobs by archetype, as LAYERS says', () => {
   const world = new World(4000)
-  const count = (a: Archetype): number => World.MOBS.filter((m) => m.archetype === a).length
-  for (let i = 0; i < 400 && World.MOBS.length < 50; i++) world.update(0.25)
+  // See "Things that are deliberate": no gates to carry anyone anywhere.
+  World.OBSTACLES.length = 0
+  World.BLOCKED.clear()
+  const count = (a: Archetype, tag: number): number =>
+    World.MOBS.filter((m) => m.archetype === a && m.tag === tag).length
+  const total = LAYERS.reduce((sum, l) => sum + l.mobs.reduce((s, m) => s + m.count, 0), 0)
+  for (let i = 0; i < 400 && World.MOBS.length < total; i++) world.update(0.25)
 
-  assert.equal(World.GUNNER_COUNT, 8)
-  assert.equal(World.MOBS.length, 50)
-  assert.equal(count(ARCHETYPES.boss), World.BOSS_COUNT)
-  assert.equal(count(ARCHETYPES.gunner), World.GUNNER_COUNT)
-  assert.equal(count(ARCHETYPES.grunt), 50 - World.BOSS_COUNT - World.GUNNER_COUNT)
+  assert.equal(total, 81)
+  assert.equal(World.MOBS.length, total)
+  for (const layer of LAYERS) {
+    for (const { archetype, count: want } of layer.mobs) {
+      assert.equal(count(archetype, layer.tag), want, `${archetype.key} on layer ${layer.tag}`)
+    }
+  }
   for (const mob of World.MOBS) assert.ok(mob instanceof Mob)
 
-  // A dead boss is replaced by a boss, not a grunt: the count is by archetype.
-  const boss = World.MOBS.find((m) => m.archetype === ARCHETYPES.boss) as Mob
+  // A dead boss is replaced by a boss, not a grunt, on its own layer.
+  const deep = LAYERS[2].tag
+  const boss = World.MOBS.find((m) => m.archetype === ARCHETYPES.boss && m.tag === deep) as Mob
   boss.hit(10_000)
-  for (let i = 0; i < 400 && count(ARCHETYPES.boss) < World.BOSS_COUNT; i++) world.update(0.25)
-  assert.equal(count(ARCHETYPES.boss), World.BOSS_COUNT)
+  for (let i = 0; i < 400 && count(ARCHETYPES.boss, deep) < 3; i++) world.update(0.25)
+  assert.equal(count(ARCHETYPES.boss, deep), 3)
+  assert.equal(World.MOBS.length, total)
 
   // Likewise a dead gunner.
-  const gunner = World.MOBS.find((m) => m.archetype === ARCHETYPES.gunner) as Mob
+  const gunner = World.MOBS.find((m) => m.archetype === ARCHETYPES.gunner && m.tag === deep) as Mob
   gunner.hit(10_000)
-  for (let i = 0; i < 400 && count(ARCHETYPES.gunner) < World.GUNNER_COUNT; i++) world.update(0.25)
-  assert.equal(count(ARCHETYPES.gunner), World.GUNNER_COUNT)
+  for (let i = 0; i < 400 && count(ARCHETYPES.gunner, deep) < 14; i++) world.update(0.25)
+  assert.equal(count(ARCHETYPES.gunner, deep), 14)
+  assert.equal(World.MOBS.length, total)
 })
 
 test('World.config no longer carries unit stats', () => {

@@ -12,6 +12,12 @@ export class Session {
   static tickMs: number = 250
   static mapSize: number = 4000
   static interestRadius: number = 500
+  /**
+   * Every ground layer's tag, top (layer 01) first, from `hello.layers`. The
+   * default is what a server from before three layers ships (and sends no
+   * `layers` for): 0 above -1.
+   */
+  static layers: number[] = [0, -1]
   static known: boolean = false
 
   /** Rolling window of observed gaps between update packets, in ms. */
@@ -19,14 +25,31 @@ export class Session {
   private static _lastArrival: number = 0
   private static _p95: number = 250
 
-  static onHello (data: { tick?: number, map?: number, interest?: number }): void {
+  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown }): void {
     if (typeof data?.tick === 'number' && data.tick > 0) Session.tickMs = data.tick
     if (typeof data?.map === 'number' && data.map > 0) Session.mapSize = data.map
     if (typeof data?.interest === 'number' && data.interest > 0) Session.interestRadius = data.interest
+    // Tags are signed bytes on the wire, and a layer list with a repeat would
+    // map two layers to one plane. Anything else, including no list at all,
+    // is read as a server from before three layers.
+    const layers = data?.layers
+    Session.layers = (
+      Array.isArray(layers) && layers.length > 0 &&
+      layers.every((t) => Number.isInteger(t) && t >= -128 && t <= 127) &&
+      new Set(layers).size === layers.length
+    )
+      ? layers as number[]
+      : [0, -1]
     Session.known = true
 
     // Seed the measurement so the first second of play is not timed off a guess.
     if (Session._gaps.length === 0) Session._p95 = Session.tickMs
+  }
+
+  /** A layer's number as players see it, 1 for the top layer; undefined for an unknown tag. */
+  static layerNumber (tag: number | undefined): number | undefined {
+    const index = tag === undefined ? -1 : Session.layers.indexOf(tag)
+    return index < 0 ? undefined : index + 1
   }
 
   /** Called once per received update packet. */

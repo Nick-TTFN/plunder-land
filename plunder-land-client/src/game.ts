@@ -18,7 +18,6 @@ import { Timer } from './ui/elements/timer'
 import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
-import { CloudsLayer } from './objects/cloudslayer'
 import { HexTerrain } from './objects/hexterrain'
 import Mob from './objects/mob'
 import Player from './objects/player'
@@ -54,9 +53,8 @@ export class Game extends Container {
   static FIREBALLS: Throwable[]
   static MOBS: Mob[]
   LOOKUP: Record<string, GameObject> = {}
-  cloudsLayer: CloudsLayer | undefined
-  /** The drawn ground of each plane, parallel to `layers`; air has none. */
-  terrains: Array<HexTerrain | undefined> = []
+  /** The drawn ground of each layer, parallel to `layers`. */
+  terrains: HexTerrain[] = []
   /** Draws the route the local player is walking. */
   pathMarker: PathMarker | undefined
   static socket: Socket
@@ -180,27 +178,10 @@ export class Game extends Container {
       Game.CONTAINER = new Container()
       this.addChild(Game.CONTAINER)
     }
-    // map
-    this.tags = [-1, 0, 1]
+    // The layers come from the server, in `hello` (see onHello).
+    this.tags = undefined
+    this.layers = undefined
     this.terrains = []
-    this.layers = [
-      this.createLayer('hexpad/ground'),
-      this.createLayer('hexpad/grass'),
-      new Container()
-    ]
-    // The air plane has no ground of its own, and `terrains` is indexed
-    // alongside `layers`, so it needs the hole.
-    this.terrains.push(undefined)
-
-    for (const layer of this.layers) {
-      layer.alpha = 0
-      layer.sortableChildren = true
-      Game.CONTAINER.addChild(layer)
-    }
-
-    this.cloudsLayer = new CloudsLayer(this.mapSize)
-    Game.CONTAINER.addChild(this.cloudsLayer)
-    this.cloudsLayer.alpha = 0
 
     // Parented in update(), not here: it belongs to whichever plane the player
     // is standing on, and a portal moves them between planes mid-run.
@@ -221,7 +202,7 @@ export class Game extends Container {
   }
 
   async onStartRequested (playerId: string, name: string): Promise<void> {
-    Game.socket.on('hello', (data) => { Session.onHello(data) })
+    Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
     Game.socket.on('effect', this.onEffects.bind(this))
@@ -233,6 +214,28 @@ export class Game extends Container {
     Game.socket.emit('start_requested', { id: playerId, name })
 
     Game.hud.setupGameUI()
+  }
+
+  /**
+   * Builds one layer per tag the server lists, top (01) first. `hello` is
+   * emitted before the join's first flush, so the layers exist before any
+   * object that stands on them arrives.
+   *
+   * Layer 01 is grass and every deeper layer is ground: the hex sheet has two
+   * palettes, so 02 and 03 look alike until there is art for a third.
+   */
+  onHello (data: Parameters<typeof Session.onHello>[0]): void {
+    Session.onHello(data)
+    if (this.layers != null) return
+
+    this.tags = [...Session.layers]
+    this.terrains = []
+    this.layers = this.tags.map((_, i) => this.createLayer(i === 0 ? 'hexpad/grass' : 'hexpad/ground'))
+    for (const layer of this.layers) {
+      layer.alpha = 0
+      layer.sortableChildren = true
+      Game.CONTAINER.addChild(layer)
+    }
   }
 
   onObjectsCreated (data: ArrayBuffer): void {
@@ -405,9 +408,10 @@ export class Game extends Container {
         // on, so which one an obstacle gets is the only choice left - there is
         // no size to pick any more. Two sets, because a pine tree on the stone
         // plane and a ruined arch on the grass one both read as a mistake.
+        // Grass props on layer 01, ground props below, matching the pads.
         const sheet = Assets.get('./res/hex.json')
         const frames = sheet.data.animations[
-          data.tag === 0 ? 'hexprop/grass' : 'hexprop/ground'
+          Session.layerNumber(data.tag) === 1 ? 'hexprop/grass' : 'hexprop/ground'
         ]
         const tex = Texture.from(
           frames[Math.floor(frames.length * Math.random())]
@@ -437,9 +441,14 @@ export class Game extends Container {
         Game.MOBS.push(mob)
         break
 
-      case 1 << 3:
-        obj = new Portal(data.radius, data.to > data.tag)
+      case 1 << 3: {
+        // By position in the server's layer list, never by tag arithmetic:
+        // a smaller layer number is nearer the surface.
+        const from = Session.layerNumber(data.tag) ?? 0
+        const to = Session.layerNumber(data.to)
+        obj = new Portal(data.radius, to !== undefined && to < from, to)
         break
+      }
 
       case 1 << 6:
         obj = new Exit(data.radius)
@@ -517,7 +526,7 @@ export class Game extends Container {
 
     obj.tag = data.tag
 
-    if ((this.layers != null) && (this.tags != null)) { this.layers[this.tags.indexOf(obj.tag ?? 0)].addChild(obj) }
+    this.layerOf(obj.tag)?.addChild(obj)
 
     if (data.radius !== undefined && obj.radius !== data.radius) {
       obj.radius = data.radius
@@ -540,10 +549,15 @@ export class Game extends Container {
     this.LOOKUP[data.id] = obj
   }
 
-  /** The plane layer for a tag: where an effect on that plane is drawn. */
+  /**
+   * The layer container for a tag: where anything on that layer is drawn.
+   * Undefined before `hello`, or for a tag the server did not list, and then
+   * the object is simply not drawn. `indexOf`'s -1 used to index straight into
+   * the array, and `addChild` on the undefined that came back threw.
+   */
   layerOf (tag: number | undefined): Container | undefined {
-    if (this.layers == null || this.tags == null) return undefined
-    return this.layers[this.tags.indexOf(tag ?? 0)]
+    if (this.layers == null || this.tags == null || tag === undefined) return undefined
+    return this.layers[this.tags.indexOf(tag)]
   }
 
   overflow (value: number, limit: number): number {
@@ -551,31 +565,18 @@ export class Game extends Container {
     return value
   }
 
+  /**
+   * Fades in the player's layer and fades out every other. Only one layer is
+   * ever shown: the airborne plane used to show the ground below it at half
+   * alpha and 0.7 scale, as if seen from the air, and a layer underground has
+   * nothing to see through to.
+   */
   updateLayerVisibility (tag: number): void {
     if ((this.layers == null) || (this.tags == null)) return
 
+    const shown = this.layerOf(tag)
     for (const layer of this.layers) {
-      const tagIndex = this.tags.indexOf(tag)
-      const layerIndex = this.layers.indexOf(layer)
-
-      let layerAlpha = tagIndex === layerIndex ? 1 : 0
-      let layerScale = 1
-
-      if (tagIndex === 2 && layerIndex === 1) {
-        layerAlpha = 0.5
-        layerScale = 0.7
-      }
-
-      new TWEEN.Tween(layer).to({ alpha: layerAlpha }, 500).start()
-      new TWEEN.Tween(layer.scale)
-        .to({ x: layerScale, y: layerScale }, 500)
-        .start()
-    }
-
-    if (this.cloudsLayer != null) {
-      new TWEEN.Tween(this.cloudsLayer)
-        .to({ alpha: tag === 1 ? 1 : 0 }, 500)
-        .start()
+      new TWEEN.Tween(layer).to({ alpha: layer === shown ? 1 : 0 }, 500).start()
     }
   }
 
@@ -734,7 +735,7 @@ export class Game extends Container {
       if (data.tag !== undefined && data.tag !== obj.tag) {
         obj.tag = data.tag
         if (obj === Game.PLAYER) Game.LOCAL.tag = data.tag
-        this.layers[this.tags.indexOf(obj.tag)].addChild(obj)
+        this.layerOf(obj.tag)?.addChild(obj)
 
         if (obj === Game.PLAYER) this.updateLayerVisibility(data.tag)
       }
@@ -825,7 +826,7 @@ export class Game extends Container {
       return
     }
 
-    const layer = this.layers[this.tags.indexOf(Game.LOCAL.tag ?? 0)]
+    const layer = this.layerOf(Game.LOCAL.tag)
     if (layer !== undefined && marker.parent !== layer) layer.addChild(marker)
 
     marker.setPath(Game.LOCAL.remaining)
@@ -894,22 +895,11 @@ export class Game extends Container {
         layer.visible = layer.alpha > 0.01
         if (!layer.visible) continue
 
-        // parallax (kinda)
-        layer.x = Game.PLAYER.x * (1 - layer.scale.x)
-        layer.y = Game.PLAYER.y * (1 - layer.scale.y)
-
-        // A scaled layer is still centred on the player - the parallax offset
-        // is exactly what keeps it there - so the slice of it the camera can
-        // see is the screen divided by its own scale.
-        this.terrains[i]?.update(
-          Game.PLAYER.x,
-          Game.PLAYER.y,
-          screen.width / layer.scale.x,
-          screen.height / layer.scale.y
-        )
+        // Every layer is drawn at scale 1 now. The parallax offset and the
+        // screen-over-scale slice here existed for the half-size ground seen
+        // from the airborne plane, which is gone.
+        this.terrains[i]?.update(Game.PLAYER.x, Game.PLAYER.y, screen.width, screen.height)
       }
     }
-
-    this.cloudsLayer.update(dt)
   }
 }

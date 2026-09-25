@@ -7,7 +7,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { type GameObject } from './gameobject'
 import Mob from './mob'
-import { type Archetype, ARCHETYPES } from '../archetypes/archetypes'
+import { type Archetype, type LayerSpec, LAYERS } from '../archetypes/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -19,12 +19,27 @@ import type Throwable from './throwable'
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
   static DROPPED_LOOT_LIFETIME = 30000
-  /** Bosses the world tries to keep alive, counted separately from mobs. */
-  static BOSS_COUNT = 5
-  /** Gunners the world keeps alive, world-wide on random planes (decision #23 Q2). */
-  static GUNNER_COUNT = 8
 
-  static TAGS = [-1, 0]
+  /**
+   * The ground layers, top (01) first, and what each one holds. The numbers
+   * live in `LAYERS` (archetypes.ts); this is only a handle on them.
+   */
+  static LAYERS: readonly LayerSpec[] = LAYERS
+  /** Every layer's tag, in `LAYERS` order. Sent to clients as `hello.layers`. */
+  static TAGS: number[] = LAYERS.map((layer) => layer.tag)
+
+  /**
+   * Least distance between the centres of two gates (portals and exits) that
+   * a player could meet on the same layer: two on one layer, or a portal and
+   * any gate on the layer it leads to.
+   *
+   * A portal leaves the player where it pushed them out, 64 from its centre
+   * (its radius 50 + a peep's body 14), only now on the other layer. A gate
+   * there within 128 of the portal's centre would catch them on arrival and
+   * send them on again, or extract them, in the same tick. 150 clears that
+   * with a margin.
+   */
+  static GATE_SPACING = 150
   static mapSize: number
 
   /**
@@ -72,27 +87,67 @@ export default class World {
   constructor (size: number) {
     World.mapSize = size
 
-    for (const tag of World.TAGS) {
-      for (let i = 0; i < 10; i++) {
-        const pos = this.getUnobstructedPosition(40, tag)
-        if (pos === undefined) continue
-        const to = -1 - tag // -1->0, 0->-1
-        World.OBSTACLES.push(new Portal(pos.x, pos.y, to, tag))
+    // Portals chain the layers in order: 01 <-> 02 <-> 03. A layer's up
+    // portals lead to the one before it in LAYERS, its down portals to the one
+    // after. A count with no layer to lead to is a table error, not a portal to
+    // nowhere.
+    World.LAYERS.forEach((layer, i) => {
+      const above = World.LAYERS[i - 1]
+      const below = World.LAYERS[i + 1]
+      if (layer.portalsUp > 0) {
+        if (above === undefined) throw new Error(`layer ${layer.tag} has up portals but nothing above it`)
+        for (let n = 0; n < layer.portalsUp; n++) this.placeGate(layer.tag, above.tag)
       }
-      for (let i = 0; i < 4; i++) {
-        const pos = this.getUnobstructedPosition(40, tag)
-        if (pos === undefined) continue
-        World.OBSTACLES.push(new Exit(pos.x, pos.y, tag))
+      if (layer.portalsDown > 0) {
+        if (below === undefined) throw new Error(`layer ${layer.tag} has down portals but nothing below it`)
+        for (let n = 0; n < layer.portalsDown; n++) this.placeGate(layer.tag, below.tag)
       }
+      for (let n = 0; n < layer.exits; n++) this.placeGate(layer.tag, undefined)
+    })
+  }
+
+  /**
+   * A portal to `to`, or an exit when `to` is undefined, at a free cell of
+   * layer `tag` that keeps `GATE_SPACING` from every gate a player could meet
+   * on either layer. Skipped, as a gate always was, if no such cell turns up.
+   *
+   * Gates are not in `BLOCKED` (they are walked into on purpose), so
+   * `getUnobstructedPosition` cannot see them and the spacing is tested here.
+   * Only the constructor places gates, before any rock exists.
+   */
+  private placeGate (tag: number, to: number | undefined): void {
+    const reach = to === undefined ? [tag] : [tag, to]
+    const sq = World.GATE_SPACING * World.GATE_SPACING
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const pos = this.getUnobstructedPosition(40, tag)
+      if (pos === undefined) continue
+
+      const crowded = World.OBSTACLES.some((gate) => {
+        if (!(gate instanceof Portal) && !(gate instanceof Exit)) return false
+        // `to` is only meaningful on a portal: every object defaults it to 0,
+        // which is also layer 01's tag.
+        const gateReach = gate instanceof Portal ? [gate.tag, gate.to] : [gate.tag]
+        if (!gateReach.some((t) => reach.includes(t))) return false
+        return gate.position.sub(pos).getSquareMagnitude() < sq
+      })
+      if (crowded) continue
+
+      World.OBSTACLES.push(to === undefined ? new Exit(pos.x, pos.y, tag) : new Portal(pos.x, pos.y, to, tag))
+      return
     }
   }
 
-  /** `name` is the one the player typed, raw; Player's constructor sanitises it. */
+  /**
+   * Joins on the top layer (#26). Where on it is still any random point:
+   * safe placement is `safe-spawn-placement`. `name` is the one the player
+   * typed, raw; Player's constructor sanitises it.
+   */
   static createPlayer (playerId: string, name?: unknown): Player {
     const player = new Player(
       Random.RangeInt(0, World.mapSize),
       Random.RangeInt(0, World.mapSize),
-      World.TAGS[Random.RangeInt(0, World.TAGS.length)],
+      World.LAYERS[0].tag,
       playerId,
       undefined,
       name
@@ -146,49 +201,88 @@ export default class World {
 
     World.updateProjectiles(dt)
 
-    while (World.OBSTACLES.length < 300) {
-      const tag = World.TAGS[Random.RangeInt(0, 2)]
-      const pos = this.getUnobstructedPosition(40, tag)
-      // break, not continue: the loop tests OBSTACLES.length, so skipping
-      // without adding one spins forever inside the tick.
-      if (pos === undefined) break
-      // -1 because we dont have obstacles in the air yet
-      World.OBSTACLES.push(new Obstacle(pos.x, pos.y, tag))
-    }
-
-    if (World.CONSUMABLES.length < 300) {
-      const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
-      const pos = this.getUnobstructedPosition(40, tag)
-      if (pos !== undefined) World.CONSUMABLES.push(new Consumable(pos.x, pos.y, tag))
-    }
-
-    // fill the map with NPC's
-    if (World.MOBS.length < 50) this.spawnMob(ARCHETYPES.grunt)
-
-    // Bosses and gunners are counted separately, by archetype. Both guards used
-    // to read MOBS.length, so five bosses spawned during the first few ticks
-    // and none was ever replaced once the mob population had filled past ten.
-    // All three spawners share the 50 above: grunts fill whatever the other
-    // two leave (37 once all 5 bosses and 8 gunners are up). A boss or gunner
-    // that dies on a full map is replaced in the same tick as the grunt that
-    // refills its slot, so the total can sit above 50 until grunts die off;
-    // bosses always did this.
-    let bosses = 0
-    let gunners = 0
-    for (const mob of World.MOBS) {
-      if (mob.archetype === ARCHETYPES.boss) bosses++
-      else if (mob.archetype === ARCHETYPES.gunner) gunners++
-    }
-
-    if (bosses < World.BOSS_COUNT) this.spawnMob(ARCHETYPES.boss)
-    if (gunners < World.GUNNER_COUNT) this.spawnMob(ARCHETYPES.gunner)
+    for (const layer of World.LAYERS) this.refillLayer(layer)
   }
 
-  /** One mob of `archetype` on a random plane, if a free spot turns up. */
-  private spawnMob (archetype: Archetype): void {
-    const tag = World.TAGS[Random.RangeInt(0, World.TAGS.length)]
-    const pos = this.getUnobstructedPosition(40, tag)
-    if (pos !== undefined) World.MOBS.push(new Mob(pos.x, pos.y, tag, archetype))
+  /**
+   * A world rock: an `Obstacle` with no lifetime. StoneWall stones are
+   * Obstacles too but always timed, so casting a wall does not stop the refill
+   * (balance pass: "the count should not move when someone casts StoneWall").
+   */
+  static isRock (obj: GameObject): boolean {
+    return obj instanceof Obstacle && !(obj.lifetime > 0)
+  }
+
+  /**
+   * Top a layer back up to its `LAYERS` numbers: rocks all at once, then at
+   * most one natural pickup and one mob of each short archetype per tick.
+   *
+   * Every count is per layer. The rock refill used to pick
+   * `TAGS[RangeInt(0, 2)]` and fill to a world-wide 300 that included the
+   * gates, so a third layer would have got no rocks at all; mobs and pickups
+   * were world totals on random layers.
+   *
+   * Bosses and gunners are counted by archetype, as they were: both guards
+   * once read MOBS.length, so five bosses spawned in the first few ticks and
+   * none was ever replaced once the population had filled past ten. Each
+   * archetype now has its own count, so grunts no longer fill whatever the
+   * others leave, and the total never sits above the table's sum.
+   */
+  private refillLayer (layer: LayerSpec): void {
+    const tag = layer.tag
+
+    let rocks = 0
+    for (const obj of World.OBSTACLES) if (obj.tag === tag && World.isRock(obj)) rocks++
+    while (rocks < layer.rocks) {
+      const pos = this.getUnobstructedPosition(40, tag)
+      // break, not continue: nothing else ends this loop, so skipping without
+      // adding one spins forever inside the tick.
+      if (pos === undefined) break
+      World.OBSTACLES.push(new Obstacle(pos.x, pos.y, tag))
+      rocks++
+    }
+
+    // Natural pickups only: a death drop has an expiry, and does not count.
+    let natural = 0
+    for (const c of World.CONSUMABLES) if (c.tag === tag && c.expiresAt === 0) natural++
+    if (natural < layer.naturalLoot) {
+      const pos = this.getUnobstructedPosition(40, tag)
+      if (pos !== undefined) {
+        // The radius is drawn here rather than by Consumable, because the loot
+        // is derived from it and must be in place before the create goes out.
+        // Same range as Consumable's own default. The cast is because that
+        // parameter's `= undefined` default types it as undefined; the
+        // constructor reads it as a number (`radius || RangeInt(15, 25)`).
+        const radius = Random.RangeInt(15, 25)
+        World.CONSUMABLES.push(new Consumable(
+          pos.x, pos.y, tag, radius as unknown as undefined, Math.round(radius * layer.lootMultiplier)
+        ))
+      }
+    }
+
+    // Mobs never change layer (portals move players only, #26), so a mob
+    // counts where it spawned.
+    for (const { archetype, count } of layer.mobs) {
+      let alive = 0
+      for (const mob of World.MOBS) {
+        if (mob.tag === tag && mob.archetype === archetype && !mob.destroyed) alive++
+      }
+      if (alive < count) this.spawnMob(archetype, layer)
+    }
+  }
+
+  /** One mob of `archetype` on `layer`, carrying the layer's loot, if a free spot turns up. */
+  private spawnMob (archetype: Archetype, layer: LayerSpec): void {
+    const pos = this.getUnobstructedPosition(40, layer.tag)
+    if (pos === undefined) return
+    const mob = new Mob(pos.x, pos.y, layer.tag, archetype)
+    mob.loot = Math.round(archetype.loot * layer.lootMultiplier)
+    // A mob's loot is server-side only: it is not in its create record
+    // (`allFields`), and nothing else ever marks it. Left dirty, the next
+    // update would send it, and the client floats any loot change over a unit
+    // as a "+88" the moment it comes into view.
+    mob.dirtyFields.delete('loot')
+    World.MOBS.push(mob)
   }
 
   /**

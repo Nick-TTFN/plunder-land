@@ -74,8 +74,11 @@ function hitterAndMob (): { caster: Player, mob: Unit } {
 }
 
 /**
- * A real World to tick, minus the 20 Portals and 8 Exits its constructor drops
- * at random cells.
+ * A real World to tick, minus the portals and exits its constructor drops at
+ * random cells (30 and 12 since `three-ground-layers`; 20 and 8 when this was
+ * written). Since decision #26 a portal no longer moves a mob, so the flake
+ * below cannot happen that way any more; a solid portal next to the target
+ * could still push it off its spot, so the gates stay out.
  *
  * Those made the explode-order tests below flaky (1 suite run in 46, then 1 in
  * 75, on 2026-09-24; the replay rate below predicts about 1 in 30): a plane-0
@@ -130,9 +133,15 @@ for (const skill of SKILLS) {
 
     world.update(DT)
 
-    const solid = World.OBSTACLES.filter((o) => o.type !== ObjectType.Throwable)
-    assert.equal(solid.length, 300, 'the refill stopped short by the projectiles in flight')
-    assert.equal(World.OBSTACLES.length, 300, 'a projectile is in the obstacle list')
+    // DELIBERATE CHANGE (decision #26, `three-ground-layers`): the refill was a
+    // world-wide 300 that counted the gates; it is now LAYERS' rocks per layer,
+    // counting rocks only.
+    for (const layer of World.LAYERS) {
+      const rocks = World.OBSTACLES.filter((o) => o.tag === layer.tag && World.isRock(o))
+      assert.equal(rocks.length, layer.rocks, `the refill stopped short on layer ${layer.tag}`)
+    }
+    assert.equal(World.OBSTACLES.some((o) => o.type === ObjectType.Throwable), false,
+      'a projectile is in the obstacle list')
   })
 
   test(`a ${skill.name} exploding without being listed removes nothing else`, () => {

@@ -12,10 +12,24 @@ The `services/battle-royale-server` directory name and `area/circlearea.ts` (an 
 storm-shaped damage area) are leftovers from an abandoned BR direction. Nothing imports
 `circlearea.ts`.
 
-The world is three vertically stacked planes. The server ships `World.TAGS = [-1, 0]`;
-the client ships `tags = [-1, 0, 1]` where tag 1 is airborne. **Nothing spawns on the
-third plane and no portal routes there** — `world.ts` says `// we dont have obstacles in
-the air yet`.
+The world is **three ground layers**, 01 on top to 03 at the bottom, with tags **0, -1, -2**
+(depth is `-tag`). Deeper is richer and more dangerous (decisions #3, #16, #26). **Every
+per-layer number lives in one table, `LAYERS` in `src/archetypes/archetypes.ts`**: tag, loot
+multiplier (×1 / ×1.75 / ×3 on natural pickups and on every mob's loot, not on what a dead
+player drops), rocks (136 each, world rocks only), natural loot cap (150 each, death drops
+uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive (grunts 22/18/14,
+gunners 0/8/14, bosses 0/2/3, 81 in all). `World.refillLayer` tops each layer up to it every
+tick, counting per layer. The layer tags reach the client in `hello.layers`; **the client
+never hardcodes a tag**.
+
+**Portals chain 01 ↔ 02 ↔ 03 and move players only** (#26): 10 down on 01, 5 up and 5 down
+on 02, 10 up on 03. A mob or boss is pushed out of a portal like a rock and stays on its
+layer, so each layer keeps the danger designed for it. A player crosses at the spot the
+portal pushed them out to, 64 units from its centre, so no two gates a player could meet on
+one layer lie within `World.GATE_SPACING` (150) of each other, or a player would be caught
+by a second gate on arrival. New players join on layer 01 at a random point (safe placement
+is `safe-spawn-placement`). The airborne plane, its clouds and the half-alpha "ground seen
+from above" are gone; only the player's own layer is drawn.
 
 ## Verification path
 
@@ -24,7 +38,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 33 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 28 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
@@ -58,16 +72,16 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   subclasses. Runtime-correct, type-unsafe. Fixing it properly means introducing a union
   or widening the base class — a real refactor, deliberately not done.
 
-- 9 strictness nits that predate 2026-09-24, listed by file so they can be recognised:
-  `game.ts` (four "possibly undefined", around `onObjectDestroyed` and the end of the file),
-  `skills/dash.ts` (one), `skills/skill.ts` (`uiTexture` not initialised),
-  `ui/elements/progressbar.ts` (`_timeoutId` not initialised). (The two implicit `any`
-  parameters in `vfx/meleeattack.effect.ts` went when that file was rewritten.)
+- 3 strictness nits that predate 2026-09-24, listed by file so they can be recognised:
+  `skills/dash.ts` (one "possibly undefined"), `skills/skill.ts` (`uiTexture` not
+  initialised), `ui/elements/progressbar.ts` (`_timeoutId` not initialised). (The two
+  implicit `any` parameters in `vfx/meleeattack.effect.ts` went when that file was
+  rewritten; `game.ts`'s four "possibly undefined" went with the layer code they were in.)
 
-Anything **outside** these three groups is a new regression. The count is 33 (measured
-2026-09-25: the Defend effect's `Point` anchor went with its rewrite); compare the sorted
-error list, not just the count, before
-dismissing.
+Anything **outside** these three groups is a new regression. The count is 28: 6 `Point`,
+19 `GameObject`, 3 nits (measured 2026-09-25, `three-ground-layers`: `cloud.ts`'s `Point`
+and `game.ts`'s four nits went with the airborne plane; it was 33). Compare the sorted
+error list, not just the count, before dismissing.
 
 ## Running it locally
 
@@ -101,8 +115,10 @@ http://localhost:3000/?server=http://localhost:8000
 ```
 
 Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested`, and
-count the `create` records. A healthy join streams ~420 objects (20 Portals, 8 Exits,
-~270 Obstacles, ~70 Consumables, 50 Mobs).
+count the `create` records. A healthy join into a settled world streams about 980 objects:
+30 Portals, 12 Exits, 408 Obstacles (136 a layer), 450 Consumables (150 a layer, filling at
+one a layer a tick, so fewer in a world under 40 s old) and 81 Mobs. The per-layer split
+must match `LAYERS`.
 
 ## Bundle size
 
@@ -142,8 +158,8 @@ The script owns three things worth knowing before touching either sheet:
 - **Both sheets' 6x6 grids are measured, not assumed.** Neither is on the clean 209 px pitch
   the image size implies, and one prop has a stray pixel that reads as a seventh row.
 
-`tiles/grass.png`, `tiles/ground.png` and the four `obstacle_*` groups in the TexturePacker
-atlas are now unused — the ground and every obstacle come from the hex sheet. They stay
+`tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went) and the
+four `obstacle_*` groups in the TexturePacker atlas are now unused — the ground and every obstacle come from the hex sheet. They stay
 because regenerating that atlas needs TexturePacker, which is not in this toolchain; that is
 about 40 KB of the 327 KB atlas sitting there for nothing.
 
@@ -222,8 +238,12 @@ server damages; the client's port of the cone and ring logic is `src/vfx/cells.t
 first hp value it happens to see. **The field table is append-only** — new fields go on the
 end of `fieldOrder` (server) and `allFields` (client), and the two must stay identical.
 
-**`hello`** is emitted once on join: `{ tick, map, interest }`. Nothing on the client may
-hardcode these — see `src/net/session.ts`.
+**`hello`** is emitted once on join: `{ tick, map, interest, layers }`. Nothing on the client
+may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, top (01) first;
+the client builds one plane per entry when `hello` lands (it precedes the join's first
+flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hello` without
+`layers` (a server from before three layers) means `[0, -1]`. **Ship the client first**:
+an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
 
 **Client → server `start_requested` is `{ id, name }`** (`Multiplayer.parseStart`). A bare
 string, the id alone, is still accepted for one release; drop it after that. The id is the
@@ -404,9 +424,11 @@ per-visible-player one (break-even at about three visible players).
   `destroyed` first. `Unit.hit` does. A second hit on a corpse used to free its id twice
   and credit a second kill.
 - **Tests that tick a real `new World()` get random exits, portals and mobs.** An exit
-  extracts a player, and a portal moves a unit to the other plane. Two test flakes came
-  from this (`c14d74a`, `34835e1`). Clear `World.OBSTACLES`/`BLOCKED`/`MOBS` after
-  building the world unless the test is about the map.
+  extracts a player, a portal moves a player to another layer, and every gate is solid and
+  pushes any unit off its spot. Two test flakes came from this (`c14d74a`, `34835e1`; both
+  from a portal moving a mob, which it no longer does). Clear `World.OBSTACLES`/`BLOCKED`/
+  `MOBS` after building the world unless the test is about the map, and assert only what
+  holds wherever the gates land when it is (`layers.spec.ts`).
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`.** A rejected
   `void` promise is an unhandled rejection, which ends the process, and no try/catch around
   the tick can see it. With Redis down, every disconnect used to kill the server that way.
@@ -451,7 +473,8 @@ after moving, and that test never matches its owner. When it was solid, every fi
 exploded on its caster. `World.updateProjectiles` walks the list backwards and is the
 **only** place a projectile is removed. Splicing from inside `explode`, which runs within
 the projectile's own update, made the next projectile skip a tick. `OBSTACLES` holds only
-solid things, which is what the 300-obstacle rock refill counts.
+solid things; the rock refill counts only world rocks in it (`World.isRock`: an `Obstacle`
+with no lifetime, so not a StoneWall stone), per layer.
 
 **StoneWall is placed behind the caster on purpose**, to block chasers. Do not "fix" it to
 the front. It fills the 3 cells directly behind (`StoneWall.cells`: the neighbours at b-1,

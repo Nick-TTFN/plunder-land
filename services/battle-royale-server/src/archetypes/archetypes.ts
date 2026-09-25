@@ -256,6 +256,103 @@ const gunner: Archetype = {
 
 export const ARCHETYPES = Object.freeze({ peep, grunt, boss, gunner })
 
+/** One entry of a layer's standing mob population. */
+export interface LayerMobs {
+  archetype: Archetype
+  /** How many the world keeps alive on this layer, replacing the dead one a tick. */
+  count: number
+}
+
+/**
+ * A ground layer and everything the world keeps on it (decisions #3, #10, #16,
+ * #26; numbers from `ideas/balance-pass.md` section 1).
+ */
+export interface LayerSpec {
+  /**
+   * The `tag` of everything on this layer. A signed byte on the wire. Clients
+   * get the list in `hello.layers`, in `LAYERS` order, and must not hardcode it.
+   */
+  tag: number
+  /**
+   * Applied to natural pickups and to the loot of every mob (grunt, gunner,
+   * boss) spawned here, rounded to a whole number. Not to what a dead player
+   * drops: that is their own haul.
+   */
+  lootMultiplier: number
+  /** World rocks only: not StoneWall stones, portals or exits. */
+  rocks: number
+  /** Natural pickups only. Death drops are uncapped and expire on their own. */
+  naturalLoot: number
+  exits: number
+  /** Portals to the layer above. 0 on the top layer. */
+  portalsUp: number
+  /** Portals to the layer below. 0 on the bottom layer. */
+  portalsDown: number
+  /** Spawned in this order each tick, one of each that is short. */
+  mobs: LayerMobs[]
+}
+
+/**
+ * **Every per-layer number is here and nowhere else**, top layer (01) first.
+ *
+ * Tags 0, -1, -2: depth is `-tag`, so the two tags the world already used keep
+ * their order (0 was drawn above -1) and 1, which old clients drew as an
+ * airborne plane, is never reused.
+ *
+ * Portals and exits keep today's density: 10 portals and 4 exits per layer, as
+ * the two-layer world had (20 and 8). Layer 02 splits its 10 evenly between up
+ * and down; every layer keeps its exits (#10).
+ *
+ * Rocks, loot cap, multiplier and mobs are #26's list. Grunts 22/18/14,
+ * gunners 0/8/14, bosses 0/2/3 replace the world-wide 5 bosses and 8 gunners
+ * with the rest grunts up to 50 (37 when all were up). That is 81 units where
+ * there were 50: the balance pass's "76 overall" counts grunts and gunners only.
+ */
+export const LAYERS: readonly LayerSpec[] = Object.freeze([
+  {
+    tag: 0,
+    lootMultiplier: 1,
+    rocks: 136,
+    naturalLoot: 150,
+    exits: 4,
+    portalsUp: 0,
+    portalsDown: 10,
+    mobs: [
+      { archetype: grunt, count: 22 },
+      { archetype: gunner, count: 0 },
+      { archetype: boss, count: 0 }
+    ]
+  },
+  {
+    tag: -1,
+    lootMultiplier: 1.75,
+    rocks: 136,
+    naturalLoot: 150,
+    exits: 4,
+    portalsUp: 5,
+    portalsDown: 5,
+    mobs: [
+      { archetype: grunt, count: 18 },
+      { archetype: gunner, count: 8 },
+      { archetype: boss, count: 2 }
+    ]
+  },
+  {
+    tag: -2,
+    lootMultiplier: 3,
+    rocks: 136,
+    naturalLoot: 150,
+    exits: 4,
+    portalsUp: 10,
+    portalsDown: 0,
+    mobs: [
+      { archetype: grunt, count: 14 },
+      { archetype: gunner, count: 14 },
+      { archetype: boss, count: 3 }
+    ]
+  }
+])
+
 /** Build an archetype's skills for `owner`, in table order, with overrides applied. */
 export function buildSkills (owner: Unit, archetype: Archetype): Skill[] {
   return archetype.skills.map((spec) => {
