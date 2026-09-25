@@ -1,4 +1,4 @@
-import { Unit } from './unit'
+import { Unit, EPSILON } from './unit'
 import { GameObject, ObjectType } from './gameobject'
 import { Vector } from '../utils/vector'
 import { type Skill } from '../skills/skill'
@@ -133,11 +133,17 @@ export default class Player extends Unit {
       const delta = mob.position.sub(this.position)
       const sqr = delta.getSquareMagnitude()
       if (sqr < sumWidth * sumWidth) {
-        const magnitude = Math.sqrt(sqr)
+        if (sqr > EPSILON) {
+          const magnitude = Math.sqrt(sqr)
 
-        this.position = new Vector(
-          mob.position.x - sumWidth * delta.x / magnitude,
-          mob.position.y - sumWidth * delta.y / magnitude)
+          this.position = new Vector(
+            mob.position.x - sumWidth * delta.x / magnitude,
+            mob.position.y - sumWidth * delta.y / magnitude)
+        } else {
+          // Coincident centres: 0/0, and a NaN position never recovers. Pick
+          // the same fixed axis as Unit.update's push-outs, never a random one.
+          this.position = new Vector(mob.position.x - sumWidth, mob.position.y)
+        }
       }
     }
   }

@@ -8,8 +8,8 @@ import { type IAIRoutine } from '../ai/findnearestconsumable'
 import { type Archetype } from '../archetypes/archetypes'
 
 // Below this squared distance two bodies count as coincident and the
-// normalised push-out would divide by zero.
-const EPSILON = 1e-9
+// normalised push-out would divide by zero. Player's mob push-out uses it too.
+export const EPSILON = 1e-9
 
 /**
  * Impulse lost per second, applied to the magnitude.
