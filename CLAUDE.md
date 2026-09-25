@@ -117,7 +117,8 @@ http://localhost:3000/?server=http://localhost:8000
 ```
 
 Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested`, and
-count the `create` records. A healthy join into a settled world streams about 980 objects:
+count the `create` records. A healthy join into a settled world streams about 980 objects,
+plus 45 item pickups (medkits 8/10/12 and bombs 3/5/7 by layer):
 30 Portals, 12 Exits, 408 Obstacles (136 a layer), 450 Consumables (150 a layer, filling at
 one a layer a tick, so fewer in a world under 40 s old) and 81 Mobs. The per-layer split
 must match `LAYERS`.
@@ -301,6 +302,20 @@ indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kin
 flag and vision. The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
 falls back to today's sprite for an unknown id. An object that comes back into a
 connection's range is re-sent whole in `update`, so a full record can arrive there too.
+
+**`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
+`ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
+(key 1 = medkit, key 2 = bomb, 3–5 empty). The item table's shared half is the mirrored
+`utils/items.ts`. Its server half is `ITEMS` beside `ARCHETYPES` and `LAYERS`, and each row
+names a behaviour (`heal`, `bomb`), not an item. **`type` is written as an unsigned byte**,
+because `ItemPickup` is type 128. **Client → server `use_item`** has the same bytes as
+`skill` (a slot, plus an optional absolute aim cell), inside `guarded`, validated by
+`Player.tryUseItem`; a refused use spends nothing. **Effect types 7 (bomb fuse) and 8 (bomb
+blast)** go through `Multiplayer.effectAt`, which picks recipients from the effect's cell and
+layer, not from the originator. A thrown bomb goes off even if its thrower has died or left
+(its fuse timer has no owner), just as a fireball in flight outlives its caster.
+`fieldtable.spec.ts` reads the client's `allFields` with a regex that stops at the first
+`]`, so a comment inside that array must not contain square brackets.
 
 `maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
