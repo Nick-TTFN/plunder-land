@@ -1,6 +1,7 @@
-import { Unit, EPSILON } from './unit'
+import { Unit } from './unit'
 import { GameObject, ObjectType } from './gameobject'
-import { Vector } from '../utils/vector'
+import { type Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
 import { type Skill } from '../skills/skill'
 import { type Archetype, ARCHETYPES, buildSkills } from '../archetypes/archetypes'
 import World from './world'
@@ -96,31 +97,41 @@ export default class Player extends Unit {
     // the next sweep (World.update).
     if (this.destroyed) return
 
+    // Before the pickup, so a hop picks up on the cell it lands on.
+    this.hopPortal()
     this.applyHeal(dt)
     this.pickUp()
+    // No push-out out of mobs (hex-cells P2): players may share a cell with a
+    // mob (#31 Q2), and a mob's chase stops a ring short of its target.
+  }
 
-    for (const mob of World.MOBS) {
-      if (mob === this) { continue }
+  /** A portal to another layer: routes end on it (`Unit.endAtPortal`). */
+  stopsOn (q: number, r: number): boolean {
+    return World.portalOn(q, r, this.tag) !== undefined
+  }
 
-      if (mob.tag !== this.tag) { continue }
-
-      const sumWidth = mob.radius + this.radius
-      const delta = mob.position.sub(this.position)
-      const sqr = delta.getSquareMagnitude()
-      if (sqr < sumWidth * sumWidth) {
-        if (sqr > EPSILON) {
-          const magnitude = Math.sqrt(sqr)
-
-          this.position = new Vector(
-            mob.position.x - sumWidth * delta.x / magnitude,
-            mob.position.y - sumWidth * delta.y / magnitude)
-        } else {
-          // Coincident centres: 0/0, and a NaN position never recovers. Pick
-          // the same fixed axis as Unit.update's push-outs, never a random one.
-          this.position = new Vector(mob.position.x - sumWidth, mob.position.y)
-        }
-      }
-    }
+  /**
+   * If this tick left the player on a portal's cell, move them to the portal's
+   * arrival cell (`World.arrivalOf`: its east neighbour, decision #33) on the
+   * layer it leads to, on that cell's centre, and end their route
+   * (`changeLayer`). True if they hopped.
+   *
+   * It replaces the push-out hop, which left a player 64 units from the
+   * portal's centre on the other layer (#31 Q3). The arrival cell is kept
+   * clear of rocks (`gateKeepOut`), stones (`StoneWall.canPlace`) and mobs
+   * (`World.mobCanEnter`); other players may be standing on it.
+   *
+   * The client does not predict the hop: it walks to the portal's centre,
+   * waits there for the new tag, and jumps to where the server put it
+   * (`LocalPlayer.changeLayer`).
+   */
+  hopPortal (): boolean {
+    const here = this.cell
+    const portal = World.portalOn(here.x, here.y, this.tag)
+    if (portal === undefined) return false
+    this.position = Hex.toPosition(World.arrivalOf(here))
+    this.changeLayer(portal.to)
+    return true
   }
 
   /**
@@ -169,8 +180,8 @@ export default class Player extends Unit {
    * A player is on an exit when the cell under their centre is the exit's
    * cell, the way every area in the game is a set of cells (decision #18).
    * The pad's 50-unit radius draws a little wider than the cell; the cell is
-   * what counts. Exits are not solid to players (Exit.solidFor), so a player
-   * who clicks one comes to rest on its centre.
+   * what counts. Nothing is solid since hex-cells P2, so a player who clicks
+   * an exit comes to rest on its centre.
    *
    * The first tick on the pad counts as 0 and each later one adds its `dt`,
    * so at 250 ms ticks a 5 s layer extracts on the 20th tick after the one

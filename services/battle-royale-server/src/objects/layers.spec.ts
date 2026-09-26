@@ -14,6 +14,9 @@ import Mob from './mob'
 import Player from './player'
 import { type GameObject } from './gameobject'
 import { type Archetype, ARCHETYPES, LAYERS } from '../archetypes/archetypes'
+import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
+import GuardPosition from '../ai/guardposition'
 
 /**
  * `three-ground-layers` (decisions #3, #10, #16, #26): three ground layers,
@@ -104,8 +107,9 @@ test('no gate lies within GATE_SPACING of another a player could meet on the sam
         const a = all[i]
         const b = all[j]
         if (!reach(a).some((t) => reach(b).includes(t))) continue
-        const d = a.position.sub(b.position).getMagnitude()
-        assert.ok(d >= World.GATE_SPACING, `gates on ${reach(a)} and ${reach(b)} only ${d.toFixed(0)} apart`)
+        // Rings since hex-cells P2 (decision #34); it was 150 units.
+        const d = Hex.distance(Hex.toCell(a.position), Hex.toCell(b.position))
+        assert.ok(d >= World.GATE_SPACING, `gates on ${reach(a)} and ${reach(b)} only ${d} rings apart`)
       }
     }
   }
@@ -220,43 +224,58 @@ test('hello carries the layer tags, top first', () => {
 
 // --- portals --------------------------------------------------------------------
 
-/** A portal at (2000, 2000) on layer 02, down to 03, and nothing else solid. */
+/** A portal on the cell under (2000, 2000) of layer 02, down to 03, and nothing else. */
 function portalAhead (): Portal {
-  const portal = new Portal(2000, 2000, BOTTOM, MIDDLE)
+  const at = Hex.toPosition(Hex.toCell(new Vector(2000, 2000)))
+  const portal = new Portal(at.x, at.y, BOTTOM, MIDDLE)
   World.OBSTACLES.push(portal)
   return portal
 }
 
-test('a player walking into a portal is moved to the layer it leads to', () => {
-  portalAhead()
-  const player = new Player(1900, 2000, MIDDLE, 'walker')
+test('a player walking into a portal is put down on its arrival cell on the layer it leads to', () => {
+  // hex-cells P2 (#31 Q3, #33): the portal's east neighbour, on its centre.
+  // It was wherever the push-out left the player, 64 units from the centre.
+  const portal = portalAhead()
+  const cell = Hex.toCell(portal.position)
+  const start = Hex.toPosition(new Vector(cell.x - 3, cell.y))
+  const player = new Player(start.x, start.y, MIDDLE, 'walker')
   World.PLAYERS.push(player)
-  player.setDirection(1, 0)
+  player.setDestination(cell.x + 3, cell.y)
 
-  for (let i = 0; i < 8 && player.tag === MIDDLE; i++) player.update(DT)
+  for (let i = 0; i < 12 && player.tag === MIDDLE; i++) player.update(DT)
 
   assert.equal(player.tag, BOTTOM)
+  const arrival = Hex.toPosition(new Vector(cell.x + 1, cell.y))
+  assert.deepEqual([player.position.x, player.position.y], [arrival.x, arrival.y])
+  assert.deepEqual(player.path, [], 'the route went on across layer 03')
 })
 
 for (const archetype of [ARCHETYPES.grunt, ARCHETYPES.gunner, ARCHETYPES.boss]) {
-  test(`a ${archetype.key} walking into a portal is pushed out and stays on its layer`, () => {
+  test(`a ${archetype.key} chasing a player across a portal never steps onto it, and stays on its layer`, () => {
+    // Decision #26: portals carry players only. Since hex-cells P2 a mob
+    // never steps onto a gate cell (World.mobCanEnter); it was pushed out.
     const portal = portalAhead()
-    const mob = new Mob(1850, 2000, MIDDLE, archetype)
-    // No AI: it walks straight at the portal and keeps pressing into it.
-    mob.routines = []
-    mob.maxVelocity = 100
-    mob.setDirection(1, 0)
+    const cell = Hex.toCell(portal.position)
+    const from = Hex.toPosition(new Vector(cell.x - 2, cell.y))
+    const mob = new Mob(from.x, from.y, MIDDLE, archetype)
     World.MOBS.push(mob)
+    // Beyond the portal, straight through it from the mob, and far enough
+    // past it that the gunner's 5-ring standoff still wants the portal's cell.
+    const past = archetype === ARCHETYPES.gunner ? 5 : 2
+    const beyond = Hex.toPosition(new Vector(cell.x + past, cell.y))
+    const player = new Player(beyond.x, beyond.y, MIDDLE, 'bait')
+    World.PLAYERS.push(player)
+    GuardPosition.provoke(mob, player)
 
-    let touched = false
-    for (let i = 0; i < 12; i++) {
+    let moved = false
+    for (let i = 0; i < 24; i++) {
       mob.update(DT)
-      const gap = mob.position.sub(portal.position).getMagnitude()
-      if (gap <= portal.radius + mob.radius + 1e-6) touched = true
-      assert.ok(gap >= portal.radius + mob.radius - 1e-6, `inside the portal at tick ${i}: ${gap.toFixed(1)}`)
+      const here = mob.cell
+      if (here.x !== cell.x - 2 || here.y !== cell.y) moved = true
+      assert.ok(here.x !== cell.x || here.y !== cell.y, `on the portal's cell at tick ${i}`)
+      assert.equal(mob.tag, MIDDLE)
     }
-
-    assert.ok(touched, 'never reached the portal, so this proved nothing')
-    assert.equal(mob.tag, MIDDLE)
+    assert.ok(moved, 'never moved, so this proved nothing')
+    assert.equal(mob.target, player)
   })
 }

@@ -3,15 +3,11 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Path } from '../utils/path'
 
-export interface Collider {
-  x: number
-  y: number
-  radius: number
-  tag: number | undefined
-}
-
-/** Squared distance below which two bodies count as coincident. */
-const EPSILON = 1e-9
+/**
+ * The layer a portal on cell (q, r) of the local player's layer leads to, or
+ * undefined if there is no portal there. `Game.PORTALS` in the game.
+ */
+export type PortalLookup = (q: number, r: number) => number | undefined
 
 /**
  * How far ahead of the server the prediction is allowed to be before it counts
@@ -30,7 +26,11 @@ const EPSILON = 1e-9
  */
 const LEAD_TICKS = 2
 
-/** Disagreement above this is a teleport - respawn or portal. Snap, don't ease. */
+/**
+ * Disagreement above this is a teleport - a respawn. Snap, don't ease. A
+ * portal hop is only a cell or so, so it snaps on the layer change instead
+ * (`changeLayer`).
+ */
 const SNAP_DISTANCE = 220
 
 /** Visual correction half-life, ms. Lower is snappier and more visible. */
@@ -75,13 +75,29 @@ export class LocalPlayer {
   maxVelocity: number = 140
 
   /**
-   * Our body's collider radius, for the push-out in `_step`. It must be the
-   * server's, or prediction and the authority push out to different distances
-   * and every brush past a rock is a correction. Comes from `create_own`'s
-   * `radius` (see `reset`); `RADIUS` until then.
+   * Our body's radius, from `create_own` (see `reset`); `RADIUS` until then.
+   * Nothing reads it since hex-cells P2 deleted the push-out it sized: bodies
+   * are drawing only. Kept for the P4 cleanup.
    */
   radius: number = LocalPlayer.RADIUS
   tag: number | undefined
+
+  /**
+   * The way we last walked, unit length, East until the first move: the
+   * direction of the last segment `_step` walked, as server `Unit.facing` is
+   * set by `walkPath`. A walk ends facing along its last step between two
+   * cell centres, so both sides snap it to the same one of six, which is
+   * where a standing dash goes (`dash`).
+   */
+  facingX: number = 1
+  facingY: number = 0
+
+  /**
+   * Route distance still to cover at dash speed. **Mirrors server
+   * `Unit.dashLeft`** and is spent the same way (`_routeBudget`); cleared by
+   * `stop`, `_arrive` and a layer change, kept across a re-route.
+   */
+  dashLeft: number = 0
 
   /** Authoritative-plus-prediction position. What the game logic should believe. */
   x: number = 0
@@ -114,12 +130,22 @@ export class LocalPlayer {
   private _seq: number = 1
   private _lastSample: number = 0
 
-  private readonly _colliders: () => Collider[]
-  private readonly _isBlocked: (q: number, r: number) => boolean
+  /** The last position the server reported for us, for the portal hop (`changeLayer`). */
+  private _serverX: number | undefined
+  private _serverY: number | undefined
 
-  constructor (colliders: () => Collider[], isBlocked: (q: number, r: number) => boolean) {
-    this._colliders = colliders
+  private readonly _isBlocked: (q: number, r: number) => boolean
+  private readonly _portalTo: PortalLookup
+
+  /**
+   * `isBlocked` and `portalTo` answer for the local player's current layer.
+   * There are no colliders any more: nothing pushes the player out of
+   * anything (hex-cells P2), so all prediction needs to know is which cells
+   * are blocked and which are portals.
+   */
+  constructor (isBlocked: (q: number, r: number) => boolean, portalTo: PortalLookup = () => undefined) {
     this._isBlocked = isBlocked
+    this._portalTo = portalTo
   }
 
   /**
@@ -127,7 +153,32 @@ export class LocalPlayer {
    * Derived rather than a constant so it follows the server's own cadence.
    */
   private get _deadZone (): number {
-    return (Session.tickMs / 1000) * this.maxVelocity * LEAD_TICKS
+    const lead = (Session.tickMs / 1000) * this.maxVelocity * LEAD_TICKS
+    return this._sinceDash < this._dashWindow ? lead + LocalPlayer.DASH_GAIN : lead
+  }
+
+  /**
+   * Seconds since the last predicted dash. A dash puts the client a further
+   * `DASH_GAIN` ahead of a server that has not had the press yet, and once
+   * the server has dashed too it is back to the usual lead. Correcting in
+   * between pulled the dash back and then forward again, so the dead zone
+   * widens by the gain for as long as the two can be out of step
+   * (`_dashWindow`).
+   */
+  private _sinceDash: number = Infinity
+
+  /**
+   * How long after a dash the dead zone stays wide: the time the dash's
+   * stretch takes at normal speed, plus the lead the dead zone already allows
+   * for the press to reach the server.
+   */
+  private get _dashWindow (): number {
+    return (LocalPlayer.DASH_CELLS * Hex.SIZE) / this.maxVelocity + (Session.tickMs / 1000) * LEAD_TICKS
+  }
+
+  /** The distance a dash gains over walking: its stretch less the time it saves. */
+  static get DASH_GAIN (): number {
+    return LocalPlayer.DASH_CELLS * Hex.SIZE * (1 - 1 / LocalPlayer.DASH_MULTIPLIER)
   }
 
   get renderX (): number { return this.x + this._offsetX }
@@ -144,6 +195,11 @@ export class LocalPlayer {
     if (radius > 0) this.radius = radius
     this._offsetX = 0
     this._offsetY = 0
+    this._serverX = undefined
+    this._serverY = undefined
+    // A new player faces East until it moves, as server `Unit.facing` does.
+    this.facingX = 1
+    this.facingY = 0
     this.stop()
     this.ready = true
   }
@@ -209,8 +265,96 @@ export class LocalPlayer {
       for (const cell of leg) this.path.push(cell)
       from = waypoint
     }
+    this._endAtPortal()
 
     if (this.path.length === 0) this.waypoints = []
+  }
+
+  /** True if a portal on this cell of our layer would take us to another layer. */
+  private _stopsOn (q: number, r: number): boolean {
+    const to = this._portalTo(q, r)
+    return to !== undefined && to !== this.tag
+  }
+
+  /**
+   * Cut the route after its first portal cell. **Mirrors server
+   * `Unit.endAtPortal`.** The server moves the player to the portal's arrival
+   * cell on the other layer the tick they stand in it; the client does not
+   * predict that, and instead walks to the portal's centre and waits there
+   * for the new tag (`changeLayer`).
+   */
+  private _endAtPortal (): void {
+    for (let i = this.pathIndex; i < this.path.length; i++) {
+      if (this._stopsOn(this.path[i].x, this.path[i].y)) {
+        this.path.length = i + 1
+        return
+      }
+    }
+  }
+
+  /**
+   * A portal has just come into view (`Game.onObjectCreated`): cut the route
+   * we are walking at it, as the server cut its copy when it was planned. Cut
+   * in place rather than re-planned, because a fresh search from where we
+   * stand can pick a different route of the same length than the server's.
+   */
+  portalAppeared (): void {
+    this._endAtPortal()
+  }
+
+  /** The `Hex.DIRECTIONS` index nearest `facing`: server `World.FACING_INDEX`, copied. */
+  get facingIndex (): number {
+    const sixths = Math.atan2(this.facingY, this.facingX) / (Math.PI / 3)
+    const index = Math.floor(sixths + 0.5 + 1e-9)
+    return ((index % 6) + 6) % 6
+  }
+
+  /**
+   * Dash, predicted on the press (decision #34). **Mirrors server
+   * `Unit.dash`**: on a route, the next `DASH_CELLS` cells of it at
+   * `DASH_MULTIPLIER` times the speed; standing, a route of up to
+   * `DASH_CELLS` cells along the facing, stopping before a blocked cell and
+   * at a portal, whose last cell becomes the destination - so the next input
+   * packet asks the server for the same cell and a re-plan cannot undo it.
+   * False, and nothing changes, when a standing dash has nowhere to go; the
+   * server refuses that press too.
+   *
+   * Distance, not time, so the server covers the same stretch of route even
+   * though it gets the press a tick or so later.
+   */
+  dash (): boolean {
+    if (!this.ready) return false
+    if (this.path.length === 0) {
+      const direction = this.facingIndex
+      const cells: Vector[] = []
+      let cell = this.cell
+      for (let i = 0; i < LocalPlayer.DASH_CELLS; i++) {
+        cell = Hex.neighbour(cell, direction)
+        if (this._isBlocked(cell.x, cell.y)) break
+        cells.push(cell)
+        if (this._stopsOn(cell.x, cell.y)) break
+      }
+      if (cells.length === 0) return false
+      this.path = cells
+      this.pathIndex = 0
+      this.waypoints = [cells[cells.length - 1]]
+    }
+    this.dashLeft = LocalPlayer.DASH_CELLS * Hex.SIZE
+    this._sinceDash = 0
+    return true
+  }
+
+  /**
+   * How far along the route we get in `dt`, dash included. **Mirrors server
+   * `Unit.routeBudget`**, and like it is exact however `dt` is sliced, which is
+   * what lets frame-rate prediction match a server walking in whole ticks.
+   */
+  private _routeBudget (dt: number): number {
+    const normal = dt * this.maxVelocity
+    if (this.dashLeft <= 0) return normal
+    const fast = Math.min(this.dashLeft, normal * LocalPlayer.DASH_MULTIPLIER)
+    this.dashLeft -= fast
+    return fast + normal - fast / LocalPlayer.DASH_MULTIPLIER
   }
 
   /** True if any cell still to be walked is this one. */
@@ -232,18 +376,28 @@ export class LocalPlayer {
     this.path = []
     this.pathIndex = 0
     this.waypoints = []
+    this.dashLeft = 0
   }
 
   /**
-   * The server says we are on layer `tag`. Stop if that is a change.
+   * The server says we are on layer `tag`. If that is a change, jump to where
+   * the server put us and stop.
    *
-   * Mirrors server `Unit.changeLayer`, which a portal runs as it moves the
-   * player: a route planned on one layer means nothing on another, so both
-   * sides drop it. The server acts a tick or so before this runs. Nothing is
-   * lost in between: the portal holds us against it on the old layer at the
-   * same spot it put the server's player, and the packets still asking for the
-   * old route are ignored as repeats (`sameCells` in `onPointer`). Emptying the
-   * waypoints makes the next packet a stop, which the server already is.
+   * Mirrors server `Unit.changeLayer`, which a portal hop runs as it moves the
+   * player to the portal's arrival cell (`Player.hopPortal`): a route planned
+   * on one layer means nothing on another, so both sides drop it. The server
+   * acts a tick or so before this runs. Meanwhile the client has walked to the
+   * portal's centre and waited there (`_endAtPortal`), and the packets still
+   * asking for the old route are ignored as repeats (`sameCells` in
+   * `onPointer`). Emptying the waypoints makes the next packet a stop, which
+   * the server already is.
+   *
+   * The arrival cell is one cell from the portal, well inside the dead zone
+   * that `reconcile` leaves alone and far under `SNAP_DISTANCE`, so the
+   * position that came with the tag would otherwise be ignored or eased. A
+   * hop is a teleport: take the server's position as it stands, no easing.
+   * `Game.onObjectUpdated` reconciles a record's position before its tag, so
+   * that position is the one from the same record.
    *
    * Not `_arrive`: a hop is not arriving, and the destination has to go too,
    * or the next packet asks the server to plan it on the new layer.
@@ -251,6 +405,12 @@ export class LocalPlayer {
   changeLayer (tag: number): void {
     if (tag === this.tag) return
     this.tag = tag
+    if (this._serverX !== undefined && this._serverY !== undefined) {
+      this.x = this._serverX
+      this.y = this._serverY
+      this._offsetX = 0
+      this._offsetY = 0
+    }
     this.stop()
   }
 
@@ -273,6 +433,7 @@ export class LocalPlayer {
   private _arrive (): void {
     this.path = []
     this.pathIndex = 0
+    this.dashLeft = 0
   }
 
   /**
@@ -311,6 +472,7 @@ export class LocalPlayer {
   predict (dtSeconds: number): void {
     if (!this.ready) return
 
+    this._sinceDash += dtSeconds
     this._followPath()
 
     const beforeX = this.x
@@ -338,6 +500,9 @@ export class LocalPlayer {
    * disagreement is small, and almost always inside the dead zone.
    */
   reconcile (serverX: number, serverY: number): void {
+    this._serverX = serverX
+    this._serverY = serverY
+
     if (!this.ready) {
       this.x = serverX
       this.y = serverY
@@ -411,25 +576,32 @@ export class LocalPlayer {
   }
 
   /**
-   * Walk the route by one frame's worth of distance, then push out of every
-   * collider sharing our plane and clamp to the map.
+   * Walk the route by one frame's worth of distance (dash included,
+   * `_routeBudget`), then clamp to the map. Nothing pushes the player out of
+   * anything: routes only cross free cells, and nothing else is solid
+   * (hex-cells P2, the same change on the server's `Unit.update`).
    *
    * Mirrors `Unit.walkPath`: leftover distance carries from one cell into the
    * next, and the walk finishes exactly on the last cell's centre. Aiming at the
    * next centre and taking one straight step instead would overshoot every
    * centre by a different amount, so the player came to rest wherever they
    * happened to cross into the final cell - a different point from the server's,
-   * which the correction then slid them across at the end of every walk.
+   * which the correction then slid them across at the end of every walk. Each
+   * segment walked sets the facing, as there.
    */
   private _step (x: number, y: number, dt: number): { x: number, y: number } {
     if (dt <= 0) return { x, y }
 
-    let budget = dt * this.maxVelocity
+    let budget = this.path.length > 0 ? this._routeBudget(dt) : 0
     while (budget > 0 && this.pathIndex < this.path.length) {
       const centre = Hex.toPosition(this.path[this.pathIndex])
       const dx = centre.x - x
       const dy = centre.y - y
       const distance = Math.sqrt(dx * dx + dy * dy)
+      if (distance > 0) {
+        this.facingX = dx / distance
+        this.facingY = dy / distance
+      }
 
       if (distance <= budget) {
         x = centre.x
@@ -445,25 +617,6 @@ export class LocalPlayer {
 
     if (this.path.length > 0 && this.pathIndex >= this.path.length) this._arrive()
 
-    for (const c of this._colliders()) {
-      if (c.tag !== this.tag) continue
-
-      const sumWidth = c.radius + this.radius
-      const cdx = c.x - x
-      const cdy = c.y - y
-      const sqr = cdx * cdx + cdy * cdy
-      if (sqr < sumWidth * sumWidth) {
-        if (sqr > EPSILON) {
-          const magnitude = Math.sqrt(sqr)
-          x = c.x - (sumWidth * cdx) / magnitude
-          y = c.y - (sumWidth * cdy) / magnitude
-        } else {
-          x = c.x - sumWidth
-          y = c.y
-        }
-      }
-    }
-
     const map = Session.mapSize
     if (x < 0) x = 0
     if (x > map) x = map
@@ -473,23 +626,18 @@ export class LocalPlayer {
     return { x, y }
   }
 
-  /**
-   * The object types the local player is pushed out of: obstacles (1) and
-   * portals (1 << 3). Not exits (1 << 6): an exit is a pad a player stands on
-   * to extract, and the server skips it in the push-out for players only
-   * (server `Exit.solidFor`, called from `Unit.update`). Mobs are still pushed
-   * off exits there, but nothing here simulates a mob.
-   *
-   * `Game.onObjectCreated` adds an object to the colliders `_step` reads only
-   * if its type is in this list. `extract.spec.ts` (server) runs this class
-   * against `Unit.update` on the same layout; change the two together.
-   */
-  static SOLID_TYPES: readonly number[] = [1, 1 << 3]
+  /** Dash speed as a multiple of `maxVelocity`. Must match server `Unit.DASH_MULTIPLIER`. */
+  static DASH_MULTIPLIER = 2.5
+
+  /** Cells of route a dash covers. Must match server `Unit.DASH_CELLS`. */
+  static DASH_CELLS = 3
+
+  /** The portal object type, the one `Game.PORTALS` is built from. */
+  static PORTAL_TYPE = 1 << 3
 
   /**
    * The fallback radius until `create_own` says otherwise: peep's body (14,
-   * server `archetypes.ts`). Only used between construction and the first
-   * `reset`, when there is nothing to push out of anyway.
+   * server `archetypes.ts`). Unused since hex-cells P2 (see `radius`).
    */
   static RADIUS = 14
 }

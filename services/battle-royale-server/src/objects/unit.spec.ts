@@ -143,7 +143,8 @@ test('facing starts East, follows every non-zero heading, and survives stop()', 
   assert.ok(Math.abs(unit.facing.y + 1) < 1e-9, 'a zero heading changed the facing')
 
   // A raw assignment of an unnormalised vector still gives a unit-length
-  // facing: Dash scales it straight into an impulse.
+  // facing. (Dash scaled it straight into an impulse until hex-cells P2; it
+  // now snaps it to one of six, `Unit.dashCells`.)
   unit.direction = new Vector(-3, 4)
   assert.ok(Math.abs(unit.facing.getMagnitude() - 1) < 1e-9, 'facing is not unit length')
   assert.ok(Math.abs(unit.facing.x + 0.6) < 1e-9 && Math.abs(unit.facing.y - 0.8) < 1e-9)
@@ -153,4 +154,43 @@ test('the path re-aim keeps facing along the route', () => {
   const unit = unitOn(new Vector(10, 60), cells([9, 60], [8, 60]))
   unit.followPath()
   assert.ok(unit.facing.x < -0.99, 'facing does not point west along the route')
+})
+
+test('a walk ends facing along its last step, not the way it aimed at the start of the tick', () => {
+  // hex-cells P2: walkPath sets facing per segment, so a route that turns in
+  // its last tick ends facing along the last step between two centres, which
+  // is what the client's LocalPlayer ends facing too (a standing dash goes
+  // that way on both sides).
+  const path = cells([11, 60], [11, 61])
+  const unit = unitOn(new Vector(10, 60), path)
+  unit.followPath()
+  const walked = unit.walkPath(unit.position.x, unit.position.y, 2 * Hex.SIZE)
+  unit.position = new Vector(walked.x, walked.y)
+  assert.equal(unit.path.length, 0, 'the route never finished')
+  assert.equal(World.FACING_INDEX(unit.facing), 1, 'not facing SE, the last step')
+})
+
+test('routeBudget: the first dashLeft units go at 2.5x, the rest of the time at 1x, however dt is sliced', () => {
+  const unit = unitOn(new Vector(10, 60), [])
+  unit.maxVelocity = 140
+  unit.dashLeft = 135
+  // One 250 ms tick: 87.5 at dash speed covers the whole tick.
+  assert.equal(unit.routeBudget(0.25), 87.5)
+  // The next: the last 47.5 at 350 u/s take 0.1357 s, then the rest at 140.
+  assert.ok(Math.abs(unit.routeBudget(0.25) - (47.5 + 140 * (0.25 - 47.5 / 350))) < 1e-9)
+  assert.equal(unit.dashLeft, 0)
+  assert.equal(unit.routeBudget(0.25), 35, 'still dashing after the stretch')
+
+  // The same half second in 30 slices comes to the same distance.
+  unit.dashLeft = 135
+  let total = 0
+  for (let i = 0; i < 30; i++) total += unit.routeBudget(0.5 / 30)
+  assert.ok(Math.abs(total - (135 + 140 * (0.5 - 135 / 350))) < 1e-9, `sliced: ${total}`)
+})
+
+test('stop() ends a dash', () => {
+  const unit = unitOn(new Vector(10, 60), cells([11, 60]))
+  unit.dashLeft = 135
+  unit.stop()
+  assert.equal(unit.dashLeft, 0)
 })

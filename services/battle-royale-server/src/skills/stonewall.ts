@@ -39,19 +39,20 @@ export class StoneWall extends Skill {
    *   Skipping is what lets a stone's expiry unblock its cell unconditionally.
    * - **A portal or an exit** (`World.GATES_ON`). Neither is in `BLOCKED` (you
    *   have to walk into them), so `isBlocked` misses them. A stone on one would
-   *   make it unroutable and, via the push-out, unreachable for the wall's
-   *   lifetime.
+   *   make it unroutable for the wall's lifetime.
+   * - **A portal's arrival cell** (`World.isArrival`, hex-cells P2): a player
+   *   coming through would be put down inside the stone.
    * - **A unit standing on it** (`World.UNITS_ON`, live units only) - the
-   *   occupied-cell rule in the hex design
-   *   record: a wall never seals anyone inside terrain. A stone is a rock
-   *   (radius `Hex.RADIUS`, 22.5), so it pushes exactly as a rock would: a
-   *   player (14) on a neighbouring cell's centre is clear of it (36.5 < 45),
-   *   while a grunt (30) or boss (40) there is nudged outward by 7-17 units,
-   *   the same as next to any rock.
+   *   occupied-cell rule in the hex design record: a wall never seals anyone
+   *   inside terrain. Nothing pushes units out of a stone any more.
+   * - **A mob stepping into or out of it** (`World.mobHolds`): its step would
+   *   end inside the stone, since a mob always finishes a step it started.
    */
   static canPlace (cell: Vector, tag: number): boolean {
     if (World.isBlocked(cell.x, cell.y, tag)) return false
     if (World.GATES_ON(cell.x, cell.y, tag).length > 0) return false
+    if (World.isArrival(cell.x, cell.y, tag)) return false
+    if (World.mobHolds(cell.x, cell.y, tag)) return false
     return !World.UNITS_ON(cell.x, cell.y, tag).some((unit) => !unit.destroyed)
   }
 

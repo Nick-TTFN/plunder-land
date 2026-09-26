@@ -7,11 +7,13 @@ import type Buff from '../buffs/buff'
 import { type IAIRoutine } from '../ai/findnearestconsumable'
 import { type Archetype } from '../archetypes/archetypes'
 
-// Below this squared distance two bodies count as coincident and the
-// normalised push-out would divide by zero. Player's mob push-out uses it too.
+// Below this squared magnitude a heading counts as zero (see the `direction` setter).
 export const EPSILON = 1e-9
 
 /**
+ * **Unused since hex-cells P2**: Dash is a route speed now (`dashLeft`), and
+ * nothing sets `impulse`. Deleted with `impulse` in P4. What it was:
+ *
  * Impulse lost per second, applied to the magnitude.
  *
  * Dash duration is simply `impulse magnitude / IMPULSE_FRICTION`. Dash starts at
@@ -51,6 +53,46 @@ export class Unit extends GameObject {
   waypoints: Vector[] = []
 
   /**
+   * Route distance still to be covered at dash speed (decision #34): Dash
+   * sets it to `DASH_CELLS * Hex.SIZE` (135), and `routeBudget` spends it at
+   * `DASH_MULTIPLIER` times the unit's speed. Distance, not time, so the
+   * predicting client and the server cover the same stretch of route even
+   * though the server starts it a tick later. Cleared by `stop()` (arrival, a
+   * layer change, a stop); kept across a re-route.
+   *
+   * **Mirrored by `LocalPlayer.dashLeft`** and its `_routeBudget`;
+   * `extract.spec.ts` walks both through a dash.
+   */
+  dashLeft: number = 0
+
+  /** Dash speed, as a multiple of `maxVelocity` (#34: 2.5, today's peak). */
+  static DASH_MULTIPLIER = 2.5
+  /** Cells of route a dash covers at `DASH_MULTIPLIER` (#34). */
+  static DASH_CELLS = 3
+
+  /**
+   * Where a mob is stepping to, set by its AI every tick (hex-cells P2,
+   * decision #31 Q1): stop within `within` rings of `cell`, one neighbour at a
+   * time (`step`). Undefined means stay. Players never have one; they route.
+   */
+  stepGoal: { cell: Vector, within: number } | undefined
+
+  /**
+   * The step in progress: the cell left and the cell being moved into, both
+   * claimed in `World.STEPS` until the unit reaches `stepTo`'s centre.
+   * Undefined when at rest.
+   */
+  stepFrom: Vector | undefined
+  stepTo: Vector | undefined
+
+  /**
+   * True if the last step decision found no neighbour closer to the goal: the
+   * unit is standing still short of it (a wall, or other mobs, in the way).
+   * The AI reads it to give up on a wander goal.
+   */
+  stepBlocked: boolean = false
+
+  /**
    * The way this unit last moved, kept when it stops. Skills aim along it.
    *
    * `direction` is movement: `stop()` zeroes it, because a unit with a heading
@@ -58,10 +100,14 @@ export class Unit extends GameObject {
    * them as a mine, fired ranged and StoneWall at their own feet, and made Dash
    * do nothing. This is the heading with the stopping taken out (decision #16).
    *
-   * Always unit length, because Dash scales it straight into an impulse. It is
-   * updated by the `direction` setter below, so every write - `setDirection`,
-   * `setDirectionTo`, the path re-aim, the AI routines - keeps it current and
-   * none can forget to. East until the unit first moves (Nick, 2026-09-24).
+   * Always unit length. It is updated by the `direction` setter below, so
+   * every write - `setDirection`, `setDirectionTo`, the path re-aim - keeps
+   * it current and none can forget to, and by `walkPath` and `step`, which set
+   * it to the segment actually walked. So a walk ends facing along its last
+   * step between two cell centres, which is one of the six directions and the
+   * same on the predicting client (`LocalPlayer.facingIndex`): a standing
+   * Dash goes that way on both sides. East until the unit first moves (Nick,
+   * 2026-09-24).
    *
    * On the wire as `facing`, snapped to a `Hex.DIRECTIONS` index (see the
    * setter). Effects carry their own aim; this is for sprites (decision #21).
@@ -270,6 +316,7 @@ export class Unit extends GameObject {
       for (const cell of leg) this.path.push(cell)
       from = waypoint
     }
+    this.endAtPortal()
 
     this.pathIndex = 0
 
@@ -288,7 +335,87 @@ export class Unit extends GameObject {
     this.path = []
     this.pathIndex = 0
     this.waypoints = []
+    this.dashLeft = 0
     this.direction = new Vector(0, 0)
+  }
+
+  /**
+   * True if a route must end on this cell of the unit's layer: a portal that
+   * would take it somewhere else (`Player`). Nothing for other units.
+   */
+  stopsOn (q: number, r: number): boolean {
+    return false
+  }
+
+  /**
+   * Cut the route after its first cell that `stopsOn` (hex-cells P2). A
+   * player entering a portal cell is moved to the portal's arrival cell on
+   * the other layer (`Player.hopPortal`), so nothing past it on this layer can
+   * be walked; ending the route there also means a tick of dash speed can't
+   * carry the player clean across the portal cell without ever standing in it.
+   * **Mirrored by `LocalPlayer._endAtPortal`**: the client walks to the
+   * portal's centre and waits there for the new layer's tag.
+   */
+  endAtPortal (): void {
+    for (let i = 0; i < this.path.length; i++) {
+      if (this.stopsOn(this.path[i].x, this.path[i].y)) {
+        this.path.length = i + 1
+        return
+      }
+    }
+  }
+
+  /**
+   * Start a dash (decision #34). On a route: the next `DASH_CELLS` cells of it
+   * at `DASH_MULTIPLIER` times the speed, or to the route's end if that comes
+   * first. Standing: a route of up to `DASH_CELLS` cells straight along the
+   * facing (snapped to one of the six), stopping before a rock, a stone or the
+   * map's edge, and at a portal; its last cell becomes the destination, so a
+   * re-plan to the old destination cannot undo it. False, and nothing
+   * changes, if a standing dash has no free cell ahead: the skill then spends
+   * no cooldown.
+   *
+   * **Mirrored by `LocalPlayer.dash`**, which the client runs on the press.
+   */
+  dash (): boolean {
+    if (this.path.length === 0) {
+      const cells = this.dashCells()
+      if (cells.length === 0) return false
+      this.path = cells
+      this.pathIndex = 0
+      this.waypoints = [cells[cells.length - 1]]
+    }
+    this.dashLeft = Unit.DASH_CELLS * Hex.SIZE
+    return true
+  }
+
+  /** A standing dash's route: see `dash`. */
+  dashCells (): Vector[] {
+    const direction = World.FACING_INDEX(this.facing)
+    const cells: Vector[] = []
+    let cell = this.cell
+    for (let i = 0; i < Unit.DASH_CELLS; i++) {
+      cell = Hex.neighbour(cell, direction)
+      if (World.isBlocked(cell.x, cell.y, this.tag)) break
+      cells.push(cell)
+      if (this.stopsOn(cell.x, cell.y)) break
+    }
+    return cells
+  }
+
+  /**
+   * How far along its route the unit gets in `dt`: `maxVelocity * dt`, except
+   * that the first `dashLeft` units of it go at `DASH_MULTIPLIER` times that
+   * speed. Spends `dashLeft`. Exact however `dt` is sliced, so a client
+   * predicting at frame rate covers the same distance as the server at tick
+   * rate. **Mirrored by `LocalPlayer._routeBudget`.**
+   */
+  routeBudget (dt: number): number {
+    const normal = dt * this.maxVelocity
+    if (this.dashLeft <= 0) return normal
+    const fast = Math.min(this.dashLeft, normal * Unit.DASH_MULTIPLIER)
+    this.dashLeft -= fast
+    return fast + normal - fast / Unit.DASH_MULTIPLIER
   }
 
   /**
@@ -347,7 +474,8 @@ export class Unit extends GameObject {
    * as a slide at the end of every walk. Landing on the centre makes the resting
    * place the same number on both sides, so there is nothing left to correct.
    *
-   * Returns the new position; the caller still owns push-out and clamping.
+   * Each segment walked sets `facing`, so a walk ends facing along its last
+   * step. Returns the new position; the caller still owns clamping.
    */
   walkPath (x: number, y: number, budget: number): { x: number, y: number } {
     while (budget > 0 && this.pathIndex < this.path.length) {
@@ -355,6 +483,7 @@ export class Unit extends GameObject {
       const dx = centre.x - x
       const dy = centre.y - y
       const distance = Math.sqrt(dx * dx + dy * dy)
+      if (distance > 0) this.facing = new Vector(dx / distance, dy / distance)
 
       if (distance <= budget) {
         x = centre.x
@@ -418,100 +547,38 @@ export class Unit extends GameObject {
 
     if (this.direction == null) return
 
-    // Scalar throughout: this runs once per obstacle per unit per tick, and the
-    // Vector form allocated a throwaway object for every one of those pairs.
     let px = this.position.x
     let py = this.position.y
 
-    if (this.path.length > 0) {
-      // Following a route. `followPath` only corrects the index when something
-      // has shoved us off it; `walkPath` does the moving.
+    // No push-out of any kind (hex-cells P2, decision #31): terrain blocks
+    // cells, units don't. Players route only through unblocked cells and mobs
+    // step only into free ones, so nothing ever needs shoving out of a rock,
+    // a stone, a gate or another unit. The client's `LocalPlayer._step` lost
+    // its push-out in the same change.
+    if (this.stepGoal !== undefined || this.stepTo !== undefined) {
+      // A mob, stepping cell to cell toward its AI's goal.
+      const walked = this.step(px, py, dt * this.maxVelocity)
+      px = walked.x
+      py = walked.y
+    } else if (this.path.length > 0) {
+      // Following a route. `followPath` only re-aims the index; `walkPath`
+      // does the moving, at dash speed for the first `dashLeft` of it.
       this.followPath()
 
       if (this.path.length > 0) {
-        // Impulse becomes extra distance rather than a sideways push, so a dash
-        // travels further along the route instead of off it. Dash is due to
-        // become a speed multiplier outright, which is what this already is.
-        const budget = dt * this.maxVelocity * (1 + this.impulse.getMagnitude())
-        const walked = this.walkPath(px, py, budget)
+        const walked = this.walkPath(px, py, this.routeBudget(dt))
         px = walked.x
         py = walked.y
       }
     } else {
-      // No route: steered directly by an AI routine, or standing still.
-      //
-      // The impulse applies either way. It used to be inside the heading check,
-      // which was harmless while Dash aimed along `direction` - a stopped unit
-      // got a zero impulse anyway. Now it aims along `facing`, and a standing
-      // Dash is meant to go somewhere.
+      // No route and no step: a bare unit a spec steers by `direction`, or
+      // standing still. No AI steers this way since P2.
       const step = dt * this.maxVelocity
       const dirSq = this.direction.x * this.direction.x + this.direction.y * this.direction.y
       if (dirSq > 0) {
         const inv = 1 / Math.sqrt(dirSq)
         px += this.direction.x * inv * step
         py += this.direction.y * inv * step
-      }
-      // Behind its own non-zero check like the heading: a unit that never had
-      // `maxVelocity` set has a NaN step, and `0 * NaN` would write NaN into
-      // the position of a unit that is not moving at all.
-      if (this.impulse.x !== 0 || this.impulse.y !== 0) {
-        px += this.impulse.x * step
-        py += this.impulse.y * step
-      }
-    }
-
-    for (const obstacle of World.OBSTACLES) {
-      if (obstacle.tag !== this.tag) continue
-      // Projectiles are not in this list (World.PROJECTILES): they are not
-      // solid, and pushing out of one is what detonated every fireball and
-      // icicle on the unit that threw it. The client's collider set (game.ts)
-      // never included them either.
-      //
-      // An exit is a pad a player stands on, not a wall (Exit.solidFor). The
-      // client's `LocalPlayer._step` skips it the same way, by never having it
-      // among its colliders; change one and the other must follow.
-      if (!obstacle.solidFor(this)) continue
-
-      const sumWidth = obstacle.radius + this.radius
-      const dx = obstacle.position.x - px
-      const dy = obstacle.position.y - py
-      const sqr = dx * dx + dy * dy
-      if (sqr < sumWidth * sumWidth) {
-        if (sqr > EPSILON) {
-          const magnitude = Math.sqrt(sqr)
-          px = obstacle.position.x - (sumWidth * dx) / magnitude
-          py = obstacle.position.y - (sumWidth * dy) / magnitude
-        } else {
-          // Coincident centres: the normalised push-out is 0/0. Pick an axis
-          // rather than writing NaN into the position, which is unrecoverable.
-          px = obstacle.position.x - sumWidth
-          py = obstacle.position.y
-        }
-
-        obstacle.onCollide(this)
-      }
-    }
-
-    for (const obj of World.PLAYERS) {
-      if ((obj as Unit) === this) continue
-
-      if (obj.tag !== this.tag) continue
-
-      const sumWidth = obj.radius + this.radius
-      const dx = obj.position.x - px
-      const dy = obj.position.y - py
-      const sqr = dx * dx + dy * dy
-      if (sqr < sumWidth * sumWidth) {
-        this.onCollideWithPlayer(obj)
-
-        if (sqr > EPSILON) {
-          const magnitude = Math.sqrt(sqr)
-          px = obj.position.x - (sumWidth * dx) / magnitude
-          py = obj.position.y - (sumWidth * dy) / magnitude
-        } else {
-          px = obj.position.x - sumWidth
-          py = obj.position.y
-        }
       }
     }
 
@@ -534,22 +601,98 @@ export class Unit extends GameObject {
     py = py < 0 ? 0 : py
     py = py > World.mapSize ? World.mapSize : py
 
-    const sqMagnitude = this.impulse.getSquareMagnitude()
-    if (sqMagnitude > EPSILON) {
-      const magnitude = Math.sqrt(sqMagnitude)
-      const remaining = magnitude - dt * IMPULSE_FRICTION
-      // Scale towards zero so the direction is preserved and the duration is the
-      // same whichever way the dash points.
-      this.impulse = remaining > 0
-        ? this.impulse.multiply(remaining / magnitude)
-        : new Vector(0, 0)
-    }
-
     if (this.position.x !== px || this.position.y !== py) {
       this.position = new Vector(px, py)
     }
 
     super.update(dt)
+  }
+
+  /**
+   * Move a mob up to `budget` units by cell steps (decision #31 Q1), carrying
+   * what is left at a centre into the next step so it keeps its speed. At a
+   * centre it asks `chooseStep` for the next cell, claims that cell and the
+   * one it is leaving (`World.claimStep`: "holds both cells"), and walks
+   * straight to the new centre; both claims go when it gets there, and from
+   * then on the index holds the cell it stands on. It always finishes a step
+   * it has started, even if its goal changes: the claim is what keeps two
+   * mobs out of one cell, and it is only released on arrival.
+   */
+  step (x: number, y: number, budget: number): { x: number, y: number } {
+    this.stepBlocked = false
+    while (budget > 0) {
+      if (this.stepTo === undefined) {
+        const next = this.chooseStep(x, y)
+        if (next === undefined) break
+        this.stepFrom = Hex.toCell(new Vector(x, y))
+        this.stepTo = next
+        World.claimStep(this, this.stepFrom, next)
+      }
+
+      const centre = Hex.toPosition(this.stepTo)
+      const dx = centre.x - x
+      const dy = centre.y - y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      if (distance > 0) this.facing = new Vector(dx / distance, dy / distance)
+
+      if (distance <= budget) {
+        x = centre.x
+        y = centre.y
+        budget -= distance
+        World.releaseStep(this)
+        this.stepFrom = undefined
+        this.stepTo = undefined
+      } else {
+        x += (dx / distance) * budget
+        y += (dy / distance) * budget
+        budget = 0
+      }
+    }
+    return { x, y }
+  }
+
+  /**
+   * The next cell for a mob standing at (x, y), or undefined to stay.
+   *
+   * Stay when there is no goal, or the goal is within `within` rings.
+   * Otherwise, of the six neighbours a mob may enter (`World.mobCanEnter`:
+   * not blocked, not a gate or arrival cell, not held by another mob), the one
+   * nearest the goal by `Hex.distance`, ties to the lowest `Hex.DIRECTIONS`
+   * index; and stay if none is nearer than where it stands, which is what
+   * keeps a mob with a wall between it and its target still instead of
+   * rocking between two cells. A mob off its cell's centre (only specs build
+   * one) first walks to that centre.
+   *
+   * Greedy on purpose (#31 Q1). If mobs get stuck behind walls in play, the
+   * upgrade is a breadth-first search to the goal over the same `mobCanEnter`
+   * cells, run at a centre, taking the first cell of the route (`Path.find`
+   * with `mobCanEnter` as the passability test) - rejected for now as a
+   * search per mob per step.
+   */
+  private chooseStep (x: number, y: number): Vector | undefined {
+    const goal = this.stepGoal
+    if (goal === undefined) return undefined
+
+    const here = Hex.toCell(new Vector(x, y))
+    const centre = Hex.toPosition(here)
+    if (Math.abs(centre.x - x) > EPSILON || Math.abs(centre.y - y) > EPSILON) return here
+
+    const now = Hex.distance(here, goal.cell)
+    if (now <= goal.within) return undefined
+
+    let best: Vector | undefined
+    let bestDistance = now
+    for (let i = 0; i < Hex.DIRECTIONS.length; i++) {
+      const cell = Hex.neighbour(here, i)
+      if (!World.mobCanEnter(cell.x, cell.y, this)) continue
+      const distance = Hex.distance(cell, goal.cell)
+      if (distance < bestDistance) {
+        best = cell
+        bestDistance = distance
+      }
+    }
+    if (best === undefined) this.stepBlocked = true
+    return best
   }
 
   maxHP (): number {
@@ -608,6 +751,7 @@ export class Unit extends GameObject {
     return false
   }
 
+  /** A player is within this unit's contact range (`Mob.touch`). Nothing for most units. */
   onCollideWithPlayer (target: GameObject): void {}
 
   addBuff (value: Buff): void {

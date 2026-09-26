@@ -152,7 +152,9 @@ test('gunner: closes on a target, then holds at 5 cells and never touches', (t) 
   // It stops on the first tick that ends 5 cells from the target.
   assert.equal(rings(), 5, 'holding at the wrong distance')
   assert.equal(nearest, 5, `came as close as ${nearest} cells`)
-  assert.equal(gunner.direction.getSquareMagnitude(), 0, 'still moving while inside the standoff')
+  // hex-cells P2: it steps by cells now and no longer steers by `direction`,
+  // so "still moving" is a step in progress.
+  assert.equal(gunner.stepTo, undefined, 'still moving while inside the standoff')
 })
 
 test('gunner: a target that walks away is followed again', (t) => {
@@ -161,11 +163,12 @@ test('gunner: a target that walks away is followed again', (t) => {
   const player = addPlayer(HOME.add(new Vector(200, 0)))
   gunner.update(DT)
   assert.equal(gunner.target, player)
-  assert.equal(gunner.direction.getSquareMagnitude(), 0, 'closed in from inside the standoff')
+  assert.deepEqual(gunner.position, HOME, 'closed in from inside the standoff')
 
   player.position = gunner.position.add(new Vector(260, 0))
   gunner.update(DT)
-  assert.ok(gunner.direction.x > 0.99, 'did not follow a target outside the standoff')
+  assert.ok(gunner.position.x > HOME.x && gunner.stepTo !== undefined, 'did not follow a target outside the standoff')
+  assert.ok(gunner.facing.x > 0.99, 'did not step toward it')
 })
 
 // --- withinCells ------------------------------------------------------------------
@@ -254,9 +257,8 @@ test('gunner: touching a player deals nothing, arms no cooldown and calls no hit
   assert.equal(hits.mock.callCount(), 0, 'hit() was called on touch')
   assert.equal(gunner.canAttack, true, 'a contact cooldown was armed')
   assert.equal(Timers.size, 0, 'a timer was scheduled')
-  // Still solid: the two bodies are pushed apart.
-  const spacing = player.position.sub(gunner.position).getMagnitude()
-  assert.ok(Math.abs(spacing - (24 + 14)) < 1e-9, `spacing ${spacing}`)
+  // hex-cells P2: nothing is pushed apart any more; it was held at 24 + 14.
+  assert.deepEqual(player.position, HOME.add(new Vector(20, 0)), 'the player was moved')
 })
 
 test('gunner: a player at 0 hp that it touches is not killed or credited by the touch', (t) => {

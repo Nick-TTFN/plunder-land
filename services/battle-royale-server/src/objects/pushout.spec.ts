@@ -6,18 +6,21 @@ import Multiplayer from '../network/multiplayer'
 import World from './world'
 import Timers from './timers'
 import Obstacle from './obstacle'
+import Exit from './exit'
 import Mob from './mob'
 import Player from './player'
 import { ARCHETYPES } from '../archetypes/archetypes'
 
 /**
- * `player-mob-nan`: a unit standing on exactly the centre of something solid.
+ * Push-out is gone (hex-cells P2, decision #31): terrain blocks cells, units
+ * don't. Players route only through free cells and mobs step only into free
+ * ones, so nothing is ever shoved out of a rock, a gate or another unit.
  *
- * Every push-out normalises the vector between the two centres, and on the
- * same point that is 0/0. A NaN position never recovers: every later push-out,
- * clamp and distance test compares false against it. Both sides of a pair walk
- * to cell centres, so coincident centres are an ordinary event, not a freak:
- * a 200-bot run hit the mob case twice in five minutes.
+ * This file pinned the push-outs' coincident-centre case (`player-mob-nan`: a
+ * 0/0 normalisation writing NaN into a position). With no push-out there is
+ * no normalisation to divide by zero; these check that units sharing a point
+ * stay where they are, finite, and that nothing moves a unit that is standing
+ * still.
  */
 
 const DT = 0.25
@@ -39,41 +42,39 @@ beforeEach(() => {
   Timers.clear()
 })
 
-function assertPushedClear (player: Player, other: { position: { x: number, y: number }, radius: number }): void {
-  const { x, y } = player.position
-  assert.ok(Number.isFinite(x) && Number.isFinite(y), `position is (${x}, ${y})`)
-  const distance = Math.hypot(x - other.position.x, y - other.position.y)
-  // Pushed to touching, not left overlapping and not flung somewhere else.
-  assert.ok(Math.abs(distance - (player.radius + other.radius)) < 1e-6, `ended ${distance} from its centre`)
+function assertStayed (unit: { position: { x: number, y: number } }, x: number, y: number): void {
+  const at = unit.position
+  assert.ok(Number.isFinite(at.x) && Number.isFinite(at.y), `position is (${at.x}, ${at.y})`)
+  assert.deepEqual([at.x, at.y], [x, y], 'something moved a unit that was standing still')
 }
 
-test('a player on exactly a mob\'s point is pushed clear, not to NaN', () => {
+test('a player on exactly a mob\'s point stays there: players may share a cell with a mob', () => {
   const player = new Player(1000, 1000, TOP, 'p1')
   World.PLAYERS.push(player)
   const mob = new Mob(1000, 1000, TOP, ARCHETYPES.gunner)
+  mob.routines.length = 0
   World.MOBS.push(mob)
 
   player.update(DT)
+  mob.update(DT)
 
-  assertPushedClear(player, mob)
+  assertStayed(player, 1000, 1000)
+  assertStayed(mob, 1000, 1000)
 })
 
-test('the coincident mob push-out goes along -x, as Unit.update\'s do', () => {
-  // A fixed axis rather than a random one, so the answer is the same every
-  // run and matches the obstacle and player push-outs in Unit.update.
+test('a player on exactly another player\'s point stays there: players may stack', () => {
+  const other = new Player(1000, 1000, TOP, 'p2')
   const player = new Player(1000, 1000, TOP, 'p1')
-  World.PLAYERS.push(player)
-  const mob = new Mob(1000, 1000, TOP, ARCHETYPES.gunner)
-  World.MOBS.push(mob)
+  World.PLAYERS.push(other, player)
 
   player.update(DT)
+  other.update(DT)
 
-  assert.deepEqual(
-    { x: player.position.x, y: player.position.y },
-    { x: 1000 - (mob.radius + player.radius), y: 1000 })
+  assertStayed(player, 1000, 1000)
+  assertStayed(other, 1000, 1000)
 })
 
-test('a player on exactly a rock\'s centre is pushed clear, not to NaN', () => {
+test('a player on a rock\'s centre is not moved by it (it could only get there by being put there)', () => {
   // Obstacle snaps to its cell's centre, so stand on wherever it landed.
   const rock = new Obstacle(1000, 1000, TOP)
   World.OBSTACLES.push(rock)
@@ -82,28 +83,16 @@ test('a player on exactly a rock\'s centre is pushed clear, not to NaN', () => {
 
   player.update(DT)
 
-  assertPushedClear(player, rock)
+  assertStayed(player, rock.position.x, rock.position.y)
 })
 
-test('a player on exactly another player\'s point is pushed clear, not to NaN', () => {
-  const other = new Player(1000, 1000, TOP, 'p2')
-  const player = new Player(1000, 1000, TOP, 'p1')
-  World.PLAYERS.push(other, player)
+test('a player standing on an exit off its centre is not pushed anywhere', () => {
+  const exit = new Exit(1000, 1000, TOP)
+  World.OBSTACLES.push(exit)
+  const player = new Player(1005, 1000, TOP, 'p1')
+  World.PLAYERS.push(player)
 
   player.update(DT)
 
-  assertPushedClear(player, other)
-})
-
-test('a mob on exactly a player\'s point is pushed clear, not to NaN', () => {
-  // The other half of the mob pair: Unit.update's player push-out, run by the mob.
-  const player = new Player(1000, 1000, TOP, 'p1')
-  World.PLAYERS.push(player)
-  const mob = new Mob(1000, 1000, TOP, ARCHETYPES.gunner)
-  World.MOBS.push(mob)
-
-  mob.update(DT)
-
-  const { x, y } = mob.position
-  assert.ok(Number.isFinite(x) && Number.isFinite(y), `position is (${x}, ${y})`)
+  assertStayed(player, 1005, 1000)
 })

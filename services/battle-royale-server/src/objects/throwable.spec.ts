@@ -278,12 +278,16 @@ for (const dq of [-3, 3]) {
 }
 
 test('Dash from a player who has never moved goes East', () => {
-  const player = playerAt(1000, 2000)
+  // On a cell centre since hex-cells P2: a standing dash is a route of cell
+  // centres (decision #34), so from (1000, 2000), which is not one, its first
+  // step went to the centre of the next cell east and moved y.
+  const start = Hex.toPosition(Hex.toCell(new Vector(1000, 2000)))
+  const player = playerAt(start.x, start.y)
   assert.equal(new Dash(player).execute(), true, 'dash refused to cast')
   for (let i = 0; i < 4; i++) tick()
 
-  assert.ok(player.position.x > 1000 + Hex.SIZE, `dashed only to x=${player.position.x.toFixed(1)}`)
-  assert.equal(player.position.y, 2000)
+  assert.ok(player.position.x > start.x + Hex.SIZE, `dashed only to x=${player.position.x.toFixed(1)}`)
+  assert.equal(player.position.y, start.y)
 })
 
 test('RangedAttack from a stopped player hits along their last facing, not behind', () => {

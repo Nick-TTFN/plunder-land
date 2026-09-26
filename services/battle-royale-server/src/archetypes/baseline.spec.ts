@@ -355,8 +355,13 @@ function pinGuard (t: TestContext, make: (x: number, y: number) => Unit): void {
 }
 
 /**
- * A unit next to a player on one update: the contact hit, the spacing it is
- * pushed out to, and the cooldown before the next hit.
+ * A unit next to a player on one update: the contact hit, the range it lands
+ * at, and the cooldown before the next hit.
+ *
+ * hex-cells P2, deliberate (decision #32, Nick's OK): contact is within 1 ring
+ * of the player (`Mob.CONTACT_RINGS`), and nothing is pushed apart. This
+ * pinned the bodies overlapping, and the player pushed out to exactly
+ * radius + radius from the mob.
  */
 function pinContact (t: TestContext, make: (x: number, y: number) => Unit, damage: number): void {
   mockDate(t)
@@ -368,8 +373,8 @@ function pinContact (t: TestContext, make: (x: number, y: number) => Unit, damag
 
   mob.update(DT)
   assert.equal(player.hp, 100 - damage, 'first contact hit')
-  const spacing = player.position.sub(mob.position).getMagnitude()
-  assert.ok(Math.abs(spacing - (mob.radius + player.radius)) < 1e-9, `spacing ${spacing}`)
+  const rings = Hex.distance(mob.cell, player.cell)
+  assert.ok(rings <= 1, `hit from ${rings} rings`)
 
   advance(t, 999)
   mob.update(DT)
@@ -408,7 +413,7 @@ test('grunt: guard behaviour (acquire 4 rings, lose 5 rings, speeds 30/100, refr
   pinGuard(t, makeGrunt)
 })
 
-test('grunt: contact damage 10, cooldown 1000 ms, spacing radius + radius', (t) => {
+test('grunt: contact damage 10, cooldown 1000 ms, within 1 ring', (t) => {
   pinContact(t, makeGrunt, 10)
 })
 
@@ -473,7 +478,7 @@ test('boss: guard behaviour (acquire 4 rings, lose 5 rings, speeds 30/100, refre
   pinGuard(t, makeBoss)
 })
 
-test('boss: contact damage 30, cooldown 1000 ms, spacing radius + radius', (t) => {
+test('boss: contact damage 30, cooldown 1000 ms, within 1 ring', (t) => {
   pinContact(t, makeBoss, 30)
 })
 

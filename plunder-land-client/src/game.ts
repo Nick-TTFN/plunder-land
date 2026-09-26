@@ -40,7 +40,7 @@ import { type Socket } from 'socket.io-client'
 import { type PopupManager } from './ui/popups/popupmanager'
 import { Exit } from './objects/exit'
 import { Session } from './net/session'
-import { LocalPlayer, type Collider } from './net/localplayer'
+import { LocalPlayer } from './net/localplayer'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 
 /** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
@@ -75,12 +75,22 @@ export class Game extends Container {
   static loader: any
 
   /**
-   * Colliders the local prediction has to respect: whatever in the server's
-   * OBSTACLES list pushes a player out, which is rocks and portals but not
-   * exits (`LocalPlayer.SOLID_TYPES`). Missing one, prediction walks through it
-   * and snaps back; holding an exit, it stops short of the pad's centre.
+   * Portals per plane: `Hex.key` of the portal's cell to the tag it leads to.
+   * Local prediction ends a route on a portal's cell and waits there for the
+   * server's hop (`LocalPlayer._endAtPortal`), as the server ends it
+   * (`Unit.endAtPortal`). Missing one, prediction walks on past a portal the
+   * server has already taken the player through.
+   *
+   * It replaced `COLLIDERS` in hex-cells P2: nothing pushes the player out of
+   * anything any more, so rocks matter only as blocked cells (`BLOCKED`) and
+   * portals only as cells.
    */
-  static COLLIDERS: Collider[] = []
+  static PORTALS: Map<number, Map<number, number>> = new Map()
+
+  static portalTo (q: number, r: number, tag: number | undefined): number | undefined {
+    if (tag === undefined) return undefined
+    return Game.PORTALS.get(tag)?.get(Hex.key(q, r))
+  }
 
   /**
    * Blocked cells per plane, mirroring `World.BLOCKED` on the server.
@@ -123,8 +133,8 @@ export class Game extends Container {
 
   /** The locally simulated player. Never fed through onObjectUpdated. */
   static LOCAL: LocalPlayer = new LocalPlayer(
-    () => Game.COLLIDERS,
-    (q, r) => Game.isBlocked(q, r, Game.LOCAL.tag)
+    (q, r) => Game.isBlocked(q, r, Game.LOCAL.tag),
+    (q, r) => Game.portalTo(q, r, Game.LOCAL.tag)
   )
 
   constructor () {
@@ -195,7 +205,7 @@ export class Game extends Container {
     // is standing on, and a portal moves them between planes mid-run.
     this.pathMarker = new PathMarker()
 
-    Game.COLLIDERS = []
+    Game.PORTALS = new Map()
     this.LOOKUP = {}
     Session.reset()
 
@@ -600,15 +610,22 @@ export class Game extends Container {
       obj.DEBUG_DRAW_COLLIDER()
     }
 
-    // Obstacles and portals push the player out, so local prediction has to
-    // know about them. Exits sit in the server's OBSTACLES list too, but a
-    // player walks onto one to extract (LocalPlayer.SOLID_TYPES).
-    if (LocalPlayer.SOLID_TYPES.includes(data.type)) {
-      Game.COLLIDERS.push(obj as unknown as Collider)
+    // A portal ends a route on its cell (Game.PORTALS).
+    if (data.type === LocalPlayer.PORTAL_TYPE && data.position !== undefined && data.tag !== undefined) {
+      const cell = Hex.toCell(new Vector(data.position.x, data.position.y))
+      let cells = Game.PORTALS.get(data.tag)
+      if (cells === undefined) {
+        cells = new Map()
+        Game.PORTALS.set(data.tag, cells)
+      }
+      cells.set(Hex.key(cell.x, cell.y), data.to)
+      // A route planned before this portal was in view runs on through it on
+      // the client and ends on it on the server (which knows every portal).
+      if (Game.LOCAL.tag === data.tag && Game.LOCAL.pathCrosses(cell.x, cell.y)) Game.LOCAL.portalAppeared()
     }
 
-    // Only obstacles block a cell. Portals and exits push units out but are
-    // places you walk into on purpose, so routing through them has to stay legal.
+    // Only obstacles block a cell. Portals and exits are places you walk into
+    // on purpose, so routing through them has to stay legal.
     if (data.type === 1 && data.position !== undefined) {
       const cell = Hex.toCell(new Vector(data.position.x, data.position.y))
       Game.block(cell.x, cell.y, data.tag)
@@ -845,8 +862,11 @@ export class Game extends Container {
 
     const obj = this.LOOKUP[data.id]
     if (obj !== undefined) {
-      const collider = Game.COLLIDERS.indexOf(obj as unknown as Collider)
-      if (collider >= 0) Game.COLLIDERS.splice(collider, 1)
+      // Portals never go in play, but a route must not end on one that has.
+      if (obj instanceof Portal && obj.tag !== undefined) {
+        const cell = Hex.toCell(new Vector(obj.x, obj.y))
+        Game.PORTALS.get(obj.tag)?.delete(Hex.key(cell.x, cell.y))
+      }
 
       // instanceof rather than a type code: `LOOKUP` is typed as GameObject, so
       // reading `.type` off it adds to the documented pile of unsafe accesses in

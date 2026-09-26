@@ -9,14 +9,15 @@ import Portal from './portal'
 import Exit from './exit'
 import Obstacle from './obstacle'
 import { type GameObject } from './gameobject'
-import { ARCHETYPES, LAYERS, type LayerSpec } from '../archetypes/archetypes'
+import { LAYERS, type LayerSpec } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
 /**
- * `gate-hygiene`: rocks stay off gates, and the spacing between gates follows
- * the largest robot. (The third part, a portal hop ending the route on both
- * sides, is in extract.spec.ts beside the client mirror it needs.)
+ * `gate-hygiene`: rocks stay off gates and portal arrival cells, and gates
+ * keep `GATE_SPACING` rings apart. (The third part, a portal hop ending the
+ * route on both sides, is in extract.spec.ts beside the client mirror it
+ * needs.)
  */
 
 beforeEach(() => {
@@ -39,37 +40,37 @@ function reset (): void {
   Timers.clear()
 }
 
-const robots = Object.values(ARCHETYPES).filter((a) => a.kind === 'robot')
-
 // --- GATE_SPACING -----------------------------------------------------------------
 
-test('GATE_SPACING is derived from the largest robot body in the table', () => {
-  const largest = Math.max(...robots.map((a) => a.body))
-  assert.equal(World.MAX_ROBOT_BODY, largest)
-  assert.equal(World.GATE_SPACING, 2 * (Portal.RADIUS + largest) + World.GATE_MARGIN)
-  // Mobs are bigger (the boss is 40) and must not count: portals move players only.
-  assert.ok(Math.max(...Object.values(ARCHETYPES).map((a) => a.body)) > largest, 'the table changed: re-read this test')
+test('GATE_SPACING is 4 rings and GATE_ROCK_RINGS 2, as constants (decision #34)', () => {
+  // Both were derived from push-out radii (Portal.RADIUS, the largest robot
+  // body) until hex-cells P2 deleted push-out. 4 rings is what the old 150
+  // units came to on cell centres; the keep-out came to 2 then too.
+  assert.equal(World.GATE_SPACING, 4)
+  assert.equal(World.GATE_ROCK_RINGS, 2)
 })
 
-test('today\'s table keeps today\'s spacing, 150', () => {
-  // If a new robot moves this, that is the derivation working: update the
-  // number here and in CLAUDE.md's layers paragraph.
-  assert.equal(World.GATE_SPACING, 150)
+test('every portal\'s arrival cell is on the map, and no gate is on it or next to it on the layer it leads to, over 20 random worlds', () => {
+  let portals = 0
+  for (let w = 0; w < 20; w++) {
+    reset()
+    // eslint-disable-next-line no-new
+    new World(4000)
+    const gates = World.OBSTACLES.filter(isGate)
+    for (const portal of gates.filter((g): g is Portal => g instanceof Portal)) {
+      portals++
+      const arrival = World.arrivalOf(Hex.toCell(portal.position))
+      assert.ok(Hex.onMap(arrival.x, arrival.y, World.mapSize), 'an arrival cell is off the map')
+      assert.equal(World.isArrival(arrival.x, arrival.y, portal.to), true)
+      for (const gate of gates) {
+        if (gate.tag !== portal.to) continue
+        const d = Hex.distance(Hex.toCell(gate.position), arrival)
+        assert.ok(d >= 2, `a gate ${d} ring(s) from a portal's arrival cell on layer ${portal.to}`)
+      }
+    }
+  }
+  assert.ok(portals >= 20 * 25, `only ${portals} portals placed`)
 })
-
-for (const robot of robots) {
-  test(`GATE_SPACING holds for a ${robot.key} (body ${robot.body})`, () => {
-    // Where a portal puts it down, from the portal's centre.
-    const arrival = Portal.RADIUS + robot.body
-    // Another portal a player could meet there must not catch them on arrival.
-    assert.ok(World.GATE_SPACING - arrival >= Portal.RADIUS + robot.body,
-      `lands ${World.GATE_SPACING - arrival} from the next portal, which reaches ${Portal.RADIUS + robot.body}`)
-    // No exit's cell (no cell reaches past Hex.SIZE from its centre) contains
-    // the arrival spot, and nothing standing on an exit's cell touches a portal.
-    assert.ok(World.GATE_SPACING - arrival > Hex.SIZE,
-      `lands ${World.GATE_SPACING - arrival} from an exit, inside its cell`)
-  })
-}
 
 // --- rocks off gates --------------------------------------------------------------
 
@@ -145,12 +146,6 @@ test('no rock lands on a gate, or within GATE_ROCK_RINGS of one, over 10,000 ref
   assert.ok(placed >= 10_000 + WORLDS * 3 * 136 - WORLDS, `only ${placed} rocks checked`)
 })
 
-test('today\'s table keeps rocks two rings from a gate', () => {
-  // The derivation (World.GATE_ROCK_RINGS) for a peep: 50 + 14 + 14 + 22.5 =
-  // 100.5 is past two steps (78) and inside three (119).
-  assert.equal(World.GATE_ROCK_RINGS, 2)
-})
-
 test('the keep-out covers a portal\'s landing spot on the layer it leads to', () => {
   const rings = World.GATE_ROCK_RINGS
   const disc = 1 + 3 * rings * (rings + 1)
@@ -171,29 +166,17 @@ test('the keep-out covers a portal\'s landing spot on the layer it leads to', ()
   assert.equal(World.gateKeepOut(LAYERS[1].tag).size, disc)
 })
 
-for (const robot of robots) {
-  test(`a ${robot.key} held against a portal, or put down by one, never overlaps a rock the refill could place`, () => {
-    // Brute force rather than the ring arithmetic World uses: walk the circle
-    // a player stands on (Portal.RADIUS + body from the portal's centre) and
-    // find every cell whose rock collider (Hex.RADIUS) would reach them.
-    const gate = new Vector(40, 40)
-    const centre = Hex.toPosition(gate)
-    const arrival = Portal.RADIUS + robot.body
-    const touch = Hex.RADIUS + robot.body
-    let furthest = 0
-    for (let step = 0; step < 720; step++) {
-      const angle = (step / 720) * 2 * Math.PI
-      const spot = new Vector(centre.x + arrival * Math.cos(angle), centre.y + arrival * Math.sin(angle))
-      const near = Hex.toCell(spot)
-      for (let dq = -4; dq <= 4; dq++) {
-        for (let dr = -4; dr <= 4; dr++) {
-          const cell = new Vector(near.x + dq, near.y + dr)
-          if (Hex.toPosition(cell).sub(spot).getMagnitude() >= touch) continue
-          furthest = Math.max(furthest, Hex.distance(cell, gate))
-        }
-      }
-    }
-    assert.ok(furthest <= World.GATE_ROCK_RINGS,
-      `a rock ${furthest} steps from the portal reaches a ${robot.body} body; the keep-out is ${World.GATE_ROCK_RINGS}`)
-  })
-}
+test('the keep-out covers a portal\'s arrival cell and every neighbour of it, on the layer it leads to', () => {
+  // A player put down by a portal must not land in a rock, and must be able
+  // to walk off in any direction (#34). Brute force over the cells rather
+  // than the ring arithmetic World uses.
+  const cell = new Vector(40, 40)
+  const at = Hex.toPosition(cell)
+  World.OBSTACLES.push(new Portal(at.x, at.y, LAYERS[1].tag, LAYERS[0].tag))
+  const keepOut = World.gateKeepOut(LAYERS[1].tag)
+  const arrival = World.arrivalOf(cell)
+  const around = [arrival, ...Hex.DIRECTIONS.map((_, i) => Hex.neighbour(arrival, i))]
+  for (const c of around) {
+    assert.ok(keepOut.has(Hex.key(c.x, c.y)), `(${c.x}, ${c.y}) by the arrival cell is not kept clear`)
+  }
+})

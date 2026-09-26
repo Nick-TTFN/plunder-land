@@ -372,16 +372,6 @@ export class GameObject {
 
   onCollide (target) { }
 
-  /**
-   * Whether `unit` is pushed out of this, for things in `World.OBSTACLES`.
-   * Everything there is solid to everyone except an exit to a player (Exit):
-   * the exit pad is a zone a player stands on to extract. The client's half is
-   * `LocalPlayer.SOLID_TYPES`, and `extract.spec.ts` holds the two together.
-   */
-  solidFor (unit: GameObject): boolean {
-    return true
-  }
-
   serialise (fields: Set<string>) {
     if (!fields?.size) return null
 

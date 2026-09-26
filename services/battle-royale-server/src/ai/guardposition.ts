@@ -5,6 +5,7 @@ import { Hex } from '../utils/hex'
 import { type IAIRoutine } from './findnearestconsumable'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
+import Mob from '../objects/mob'
 import { type GuardSpec } from '../archetypes/archetypes'
 
 /**
@@ -13,9 +14,12 @@ import { type GuardSpec } from '../archetypes/archetypes'
  * **Every range is in rings** (hex-cells P1, decisions #31 and #32): `h` is
  * `Hex.distance` between the mob's cell and the player's, and each test
  * includes its boundary. Noticed at `h <= acquire`, kept while
- * `h <= loseRings`, held off at `h <= standoff` (0 = never), and an idle mob
- * walks to the centre of a random free cell within `wander` rings of home.
- * Contact damage is not here: it stays on the bodies' overlap in P1 (#32).
+ * `h <= loseRings`, the chase stops at `h <= chaseStop`, and an idle mob
+ * walks to a random free cell within `wander` rings of home.
+ *
+ * It moves nothing itself: it sets `owner.stepGoal` every tick, and the unit
+ * steps cell by cell toward it (`Unit.step`, hex-cells P2). Contact damage is
+ * `Mob.touch`.
  */
 export default class GuardPosition implements IAIRoutine {
   /** This unit's parameters, from its archetype (acquire, lose, speeds, wander, refresh). */
@@ -23,7 +27,7 @@ export default class GuardPosition implements IAIRoutine {
   homePosition: Vector
   targetAquiredAt: number
   owner: Unit
-  /** The wander goal: a cell centre, or undefined between goals. */
+  /** The wander goal: a cell centre, or undefined before the first one. */
   moveTarget: Vector | undefined
   /**
    * How many rings away the current target may get and still be kept.
@@ -137,33 +141,51 @@ export default class GuardPosition implements IAIRoutine {
 
     if ((this.owner.target != null) && !this.owner.target.destroyed) {
       const target = this.owner.target
-      const rings = Hex.distance(this.owner.cell, Hex.toCell(target.position))
+      const targetCell = Hex.toCell(target.position)
+      const rings = Hex.distance(this.owner.cell, targetCell)
       if (rings <= this.loseRings) {
-        if (this.spec.standoff > 0 && rings <= this.spec.standoff) {
-          // Close enough: hold here rather than close in (standoff 0 never
-          // gets here). Zeroing `direction` keeps `facing`, and the unit's
-          // skills aim at the target's cell, not along facing.
-          this.owner.direction = new Vector(0, 0)
-        } else {
-          this.owner.setDirectionTo(target.position.x, target.position.y)
-        }
-      } else this.release()
-    } else {
-      if (this.moveTarget != null) {
-        if (this.moveTarget.sub(this.owner.position).getSquareMagnitude() < 100) { this.moveTarget = undefined }
-      } else {
-        this.moveTarget = this.wanderGoal()
+        // Step toward the target's cell until within `chaseStop` rings of it
+        // (hex-cells P2): the gunner's standoff, or contact range for the
+        // others, so a grunt stops on the next cell and hits from there. It
+        // does not back away from a target that walks up to it.
+        this.owner.stepGoal = { cell: targetCell, within: this.chaseStop }
+        this.moveTarget = undefined
+        return
       }
-
-      if (this.moveTarget != null) { this.owner.setDirectionTo(this.moveTarget.x, this.moveTarget.y) }
+      this.release()
     }
+
+    // Idle: wander between free cells near home, one step at a time, with no
+    // pause between goals (decision #34). A goal reached, or one the last step
+    // decision could not get closer to, is replaced by a fresh one.
+    const settled = this.owner.stepTo === undefined
+    if (
+      this.moveTarget === undefined ||
+      (settled && (this.owner.stepBlocked || this.moveTarget.sub(this.owner.position).getSquareMagnitude() < 1e-6))
+    ) {
+      this.moveTarget = this.wanderGoal()
+    }
+    this.owner.stepGoal = { cell: Hex.toCell(this.moveTarget), within: 0 }
+  }
+
+  /**
+   * Rings from its target at which a chasing unit stops closing in:
+   * `spec.standoff` (the gunner's 5), and never less than `Mob.CONTACT_RINGS`
+   * (1), which is where contact damage lands (decision #32: "chase until
+   * `h <= contactRings`"). A grunt's or boss's standoff is 0, so they stop
+   * adjacent.
+   */
+  get chaseStop (): number {
+    // Read at run time: mob.ts imports archetypes.ts, which imports this.
+    return Math.max(this.spec.standoff, Mob.CONTACT_RINGS)
   }
 
   /**
    * The centre of a random free cell within `spec.wander` rings of home
    * (decision #32: 1 ring, 7 cells). Free is on the map, not blocked, and not
-   * a portal's or exit's cell (both are solid to mobs, so a goal there could
-   * never be reached). Home's own cell if none is. The cells are taken in
+   * a portal's, exit's or arrival cell (a mob never steps onto one,
+   * `World.mobCanEnter`, so a goal there could never be reached). Home's own
+   * cell if none is. The cells are taken in
    * `World.forKeysWithin` order, which puts home in the middle of the 1-ring
    * patch: a `Math.random` of 0.5 picks home when all seven are free.
    *
@@ -182,6 +204,7 @@ export default class GuardPosition implements IAIRoutine {
         const q = home.x + dq
         const r = home.y + dr
         if (World.isBlocked(q, r, tag) || World.GATES_ON(q, r, tag).length > 0) continue
+        if (World.isArrival(q, r, tag)) continue
         free.push(new Vector(q, r))
       }
     }

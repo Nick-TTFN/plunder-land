@@ -21,9 +21,9 @@ import { Vector } from '../utils/vector'
 
 /**
  * Extraction is a channel on the exit's cell (#16): 5 / 7 / 9 s by layer,
- * cancelled by stepping off or by a hit that does damage. Exits stopped being
- * solid to players for it, on both sides, and the second half of this file
- * holds the client's `LocalPlayer` to the server's `Unit.update` on that.
+ * cancelled by stepping off or by a hit that does damage. The second half of
+ * this file holds the client's `LocalPlayer` to the server's `Unit.update`:
+ * walking, portal hops onto arrival cells and Dash (hex-cells P2).
  */
 
 // --- the client's LocalPlayer, loaded without pixi ---------------------------
@@ -299,7 +299,7 @@ test('an extracted player is not hurt by their own bomb going off afterwards', (
   assert.equal(player.destroyed, false)
 })
 
-// --- the pad is a zone to players and solid to mobs -------------------------
+// --- the pad is a zone to players, and off limits to mobs --------------------
 
 test('a player standing on an exit is not pushed off it', () => {
   const exit = exitOn(TOP)
@@ -309,76 +309,131 @@ test('a player standing on an exit is not pushed off it', () => {
   assert.equal(player.position.sub(exit.position).getMagnitude(), 5)
 })
 
-test('a mob is still pushed off an exit, as off a portal', () => {
-  const exit = exitOn(TOP)
-  const at = exit.position.add(new Vector(5, 0))
+test('a mob never steps onto an exit\'s cell, even with its goal straight through it', () => {
+  // It was pushed off; since hex-cells P2 it never enters (World.mobCanEnter).
+  exitOn(TOP)
+  const at = Hex.toPosition(new Vector(EXIT_CELL.x - 1, EXIT_CELL.y))
   const mob = new Unit(ObjectType.Mob, at.x, at.y, 10, TOP)
-  mob.maxVelocity = 140
+  mob.maxVelocity = 100
   World.MOBS.push(mob)
-  mob.update(TICK)
-  assert.equal(Math.round(mob.position.sub(exit.position).getMagnitude()), exit.radius + mob.radius)
+  assert.equal(World.mobCanEnter(EXIT_CELL.x, EXIT_CELL.y, mob), false)
+
+  mob.stepGoal = { cell: new Vector(EXIT_CELL.x + 3, EXIT_CELL.y), within: 0 }
+  for (let n = 0; n < 20; n++) {
+    mob.update(TICK)
+    assert.ok(mob.cell.x !== EXIT_CELL.x || mob.cell.y !== EXIT_CELL.y, `on the exit at tick ${n}`)
+  }
 })
 
 // --- the client mirror --------------------------------------------------------
+//
+// The server's player and the client's `LocalPlayer` walk the same routes over
+// the same layout, a tick at a time, and must be at identical positions every
+// tick. Nothing is solid any more (hex-cells P2): the client knows blocked
+// cells (its `isBlocked`) and portal cells (its `portalTo`, `Game.PORTALS` in
+// the game), and nothing else.
 
 interface Local {
   x: number
   y: number
+  tag: number
   waypoints: Vector[]
-  path: unknown[]
+  path: Vector[]
+  dashLeft: number
+  facingIndex: number
   repath: () => void
   reset: (x: number, y: number, tag: number, maxVelocity: number, radius: number) => void
   predict: (dt: number) => void
+  dash: () => boolean
+  reconcile: (x: number, y: number) => void
+  changeLayer: (tag: number) => void
 }
 
 /**
- * The server's player and the client's `LocalPlayer` walk the same route over
- * the same objects; the client's colliders are whatever `SOLID_TYPES` lets
- * through, as `Game.onObjectCreated` builds them. Returns both tracks.
+ * A `LocalPlayer` for `player`, reading the server's world as the client's
+ * `Game.BLOCKED` and `Game.PORTALS` would hold it: blocked cells and portals
+ * on the local player's own layer.
  */
-function walkBoth (from: Vector, to: Vector, ticks: number): { server: Vector[], client: Vector[] } {
-  const player = playerOn(TOP, from)
-  const colliders = World.OBSTACLES
-    .filter((obj) => (LocalPlayer.SOLID_TYPES as number[]).includes(obj.type))
-    .map((obj) => ({ x: obj.position.x, y: obj.position.y, radius: obj.radius, tag: obj.tag }))
-  const local: Local = new LocalPlayer(() => colliders, (q: number, r: number) => World.isBlocked(q, r, TOP))
-  local.reset(player.position.x, player.position.y, TOP, player.maxVelocity, player.radius)
+function localFor (player: Player): Local {
+  const local: Local = new LocalPlayer(
+    (q: number, r: number) => World.isBlocked(q, r, local.tag),
+    (q: number, r: number) => World.GATES_ON(q, r, local.tag).find((g) => g.type === ObjectType.Portal)?.to
+  )
+  local.reset(player.position.x, player.position.y, player.tag, player.maxVelocity, player.radius)
+  return local
+}
 
+/** Both sides route to `to`, as a click does: the client plans, the server gets the waypoints. */
+function routeBoth (player: Player, local: Local, to: Vector): void {
   player.setWaypoints([to])
   local.waypoints = [new Vector(to.x, to.y)]
   local.repath()
   assert.ok(local.path.length > 0 && player.path.length > 0, 'no route')
-
-  const server: Vector[] = []
-  const client: Vector[] = []
-  for (let n = 0; n < ticks && !player.exited; n++) {
-    player.update(TICK)
-    local.predict(TICK)
-    server.push(player.position)
-    client.push(new Vector(local.x, local.y))
-  }
-  return { server, client }
 }
 
-function assertSameTrack (track: { server: Vector[], client: Vector[] }): void {
-  track.server.forEach((s, i) => {
+interface Track {
+  server: Vector[]
+  client: Vector[]
+  serverTag: number[]
+  clientTag: number[]
+}
+
+/**
+ * `ticks` ticks of both sides: `input(n)` first (a press on either side), then
+ * the server's update, then the client's prediction for the same time. The
+ * server's tag and position reach the client `delay` ticks after the tick
+ * that changed the tag, in one record, and are handled as
+ * `Game.onObjectUpdated` handles them: `reconcile` the position, then
+ * `changeLayer`. (Other positions are not fed back: inside the dead zone
+ * `reconcile` ignores them anyway, and this is about the two simulations.)
+ */
+function run (player: Player, local: Local, ticks: number, delay = 1, input?: (n: number) => void): Track {
+  const track: Track = { server: [], client: [], serverTag: [], clientTag: [] }
+  for (let n = 0; n < ticks && !player.exited; n++) {
+    input?.(n)
+    player.update(TICK)
+    track.server.push(player.position)
+    track.serverTag.push(player.tag)
+    const heard = n - delay
+    if (heard >= 0 && track.serverTag[heard] !== local.tag) {
+      local.reconcile(track.server[heard].x, track.server[heard].y)
+      local.changeLayer(track.serverTag[heard])
+    }
+    local.predict(TICK)
+    track.client.push(new Vector(local.x, local.y))
+    track.clientTag.push(local.tag)
+  }
+  return track
+}
+
+function same (a: Vector, b: Vector): boolean {
+  return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6
+}
+
+function assertSameTrack (track: Track, from = 0, to = track.server.length): void {
+  for (let i = from; i < to; i++) {
+    const s = track.server[i]
     const c = track.client[i]
-    assert.ok(
-      Math.abs(s.x - c.x) < 1e-6 && Math.abs(s.y - c.y) < 1e-6,
-      `tick ${i + 1}: server (${s.x}, ${s.y}) vs client (${c.x}, ${c.y})`
-    )
-  })
+    assert.ok(same(s, c), `tick ${i + 1}: server (${s.x}, ${s.y}) vs client (${c.x}, ${c.y})`)
+  }
+}
+
+/** The mirror as it was: one route, no hop, no dash. */
+function walkBoth (from: Vector, to: Vector, ticks: number): Track & { player: Player, local: Local } {
+  const player = playerOn(TOP, from)
+  const local = localFor(player)
+  routeBoth(player, local, to)
+  return { ...run(player, local, ticks), player, local }
 }
 
 test('mirror: client and server both walk straight across an exit\'s pad', () => {
   const exit = exitOn(TOP)
-  // A rock beside the route too, so the colliders are not just the exit.
-  World.OBSTACLES.push(new Obstacle(Hex.toPosition(new Vector(30, 39)).x, Hex.toPosition(new Vector(30, 39)).y, TOP))
+  // A rock beside the route too, which neither side may be shoved by.
+  World.addObstacle(new Obstacle(Hex.toPosition(new Vector(30, 39)).x, Hex.toPosition(new Vector(30, 39)).y, TOP))
   const track = walkBoth(new Vector(27, 40), new Vector(33, 40), 12)
   assertSameTrack(track)
   const closest = Math.min(...track.server.map((p) => p.sub(exit.position).getMagnitude()))
-  // Samples are a tick (35 units) apart, so they straddle the centre. A solid
-  // exit would have held the player at 64 (its 50 plus a peep's 14).
+  // Samples are a tick (35 units) apart, so they straddle the centre.
   assert.ok(closest < 20, `the walk never got onto the pad (closest ${closest})`)
 })
 
@@ -386,39 +441,40 @@ test('mirror: both end on an exit\'s centre when it is the destination', () => {
   const exit = exitOn(TOP)
   const track = walkBoth(new Vector(26, 40), EXIT_CELL, 8)
   assertSameTrack(track)
-  const last = track.server[track.server.length - 1]
-  assert.ok(last.sub(exit.position).getMagnitude() < 1e-6)
+  assert.ok(same(track.server[track.server.length - 1], exit.position))
 })
 
-test('mirror: both are pushed out of a portal identically', () => {
-  const at = Hex.toPosition(EXIT_CELL)
-  // A portal to its own layer, so the crossing cannot change the server's tag.
-  const portal = new Portal(at.x, at.y, TOP, TOP)
-  World.OBSTACLES.push(portal)
-  const track = walkBoth(new Vector(26, 40), EXIT_CELL, 10)
+test('mirror: a route that bends round rocks, and the facing it ends on, agree', () => {
+  // Two rocks across the straight line, so the route turns twice.
+  for (const cell of [new Vector(29, 40), new Vector(29, 41)]) {
+    const at = Hex.toPosition(cell)
+    World.addObstacle(new Obstacle(at.x, at.y, TOP))
+  }
+  const track = walkBoth(new Vector(26, 41), new Vector(32, 39), 16)
   assertSameTrack(track)
-  const last = track.server[track.server.length - 1]
-  assert.equal(Math.round(last.sub(portal.position).getMagnitude()), portal.radius + 14)
+  assert.equal(track.local.path.length, 0, 'the client never arrived')
+  assert.equal(track.local.facingIndex, World.FACING_INDEX(track.player.facing), 'the two face different ways')
 })
 
-// --- a portal hop ends the route (gate-hygiene) -------------------------------
+// --- a portal hop (hex-cells P2: arrival cells, #31 Q3, #33) ------------------
 //
-// A route is planned against one layer's rocks. A portal moves the player to
-// another layer at the spot it pushed them out to, and a route that carried on
-// from there walked the new layer along cells chosen on the old one. Both
-// sides now stop on a layer change: the server as the portal moves the player
-// (`Unit.changeLayer`), the client when that tag reaches it
-// (`LocalPlayer.changeLayer`, called from `Game.onObjectUpdated`).
+// A player whose tick ends on a portal's cell is put down on its arrival cell
+// (the east neighbour) on the layer it leads to, and stops (`Unit.changeLayer`).
+// Routes end on a portal's cell on both sides (`endAtPortal`), so the client
+// walks to the portal's centre and waits there; when the tag reaches it, it
+// jumps to where the server put it (`LocalPlayer.changeLayer`).
 
 function portalOn (tag: number, to: number, cell: Vector = EXIT_CELL): Portal {
   const at = Hex.toPosition(cell)
   const portal = new Portal(at.x, at.y, to, tag)
-  World.OBSTACLES.push(portal)
+  World.addObstacle(portal)
   return portal
 }
 
-test('a portal hop mid-route stops the player where the portal put them', () => {
-  const portal = portalOn(TOP, MIDDLE)
+const ARRIVAL = Hex.toPosition(new Vector(EXIT_CELL.x + 1, EXIT_CELL.y))
+
+test('a portal hop mid-route puts the player down on the arrival cell\'s centre, stopped', () => {
+  portalOn(TOP, MIDDLE)
   // Through the portal's cell and four cells beyond it.
   const player = playerOn(TOP, new Vector(26, 40))
   player.setWaypoints([new Vector(34, 40)])
@@ -430,14 +486,45 @@ test('a portal hop mid-route stops the player where the portal put them', () => 
     hopped = player.tag === MIDDLE
   }
   assert.ok(hopped, 'the player never went through the portal')
-  const landed = player.position
-  assert.equal(Math.round(landed.sub(portal.position).getMagnitude()), portal.radius + player.radius)
+  assert.ok(same(player.position, ARRIVAL), `landed at (${player.position.x}, ${player.position.y})`)
   assert.deepEqual(player.path, [], 'the route planned on layer 01 survived the hop')
   assert.deepEqual(player.waypoints, [], 'the waypoints survived the hop')
 
   for (let n = 0; n < 8; n++) player.update(TICK)
   assert.equal(player.tag, MIDDLE)
-  assert.deepEqual(player.position, landed, 'the player walked on across layer 02')
+  assert.ok(same(player.position, ARRIVAL), 'the player walked on across layer 02')
+})
+
+test('a route through a portal ends on the portal\'s cell, on both sides', () => {
+  portalOn(TOP, MIDDLE)
+  const player = playerOn(TOP, new Vector(26, 40))
+  const local = localFor(player)
+  routeBoth(player, local, new Vector(34, 40))
+  const last = (path: Vector[]): number[] => [path[path.length - 1].x, path[path.length - 1].y]
+  assert.deepEqual(last(player.path), [EXIT_CELL.x, EXIT_CELL.y])
+  assert.deepEqual(last(local.path), [EXIT_CELL.x, EXIT_CELL.y])
+  assert.deepEqual(local.path.map((c) => [c.x, c.y]), player.path.map((c) => [c.x, c.y]))
+})
+
+test('mirror: a portal that comes into view after the route was planned cuts the client\'s route where the server\'s ends', () => {
+  // The server knows every portal; the client only those in view
+  // (`Game.PORTALS`). A route planned before the portal was sent runs on
+  // through it on the client until `portalAppeared` cuts it.
+  portalOn(TOP, MIDDLE)
+  const player = playerOn(TOP, new Vector(20, 40))
+  let seen = false
+  const local: Local = new LocalPlayer(
+    (q: number, r: number) => World.isBlocked(q, r, local.tag),
+    (q: number, r: number) => seen ? World.GATES_ON(q, r, local.tag).find((g) => g.type === ObjectType.Portal)?.to : undefined
+  )
+  local.reset(player.position.x, player.position.y, TOP, player.maxVelocity, player.radius)
+  routeBoth(player, local, new Vector(34, 40))
+  assert.equal(local.path.length, 14, 'the client knew of the portal already')
+  const track = run(player, local, 3)
+  seen = true
+  ;(local as unknown as { portalAppeared: () => void }).portalAppeared()
+  assert.deepEqual(local.path.map((c) => [c.x, c.y]), player.path.map((c) => [c.x, c.y]))
+  assertSameTrack(track)
 })
 
 test('a portal to the player\'s own layer is not a hop and leaves the route alone', () => {
@@ -445,66 +532,13 @@ test('a portal to the player\'s own layer is not a hop and leaves the route alon
   const player = playerOn(TOP, new Vector(26, 40))
   player.setWaypoints([new Vector(34, 40)])
   for (let n = 0; n < 6; n++) player.update(TICK)
-  assert.ok(player.path.length > 0, 'a same-layer contact ended the route')
+  assert.ok(player.path.length > 0, 'a same-layer portal ended the route')
   assert.equal(player.waypoints.length, 1)
 })
 
-test('a mob pushed out of a portal keeps its route: it never changes layer', () => {
-  portalOn(TOP, MIDDLE)
-  const at = Hex.toPosition(new Vector(26, 40))
-  const mob = new Unit(ObjectType.Mob, at.x, at.y, 14, TOP)
-  mob.maxVelocity = 140
-  World.MOBS.push(mob)
-  mob.setWaypoints([new Vector(34, 40)])
-  for (let n = 0; n < 8; n++) mob.update(TICK)
-  assert.equal(mob.tag, TOP)
-  assert.ok(mob.path.length > 0)
-})
-
-interface LayeredLocal extends Local {
-  tag: number
-  changeLayer: (tag: number) => void
-}
-
-/**
- * `walkBoth` across a portal, with the tag reaching the client `delay` ticks
- * after the server changed it, the way an `update` record does. What the
- * client does with it is what `Game.onObjectUpdated` does: hand it to
- * `LocalPlayer.changeLayer`. Colliders carry their tag, and `_step` skips any
- * not on the client's current layer, as in the game.
- */
-function walkAcross (from: Vector, to: Vector, ticks: number, delay: number): { server: Vector[], client: Vector[], local: LayeredLocal, player: Player } {
-  const player = playerOn(TOP, from)
-  const colliders = World.OBSTACLES
-    .filter((obj) => (LocalPlayer.SOLID_TYPES as number[]).includes(obj.type))
-    .map((obj) => ({ x: obj.position.x, y: obj.position.y, radius: obj.radius, tag: obj.tag }))
-  const local: LayeredLocal = new LocalPlayer(() => colliders, (q: number, r: number) => World.isBlocked(q, r, local.tag))
-  local.reset(player.position.x, player.position.y, TOP, player.maxVelocity, player.radius)
-
-  player.setWaypoints([to])
-  local.waypoints = [new Vector(to.x, to.y)]
-  local.repath()
-  assert.ok(local.path.length > 0 && player.path.length > 0, 'no route')
-
-  const tags: number[] = []
-  const server: Vector[] = []
-  const client: Vector[] = []
-  for (let n = 0; n < ticks; n++) {
-    player.update(TICK)
-    tags.push(player.tag)
-    const arrived = tags[n - delay]
-    // Game.onObjectUpdated, on a tag that differs from the one it holds.
-    if (arrived !== undefined && arrived !== local.tag) local.changeLayer(arrived)
-    local.predict(TICK)
-    server.push(player.position)
-    client.push(new Vector(local.x, local.y))
-  }
-  return { server, client, local, player }
-}
-
 test('mirror: an ordinary arrival still keeps the client\'s destination, and a same-layer tag changes nothing', () => {
   // CLAUDE.md, "Arriving does not clear the waypoints, only the path".
-  const track = walkAcross(new Vector(26, 40), new Vector(30, 40), 8, 1)
+  const track = walkBoth(new Vector(26, 40), new Vector(30, 40), 8)
   assertSameTrack(track)
   assert.deepEqual(track.local.path, [])
   assert.deepEqual(track.local.waypoints.map((c) => [c.x, c.y]), [[30, 40]], 'arrival dropped the destination')
@@ -517,19 +551,247 @@ const HOP_ROUTES = [
   { name: 'onto the portal', to: EXIT_CELL }
 ]
 
+/**
+ * The hop, checked tick by tick: identical before the server hops; while the
+ * tag is on its way the client is on the portal's cell, walking to or waiting
+ * on its centre, still on layer 01; identical again from the tick the tag
+ * lands, on layer 02, stopped, on the arrival cell's centre.
+ */
+function assertHop (track: Track, delay: number, local: Local): void {
+  const hop = track.serverTag.findIndex((tag) => tag === MIDDLE)
+  assert.ok(hop >= 0, 'the server never hopped')
+  assertSameTrack(track, 0, hop)
+  for (let i = hop; i < hop + delay; i++) {
+    const cell = Hex.toCell(track.client[i])
+    assert.deepEqual([cell.x, cell.y], [EXIT_CELL.x, EXIT_CELL.y], `tick ${i + 1}: the client left the portal's cell`)
+    assert.equal(track.clientTag[i], TOP)
+  }
+  assertSameTrack(track, hop + delay)
+  assert.ok(same(track.server[track.server.length - 1], ARRIVAL))
+  assert.equal(local.tag, MIDDLE)
+  assert.deepEqual(local.path, [])
+  assert.deepEqual(local.waypoints, [], 'the next input packet would still ask for the old route')
+}
+
 for (const delay of [1, 2, 3]) for (const route of HOP_ROUTES) {
-  test(`mirror: a portal hop ${route.name} stops both sides at the same spot (tag ${delay} tick${delay > 1 ? 's' : ''} late)`, () => {
-    const portal = portalOn(TOP, MIDDLE)
+  test(`mirror: a portal hop ${route.name} lands both sides on the arrival cell (tag ${delay} tick${delay > 1 ? 's' : ''} late)`, () => {
+    portalOn(TOP, MIDDLE)
     // A rock on layer 02 across the old route, so walking on would show.
     const rock = Hex.toPosition(new Vector(32, 40))
-    World.OBSTACLES.push(new Obstacle(rock.x, rock.y, MIDDLE))
-    const track = walkAcross(new Vector(26, 40), route.to, 16, delay)
-    assertSameTrack(track)
-    assert.equal(track.player.tag, MIDDLE)
-    assert.equal(track.local.tag, MIDDLE)
-    assert.deepEqual(track.local.path, [])
-    assert.deepEqual(track.local.waypoints, [], 'the next input packet would still ask for the old route')
-    const last = track.server[track.server.length - 1]
-    assert.equal(Math.round(last.sub(portal.position).getMagnitude()), portal.radius + 14)
+    World.addObstacle(new Obstacle(rock.x, rock.y, MIDDLE))
+    const player = playerOn(TOP, new Vector(26, 40))
+    const local = localFor(player)
+    routeBoth(player, local, route.to)
+    const track = run(player, local, 16, delay)
+    assertHop(track, delay, local)
   })
 }
+
+// --- Dash (decision #34): 3 cells of route at 2.5x, predicted -------------------
+//
+// The client dashes on the press; the server gets the press `late` ticks
+// later. Both cover the same 135 units of route at dash speed, so they are
+// apart while one has dashed and the other has not, and identical again once
+// both are past it.
+
+/** The server's Dash skill, pressed as a socket handler would (slot 0). */
+function serverDash (player: Player): boolean {
+  return player.skills[0].execute() as unknown as boolean
+}
+
+for (const late of [1, 2]) {
+  test(`mirror: a dash on a route, the server ${late} tick${late > 1 ? 's' : ''} late, converges once both are past it`, () => {
+    const player = playerOn(TOP, new Vector(20, 40))
+    const local = localFor(player)
+    routeBoth(player, local, new Vector(40, 40)) // 20 cells east, 900 units
+    let clientDone = -1
+    let serverDone = -1
+    const track = run(player, local, 20, 1, (n) => {
+      if (n === 2) assert.equal(local.dash(), true)
+      if (n === 2 + late) assert.equal(serverDash(player), true, 'the server refused the dash')
+      if (n > 2 && clientDone < 0 && local.dashLeft === 0) clientDone = n
+      if (n > 2 + late && serverDone < 0 && player.dashLeft === 0) serverDone = n
+    })
+    // Identical before the press, apart while only one has dashed, identical after.
+    assertSameTrack(track, 0, 2)
+    assert.ok(!same(track.server[2], track.client[2]), 'the client\'s dash did nothing')
+    assert.ok(clientDone > 0 && serverDone > 0, 'a dash never finished')
+    assertSameTrack(track, Math.max(clientDone, serverDone))
+    // 135 units at 2.5x speed is worth 135 * (1 - 1/2.5) = 81 units over
+    // walking for the same time: 20 ticks at 35 is 700, so 781 along the q axis.
+    const travelled = track.server[track.server.length - 1].sub(Hex.toPosition(new Vector(20, 40))).getMagnitude()
+    assert.ok(Math.abs(travelled - (700 + Unit.DASH_CELLS * Hex.SIZE * (1 - 1 / Unit.DASH_MULTIPLIER))) < 1e-6, `travelled ${travelled}`)
+  })
+}
+
+test('mirror: a dash with fewer than 3 cells left ends on the destination on both sides', () => {
+  const player = playerOn(TOP, new Vector(26, 40))
+  const local = localFor(player)
+  routeBoth(player, local, new Vector(28, 40))
+  const track = run(player, local, 6, 1, (n) => {
+    if (n === 0) local.dash()
+    if (n === 1) serverDash(player)
+  })
+  const destination = Hex.toPosition(new Vector(28, 40))
+  assert.ok(same(track.server[track.server.length - 1], destination))
+  assert.ok(same(track.client[track.client.length - 1], destination))
+  assert.equal(player.dashLeft, 0, 'arrival did not clear the dash')
+  assert.equal(local.dashLeft, 0, 'arrival did not clear the client\'s dash')
+})
+
+/**
+ * Walk three cells east and stop, on both sides, so both stand facing East on
+ * the same cell centre. The client keeps its destination (`_arrive`).
+ */
+function walkedEast (): { player: Player, local: Local } {
+  const player = playerOn(TOP, new Vector(20, 40))
+  const local = localFor(player)
+  routeBoth(player, local, new Vector(23, 40))
+  const track = run(player, local, 6)
+  assertSameTrack(track)
+  assert.equal(player.path.length, 0)
+  assert.equal(local.path.length, 0)
+  assert.equal(local.facingIndex, 0)
+  assert.equal(World.FACING_INDEX(player.facing), 0)
+  return { player, local }
+}
+
+test('mirror: a standing dash goes 3 cells along the facing and ends there on both sides', () => {
+  const { player, local } = walkedEast()
+  const track = run(player, local, 8, 1, (n) => {
+    if (n === 0) assert.equal(local.dash(), true)
+    if (n === 1) {
+      assert.equal(serverDash(player), true)
+      // The input packet after the press carries the client's new destination
+      // (the dash's end cell), as `onPointer` would apply it.
+      player.setWaypoints(local.waypoints.map((c) => new Vector(c.x, c.y)))
+    }
+  })
+  const end = Hex.toPosition(new Vector(26, 40))
+  assert.ok(same(track.server[track.server.length - 1], end), 'the server did not end 3 cells east')
+  assert.ok(same(track.client[track.client.length - 1], end), 'the client did not end 3 cells east')
+  assert.deepEqual(local.waypoints.map((c) => [c.x, c.y]), [[26, 40]], 'the client\'s destination is not the dash\'s end')
+  // Faster than walking: 135 units in 135 / 350 s, under two ticks.
+  const reached = track.client.findIndex((p) => same(p, end))
+  assert.ok(reached >= 0 && reached <= 1, `took ${reached + 1} ticks`)
+})
+
+test('mirror: after walking north-west, a standing dash goes north-west on both sides', () => {
+  // Not East, the default facing, so a side that failed to track its facing
+  // would dash the wrong way.
+  const player = playerOn(TOP, new Vector(20, 40))
+  const local = localFor(player)
+  routeBoth(player, local, new Vector(20, 37)) // three steps NW, (0, -1) each
+  const walk = run(player, local, 6)
+  assertSameTrack(walk)
+  assert.equal(local.facingIndex, 4, 'the client does not face NW')
+  assert.equal(World.FACING_INDEX(player.facing), 4, 'the server does not face NW')
+
+  const track = run(player, local, 6, 1, (n) => {
+    if (n === 0) assert.equal(local.dash(), true)
+    if (n === 1) {
+      assert.equal(serverDash(player), true)
+      player.setWaypoints(local.waypoints.map((c) => new Vector(c.x, c.y)))
+    }
+  })
+  const end = Hex.toPosition(new Vector(20, 34))
+  assert.ok(same(track.server[track.server.length - 1], end), 'the server did not dash 3 cells NW')
+  assert.ok(same(track.client[track.client.length - 1], end), 'the client did not dash 3 cells NW')
+})
+
+test('a standing dash stops before a rock and is refused, costing no cooldown, with a rock straight ahead', () => {
+  const { player, local } = walkedEast()
+  // A rock two cells ahead: the dash goes one cell.
+  const two = Hex.toPosition(new Vector(25, 40))
+  const rock = new Obstacle(two.x, two.y, TOP)
+  World.addObstacle(rock)
+  assert.deepEqual(player.dashCells().map((c) => [c.x, c.y]), [[24, 40]])
+
+  // A rock right ahead: nowhere to go, refused on both sides.
+  const one = Hex.toPosition(new Vector(24, 40))
+  World.addObstacle(new Obstacle(one.x, one.y, TOP))
+  assert.equal(local.dash(), false, 'the client dashed into a rock')
+  assert.equal(serverDash(player), false, 'the server dashed into a rock')
+  assert.equal(player.path.length, 0)
+  // The cooldown was not spent: once the way is clear it fires at once.
+  rock.destroy()
+  World.removeObstacle(rock)
+  const blocker = World.OBSTACLES.find((o) => o instanceof Obstacle && same(o.position, one)) as Obstacle
+  blocker.destroy()
+  World.removeObstacle(blocker)
+  assert.equal(serverDash(player), true, 'the refused press spent the cooldown')
+})
+
+test('mirror: a standing dash onto a portal hops, and both sides land on its arrival cell', () => {
+  const { player, local } = walkedEast()
+  // Two cells ahead: the dash ends on it rather than running past.
+  portalOn(TOP, MIDDLE, new Vector(25, 40))
+  const arrival = Hex.toPosition(new Vector(26, 40))
+  const track = run(player, local, 6, 1, (n) => {
+    if (n === 0) assert.equal(local.dash(), true)
+    if (n === 1) {
+      assert.equal(serverDash(player), true)
+      player.setWaypoints(local.waypoints.map((c) => new Vector(c.x, c.y)))
+    }
+  })
+  assert.equal(player.tag, MIDDLE)
+  assert.equal(local.tag, MIDDLE)
+  assert.ok(same(track.server[track.server.length - 1], arrival))
+  assert.ok(same(track.client[track.client.length - 1], arrival))
+})
+
+// --- the client's corrections around a dash ------------------------------------
+
+/**
+ * The game as it runs, not lockstep: the client predicts at 60 frames a
+ * second and reconciles every server position it receives, a tick after the
+ * server produced it; the server gets the dash press at its next tick after
+ * the client pressed. Returns how many times the client was corrected (its
+ * render offset set), and the two final positions.
+ */
+function playDash (pressAtFrame: number): { corrections: number, server: Vector, client: Vector } {
+  const player = playerOn(TOP, new Vector(10, 40))
+  const local = localFor(player)
+  routeBoth(player, local, new Vector(40, 40)) // 30 cells: 1350 units, 9.6 s
+  const FRAME = 1 / 60
+  const frames = Math.round(11 / FRAME)
+  const perTick = Math.round(TICK / FRAME)
+  const sent: Vector[] = []
+  let pressed = false
+  let pendingFrom = -1
+  let corrections = 0
+  for (let f = 0; f < frames; f++) {
+    if (f === pressAtFrame) { local.dash(); pendingFrom = f; pressed = true }
+    if (f % perTick === 0) {
+      // The press takes a tick to reach the server, which acts on it at its
+      // next tick after that.
+      if (pendingFrom >= 0 && f - pendingFrom >= perTick) { serverDash(player); pendingFrom = -1 }
+      player.update(TICK)
+      sent.push(player.position)
+      // A tick of latency back: what arrives now is what the server sent two
+      // ticks ago. (A server tick moves the player a whole tick ahead at once,
+      // so one tick back would be no lead at all.) Without a dash that is a
+      // lead of one tick's travel, inside the dead zone.
+      const arrived = sent[sent.length - 3]
+      if (arrived !== undefined) {
+        local.reconcile(arrived.x, arrived.y)
+        const offset = local as unknown as { _offsetX: number, _offsetY: number }
+        if (offset._offsetX !== 0 || offset._offsetY !== 0) corrections++
+      }
+    }
+    local.predict(FRAME)
+  }
+  assert.equal(pressed, pressAtFrame >= 0)
+  return { corrections, server: player.position, client: new Vector(local.x, local.y) }
+}
+
+test('a predicted dash is not corrected while the server catches up with it', () => {
+  // Control first: without a dash the client leads by about a tick and is
+  // never corrected, so any correction below is the dash's.
+  assert.equal(playDash(-1).corrections, 0, 'corrected with no dash at all')
+  for (const frame of [30, 47, 61, 74]) {
+    const { corrections, server, client } = playDash(frame)
+    assert.equal(corrections, 0, `a dash pressed at frame ${frame} was corrected ${corrections} time(s)`)
+    assert.ok(same(server, client), 'they did not end in the same place')
+  }
+})

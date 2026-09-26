@@ -55,54 +55,18 @@ export default class World {
   static TAGS: number[] = LAYERS.map((layer) => layer.tag)
 
   /**
-   * Least distance between the centres of two gates (portals and exits) that
-   * a player could meet on the same layer: two on one layer, or a portal and
-   * any gate on the layer it leads to.
+   * Least hex distance, in rings, between the cells of two gates (portals and
+   * exits) that a player could meet on the same layer: two on one layer, or a
+   * portal and any gate on the layer it leads to (decision #34).
    *
-   * A portal leaves the player where it pushed them out, `Portal.RADIUS` +
-   * their body from its centre (64 for a peep: 50 + 14), only now on the
-   * other layer. Another portal there within twice that of the first one's
-   * centre would catch them on arrival and send them on again in the same
-   * tick. So the spacing is twice the arrival distance of the **largest robot
-   * body** (`MAX_ROBOT_BODY`), plus `GATE_MARGIN`: 2 * (50 + 14) + 22 = 150
-   * for today's table. Derived, not written down, so a bigger robot raises it
-   * (gate-hygiene); only mobs are bigger today, and portals don't move mobs.
-   *
-   * Exits no longer push players out and no longer extract on contact: a
-   * player extracts by standing on the exit's own cell (Player.onExit). An
-   * exit at least `GATE_SPACING` from the portal is at least
-   * `Portal.RADIUS + MAX_ROBOT_BODY + GATE_MARGIN` (86) from where the player
-   * lands, and no cell reaches further than `Hex.SIZE` (45) from its centre
-   * (its corners are about 26 out), so the arrival cell is never an exit's.
-   * By the same sum, a player anywhere on an exit's cell is out of reach of
-   * every portal on that layer. `gates.spec.ts` checks both for every robot.
-   *
-   * A getter because portal.ts sits in the import cycle world.spec.ts
-   * describes: `Portal` may not be defined yet while this class is.
+   * A portal puts a player down on its arrival cell (`Portal.arrival`, one
+   * ring out) on the other layer (#31 Q3, #33). That cell must not be a gate
+   * or next to one, which needs 3 rings. 4 is what the old 150-unit spacing
+   * came to on cell centres (3 rings reach at most 135, 4 at least 156), so
+   * the layout is unchanged. It was derived from the portal's push-out radius
+   * and the largest robot body until hex-cells P2 deleted push-out.
    */
-  static get GATE_SPACING (): number {
-    return 2 * (Portal.RADIUS + World.MAX_ROBOT_BODY) + World.GATE_MARGIN
-  }
-
-  /**
-   * Headroom in `GATE_SPACING` over the least spacing that works, for a
-   * same-tick shove on arrival (another player's push-out). 22 is what the
-   * spacing carried when it was written down as 150 for a 14 body; keeping it
-   * keeps today's layout unchanged.
-   */
-  static GATE_MARGIN = 22
-
-  /**
-   * The largest body among the robots (the player archetypes) in `ARCHETYPES`.
-   * Portals move players only, so this is the body a portal hop allows for.
-   */
-  static get MAX_ROBOT_BODY (): number {
-    let most = 0
-    for (const archetype of Object.values(ARCHETYPES)) {
-      if (archetype.kind === 'robot') most = Math.max(most, archetype.body)
-    }
-    return most
-  }
+  static GATE_SPACING = 4
 
   static mapSize: number
 
@@ -290,6 +254,7 @@ export default class World {
     if (unit !== undefined) {
       World.UNITS.delete(unit)
       World.INTEREST.delete(unit as Player)
+      World.releaseStep(unit)
     }
     World.UNITS.record()
     World.INTEREST.record()
@@ -351,8 +316,14 @@ export default class World {
 
   /**
    * A portal to `to`, or an exit when `to` is undefined, at a free cell of
-   * layer `tag` that keeps `GATE_SPACING` from every gate a player could meet
-   * on either layer. Skipped, as a gate always was, if no such cell turns up.
+   * layer `tag` that keeps `GATE_SPACING` rings from every gate a player could
+   * meet on either layer. Skipped, as a gate always was, if no such cell turns
+   * up.
+   *
+   * A portal's site is also rejected if its arrival cell (`Portal.arrival`)
+   * is off the map, blocked or a gate on `to` (decision #33). The spacing
+   * already keeps gates 3 rings from any arrival cell; the check is here so a
+   * change to either cannot quietly put an arrival on a gate.
    *
    * Gates are not in `BLOCKED` (they are walked into on purpose), so
    * `getUnobstructedPosition` cannot see them and the spacing is tested here.
@@ -360,11 +331,17 @@ export default class World {
    */
   private placeGate (tag: number, to: number | undefined): void {
     const reach = to === undefined ? [tag] : [tag, to]
-    const sq = World.GATE_SPACING * World.GATE_SPACING
 
     for (let attempt = 0; attempt < 20; attempt++) {
       const pos = this.getUnobstructedPosition(40, tag)
       if (pos === undefined) continue
+      const cell = Hex.toCell(pos)
+
+      if (to !== undefined) {
+        const arrival = World.arrivalOf(cell)
+        if (World.isBlocked(arrival.x, arrival.y, to)) continue
+        if (World.GATES_ON(arrival.x, arrival.y, to).length > 0) continue
+      }
 
       const crowded = World.OBSTACLES.some((gate) => {
         if (!(gate instanceof Portal) && !(gate instanceof Exit)) return false
@@ -372,7 +349,7 @@ export default class World {
         // which is also layer 01's tag.
         const gateReach = gate instanceof Portal ? [gate.tag, gate.to] : [gate.tag]
         if (!gateReach.some((t) => reach.includes(t))) return false
-        return gate.position.sub(pos).getSquareMagnitude() < sq
+        return Hex.distance(Hex.toCell(gate.position), cell) < World.GATE_SPACING
       })
       if (crowded) continue
 
@@ -638,9 +615,21 @@ export default class World {
     if (expired > 0) World.FINISHED.splice(0, expired)
   }
 
-  /** One mob of `archetype` on `layer`, carrying the layer's loot, if a free spot turns up. */
+  /**
+   * One mob of `archetype` on `layer`, carrying the layer's loot, if a free
+   * spot turns up: a cell centre `getUnobstructedPosition` would pick that a
+   * mob may also stand on (`mobCanEnter`: no gate, no arrival cell, no other
+   * mob). Nothing pushes units apart any more (hex-cells P2), so a mob placed
+   * on a gate or on another mob would stay there.
+   */
   private spawnMob (archetype: Archetype, layer: LayerSpec): void {
-    const pos = this.getUnobstructedPosition(40, layer.tag)
+    let pos: Vector | undefined
+    for (let attempt = 0; attempt < 10 && pos === undefined; attempt++) {
+      const candidate = this.getUnobstructedPosition(40, layer.tag)
+      if (candidate === undefined) return
+      const cell = Hex.toCell(candidate)
+      if (World.mobCellFree(cell.x, cell.y, layer.tag)) pos = candidate
+    }
     if (pos === undefined) return
     const mob = new Mob(pos.x, pos.y, layer.tag, archetype)
     mob.loot = Math.round(archetype.loot * layer.lootMultiplier)
@@ -801,34 +790,26 @@ export default class World {
   }
 
   /**
-   * Rings around a gate's cell that the rock refill leaves empty: 2 for
-   * today's table (the gate's cell, its 6 neighbours and the 12 beyond).
+   * Rings around a gate's cell that the rock refill leaves empty: 2 (the
+   * gate's cell, its 6 neighbours and the 12 beyond), decision #34.
    *
    * Gates are not in `BLOCKED` (they are walked into on purpose), so the
    * refill could not see them and put rocks on portal and exit cells
    * (gate-hygiene). A rock on an exit's cell sat on the pad, and one beside a
    * gate narrowed the way on to it.
    *
-   * Derived: the fewest rings that keep every rock clear of a player held
-   * against a portal, or put down by one on the other layer. Both stand
-   * `Portal.RADIUS` + body from the portal's centre, so a rock must be a
-   * further body + `Hex.RADIUS` (its collider) out: 50 + 14 + 14 + 22.5 =
-   * 100.5 for a peep. Cells two steps away can be 78 from the centre (cells
-   * are `Hex.SIZE` apart), three steps 119, so two rings. A bigger robot
-   * raises it. Exits use the same rings; any ring at all keeps a pad
-   * reachable from every side.
-   *
-   * A getter for the same import-cycle reason as `GATE_SPACING`.
+   * 2 covers a portal's cell, its arrival cell one ring out (`Portal.arrival`)
+   * and every neighbour of the arrival cell, so a player put down by a portal
+   * never lands in a rock and can always walk off. Exits use the same rings;
+   * any ring at all keeps a pad reachable from every side. It was derived
+   * from the push-out radii until hex-cells P2, and came to 2 then too.
    */
-  static get GATE_ROCK_RINGS (): number {
-    const clear = Portal.RADIUS + 2 * World.MAX_ROBOT_BODY + Hex.RADIUS
-    for (let rings = 0; rings < 64; rings++) {
-      if (World.ringDistance(rings + 1) >= clear) return rings
-    }
-    throw new Error(`no ring count keeps rocks ${clear} from a portal`)
-  }
+  static GATE_ROCK_RINGS = 2
 
-  /** The least distance from a cell's centre to the centre of a cell exactly `k` steps away. */
+  /**
+   * The least distance from a cell's centre to the centre of a cell exactly
+   * `k` steps away. Used by the projectile hit test (`Throwable.hitRings`).
+   */
   static ringDistance (k: number): number {
     const origin = new Vector(0, 0)
     let least = Infinity
@@ -845,8 +826,9 @@ export default class World {
   /**
    * `Hex.key`s of the cells on layer `tag` within `GATE_ROCK_RINGS` of a gate
    * cell: every portal and exit on the layer, and every portal on another
-   * layer that leads here, at its own position, because that is where it puts
-   * players down.
+   * layer that leads here, centred on its own cell: its arrival cell here is
+   * one ring out (`Portal.arrival`), so 2 rings keep the arrival cell and all
+   * its neighbours clear.
    */
   static gateKeepOut (tag: number): Set<number> {
     const cells = new Set<number>()
@@ -1038,6 +1020,127 @@ export default class World {
   /** True if cell (q, r) of layer `tag` holds an exit. */
   static isExit (q: number, r: number, tag: number): boolean {
     return World.GATES_ON(q, r, tag).some((gate) => gate.type === ObjectType.Exit)
+  }
+
+  // Portals and cell stepping (hex-cells P2) ========
+
+  /**
+   * The `Hex.DIRECTIONS` index of a portal's arrival cell from the portal's
+   * own cell: 0, East, for every portal (decision #33). The client's copy is
+   * `LocalPlayer.ARRIVAL_DIRECTION`; the client never computes an arrival
+   * itself, but it waits on the portal cell for the server's.
+   */
+  static ARRIVAL_DIRECTION = 0
+
+  /**
+   * Where a portal on `cell` puts a player down, on the layer it leads to.
+   * Placement guarantees it is on the map, not a gate, and (through the rock
+   * keep-out) never a rock; StoneWall and mob steps keep it clear of stones
+   * and mobs (`isArrival`).
+   */
+  static arrivalOf (cell: Vector): Vector {
+    return Hex.neighbour(cell, World.ARRIVAL_DIRECTION)
+  }
+
+  /**
+   * The portal on cell (q, r) of layer `tag` that leads somewhere else, or
+   * undefined. A portal to its own layer (only specs build one) takes nobody
+   * anywhere, so it does not count.
+   */
+  static portalOn (q: number, r: number, tag: number): GameObject | undefined {
+    for (const gate of World.GATES_ON(q, r, tag)) {
+      if (gate.type === ObjectType.Portal && gate.to !== tag) return gate
+    }
+    return undefined
+  }
+
+  /**
+   * True if cell (q, r) of layer `tag` is the arrival cell of a portal on
+   * another layer that leads here. Kept clear like a gate cell: no StoneWall
+   * stone and no mob steps onto one (#31 Q3). Players may stand and stack on
+   * it. Two lookups, one per other layer.
+   */
+  static isArrival (q: number, r: number, tag: number): boolean {
+    const d = Hex.DIRECTIONS[World.ARRIVAL_DIRECTION]
+    for (const layer of World.TAGS) {
+      if (layer === tag) continue
+      for (const gate of World.GATES_ON(q - d.x, r - d.y, layer)) {
+        if (gate.type === ObjectType.Portal && gate.to === tag) return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * The cells claimed by mobs part-way through a step, by layer and `Hex.key`:
+   * the cell a mob left and the cell it is moving into, both until it arrives
+   * (decision #31 Q2, "holds both cells"). A mob at rest holds its own cell
+   * through `UNITS` instead, so nothing here needs releasing when it stands
+   * still. Written only by `claimStep` and `releaseStep`.
+   *
+   * A claim is honoured only while its mob is live, indexed and still
+   * stepping (`mobHolds`), so a mob a spec empties out of `MOBS`, or one that
+   * died mid-step, cannot leave a cell held for ever. `removeUnitAt` releases
+   * a swept mob's claims so the map does not keep them either.
+   */
+  static STEPS: Map<number, Map<number, Unit>> = new Map()
+
+  /** Claim `from` and `to` on the mob's layer for a step. */
+  static claimStep (unit: Unit, from: Vector, to: Vector): void {
+    let cells = World.STEPS.get(unit.tag)
+    if (cells === undefined) {
+      cells = new Map()
+      World.STEPS.set(unit.tag, cells)
+    }
+    cells.set(Hex.key(from.x, from.y), unit)
+    cells.set(Hex.key(to.x, to.y), unit)
+  }
+
+  /** Drop whatever `unit` claimed for its step, if it is still the claimant. */
+  static releaseStep (unit: Unit): void {
+    const cells = World.STEPS.get(unit.tag)
+    if (cells === undefined) return
+    for (const cell of [unit.stepFrom, unit.stepTo]) {
+      if (cell === undefined) continue
+      const key = Hex.key(cell.x, cell.y)
+      if (cells.get(key) === unit) cells.delete(key)
+    }
+  }
+
+  /**
+   * True if a mob other than `except` holds cell (q, r) of layer `tag`: one
+   * stands on it (`UNITS`), or one is stepping out of or into it (`STEPS`).
+   * Dead mobs hold nothing. Lookups only, never a scan.
+   */
+  static mobHolds (q: number, r: number, tag: number, except?: Unit): boolean {
+    const key = Hex.key(q, r)
+    const claimant = World.STEPS.get(tag)?.get(key)
+    if (
+      claimant !== undefined && claimant !== except && !claimant.destroyed &&
+      claimant.stepTo !== undefined && World.UNITS.has(claimant)
+    ) return true
+    for (const unit of World.UNITS.at(tag, key)) {
+      if (unit !== except && unit.type === ObjectType.Mob && !unit.destroyed) return true
+    }
+    return false
+  }
+
+  /**
+   * True if `mob` may step onto cell (q, r) of its layer: on the map, not a
+   * rock or stone, not a portal's or exit's cell, not a portal's arrival cell,
+   * and not held by another mob. Players don't count: a mob may share a cell
+   * with them (#31 Q2), though its chase stops a ring short of its target.
+   */
+  static mobCanEnter (q: number, r: number, mob: Unit): boolean {
+    return World.mobCellFree(q, r, mob.tag, mob)
+  }
+
+  /** `mobCanEnter` for a cell of layer `tag`, ignoring `except`'s own hold (a spawn has none). */
+  static mobCellFree (q: number, r: number, tag: number, except?: Unit): boolean {
+    if (World.isBlocked(q, r, tag)) return false
+    if (World.GATES_ON(q, r, tag).length > 0) return false
+    if (World.isArrival(q, r, tag)) return false
+    return !World.mobHolds(q, r, tag, except)
   }
 
   /**
