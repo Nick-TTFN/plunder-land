@@ -180,3 +180,38 @@ test('the keep-out covers a portal\'s arrival cell and every neighbour of it, on
     assert.ok(keepOut.has(Hex.key(c.x, c.y)), `(${c.x}, ${c.y}) by the arrival cell is not kept clear`)
   }
 })
+
+// --- the gate-free cache (server-cpu-trim) -----------------------------------------
+
+test('a gate added under a standing player is seen, though the player already found the cell free', () => {
+  const [top, middle] = LAYERS.map((layer) => layer.tag)
+  for (const how of ['addObstacle', 'direct push'] as const) {
+    reset()
+    const player = World.createPlayer('abcdef01')
+    const cell = player.cell
+    const centre = Hex.toPosition(cell)
+    // Two ticks' worth of checks on a free cell: the answer is cached.
+    assert.equal(player.hopPortal(), false)
+    assert.equal(player.channelExtract(0.25), false)
+    assert.equal(player.gateFree(), true)
+
+    const portal = new Portal(centre.x, centre.y, middle, top)
+    if (how === 'addObstacle') World.addObstacle(portal)
+    else World.OBSTACLES.push(portal)
+    assert.equal(player.gateFree(), false, `${how}: the cached answer outlived the portal`)
+    assert.equal(player.hopPortal(), true, `${how}: no hop`)
+    assert.equal(player.tag, middle)
+  }
+})
+
+test('an exit added under a standing player starts the channel on the next check', () => {
+  reset()
+  const [top] = LAYERS.map((layer) => layer.tag)
+  const player = World.createPlayer('abcdef02')
+  const centre = Hex.toPosition(player.cell)
+  assert.equal(player.channelExtract(0.25), false)
+  assert.equal(player.extractElapsed, undefined)
+  World.addObstacle(new Exit(centre.x, centre.y, top))
+  assert.equal(player.channelExtract(0.25), false)
+  assert.equal(player.extractElapsed, 0, 'the channel did not start')
+})

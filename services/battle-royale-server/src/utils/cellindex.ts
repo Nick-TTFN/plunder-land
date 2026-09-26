@@ -49,6 +49,19 @@ export class CellIndex<T extends object> {
    */
   rebuilds = 0
 
+  private _version = 0
+
+  /**
+   * Changes whenever any member is filed, unfiled or refiled, including by a
+   * rebuild: equal versions mean every bucket holds what it did. For callers
+   * that cache an answer read from the index (`Player.gateFree`). Syncs first,
+   * so an edit made directly on a list counts.
+   */
+  get version (): number {
+    this.sync()
+    return this._version
+  }
+
   constructor (
     /** The lists whose members are indexed. Read on every `sync`, never cached. */
     private readonly _lists: () => ReadonlyArray<readonly T[]>,
@@ -140,6 +153,7 @@ export class CellIndex<T extends object> {
       if (same) return
     }
     if (seen !== undefined) this.rebuilds++
+    this._version++
     this._layers.clear()
     this._slots.clear()
     for (const list of lists) {
@@ -174,6 +188,7 @@ export class CellIndex<T extends object> {
   }
 
   private link (obj: T, slot: { layer: number, key: number }): void {
+    this._version++
     let layer = this._layers.get(slot.layer)
     if (layer === undefined) {
       layer = new Map()
@@ -185,6 +200,7 @@ export class CellIndex<T extends object> {
   }
 
   private unlink (obj: T, slot: { layer: number, key: number }): void {
+    this._version++
     const layer = this._layers.get(slot.layer)
     const bucket = layer?.get(slot.key)
     if (layer === undefined || bucket === undefined) return

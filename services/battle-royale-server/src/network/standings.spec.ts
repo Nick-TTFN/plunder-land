@@ -2,7 +2,7 @@ import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
-import Multiplayer from './multiplayer'
+import Multiplayer, { type Connection } from './multiplayer'
 import World, { Standing } from '../objects/world'
 import Timers from '../objects/timers'
 import { GameObject } from '../objects/gameobject'
@@ -98,6 +98,8 @@ test('standings go out once every 4 ticks at 250 ms: once a second', () => {
   const due: number[] = []
   for (let tick = 1; tick <= 12; tick++) {
     const before = standingsSent(a.sent).length
+    // A new board each time: an unchanged one is not resent (see below).
+    a.player.loot = tick
     multiplayer.flushAll(tick, 250)
     if (standingsSent(a.sent).length > before) due.push(tick)
   }
@@ -109,13 +111,41 @@ test('standings go out once every 4 ticks at 250 ms: once a second', () => {
 test('the cadence follows the tick length, and never exceeds one per tick', () => {
   const slow = setup(1000).multiplayer
   const a = join(slow, 's1', 'ANNA')
-  for (let tick = 1; tick <= 3; tick++) slow.flushAll(tick, 1000)
+  for (let tick = 1; tick <= 3; tick++) { a.player.loot = tick; slow.flushAll(tick, 1000) }
   assert.equal(standingsSent(a.sent).length, 3)
 
   const fast = setup(100).multiplayer
   const b = join(fast, 's2', 'BO')
-  for (let tick = 1; tick <= 30; tick++) fast.flushAll(tick, 100)
+  for (let tick = 1; tick <= 30; tick++) { b.player.loot = tick; fast.flushAll(tick, 100) }
   assert.equal(standingsSent(b.sent).length, 3)
+})
+
+test('a board identical to the last one a connection got is not sent again (server-cpu-trim)', () => {
+  const { multiplayer } = setup(250)
+  const a = join(multiplayer, 's1', 'ANNA')
+  const b = join(multiplayer, 's2', 'BO')
+  for (let tick = 1; tick <= 8; tick++) multiplayer.flushAll(tick, 250)
+  // Due at 4 and 8; nothing changed between them.
+  assert.equal(standingsSent(a.sent).length, 1)
+  assert.equal(standingsSent(b.sent).length, 1)
+
+  // A change anywhere on the board goes to everyone.
+  b.player.loot = 500
+  for (let tick = 9; tick <= 12; tick++) multiplayer.flushAll(tick, 250)
+  assert.equal(standingsSent(a.sent).length, 2)
+  assert.equal(standingsSent(b.sent).length, 2)
+  assert.notDeepEqual(standingsSent(a.sent)[1], standingsSent(a.sent)[0])
+})
+
+test('a new run on the same connection gets the board even if it has not changed', () => {
+  const { multiplayer } = setup(250)
+  const a = join(multiplayer, 's1', 'ANNA')
+  for (let tick = 1; tick <= 4; tick++) multiplayer.flushAll(tick, 250)
+  assert.equal(standingsSent(a.sent).length, 1)
+  const connection = ((multiplayer as any)._connections as Connection[])[0]
+  ;(multiplayer as any).attach(connection, a.player)
+  for (let tick = 5; tick <= 8; tick++) multiplayer.flushAll(tick, 250)
+  assert.equal(standingsSent(a.sent).length, 2)
 })
 
 test('a socket that never started a run is sent no standings', () => {

@@ -220,7 +220,9 @@ lockfiles, and treat any dependency bump as something to smoke-test.
 Server → client messages (`create`, `create_own`, `update`, `destroy`, `effect`,
 `standings`) are binary. Each event is **one** buffer containing length-prefixed records.
 
-**`standings`** goes out about once a second (every `round(1000 / tick)` flushes, no timer).
+**`standings`** goes out about once a second (every `round(1000 / tick)` flushes, no timer),
+**and only when the connection's buffer differs from the last one it was sent**
+(`Connection.lastStandings`, cleared by `attach` so a new run always gets it; server-cpu-trim).
 Each connection gets the top 10 rows of the board (`Multiplayer.STANDINGS_TOP`) plus its own
 row, appended, when it is not among them (decision #30). The board is ranked once per send
 (`Multiplayer.rankStandings`); `StandingsBoard.bufferFor` hands every connection in the top 10
@@ -310,9 +312,16 @@ control run with the field forced to zero doubled the median correction (2.00 vs
 units) and introduced a systematic backward bias.
 
 **Client → server `pointer` is the route's waypoint cells:** `[uint8 count][int16 q][int16 r]
-× count[uint16 seq]`, big-endian. It is sampled once per server tick, not per pointer event.
-The server ignores a buffer shorter than its own count says (`Multiplayer.onPointer`). (It
-was a 4-byte direction before click-to-move routed along hex centres.)
+× count[uint16 seq]`, big-endian. It is sampled once per server tick, not per pointer event,
+and **sent only when the route changed** since the last send (`LocalPlayer.sample`,
+server-cpu-trim 2026-09-26). It used to go every tick "so a dropped one costs nothing", but a
+WebSocket drops nothing, nothing reads the ack, and receiving the repeats was most of the
+server's input cost. A run's first sample always goes (`LocalPlayer.reset`), and the server
+forgets the last route when a player joins on a connection (`Multiplayer.attach`); without
+both, a repeat of the previous run's route would read as no change. An older client that still
+repeats is harmless (`sameCells`). The server ignores a buffer shorter than its own count says
+(`Multiplayer.onPointer`). (It was a 4-byte direction before click-to-move routed along hex
+centres.)
 
 **Client → server `skill` is 5 bytes:** `[uint8 slot][int16 q][int16 r]`, **big-endian**,
 where (q, r) is the **absolute** axial cell aimed at (decision #21). Not an offset from the
@@ -478,8 +487,9 @@ tick's travel was also 35, because the two crossings then fell in the same tick.
 **Arriving does not clear the waypoints, only the path.** The client walks in real time and the
 server starts a tick later, so the client always finishes first; clearing the waypoints on
 arrival made the next input packet a "stop" that landed on a server still short of the
-destination. `LocalPlayer._arrive` keeps the destination so the packet keeps asking for it, and
-the server's `sameCells` check makes the repeat free. `stop()` stays for a real stop.
+destination. `LocalPlayer._arrive` keeps the destination, so arriving is no change and sends
+nothing (clients before server-cpu-trim repeated it every tick, which `sameCells` made free).
+`stop()` stays for a real stop.
 
 **A layer change ends the route, on both sides** (`Unit.changeLayer`, `LocalPlayer.changeLayer`):
 set the tag, then `stop()`. The client doesn't predict the hop: it walks to the portal's
@@ -487,8 +497,8 @@ centre and waits there. When the tag arrives, a tick or so late, `LocalPlayer.ch
 jumps with no easing to the position that came in the same record (`Game.onObjectUpdated`
 reconciles a record's position before its tag, and `reconcile` remembers it), then stops.
 The arrival is one cell away, inside the reconcile dead zone, so without the jump it would
-be ignored. The server ignores the client's repeated old-route packets meanwhile
-(`sameCells` in `Multiplayer.onPointer`). `extract.spec.ts`'s mirror harness covers it with
+be ignored. The client's route doesn't change while it waits, so it sends nothing meanwhile
+(an older client repeats the old route, which `sameCells` in `Multiplayer.onPointer` ignores). `extract.spec.ts`'s mirror harness covers it with
 the tag 1-3 ticks late. Known gap: a new click in that window is planned on the old layer and
 shows as a correction.
 

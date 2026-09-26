@@ -30,18 +30,28 @@ export interface Timer {
  * a freed id) has no owner. **Never give a cleanup timer an owner that can die
  * before the thing it cleans up**, or the cleanup is cancelled and it leaks.
  *
- * Eviction: an entry leaves `pending` when it runs, or at the next `run` after
- * it is cancelled; `byOwner` loses a key when that owner's last timer runs or
+ * Eviction: an entry leaves `pending` when it runs, or at the first `run`
+ * after it is cancelled that has something due (a run with nothing due returns
+ * without looking at the list); `byOwner` loses a key when that owner's last timer runs or
  * is cancelled. Process-global, like every other piece of world state.
  */
 export default class Timers {
   private static pending: Timer[] = []
+  /**
+   * No pending timer is due before this; Infinity when none is pending. `run`
+   * returns at once while the clock is short of it, instead of rebuilding the
+   * list every tick (server-cpu-trim: that rebuild was 0.66 ms of a 400-player
+   * tick). Lowered by `schedule`, recomputed by each `run` that scans. A
+   * cancelled timer can leave it early, which costs one scan, never a late run.
+   */
+  private static nextDue = Infinity
   private static readonly byOwner = new Map<object, Set<Timer>>()
 
   /** Run `fn` at the first tick at least `delayMs` from now. */
   static schedule (delayMs: number, fn: () => void, owner?: object): Timer {
     const timer: Timer = { due: Date.now() + delayMs, owner, fn, done: false }
     Timers.pending.push(timer)
+    if (timer.due < Timers.nextDue) Timers.nextDue = timer.due
     if (owner !== undefined) {
       let set = Timers.byOwner.get(owner)
       if (set === undefined) {
@@ -75,16 +85,22 @@ export default class Timers {
    * does not run.
    */
   static run (now: number): void {
-    if (Timers.pending.length === 0) return
+    if (Timers.pending.length === 0 || now < Timers.nextDue) return
 
     const due: Timer[] = []
     const later: Timer[] = []
+    let nextDue = Infinity
     for (const timer of Timers.pending) {
       if (timer.done) continue
       if (timer.due <= now) due.push(timer)
-      else later.push(timer)
+      else {
+        later.push(timer)
+        if (timer.due < nextDue) nextDue = timer.due
+      }
     }
     Timers.pending = later
+    // Before running them: one that schedules another lowers it from here.
+    Timers.nextDue = nextDue
     if (due.length === 0) return
 
     // Array.prototype.sort is stable, so equal dues keep scheduling order.
@@ -112,6 +128,7 @@ export default class Timers {
   static clear (): void {
     for (const timer of Timers.pending) timer.done = true
     Timers.pending = []
+    Timers.nextDue = Infinity
     Timers.byOwner.clear()
   }
 

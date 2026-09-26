@@ -58,6 +58,20 @@ for i, (t0, label) in enumerate(steps):
           f"{m(lambda x: x['emitKBPerTick']):.0f} KB/tick; probe overhead ~{m(lambda x: x['overheadMs']):.2f} ms/tick "
           f"({s[0]['wrapNs']} ns/call)")
 
+    if 'wirePerTick' in s[0]:
+        keys = {k for x in s for k in x['wirePerTick']}
+        conns = max(players, 1)
+        tot = {k: (st.mean(x['wirePerTick'].get(k, [0, 0])[0] for x in s), st.mean(x['wirePerTick'].get(k, [0, 0])[1] for x in s)) for k in keys}
+        allb = sum(b for _, b in tot.values()) or 1
+        print(f"| wire (framed clients) | records/tick | B/s per client | share |")
+        print(f"|---|---|---|---|")
+        for k, (n, b) in sorted(tot.items(), key=lambda kv: -kv[1][1])[:20]:
+            print(f"| {k} | {n:.1f} | {b * ticks_s / conns:.0f} | {b / allb * 100:.1f}% |")
+        fk = {k for x in s for k in x['updateFieldBytesPerTick']}
+        ft = {k: st.mean(x['updateFieldBytesPerTick'].get(k, 0) for x in s) for k in fk}
+        fall = sum(ft.values()) or 1
+        print('update bytes by field: ' + ', '.join(f"{k} {v / fall * 100:.0f}%" for k, v in sorted(ft.items(), key=lambda kv: -kv[1])))
+
     names = {}
     for x in s:
         for k in x['spans']:

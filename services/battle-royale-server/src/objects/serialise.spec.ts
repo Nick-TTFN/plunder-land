@@ -171,6 +171,18 @@ test('serialiseBinary matches the old encoder on everything a real world makes',
   assert.ok(checked > 1000)
 })
 
+test('every cached terrain record is what encoding the object now gives', () => {
+  world()
+  let checked = 0
+  for (const obj of World.OBSTACLES) {
+    if (obj.destroyed) continue
+    assert.deepEqual(Multiplayer.terrainRecord(obj), obj.serialiseBinary(obj.allFields), `terrain ${obj.type}#${obj.id}`)
+    checked++
+  }
+  // Rocks, portals and exits on three layers, and the stones cast in world().
+  assert.ok(checked > 400, `only ${checked} terrain objects`)
+})
+
 test('a value that does not fit its field throws the same error as before', () => {
   const { players } = world()
   const player = players[0]

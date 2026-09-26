@@ -1,7 +1,8 @@
 // A crowd of headless players for load testing. One process runs `count` bots.
 //   node loadbot.mjs <url> <count> <prefix> <outFile> [joinSpreadMs]
-// Each bot: joins with a hex id, re-sends its route every tick (as the client
-// does), picks a new destination 2-8 cells away every 3-7 s, presses a random
+// Each bot: joins with a hex id, sends its route when it changes (as the client
+// does since server-cpu-trim; LOADBOT_POINTER=tick re-sends it every tick, as
+// older clients did), picks a new destination 2-8 cells away every 3-7 s, presses a random
 // skill aimed at a nearby cell every ~2 s, throws a bomb now and then, and
 // rejoins on death or extraction. A connect that fails is retried with
 // exponential backoff (0.5 s doubling to 10 s, jittered), so a saturated server
@@ -42,6 +43,7 @@ const parser = load(CLIENT, 'socket.io-parser', `Run \`npm ci\` in ${CLIENT}, or
 // events below, so the rest of the bot doesn't know the difference. With 0
 // the bot connects as an older client and gets one socket.io event per kind.
 const FRAMES = (process.env.LOADBOT_FRAMES ?? '1') === '1'
+const POINTER_EVERY_TICK = process.env.LOADBOT_POINTER === 'tick'
 const KINDS = { 1: 'create', 2: 'create_own', 3: 'effect', 4: 'destroy', 5: 'standings', 6: 'update' }
 function unpackFrame (b) {
   if (b.length < 9 || b[0] !== 1) return undefined
@@ -128,7 +130,7 @@ class Bot {
   constructor (i) { this.i = i; this.failedConnects = 0; this.join() }
   join () {
     if (this.stopped) return
-    this.ownId = undefined; this.pos = undefined; this.route = []; this.seq = 1
+    this.ownId = undefined; this.pos = undefined; this.route = []; this.seq = 1; this.sentRoute = undefined
     this.nextRouteAt = 0; this.nextSkillAt = Date.now() + rand(500, 3000); this.lastUpdateAt = undefined
     this.joinBytes = 0; this.joinDone = false
     const s = this.socket = io(url, { transports: ['websocket'], reconnection: false, forceNew: true, ...FRAMED_OPTS })
@@ -192,13 +194,17 @@ class Bot {
   act (t) {
     if (this.pos === undefined) return
     if (t >= this.nextRouteAt) { this.route = [this.cellNear(8)]; this.nextRouteAt = t + rand(3000, 7000) }
-    // The client re-sends its route every tick.
-    const b = Buffer.alloc(1 + 4 * this.route.length + 2)
-    b.writeUInt8(this.route.length, 0)
-    this.route.forEach((c, k) => { b.writeInt16BE(c.q, 1 + 4 * k); b.writeInt16BE(c.r, 3 + 4 * k) })
-    b.writeUInt16BE(this.seq, b.length - 2)
-    this.seq = (this.seq + 1) & 0xffff || 1
-    this.socket.emit('pointer', b)
+    // The client sends its route when it changes; older clients every tick.
+    const key = this.route.map((c) => `${c.q},${c.r}`).join(';')
+    if (POINTER_EVERY_TICK || key !== this.sentRoute) {
+      this.sentRoute = key
+      const b = Buffer.alloc(1 + 4 * this.route.length + 2)
+      b.writeUInt8(this.route.length, 0)
+      this.route.forEach((c, k) => { b.writeInt16BE(c.q, 1 + 4 * k); b.writeInt16BE(c.r, 3 + 4 * k) })
+      b.writeUInt16BE(this.seq, b.length - 2)
+      this.seq = (this.seq + 1) & 0xffff || 1
+      this.socket.emit('pointer', b)
+    }
     if (t >= this.nextSkillAt) {
       const c = this.cellNear(6)
       const s = Buffer.alloc(5)

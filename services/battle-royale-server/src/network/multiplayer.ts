@@ -72,6 +72,13 @@ export class Connection {
    */
   framed: boolean = false
 
+  /**
+   * The standings buffer this connection was last sent, so an identical board
+   * is not sent again (`Multiplayer.flushAll`). Cleared when a new player joins
+   * on the connection (`attach`), so a new run always gets the board.
+   */
+  lastStandings: Buffer | undefined
+
   get id (): string {
     return this.socket?.id
   }
@@ -342,9 +349,9 @@ export default class Multiplayer {
    * client drew, or the marker on screen stops describing where the player will
    * actually walk.
    *
-   * A count of zero means stop. Sent every tick whether or not it changed, so
-   * the newest packet always holds complete current intent and a dropped one
-   * costs nothing.
+   * A count of zero means stop. The current client sends it only when the
+   * route changes (at most once a tick); older clients send it every tick
+   * whether or not it changed, which `sameCells` below makes free.
    */
   static MAX_WAYPOINTS = 16
 
@@ -380,8 +387,8 @@ export default class Multiplayer {
       waypoints.push(new Vector(buf.readInt16BE(at), buf.readInt16BE(at + 2)))
     }
 
-    // Only re-route when the client asks for something different. The packet
-    // arrives every tick; searching on each one would put a BFS per player per
+    // Only re-route when the client asks for something different. An older
+    // client sends the packet every tick; searching on each one would put a BFS per player per
     // tick into the loop for no gain, since a standing route does not change
     // unless the terrain does - and when it does, `World.block` re-routes.
     if (sameCells(connection.lastWaypoints, waypoints)) return
@@ -491,15 +498,14 @@ export default class Multiplayer {
   static EXIT_MARGIN = 2 * Hex.SIZE
 
   /**
-   * Each player's connection, for the players `World.INTEREST` finds. Weak, and
-   * always checked against `connection.player`, so a player whose connection
-   * has moved on (death, exit, disconnect) is never sent anything through it.
+   * The connection whose live player `player` is, if any: `Player.connection`,
+   * set by `attach`, and always checked against `connection.player`, so a
+   * player whose connection has moved on (death, exit, disconnect) is never
+   * sent anything through it. It was a WeakMap; the broadcast loop asks once
+   * per nearby player per object per tick, and the field is about 3x faster.
    */
-  private static readonly _connectionOf = new WeakMap<Player, Connection>()
-
-  /** The connection whose live player `player` is, if any. */
   private connectionOf (player: Player): Connection | undefined {
-    const connection = Multiplayer._connectionOf.get(player)
+    const connection = player.connection
     return connection?.player === player ? connection : undefined
   }
 
@@ -627,17 +633,42 @@ export default class Multiplayer {
   private attach (connection: Connection, player: Player): void {
     this.forget(connection)
     connection.player = player
+    // A new run on this connection starts from no route: the client sends its
+    // route only when it changes, and its first sample of a run whatever it
+    // is, so a stale route here would make a repeat of it look like no change.
+    connection.lastWaypoints = []
+    connection.lastStandings = undefined
     connection.known = new Set()
     this.know(connection, player)
     this.setLayer(connection, player.tag)
-    Multiplayer._connectionOf.set(player, connection)
+    player.connection = connection
   }
 
   /** A create for all of the terrain on the connection's layer, into `into`. */
   private sendTerrain (connection: Connection, into: Buffer[]): void {
     for (const obj of World.OBSTACLES) {
-      if (obj.tag === connection.layer && !obj.destroyed) into.push(obj.serialiseBinary(obj.allFields))
+      if (obj.tag === connection.layer && !obj.destroyed) into.push(Multiplayer.terrainRecord(obj))
     }
+  }
+
+  /**
+   * A terrain object's create record, encoded once and kept. Every join and
+   * layer change sends the whole layer's terrain, about 150 records, and
+   * re-encoding them was most of a join's cost (server-cpu-trim). Safe because
+   * nothing changes a rock, stone, portal or exit after its constructor: none
+   * of them has a wire field written after `create`. Weak, so it goes with the
+   * object; `serialise.spec.ts` checks every cached record against a fresh
+   * encoding after a ticked world.
+   */
+  private static readonly _terrainRecords = new WeakMap<GameObject, Buffer>()
+
+  static terrainRecord (obj: GameObject): Buffer {
+    let record = Multiplayer._terrainRecords.get(obj)
+    if (record === undefined) {
+      record = obj.serialiseBinary(obj.allFields) as Buffer
+      Multiplayer._terrainRecords.set(obj, record)
+    }
+    return record
   }
 
   /**
@@ -712,7 +743,7 @@ export default class Multiplayer {
    */
   create (obj: GameObject): void {
     if (!Multiplayer.gone(obj)) {
-      const data = obj.serialiseBinary(obj.allFields)
+      const data = Multiplayer.isTerrain(obj) ? Multiplayer.terrainRecord(obj) : obj.serialiseBinary(obj.allFields)
       if (Multiplayer.isTerrain(obj)) {
         for (const connection of this.layers.get(obj.tag) ?? []) this.outbox(connection).create.push(data)
       } else {
@@ -772,14 +803,25 @@ export default class Multiplayer {
     // standing in the margin does not force that loop every tick.
     const outer = Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN
     const knownBy = obj.knownBy
+    // Read once: nothing below moves the object. The box tests are
+    // `Multiplayer.sees` written out on these, since this loop runs for every
+    // player near every object every tick.
+    const ox = obj.position.x
+    const oy = obj.position.y
+    const otag = obj.tag
+    const inner = Multiplayer.INTEREST_RADIUS
     let holdersInRange = 0
-    for (const player of World.interestCandidates(obj.position.x, obj.position.y, obj.tag)) {
+    for (const player of World.interestCandidates(ox, oy, otag)) {
       const connection = this.viewerOf(player)
       if (connection === undefined) continue
-      if (connection !== self && !Multiplayer.sees(connection, obj)) {
+      // `viewerOf` returned it, so `connection.player` is `player`.
+      const dx = player.position.x - ox
+      const dy = player.position.y - oy
+      const onLayer = connection.layer === otag
+      if (connection !== self && !(onLayer && dx < inner && dx > -inner && dy < inner && dy > -inner)) {
         // Not in the box. A holder whose client is on this layer (so no
         // switch pending) and still has it in the margin keeps it.
-        if (connection.layer === player.tag && knownBy.has(connection) && Multiplayer.sees(connection, obj, outer)) {
+        if (connection.layer === player.tag && onLayer && dx < outer && dx > -outer && dy < outer && dy > -outer && knownBy.has(connection)) {
           holdersInRange++
           if (changed) {
             if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
@@ -1035,7 +1077,16 @@ export default class Multiplayer {
     const board = this.standingsDue() ? Multiplayer.rankStandings() : undefined
     for (const connection of this._connections) {
       if (connection.player != null) connection.ackElapsedMs += dtMs
-      this.flush(connection, tick, board?.bufferFor(connection.player))
+      // Only a board that differs from the last one this connection got: the
+      // client shows the last board it was sent until another arrives, so a
+      // repeat changes nothing on screen (server-cpu-trim; standings were 9-15%
+      // of a client's bytes, sent every second changed or not).
+      let standings = board?.bufferFor(connection.player)
+      if (standings !== undefined && connection.player != null) {
+        if (connection.lastStandings?.equals(standings) === true) standings = undefined
+        else connection.lastStandings = standings
+      }
+      this.flush(connection, tick, standings)
     }
   }
 

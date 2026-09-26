@@ -4,7 +4,7 @@
 #   tools/load/ramp.sh [--steps "0 100 400"] [--step-secs 45] [--settle 15]
 #                      [--warmup 45] [--port 8100] [--redis-port 6399] [--out DIR]
 #                      [--batch 50] [--spread-ms 10000] [--cpu-prof] [--no-build]
-#                      [--detail 0|1|2] [--frames 0|1]
+#                      [--detail 0|1|2] [--frames 0|1] [--pointer change|tick]
 #
 # Builds the server, starts it from dist/ with probe.cjs preloaded on --port,
 # with Redis pointed at --redis-port (which must be dead: stats writes fail and
@@ -20,16 +20,18 @@
 # --cpu-prof. The table at the end is analyse.py over that folder; with
 # --detail 1 or 2 the probe also times every hot function (spans.cjs) and
 # spans.py prints where each step's tick went. --frames 0 makes the bots
-# connect as clients from before one frame per tick (default 1).
+# connect as clients from before one frame per tick (default 1); --pointer
+# tick makes them re-send their route every tick, as clients before
+# server-cpu-trim did (default change).
 set -eo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="$(cd "$HERE/../.." && pwd)"
 
 STEPS="0 100 400"; STEP_SECS=45; SETTLE=15; WARMUP=45; PORT=8100; REDIS_PORT=6399
-OUT=""; BATCH=50; SPREAD_MS=10000; CPU_PROF=0; BUILD=1; DETAIL=0; FRAMES=1
+OUT=""; BATCH=50; SPREAD_MS=10000; CPU_PROF=0; BUILD=1; DETAIL=0; FRAMES=1; POINTER=change
 
-usage () { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage () { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --steps) STEPS="$2"; shift 2 ;;
@@ -45,6 +47,7 @@ while [ $# -gt 0 ]; do
     --no-build) BUILD=0; shift ;;
     --detail) DETAIL="$2"; shift 2 ;;
     --frames) FRAMES="$2"; shift 2 ;;
+    --pointer) POINTER="$2"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "ramp: unknown argument $1" >&2; usage 2 ;;
   esac
@@ -114,7 +117,7 @@ current=0
 for target in $STEPS; do
   while [ "$current" -lt "$target" ]; do
     n=$(( target - current < BATCH ? target - current : BATCH ))
-    LOADBOT_FRAMES="$FRAMES" node "$HERE/loadbot.mjs" "http://127.0.0.1:$PORT" "$n" "p${current}_" "$OUT/bots.jsonl" "$SPREAD_MS" >> "$OUT/bots.err" 2>&1 &
+    LOADBOT_FRAMES="$FRAMES" LOADBOT_POINTER="$POINTER" node "$HERE/loadbot.mjs" "http://127.0.0.1:$PORT" "$n" "p${current}_" "$OUT/bots.jsonl" "$SPREAD_MS" >> "$OUT/bots.err" 2>&1 &
     BOT_PIDS+=("$!")
     current=$(( current + n ))
   done

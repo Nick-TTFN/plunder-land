@@ -24,6 +24,63 @@ const missing = []
 const counters = { emits: 0, emitBytes: 0, emitsInTick: 0, sockWrites: 0, sockWritevs: 0 }
 let inTick = false
 
+// What the frames carry, by event and object kind, and for updates by field:
+// { 'create:loot': [records, bytes], ... }, { 'update.position': bytes, ... }.
+// Parsed from the frames packFrame builds, so it counts what framed clients
+// get (every client the bots run). The kind of a destroy or update record is
+// remembered from the object's last create, by id.
+let wire = {}
+let wireFields = {}
+const kindOf = new Map()
+const KIND_NAMES = { 1: 'rock', 2: 'loot', 4: 'player', 8: 'portal', 16: 'projectile', 32: 'mob', 64: 'exit', 128: 'item' }
+const EVENTS = { 1: 'create', 2: 'create_own', 3: 'effect', 4: 'destroy', 5: 'standings', 6: 'update' }
+// Payload widths by field index; -1 NUL string, -2 counted. Mirrors loadbot.mjs's WIDTH.
+const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4 }
+let FIELD_NAMES = []
+function tallyFrame (frame) {
+  let at = 9
+  while (at + 5 <= frame.length) {
+    const event = EVENTS[frame[at]] ?? `kind${frame[at]}`
+    const len = frame.readUInt32BE(at + 1)
+    const end = at + 5 + len
+    let o = at + 5
+    if (event === 'standings') {
+      const k = 'standings'; wire[k] = wire[k] ?? [0, 0]; wire[k][0]++; wire[k][1] += len
+    } else {
+      while (o + 2 <= end) {
+        const rl = frame.readUInt16BE(o)
+        const rec = frame.subarray(o + 2, o + 2 + rl)
+        o += 2 + rl
+        let kind
+        if (event === 'effect') kind = `type${rec[0]}`
+        else {
+          const id = rec[1] * 256 + rec[2]
+          if ((event === 'create' || event === 'create_own') && rec[3] === 1) { kind = KIND_NAMES[rec[4]] ?? rec[4]; kindOf.set(id, kind) } else kind = kindOf.get(id) ?? '?'
+          if (event === 'update') {
+            // Field bytes, index byte included; the id and length prefix go to 'update.(id+len)'.
+            wireFields['(id+len)'] = (wireFields['(id+len)'] ?? 0) + 5
+            let f = 3
+            while (f < rec.length) {
+              const idx = rec[f]; const w = WIDTH[idx]
+              let n
+              if (w === undefined) break
+              else if (w === -1) { n = 1; while (f + n < rec.length && rec[f + n] !== 0) n++; n++ }
+              else if (w === -2) n = 1 + rec[f + 1]
+              else n = w
+              const name = FIELD_NAMES[idx] ?? idx
+              wireFields[name] = (wireFields[name] ?? 0) + 1 + n
+              f += 1 + n
+            }
+          }
+        }
+        const k = `${event}:${kind}`
+        wire[k] = wire[k] ?? [0, 0]; wire[k][0]++; wire[k][1] += rl + 2
+      }
+    }
+    at = end
+  }
+}
+
 function span (name) {
   let s = spans.get(name)
   if (s === undefined) { s = { calls: 0, incl: 0, self: 0 }; spans.set(name, s) }
@@ -192,6 +249,10 @@ function install (dist, level) {
   const fa = Multiplayer.prototype.flushAll
   Multiplayer.prototype.flushAll = function (...a) { inTick = true; try { return fa.apply(this, a) } finally { inTick = false } }
 
+  FIELD_NAMES = GameObject.fieldOrder
+  const pack = Multiplayer.packFrame
+  Multiplayer.packFrame = function (...a) { const f = pack.apply(this, a); tallyFrame(f); return f }
+
   if (missing.length > 0) console.error('probe: not wrapped (not found):', missing.join(', '))
   return wrapNs
 }
@@ -208,6 +269,11 @@ function take (ticks, wrapNs) {
   const c = { ...counters }
   spans = new Map()
   for (const k in counters) counters[k] = 0
+  const w = {}
+  for (const [k, [n, b]] of Object.entries(wire)) w[k] = [+(n / t).toFixed(2), +(b / t).toFixed(1)]
+  const wf = {}
+  for (const [k, b] of Object.entries(wireFields)) wf[k] = +(b / t).toFixed(1)
+  wire = {}; wireFields = {}
   return {
     spans: out,
     overheadMs: +(calls / t * wrapNs / 1e6).toFixed(3),
@@ -216,7 +282,9 @@ function take (ticks, wrapNs) {
     emitsOutsideTickPerTick: +((c.emits - c.emitsInTick) / t).toFixed(1),
     emitKBPerTick: +(c.emitBytes / t / 1024).toFixed(1),
     sockWritesPerTick: +((c.sockWrites + c.sockWritevs) / t).toFixed(1),
-    sockWritevsPerTick: +(c.sockWritevs / t).toFixed(1)
+    sockWritevsPerTick: +(c.sockWritevs / t).toFixed(1),
+    wirePerTick: w,
+    updateFieldBytesPerTick: wf
   }
 }
 

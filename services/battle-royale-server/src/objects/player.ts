@@ -5,7 +5,7 @@ import { Hex } from '../utils/hex'
 import { type Skill } from '../skills/skill'
 import { type Archetype, ARCHETYPES, buildSkills } from '../archetypes/archetypes'
 import World from './world'
-import Multiplayer from '../network/multiplayer'
+import Multiplayer, { type Connection } from '../network/multiplayer'
 import Timers from './timers'
 import { INVENTORY_SLOTS } from '../utils/items'
 import { type Item } from '../archetypes/archetypes'
@@ -84,6 +84,42 @@ export default class Player extends Unit {
    */
   extractElapsed: number | undefined
 
+  /**
+   * The connection this player was attached to (`Multiplayer.attach`), for
+   * `Multiplayer.connectionOf`, which checks it still points back. Network
+   * bookkeeping only; nothing in the simulation reads it.
+   */
+  connection: Connection | undefined = undefined
+
+  /**
+   * The cell, layer and `World.GATES` version at which this player's cell was
+   * last found to hold no gate. `gateFree` answers from it until one of the
+   * three changes, which spares the exit and portal lookups on the ticks a
+   * player stands or walks inside one cell (server-cpu-trim). Written only by
+   * `gateFree`, never from a base-constructor hook, so plain initialisers are
+   * safe here.
+   */
+  private _gateFreeKey = NaN
+  private _gateFreeTag = NaN
+  private _gateFreeVersion = -1
+
+  /**
+   * True if the player's cell on its layer holds no portal and no exit. Gates
+   * are placed when the world is built and never move, but specs add them
+   * later, so the answer is keyed to the gate index's version too.
+   */
+  gateFree (): boolean {
+    const here = this.cell
+    const key = Hex.key(here.x, here.y)
+    const version = World.GATES.version
+    if (key === this._gateFreeKey && this.tag === this._gateFreeTag && version === this._gateFreeVersion) return true
+    if (World.GATES_ON(here.x, here.y, this.tag).length > 0) return false
+    this._gateFreeKey = key
+    this._gateFreeTag = this.tag
+    this._gateFreeVersion = version
+    return true
+  }
+
   update (dt: number): void {
     // Before moving, so the channel is judged on the position every client was
     // last sent, and its progress goes out in this tick's update rather than
@@ -126,6 +162,7 @@ export default class Player extends Unit {
    * (`LocalPlayer.changeLayer`).
    */
   hopPortal (): boolean {
+    if (this.gateFree()) return false
     const here = this.cell
     const portal = World.portalOn(here.x, here.y, this.tag)
     if (portal === undefined) return false
@@ -195,6 +232,10 @@ export default class Player extends Unit {
    * there: fails closed. No such layer exists; every tag comes from `LAYERS`.
    */
   channelExtract (dt: number): boolean {
+    if (this.gateFree()) {
+      this.cancelExtract()
+      return false
+    }
     const extractMs = World.LAYERS.find((layer) => layer.tag === this.tag)?.extractMs
     if (extractMs === undefined || !this.onExit()) {
       this.cancelExtract()

@@ -294,3 +294,60 @@ for (const skill of PROJECTILES) {
     assert.deepEqual(World.OBSTACLES, [rock])
   })
 }
+
+// server-cpu-trim: `run` returns without scanning while nothing is due. These
+// pin that the shortcut never delays or loses a timer.
+
+test('a run with nothing due runs nothing, and a later timer still runs on time', () => {
+  Timers.clear()
+  const now = Date.now()
+  const ran: string[] = []
+  Timers.schedule(1000, () => ran.push('late'))
+  Timers.run(now)
+  Timers.run(now + 500)
+  assert.deepEqual(ran, [])
+  Timers.run(now + 1000)
+  assert.deepEqual(ran, ['late'])
+  assert.equal(Timers.size, 0)
+})
+
+test('a timer scheduled after a skipped run, due before the earliest one, is not held back', () => {
+  Timers.clear()
+  const now = Date.now()
+  const ran: string[] = []
+  Timers.schedule(1000, () => ran.push('late'))
+  Timers.run(now) // nothing due: returns without scanning
+  Timers.schedule(10, () => ran.push('early'))
+  Timers.run(now + 50)
+  assert.deepEqual(ran, ['early'])
+  Timers.run(now + 1000)
+  assert.deepEqual(ran, ['early', 'late'])
+})
+
+test('a timer scheduled from inside a running timer is due at its own time', () => {
+  Timers.clear()
+  const now = Date.now()
+  const ran: string[] = []
+  Timers.schedule(0, () => {
+    ran.push('first')
+    Timers.schedule(20, () => ran.push('second'))
+  })
+  Timers.schedule(5000, () => ran.push('last'))
+  Timers.run(now + 1)
+  assert.deepEqual(ran, ['first'])
+  Timers.run(now + 100)
+  assert.deepEqual(ran, ['first', 'second'])
+})
+
+test('cancelling the earliest timer does not stop the next one', () => {
+  Timers.clear()
+  const now = Date.now()
+  const ran: string[] = []
+  const first = Timers.schedule(10, () => ran.push('first'))
+  Timers.schedule(30, () => ran.push('second'))
+  Timers.cancel(first)
+  Timers.run(now + 20)
+  assert.deepEqual(ran, [])
+  Timers.run(now + 40)
+  assert.deepEqual(ran, ['second'])
+})

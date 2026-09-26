@@ -123,6 +123,11 @@ export class LocalPlayer {
 
   private _seq: number = 1
   private _lastSample: number = 0
+  /**
+   * The waypoints last sent, as `q,r;q,r;...`, or undefined when nothing has
+   * been sent for this run (`reset`), so the first sample of a run always goes.
+   */
+  private _sentRoute: string | undefined
 
   /** The last position the server reported for us, for the portal hop (`changeLayer`). */
   private _serverX: number | undefined
@@ -194,6 +199,7 @@ export class LocalPlayer {
     this.facingX = 1
     this.facingY = 0
     this.stop()
+    this._sentRoute = undefined
     this.ready = true
   }
 
@@ -430,22 +436,33 @@ export class LocalPlayer {
   }
 
   /**
-   * Emit at the server's cadence rather than at pointer-event rate. Returns the
-   * payload when it is time to send, otherwise null.
+   * Emit at the server's cadence rather than at pointer-event rate, and only
+   * when the route has changed since the last send. Returns the payload when
+   * it is time to send, otherwise null.
    *
-   * Sent every tick whether or not the route changed, so the newest packet
-   * always carries complete current intent and a dropped one costs nothing.
+   * It used to go every tick whether or not the route changed, "so a dropped
+   * one costs nothing"; but a WebSocket drops nothing and delivers in order,
+   * so the repeats carried no information, and receiving them was most of the
+   * server's input cost (server-cpu-trim, 2026-09-26). Nothing reads the
+   * acknowledgement the server sends back for the sequence number. A new run
+   * sends its first sample whatever it holds (`reset`), and the server forgets
+   * the last route when a new player joins (`Multiplayer.attach`), so the two
+   * never disagree about what was last asked for.
    */
   sample (now: number): ArrayBuffer | null {
     const interval = Session.tickMs
     if (now - this._lastSample < interval) return null
     this._lastSample = now
 
+    const count = Math.min(this.waypoints.length, MAX_WAYPOINTS)
+    let route = ''
+    for (let i = 0; i < count; i++) route += `${this.waypoints[i].x},${this.waypoints[i].y};`
+    if (route === this._sentRoute) return null
+    this._sentRoute = route
+
     const seq = this._seq
     this._seq = (this._seq + 1) & 0xffff
     if (this._seq === 0) this._seq = 1
-
-    const count = Math.min(this.waypoints.length, MAX_WAYPOINTS)
 
     const buf = new ArrayBuffer(1 + count * 4 + 2)
     const view = new DataView(buf)

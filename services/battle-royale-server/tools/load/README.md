@@ -37,6 +37,7 @@ hand, do the same.
 | `analyse.py` | `python3 analyse.py <dir> [--settle 15] [--json]`. The table. |
 | `spans.cjs` | Loaded by `probe.cjs` when `PROBE_DETAIL` is 1 or 2 (`ramp.sh --detail`). Wraps about 75 named server functions in stack-nested spans (calls, inclusive and self ms per tick), counts socket.io emits and bytes, and counts TCP socket writes (`net.Socket` `_write`/`_writev`, one syscall each). Level 2 adds tiny per-candidate helpers, for call counts only. The wrapper cost is calibrated at start (about 35 ns a call on an M4 Max) and printed as `overhead`; at 400 players it is under 1 ms a tick. A name it can't find is logged as `probe: not wrapped`, so a rename shows up instead of silently reading zero. |
 | `spans.py` | `python3 spans.py <dir> [--settle 15] [--step N] [--top 40]`. Per step: the CPU budget (tick, input handlers, GC, and the rest, which is mostly socket.io/ws sending; main-thread ELU; kernel time), socket writes and emits per tick, then the functions by self time. |
+| `tickbench.cjs` | `node tickbench.cjs [dist]`. Deterministic in-process tick benchmark: seeded, 400 players on fake sockets, no bots competing for the CPU. Prints `Multiplayer.update` and whole-tick ms. Same commit, same world every run, so compare two builds of the tick with this; the ramp's per-function times read ~5x higher on a shared machine. |
 | `prof.py` | `python3 prof.py <dir or .cpuprofile>`. Top self time and inclusive server time from `ramp.sh --cpu-prof`. |
 
 `loadbot.mjs` resolves its dependencies from its own location, never the cwd:
@@ -135,3 +136,22 @@ frames. CPU per player-second = cpu % x 10 / players.
 
 Per-client bandwidth unchanged (2.25-2.43 KB/s at 400), no connect failures, client
 update gap p95 256-274 ms in every run.
+
+## server-cpu-trim round 2, 2026-09-26: paired against `c3f7f63`
+
+Route sent only on change, pickup pass skips pickups nobody moved near,
+broadcast loop without the WeakMap and with inlined box tests, timers skip
+the scan until something is due, terrain records cached, gate checks cached
+per cell, standings only when changed. B = `c3f7f63` with bots re-sending
+their route every tick (the old client); N = the change with bots sending on
+change (the new client); Nt = the change with old-client bots.
+
+| | 200: CPU ms/player-s | 400: world ms | 400: CPU % | 400: CPU ms/player-s | 400: inputs/s |
+|---|---|---|---|---|---|
+| B run 1 / 2 | 0.43 / 0.42 | 15.5 / 14.2 | 13.2 / 12.8 | 0.33 / 0.32 | 1770 |
+| N run 1 / 2 | 0.35 / 0.37 | 11.8 / 13.3 | 10.5 / 10.9 | 0.27 / 0.28 | 280 |
+| Nt run 1 / 2 | 0.42 / 0.42 | 12.8 / 12.0 | 12.2 / 11.8 | 0.31 / 0.30 | 1780 |
+
+`tickbench.cjs`, three runs each: Multiplayer.update 1.87-1.94 -> 1.37-1.40 ms per
+tick, whole tick 2.73-2.85 -> 2.29-2.33. Bandwidth unchanged; standings barely
+moved (200 -> 186 B/s), because the bots' board changes nearly every second.
