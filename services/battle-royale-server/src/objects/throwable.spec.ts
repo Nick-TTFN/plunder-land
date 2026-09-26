@@ -457,9 +457,9 @@ test('a projectile is not an obstacle: units walk through it undisplaced', () =>
 
 for (const dq of [-3, 3]) {
   test(`Dash from a standstill moves the player along their last facing (walked ${dq > 0 ? 'East' : 'West'})`, () => {
-    // Dash used to set impulse = direction * 1.5, and a stopped player's
-    // direction is (0,0). Now it aims along `facing`, and the no-route branch
-    // of Unit.update applies an impulse even with no heading.
+    // Dash used to add direction * 1.5 to the velocity, and a stopped
+    // player's direction is (0,0). Now it is a route of up to 3 cells along
+    // `facing` (decision #34).
     const player = walkedAndStopped(dq)
     const from = player.position
 
@@ -470,7 +470,7 @@ for (const dq of [-3, 3]) {
     assert.ok(Math.sign(moved.x) === Math.sign(dq), `dashed the wrong way: dx ${moved.x.toFixed(1)}`)
     assert.ok(Math.abs(moved.x) > Hex.SIZE, `dashed only ${moved.x.toFixed(1)}`)
     assert.ok(Math.abs(moved.y) < 1e-6, 'dashed off the line it last walked')
-    assert.equal(player.impulse.getSquareMagnitude(), 0, 'the dash never decayed')
+    assert.equal(player.dashLeft, 0, 'the dash never ended')
   })
 }
 

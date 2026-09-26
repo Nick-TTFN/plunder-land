@@ -7,14 +7,12 @@ import World from './world'
 /**
  * A blocked cell.
  *
- * Position and radius stopped being free parameters when the grid arrived: an
- * obstacle is snapped to a cell centre and always carries the cell's own
- * inradius. Anything else leaves the push-out and the grid disagreeing about
- * where the world is solid, and a path routed around a rock the collision code
- * puts somewhere slightly different is a rubber-band with no log line.
- *
- * This is why the old `Random.RangeInt(10, 45)` radius is gone. Visual variety
- * has to come from the sprite, not the collider.
+ * An obstacle is snapped to a cell centre and blocks exactly that cell
+ * (`World.BLOCKED`); nothing else about it is solid. Its radius is the cell's
+ * inradius and is drawing only. When push-out still existed (until hex-cells
+ * P2), a rock whose collider disagreed with its cell was a rubber-band with no
+ * log line, which is why the old `Random.RangeInt(10, 45)` radius went. Visual
+ * variety has to come from the sprite.
  */
 export default class Obstacle extends GameObject {
   /** The cell this obstacle blocks, held so destroy can release exactly it. */

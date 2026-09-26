@@ -12,7 +12,10 @@ import { type Item } from '../archetypes/archetypes'
  * own field, `item`, naming its kind.
  */
 export default class ItemPickup extends GameObject {
-  /** Centre to centre with a peep's body (14) that is 34, the reach of a mid-sized loot pickup. */
+  /**
+   * How big it is drawn. Pickup is same-cell since hex-cells P1 (decision
+   * #32); this used to set the reach, 34 centre to centre with a peep's body.
+   */
   static RADIUS = 20
 
   readonly kind: Item

@@ -2,10 +2,9 @@ import { Vector } from '../utils/vector'
 import { ObjectType } from '../objects/gameobject'
 import { Random } from '../utils/random'
 import { Hex } from '../utils/hex'
-import { type IAIRoutine } from './findnearestconsumable'
+import { type IAIRoutine } from './airoutine'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
-import Mob from '../objects/mob'
 import { type GuardSpec } from '../archetypes/archetypes'
 
 /**
@@ -43,8 +42,12 @@ export default class GuardPosition implements IAIRoutine {
    */
   static PROVOKE_MARGIN_RINGS = 1
 
-  constructor (owner: Unit, spec: GuardSpec) {
+  /** The owner archetype's `contact.rings`: see `chaseStop`. */
+  contactRings: number
+
+  constructor (owner: Unit, spec: GuardSpec, contactRings: number) {
     this.spec = spec
+    this.contactRings = contactRings
     this.loseRings = spec.lose
     this.homePosition = owner.position
     this.targetAquiredAt = 0
@@ -170,14 +173,13 @@ export default class GuardPosition implements IAIRoutine {
 
   /**
    * Rings from its target at which a chasing unit stops closing in:
-   * `spec.standoff` (the gunner's 5), and never less than `Mob.CONTACT_RINGS`
-   * (1), which is where contact damage lands (decision #32: "chase until
-   * `h <= contactRings`"). A grunt's or boss's standoff is 0, so they stop
-   * adjacent.
+   * `spec.standoff` (the gunner's 5), and never less than `contactRings` (the
+   * archetype's `contact.rings`, 1 for every mob), which is where contact
+   * damage lands (decision #32: "chase until `h <= contactRings`"). A grunt's
+   * or boss's standoff is 0, so they stop adjacent.
    */
   get chaseStop (): number {
-    // Read at run time: mob.ts imports archetypes.ts, which imports this.
-    return Math.max(this.spec.standoff, Mob.CONTACT_RINGS)
+    return Math.max(this.spec.standoff, this.contactRings)
   }
 
   /**

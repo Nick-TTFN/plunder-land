@@ -49,8 +49,9 @@ require.cache[PIXI_STUB] = {
   id: PIXI_STUB, filename: PIXI_STUB, loaded: true, exports: { Point: StubPoint }
 } as unknown as NodeJS.Module
 // Transpiled, not typechecked: ts-node would check the client's files against
-// the server's tsconfig, which they were never written for (TS2729 on
-// `LocalPlayer.RADIUS`). The client has its own typecheck.
+// the server's tsconfig, which they were never written for (it tripped on
+// TS2729, a static initialiser, before hex-cells P4). The client has its own
+// typecheck.
 const extensions = require.extensions as unknown as Record<string, (m: NodeJS.Module & { _compile: (code: string, file: string) => void }, file: string) => void>
 const compileTs = extensions['.ts']
 extensions['.ts'] = function (m, file) {
@@ -342,7 +343,7 @@ interface Local {
   dashLeft: number
   facingIndex: number
   repath: () => void
-  reset: (x: number, y: number, tag: number, maxVelocity: number, radius: number) => void
+  reset: (x: number, y: number, tag: number, maxVelocity: number) => void
   predict: (dt: number) => void
   dash: () => boolean
   reconcile: (x: number, y: number) => void
@@ -359,7 +360,7 @@ function localFor (player: Player): Local {
     (q: number, r: number) => World.isBlocked(q, r, local.tag),
     (q: number, r: number) => World.GATES_ON(q, r, local.tag).find((g) => g.type === ObjectType.Portal)?.to
   )
-  local.reset(player.position.x, player.position.y, player.tag, player.maxVelocity, player.radius)
+  local.reset(player.position.x, player.position.y, player.tag, player.maxVelocity)
   return local
 }
 
@@ -517,7 +518,7 @@ test('mirror: a portal that comes into view after the route was planned cuts the
     (q: number, r: number) => World.isBlocked(q, r, local.tag),
     (q: number, r: number) => seen ? World.GATES_ON(q, r, local.tag).find((g) => g.type === ObjectType.Portal)?.to : undefined
   )
-  local.reset(player.position.x, player.position.y, TOP, player.maxVelocity, player.radius)
+  local.reset(player.position.x, player.position.y, TOP, player.maxVelocity)
   routeBoth(player, local, new Vector(34, 40))
   assert.equal(local.path.length, 14, 'the client knew of the portal already')
   const track = run(player, local, 3)

@@ -105,7 +105,7 @@ test('gunner: stats, skill overrides and routines from its table row', () => {
   assert.equal(gunner.radius, 24)
   assert.equal(gunner.loot, 75)
   assert.equal(gunner.level, undefined)
-  assert.deepEqual(ARCHETYPES.gunner.contact, { damage: 0, cooldownMs: 0 })
+  assert.deepEqual(ARCHETYPES.gunner.contact, { damage: 0, cooldownMs: 0, rings: 1 })
   assert.deepEqual(ARCHETYPES.gunner.killStats, ['mobKills'])
 
   assert.deepEqual(gunner.routines.map((r) => r.constructor), [GuardPosition, UseSkillOnTarget])

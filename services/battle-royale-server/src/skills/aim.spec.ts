@@ -309,17 +309,6 @@ test('a boss cones at its target, not along its facing', (t) => {
   assert.equal(area.overlaps(Hex.toPosition(offsetCell(boss.cell, 2, 0))), false, 'coned East along facing')
 })
 
-// --- the skills that do not aim --------------------------------------------
-
-test('aimDirection is facing without an aim or at the own cell, and the aim otherwise', () => {
-  const player = playerOnCell()
-  assert.equal(Skill.aimDirection(player, undefined), player.facing)
-  assert.equal(Skill.aimDirection(player, player.cell), player.facing)
-  const dir = Skill.aimDirection(player, offsetCell(player.cell, 0, 3))
-  assert.ok(Math.abs(dir.getMagnitude() - 1) < 1e-9)
-  assert.ok(dir.y > 0.8, 'not toward the aimed cell')
-})
-
 // --- the effect record ------------------------------------------------------
 
 test('the effect record is 4 bytes unaimed and 8 with the aim appended', () => {

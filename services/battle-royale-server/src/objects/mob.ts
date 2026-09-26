@@ -29,19 +29,6 @@ export default class Mob extends Unit {
     if (archetype.level !== undefined) this.level = archetype.level
   }
 
-  /**
-   * How close, in rings, a mob must be to a player to deal its contact damage:
-   * 1, adjacent or the same cell (decision #32, applied in hex-cells P2). The
-   * chase also stops there (`GuardPosition`), so a grunt closes to the next
-   * cell and hits from it. It was the bodies overlapping, which push-out held
-   * at exactly touching.
-   *
-   * One value for every mob for now. The design has it per archetype
-   * (`contactRings`); it lives here because `archetypes.ts` was outside this
-   * task's paths. Proposed follow-up: move it into the archetype's `contact`.
-   */
-  static CONTACT_RINGS = 1
-
   update (dt: number): void {
     super.update(dt)
     if (!this.destroyed) this.touch()
@@ -49,13 +36,14 @@ export default class Mob extends Unit {
 
   /**
    * Contact damage, after this tick's step: the mob's target if it is a live
-   * player within `CONTACT_RINGS`, otherwise the lowest-id live player within
-   * them. A cell lookup (`World.FIND_IN_CELLS`, 7 cells), not a scan of
-   * `PLAYERS`. At most one hit per `contact.cooldownMs`, as before.
+   * player within `archetype.contact.rings` (1 for every mob, decision #32),
+   * otherwise the lowest-id live player within them. A cell lookup
+   * (`World.FIND_IN_CELLS`, 7 cells), not a scan of `PLAYERS`. At most one hit
+   * per `contact.cooldownMs`, as before.
    */
   touch (): void {
     if (this.archetype.contact.damage <= 0 || !this.canAttack) return
-    const near = World.FIND_IN_CELLS(this.cell, Mob.CONTACT_RINGS, this.tag, ObjectType.Player)
+    const near = World.FIND_IN_CELLS(this.cell, this.archetype.contact.rings, this.tag, ObjectType.Player)
       .filter((unit) => !unit.destroyed && (unit as { exited?: boolean }).exited !== true)
     if (near.length === 0) return
     const target = near.find((unit) => unit === this.target) ??

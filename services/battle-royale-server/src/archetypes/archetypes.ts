@@ -1,6 +1,6 @@
 import { type Unit } from '../objects/unit'
 import { type Skill } from '../skills/skill'
-import { type IAIRoutine } from '../ai/findnearestconsumable'
+import { type IAIRoutine } from '../ai/airoutine'
 import GuardPosition from '../ai/guardposition'
 import UseSkillOnTarget from '../ai/useskillontarget'
 import { Dash } from '../skills/dash'
@@ -109,7 +109,12 @@ export interface Archetype extends ArchetypeInfo {
    * it is never walked at - but it is what the unit has until then.
    */
   speed: number
-  /** Collider radius. An integer up to 127: it goes on the wire as one byte. */
+  /**
+   * How big the unit is drawn: the wire's `radius` field. An integer up to
+   * 127, since it goes on the wire as one byte. No gameplay rule reads it
+   * since hex-cells P1-P3 (decision #31): every rule reads cells. It was the
+   * collider radius.
+   */
   body: number
   /**
    * Level at spawn, for skills that index a table by `owner.level`. Undefined
@@ -130,8 +135,15 @@ export interface Archetype extends ArchetypeInfo {
   pickupReach: number | null
   /** Loot carried at spawn. */
   loot: number
-  /** Damage dealt by touching a player, at most once per `cooldownMs`. */
-  contact: { damage: number, cooldownMs: number }
+  /**
+   * Damage dealt by touching a player, at most once per `cooldownMs`.
+   * `rings` is how close touching is: a live player within that many rings
+   * of the unit's cell (`Mob.touch`), and a chasing guard never stops
+   * further off than it (`GuardPosition.chaseStop`). 1 for every mob,
+   * adjacent or the same cell (decision #32, applied in hex-cells P2). It
+   * was the bodies overlapping, which push-out held at exactly touching.
+   */
+  contact: { damage: number, cooldownMs: number, rings: number }
   /**
    * Stats keys a kill of this unit counts toward. The keys are a consumed
    * boundary (redis hashes) and keep today's names. A boss kill counts as both
@@ -195,14 +207,16 @@ const peep: Archetype = {
   // balance-pass §1 (#16): 50, refilling 12/s after 4 s without damage.
   armor: Object.freeze({ max: 50, refillPerSec: 12, delayMs: 4000 }),
   speed: 140,
-  // Pinned rather than derived from HP (it was 2 * sqrt(maxHP)): a bigger body
-  // widens pickup reach, moves the fireball spawn point and widens the ranged
-  // hit. Keep it under Hex.SIZE / 2 so a unit fits beside a rock.
+  // Pinned rather than derived from HP (it was 2 * sqrt(maxHP)). Drawing
+  // only since hex-cells P1-P3; it used to size pickup reach, the fireball's
+  // spawn point and the ranged hit.
   body: 14,
   level: 1,
   pickupReach: null,
   loot: 0,
-  contact: { damage: 0, cooldownMs: 0 },
+  // A player touches nothing: no routine chases with it and nothing calls
+  // `Mob.touch` on a player.
+  contact: { damage: 0, cooldownMs: 0, rings: 0 },
   killStats: [],
   skills: PLAYER_SKILLS as SkillSpec[],
   routines: []
@@ -216,7 +230,7 @@ const grunt: Archetype = {
   body: 30,
   pickupReach: null,
   loot: 50,
-  contact: { damage: 10, cooldownMs: 1000 },
+  contact: { damage: 10, cooldownMs: 1000, rings: 1 },
   killStats: ['mobKills'],
   skills: [],
   routines: [GUARD]
@@ -233,7 +247,7 @@ const boss: Archetype = {
   level: 0,
   pickupReach: null,
   loot: 500,
-  contact: { damage: 30, cooldownMs: 1000 },
+  contact: { damage: 30, cooldownMs: 1000, rings: 1 },
   killStats: ['mobKills', 'bossKills'],
   skills: [{ skill: FireBreath }],
   // Guard first: it picks the target that UseSkillOnTarget breathes at.
@@ -256,7 +270,9 @@ const gunner: Archetype = {
   body: 24,
   pickupReach: null,
   loot: 75,
-  contact: { damage: 0, cooldownMs: 0 },
+  // No damage, but `rings` still floors its chase stop (its standoff 5 is
+  // what decides it).
+  contact: { damage: 0, cooldownMs: 0, rings: 1 },
   killStats: ['mobKills'],
   // Range 6 cells, the same as `withinCells` below, so every target it fires
   // at is on its line's reach (decision #25; it was 300 units, #24). Read from
@@ -486,7 +502,7 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
   return archetype.routines.map((spec) => {
     switch (spec.kind) {
       case 'guard':
-        return new GuardPosition(owner, spec)
+        return new GuardPosition(owner, spec, archetype.contact.rings)
       case 'useSkillOnTarget': {
         const skill = skills[spec.skill]
         if (skill === undefined) throw new Error(`${archetype.key}: no skill at index ${spec.skill}`)

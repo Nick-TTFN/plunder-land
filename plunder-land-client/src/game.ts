@@ -378,9 +378,6 @@ export class Game extends Container {
         case 'hp':
           value = (buffer[offset++] << 8) + buffer[offset++]
           break
-        case 'impulse':
-          value = new Vector(this.overflow(buffer[offset++], 128) / 64, this.overflow(buffer[offset++], 128) / 64)
-          break
         case 'level':
           value = buffer[offset++]
           break
@@ -567,8 +564,7 @@ export class Game extends Container {
         data.position?.x ?? obj.x,
         data.position?.y ?? obj.y,
         data.tag,
-        data.maxVelocity ?? 0,
-        data.radius ?? 0
+        data.maxVelocity ?? 0
       )
 
       Game.hud.setupStats()
@@ -804,8 +800,6 @@ export class Game extends Container {
 
       if (data.hp !== undefined && obj.setHP) obj.setHP(data.hp)
 
-      if (data.impulse && obj.impulse) obj.impulse = data.impulse
-
       if (data.level !== undefined && obj.setLevel) {
         obj.setLevel(data.level)
         if (obj === Game.PLAYER) Game.hud.updateStats(data)
@@ -844,7 +838,6 @@ export class Game extends Container {
       if (data.radius !== undefined && obj.radius !== data.radius) {
         obj.radius = data.radius
         if (obj.DEBUG_DRAW_COLLIDER) obj.DEBUG_DRAW_COLLIDER()
-        if (obj === Game.PLAYER && data.radius > 0) Game.LOCAL.radius = data.radius
       }
 
       if (obj._lastUpdate > 0) { obj.timeSinceUpdate = (Date.now() - obj._lastUpdate) / 1000 }

@@ -1,6 +1,6 @@
 import { type Unit } from '../objects/unit'
 import { type Skill } from '../skills/skill'
-import { type IAIRoutine } from './findnearestconsumable'
+import { type IAIRoutine } from './airoutine'
 import { Hex } from '../utils/hex'
 
 export default class UseSkillOnTarget implements IAIRoutine {

@@ -24,6 +24,8 @@ import { Vector } from '../utils/vector'
 
 const DT = 0.25
 const [TOP, MIDDLE] = LAYERS.map((layer) => layer.tag)
+/** Every mob `LAYERS` keeps alive, 81 today. */
+const POPULATION = LAYERS.reduce((sum, layer) => sum + layer.mobs.reduce((n, { count }) => n + count, 0), 0)
 
 function okRedis (): Redis {
   return { on: function () { return this }, hincrby: async () => 1 } as unknown as Redis
@@ -116,6 +118,7 @@ test('no two mobs ever stand on or hold one cell, and none stands on a gate, an 
   let crowded = 0
   let blocked = 0
   let joined = 30
+  let full = 0
   const TICKS = 2400 // ten minutes of play
   for (let tick = 0; tick < TICKS; tick++) {
     t.mock.timers.tick(250)
@@ -133,6 +136,25 @@ test('no two mobs ever stand on or hold one cell, and none stands on a gate, an 
     }
 
     assertOnePerCell(`tick ${tick}`)
+
+    // The refill never keeps more of a kind alive on a layer than `LAYERS`
+    // says. Count live mobs only: MOBS can hold one more entry than that
+    // between ticks, a mob killed during this tick's MOBS pass after its own
+    // sweep check (a gunner's shot, a boss's breath inside the victim's own
+    // update). The refill at the end of the same tick already replaced it,
+    // and the next tick's sweep removes the corpse (CLAUDE.md: a dead unit
+    // stays findable until the next sweep). Counting `MOBS.length` is what
+    // failed "the population never filled" with 82, about 1 run in 100.
+    let live = 0
+    for (const layer of LAYERS) {
+      for (const { archetype, count } of layer.mobs) {
+        const alive = World.MOBS.filter((m) => !m.destroyed && m.tag === layer.tag && m.archetype === archetype).length
+        assert.ok(alive <= count, `tick ${tick}: ${alive} live ${archetype.key}s on layer ${layer.tag}, over its ${count}`)
+        live += alive
+      }
+    }
+    if (live === POPULATION) full++
+
     for (const mob of World.MOBS) {
       if (mob.destroyed) continue
       const here = mob.cell
@@ -150,7 +172,11 @@ test('no two mobs ever stand on or hold one cell, and none stands on a gate, an 
   }
 
   // That the run did what it is for: mobs moved, met, and got in each other's way.
-  assert.equal(World.MOBS.length, 81, 'the population never filled')
+  // Full on every tick once the first fill is done (about 20 ticks, one mob of
+  // each kind a tick) in 40 instrumented runs; the margin allows for a tick
+  // that loses two of one kind on one layer, which the refill replaces one a
+  // tick.
+  assert.ok(full >= TICKS - 100, `the population was full on only ${full} of ${TICKS} ticks`)
   assert.ok(steps > 10_000, `only ${steps} mob-ticks spent stepping`)
   assert.ok(crowded > 1_000, `mobs were next to each other only ${crowded} times`)
   assert.ok(blocked > 0, 'no mob was ever blocked')

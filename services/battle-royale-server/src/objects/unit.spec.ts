@@ -143,8 +143,8 @@ test('facing starts East, follows every non-zero heading, and survives stop()', 
   assert.ok(Math.abs(unit.facing.y + 1) < 1e-9, 'a zero heading changed the facing')
 
   // A raw assignment of an unnormalised vector still gives a unit-length
-  // facing. (Dash scaled it straight into an impulse until hex-cells P2; it
-  // now snaps it to one of six, `Unit.dashCells`.)
+  // facing. (Dash scaled it straight into a velocity boost until hex-cells
+  // P2; it now snaps it to one of six, `Unit.dashCells`.)
   unit.direction = new Vector(-3, 4)
   assert.ok(Math.abs(unit.facing.getMagnitude() - 1) < 1e-9, 'facing is not unit length')
   assert.ok(Math.abs(unit.facing.x + 0.6) < 1e-9 && Math.abs(unit.facing.y - 0.8) < 1e-9)

@@ -74,12 +74,6 @@ const PATH_LOOKAHEAD = 1
 export class LocalPlayer {
   maxVelocity: number = 140
 
-  /**
-   * Our body's radius, from `create_own` (see `reset`); `RADIUS` until then.
-   * Nothing reads it since hex-cells P2 deleted the push-out it sized: bodies
-   * are drawing only. Kept for the P4 cleanup.
-   */
-  radius: number = LocalPlayer.RADIUS
   tag: number | undefined
 
   /**
@@ -187,12 +181,11 @@ export class LocalPlayer {
   /** True once the server has told us where we start. */
   ready: boolean = false
 
-  reset (x: number, y: number, tag: number | undefined, maxVelocity: number, radius: number = 0): void {
+  reset (x: number, y: number, tag: number | undefined, maxVelocity: number): void {
     this.x = x
     this.y = y
     this.tag = tag
     if (maxVelocity > 0) this.maxVelocity = maxVelocity
-    if (radius > 0) this.radius = radius
     this._offsetX = 0
     this._offsetY = 0
     this._serverX = undefined
@@ -634,10 +627,4 @@ export class LocalPlayer {
 
   /** The portal object type, the one `Game.PORTALS` is built from. */
   static PORTAL_TYPE = 1 << 3
-
-  /**
-   * The fallback radius until `create_own` says otherwise: peep's body (14,
-   * server `archetypes.ts`). Unused since hex-cells P2 (see `radius`).
-   */
-  static RADIUS = 14
 }

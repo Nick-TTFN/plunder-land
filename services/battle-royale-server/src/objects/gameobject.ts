@@ -40,7 +40,6 @@ export class GameObject {
   private _position: Vector
   private _direction: Vector
   private _hp: number
-  private _impulse: Vector
   private _level: number
   private _loot: number
   private _tag: number
@@ -206,15 +205,6 @@ export class GameObject {
   set hp (value) {
     this._hp = value
     this.dirtyFields.add('hp')
-  }
-
-  get impulse () {
-    return this._impulse
-  }
-
-  set impulse (value) {
-    this._impulse = value
-    // this.dirtyFields.add('impulse')
   }
 
   get level () {
@@ -411,9 +401,6 @@ export class GameObject {
           break
         case 'hp':
           raw.push(this.getBuffer2(value))
-          break
-        case 'impulse':
-          raw.push(this.getBufferVec(value.multiply(64)))
           break
         case 'level':
           raw.push(this.getBuffer(value))

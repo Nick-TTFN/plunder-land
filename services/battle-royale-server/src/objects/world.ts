@@ -59,7 +59,7 @@ export default class World {
    * exits) that a player could meet on the same layer: two on one layer, or a
    * portal and any gate on the layer it leads to (decision #34).
    *
-   * A portal puts a player down on its arrival cell (`Portal.arrival`, one
+   * A portal puts a player down on its arrival cell (`World.arrivalOf`, one
    * ring out) on the other layer (#31 Q3, #33). That cell must not be a gate
    * or next to one, which needs 3 rings. 4 is what the old 150-unit spacing
    * came to on cell centres (3 rings reach at most 135, 4 at least 156), so
@@ -108,8 +108,10 @@ export default class World {
   static BLOCKED: Map<number, Map<number, GameObject | null>> = new Map()
 
   /**
-   * Rocks, stone-wall stones, portals, exits. All solid, except that an exit
-   * is a pad a player stands on (`GameObject.solidFor`).
+   * Rocks, stone-wall stones, portals, exits. Rocks and stones block their
+   * cell (`BLOCKED`); portals and exits are cells a player walks onto and a
+   * mob never enters (`GATES`, `mobCanEnter`). Nothing is pushed out of any
+   * of them (hex-cells P2).
    */
   static OBSTACLES: GameObject[] = []
   /**
@@ -221,23 +223,8 @@ export default class World {
     return result
   }
 
-  /**
-   * The largest unit body there can be: the biggest in `ARCHETYPES`, or any
-   * bigger one added through `addUnit` (bare units, as specs build). It sized
-   * the projectile's candidate rings (`Throwable.hitRings`) until hex-cells P3
-   * made that hit test a cell swath; unused since, delete in P4.
-   */
-  static get UNIT_BODY_MAX (): number {
-    let most = World._bodySeen
-    for (const archetype of Object.values(ARCHETYPES)) most = Math.max(most, archetype.body)
-    return most
-  }
-
-  private static _bodySeen = 0
-
   /** Push `unit` onto `list` (PLAYERS or MOBS), indexed. The only way the server adds a unit. */
   static addUnit (list: Unit[], unit: Unit): void {
-    World._bodySeen = Math.max(World._bodySeen, unit.radius ?? 0)
     World.UNITS.sync()
     World.INTEREST.sync()
     list.push(unit)
@@ -321,7 +308,7 @@ export default class World {
    * meet on either layer. Skipped, as a gate always was, if no such cell turns
    * up.
    *
-   * A portal's site is also rejected if its arrival cell (`Portal.arrival`)
+   * A portal's site is also rejected if its arrival cell (`World.arrivalOf`)
    * is off the map, blocked or a gate on `to` (decision #33). The spacing
    * already keeps gates 3 rings from any arrival cell; the check is here so a
    * change to either cannot quietly put an arrival on a gate.
@@ -334,7 +321,7 @@ export default class World {
     const reach = to === undefined ? [tag] : [tag, to]
 
     for (let attempt = 0; attempt < 20; attempt++) {
-      const pos = this.getUnobstructedPosition(40, tag)
+      const pos = this.getUnobstructedPosition(tag)
       if (pos === undefined) continue
       const cell = Hex.toCell(pos)
 
@@ -561,7 +548,7 @@ export default class World {
     let natural = 0
     for (const c of World.CONSUMABLES) if (c.tag === tag && c.expiresAt === 0) natural++
     if (natural < layer.naturalLoot) {
-      const pos = this.getUnobstructedPosition(40, tag)
+      const pos = this.getUnobstructedPosition(tag)
       if (pos !== undefined) {
         // The radius is drawn here rather than by Consumable, because the loot
         // is derived from it and must be in place before the create goes out.
@@ -593,7 +580,7 @@ export default class World {
         if (pickup.tag === tag && pickup.kind === item && pickup.expiresAt === 0) natural++
       }
       if (natural >= count) continue
-      const pos = this.getUnobstructedPosition(40, tag)
+      const pos = this.getUnobstructedPosition(tag)
       if (pos !== undefined) World.PICKUPS.push(World.ITEMS, new ItemPickup(pos.x, pos.y, tag, item))
     }
   }
@@ -626,7 +613,7 @@ export default class World {
   private spawnMob (archetype: Archetype, layer: LayerSpec): void {
     let pos: Vector | undefined
     for (let attempt = 0; attempt < 10 && pos === undefined; attempt++) {
-      const candidate = this.getUnobstructedPosition(40, layer.tag)
+      const candidate = this.getUnobstructedPosition(layer.tag)
       if (candidate === undefined) return
       const cell = Hex.toCell(candidate)
       if (World.mobCellFree(cell.x, cell.y, layer.tag)) pos = candidate
@@ -799,7 +786,7 @@ export default class World {
    * (gate-hygiene). A rock on an exit's cell sat on the pad, and one beside a
    * gate narrowed the way on to it.
    *
-   * 2 covers a portal's cell, its arrival cell one ring out (`Portal.arrival`)
+   * 2 covers a portal's cell, its arrival cell one ring out (`World.arrivalOf`)
    * and every neighbour of the arrival cell, so a player put down by a portal
    * never lands in a rock and can always walk off. Exits use the same rings;
    * any ring at all keeps a pad reachable from every side. It was derived
@@ -808,28 +795,10 @@ export default class World {
   static GATE_ROCK_RINGS = 2
 
   /**
-   * The least distance from a cell's centre to the centre of a cell exactly
-   * `k` steps away. Used by the projectile hit test (`Throwable.hitRings`)
-   * until hex-cells P3; unused since, delete in P4.
-   */
-  static ringDistance (k: number): number {
-    const origin = new Vector(0, 0)
-    let least = Infinity
-    for (let dq = -k; dq <= k; dq++) {
-      for (let dr = -k; dr <= k; dr++) {
-        const cell = new Vector(dq, dr)
-        if (Hex.distance(origin, cell) !== k) continue
-        least = Math.min(least, Hex.toPosition(cell).getMagnitude())
-      }
-    }
-    return least
-  }
-
-  /**
    * `Hex.key`s of the cells on layer `tag` within `GATE_ROCK_RINGS` of a gate
    * cell: every portal and exit on the layer, and every portal on another
    * layer that leads here, centred on its own cell: its arrival cell here is
-   * one ring out (`Portal.arrival`), so 2 rings keep the arrival cell and all
+   * one ring out (`World.arrivalOf`), so 2 rings keep the arrival cell and all
    * its neighbours clear.
    */
   static gateKeepOut (tag: number): Set<number> {
@@ -857,13 +826,13 @@ export default class World {
 
   /**
    * Where the refill puts a world rock on layer `tag`: what
-   * `getUnobstructedPosition(40, tag)` would pick, but never a cell in
+   * `getUnobstructedPosition(tag)` would pick, but never a cell in
    * `keepOut` (`gateKeepOut`). Its own function rather than a filter on the
    * shared one, which also places loot, items and mobs, none of which is
    * kept off gates. Bounded at 40 tries like it, and undefined after.
    */
   private getRockPosition (tag: number, keepOut: Set<number>): Vector | undefined {
-    const rings = Math.ceil(40 / Hex.SIZE)
+    const rings = World.CLEAR_RINGS
 
     for (let attempts = 0; attempts < 40; attempts++) {
       const cell = Hex.toCell(new Vector(
@@ -879,21 +848,30 @@ export default class World {
   }
 
   /**
-   * A free cell centre, or undefined if 40 tries found nothing.
+   * Rings of unblocked cells around a cell the world picks at random for a
+   * pickup, an item, a mob, a gate or a rock (`getUnobstructedPosition`,
+   * `getRockPosition`): 1, the cell and its 6 neighbours. It was a 40-unit
+   * clearance, `ceil(40 / Hex.SIZE)` rings, which is also 1.
+   */
+  static CLEAR_RINGS = 1
+
+  /**
+   * A free cell centre, `CLEAR_RINGS` clear of blocked cells, or undefined if
+   * 40 tries found nothing.
    *
-   * `buffer` was a clearance in world units tested against a scan of every
-   * obstacle; it is now a ring count tested with a Set lookup, so this is both
-   * exact and much cheaper. It still runs inside the tick, so it still cannot
-   * loop unbounded - StoneWall lets players add obstacles and density is not
-   * fixed.
+   * The clearance was a distance in world units tested against a scan of
+   * every obstacle; it is a ring count tested with a Set lookup, so this is
+   * both exact and much cheaper. It still runs inside the tick, so it still
+   * cannot loop unbounded - StoneWall lets players add obstacles and density
+   * is not fixed.
    *
    * It used to return the last candidate whether or not it collided, which
    * spawned things inside rocks and left the push-out to shove them out. Callers
    * now skip a tick instead; at roughly 2% occupancy the cap is never reached in
    * practice anyway.
    */
-  getUnobstructedPosition (buffer: number, tag: number): Vector | undefined {
-    const rings = Math.ceil(buffer / Hex.SIZE)
+  getUnobstructedPosition (tag: number): Vector | undefined {
+    const rings = World.CLEAR_RINGS
 
     for (let attempts = 0; attempts < 40; attempts++) {
       const cell = Hex.toCell(new Vector(
@@ -905,39 +883,6 @@ export default class World {
     }
 
     return undefined
-  }
-
-  static FIND_NEAREST_FN (
-    owner: GameObject,
-    maxAngle: number,
-    targets: GameObject[]
-  ): GameObject | undefined {
-    let nearest = Number.MAX_SAFE_INTEGER
-    let result: GameObject | undefined
-    for (const player of targets) {
-      if (player === owner) continue
-
-      if (player.tag !== owner.tag) continue
-
-      if (maxAngle) {
-        const angle = owner.direction.getAngleTo(
-          player.position.sub(owner.position).getAngle()
-        )
-        if (maxAngle < Math.abs(angle)) continue
-      }
-
-      if (result != null && Random.Chance(0.2))
-      // 20% of going somewhere not closest
-      { return result }
-
-      const dpos = player.position.sub(owner.position)
-      const sqDistance = dpos.getSquareMagnitude()
-      if (dpos.getSquareMagnitude() < nearest) {
-        nearest = sqDistance
-        result = player
-      }
-    }
-    return result
   }
 
   /**
@@ -1240,68 +1185,5 @@ export default class World {
       if (first !== undefined) return first
     }
     return undefined
-  }
-
-  static FIND_BETWEEN_POINTS (
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    tag: number,
-    typeMask: number
-  ) {
-    const result = new Array<Unit>()
-
-    const sqPointDistance = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
-
-    let minx = 0
-    let maxx = 0
-
-    let miny = 0
-    let maxy = 0
-
-    if (x1 <= x2) {
-      minx = x1
-      maxx = x2
-    } else {
-      minx = x2
-      maxx = x1
-    }
-
-    if (y1 <= y2) {
-      miny = y1
-      maxy = y2
-    } else {
-      miny = y2
-      maxy = y1
-    }
-
-    for (const source of World.UNIT_SOURCES) {
-      for (const candidate of source) {
-      if (candidate.tag !== tag) continue
-
-      if ((candidate.type & typeMask) === 0) continue
-
-      if (candidate.position.x + candidate.radius < minx) continue
-
-      if (candidate.position.x - candidate.radius > maxx) continue
-
-      if (candidate.position.y + candidate.radius < miny) continue
-
-      if (candidate.position.y - candidate.radius > maxy) continue
-
-      const sqRadius = candidate.radius * candidate.radius
-
-      const triangleArea =
-        (x2 - x1) * (y1 - candidate.position.y) -
-        (y2 - y1) * (x1 - candidate.position.x)
-      const sqDistance = (triangleArea * triangleArea) / sqPointDistance
-
-      if (sqDistance < sqRadius) {
-        result.push(candidate)
-      }
-      }
-    }
-    return result
   }
 }

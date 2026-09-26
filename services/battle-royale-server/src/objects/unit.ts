@@ -4,29 +4,11 @@ import { Hex } from '../utils/hex'
 import { Path } from '../utils/path'
 import World from './world'
 import type Buff from '../buffs/buff'
-import { type IAIRoutine } from '../ai/findnearestconsumable'
+import { type IAIRoutine } from '../ai/airoutine'
 import { type Archetype } from '../archetypes/archetypes'
 
 // Below this squared magnitude a heading counts as zero (see the `direction` setter).
 export const EPSILON = 1e-9
-
-/**
- * **Unused since hex-cells P2**: Dash is a route speed now (`dashLeft`), and
- * nothing sets `impulse`. Deleted with `impulse` in P4. What it was:
- *
- * Impulse lost per second, applied to the magnitude.
- *
- * Dash duration is simply `impulse magnitude / IMPULSE_FRICTION`. Dash starts at
- * 1.5, so 3.0 gives a half-second burst. This is a feel value - change it freely.
- *
- * Two earlier versions were wrong in different ways. `dt / sqMagnitude` made the
- * decay rate inversely proportional to the square of the impulse, so a dash held
- * its speed and then fell off a cliff. Replacing it with `reduceBy(dt * F)` fixed
- * the curve but decayed each axis independently, so a dash along an axis lasted
- * √2 longer than a diagonal one - the same input felt different depending on
- * which way you were facing.
- */
-const IMPULSE_FRICTION = 3.0
 
 export class Unit extends GameObject {
   /**
@@ -183,7 +165,6 @@ export class Unit extends GameObject {
     // that is what every caller was actually setting.
     super(objType, x, y, archetype?.body ?? radius, tag)
     this.direction = new Vector(0, 0)
-    this.impulse = new Vector(0, 0)
 
     this.archetype = archetype
     if (archetype !== undefined) {
@@ -242,16 +223,6 @@ export class Unit extends GameObject {
       targetX - this.position.x,
       targetY - this.position.y
     ).normalised()
-  }
-
-  getNextPos (dt): Vector {
-    if (this.direction.getSquareMagnitude() === 0) return this.position
-
-    const translate = this.direction
-      .normalised()
-      .add(this.impulse)
-      .multiply(dt * this.maxVelocity)
-    return this.position.add(translate)
   }
 
   setDirection (directionX: number, directionY: number): void {
@@ -452,9 +423,9 @@ export class Unit extends GameObject {
    * threshold, so there is no tuned epsilon and nothing to oscillate around.
    *
    * The look-ahead is deliberately one cell and no more. It exists for a single
-   * case: push-out, or a tick that covers a whole cell, can carry a unit past a
-   * cell it never stood in, and without it the unit turns round to collect one
-   * it has already passed. Scanning the rest of the route instead is what broke
+   * case: a tick that covers a whole cell (and push-out, until hex-cells P2)
+   * can carry a unit past a cell it never stood in, and without it the unit
+   * turns round to collect one it has already passed. Scanning the rest of the route instead is what broke
    * multi-leg routes - an appended leg comes back through cells the unit is
    * standing in right now, and matching that later occurrence teleported the
    * index to the far side of the route, so the unit set off for the last leg's

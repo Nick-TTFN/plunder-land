@@ -8,7 +8,7 @@ import { GameObject, ObjectType } from './gameobject'
  * used to push players out like a rock and extract them on contact.
  *
  * A mob never steps onto its cell (`World.mobCanEnter`), as with a portal
- * (decision #26). Until hex-cells P2 that was a push-out (`solidFor`).
+ * (decision #26). Until hex-cells P2 that was a push-out.
  */
 export default class Exit extends GameObject {
   constructor (x: number, y: number, tag: number) {

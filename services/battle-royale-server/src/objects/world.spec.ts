@@ -140,3 +140,28 @@ test('a route cannot be built off the edge of the map', () => {
   const blocked = (q: number, r: number): boolean => World.isBlocked(q, r, 0)
   assert.deepEqual(Path.find(new Vector(94, 40), new Vector(134, 40), blocked), [])
 })
+
+test('a random placement keeps CLEAR_RINGS (1) of unblocked cells round it', () => {
+  clear()
+  World.mapSize = 600
+  // Block every on-map cell with (q - r) divisible by 3. A cell's six
+  // neighbours differ from it in q - r by -2, -1, +1 and +2, so every cell left
+  // free has a blocked neighbour, and off the map counts as blocked too: no
+  // cell has one ring clear, while a third of them are free.
+  const free: Vector[] = []
+  for (let x = 0; x <= World.mapSize; x += 5) {
+    for (let y = 0; y <= World.mapSize; y += 5) {
+      const cell = Hex.toCell(new Vector(x, y))
+      if (World.isBlocked(cell.x, cell.y, 0)) continue
+      if (((cell.x - cell.y) % 3 + 3) % 3 === 0) World.block(cell.x, cell.y, 0)
+      else free.push(cell)
+    }
+  }
+  assert.ok(free.length > 20, 'the pattern left no free cell to be wrongly picked')
+
+  const world = Object.create(World.prototype) as World
+  for (let n = 0; n < 50; n++) {
+    assert.equal(world.getUnobstructedPosition(0), undefined, 'picked a cell next to a blocked one')
+  }
+  World.mapSize = 4000
+})
