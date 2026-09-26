@@ -359,7 +359,7 @@ function pinGuard (t: TestContext, make: (x: number, y: number) => Unit): void {
  * at, and the cooldown before the next hit.
  *
  * hex-cells P2, deliberate (decision #32, Nick's OK): contact is within 1 ring
- * of the player (`Mob.CONTACT_RINGS`), and nothing is pushed apart. This
+ * of the player (the archetype's `contact.rings`), and nothing is pushed apart. This
  * pinned the bodies overlapping, and the player pushed out to exactly
  * radius + radius from the mob.
  */

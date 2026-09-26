@@ -77,6 +77,8 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   client `src/game.ts`. Identical and **append-only**.
 - The binary record layouts: `Multiplayer.packRecords` / `Game.unpackRecords`, the 8-byte
   `update` header, the 4-byte `pointer` input, and `hello`.
+- The `standings` record (`[0][uint16 rank]` after the name): server `Multiplayer.rankStandings`
+  / `StandingsBoard`, client `src/ui/components/standings.ts` (`decodeStanding`, `pickShown`).
 - The order of `Player.skills` (server `src/objects/player.ts`) against the HUD bar.
 - `utils/hex.ts` and `utils/path.ts`, byte-identical in both packages; `mirror.spec.ts`
   enforces it.
@@ -85,15 +87,15 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
 ## Verification
 
 ```
-cd plunder-land-client           && npm run typecheck   # baseline 28 errors, see CLAUDE.md
+cd plunder-land-client           && npm run typecheck   # baseline 26 errors, see CLAUDE.md
 cd services/battle-royale-server && npm run typecheck   # must stay at 0
 cd services/battle-royale-server && npm test            # node --test over src/**/*.spec.ts
 ```
 
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
-CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-09-25:
-client 28, server 0.)
+CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-09-26, after hex-cells P4:
+client 26, server 0.)
 
 Running and smoke-testing locally: CLAUDE.md, "Running it locally".
 
@@ -121,6 +123,11 @@ rules 1–3 in every Beck brief, and follow 4–6 at every hand-back.
    only".
 6. **A stalled Beck (the 600 s watchdog) can be resumed.** Check its worktree first, then send
    a narrow "finish only X, and check no mutation is still applied" message.
+   **"Waiting on its own background work" is not a stall.** Before calling a Beck stuck, look
+   for its processes by what they are (listening ports via `lsof -nP -iTCP -sTCP:LISTEN`, and
+   `ps` for `ramp.sh`/`loadbot`), not by its worktree path: a load run started from the
+   scratchpad doesn't have the path on its command line. On 2026-09-26 a path-only grep said
+   "nothing running", and the message that followed made P3's Beck stop its own load run.
 
 And check any value, pattern or count before putting it in a brief. An example gets built
 literally: an id pattern given as "for example" would have locked out every real client.

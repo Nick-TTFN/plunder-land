@@ -8,9 +8,9 @@ runs forever; players join at a random point when they connect and leave through
 `Exit`, which banks the run. Death scatters your loot on the ground via
 `createLootFrom(player)` — the same path mobs use.
 
-The `services/battle-royale-server` directory name and `area/circlearea.ts` (an unused
-storm-shaped damage area) are leftovers from an abandoned BR direction. Nothing imports
-`circlearea.ts`.
+The `services/battle-royale-server` directory name is a leftover from an abandoned BR
+direction. So was `area/circlearea.ts`, an unused storm-shaped damage area, deleted in
+hex-cells P4.
 
 The world is **three ground layers**, 01 on top to 03 at the bottom, with tags **0, -1, -2**
 (depth is `-tag`). Deeper is richer and more dangerous (decisions #3, #16, #26). **Every
@@ -23,18 +23,24 @@ tick, counting per layer. The layer tags reach the client in `hello.layers`; **t
 never hardcodes a tag**.
 
 **Portals chain 01 ↔ 02 ↔ 03 and move players only** (#26): 10 down on 01, 5 up and 5 down
-on 02, 10 up on 03. A mob or boss is pushed out of a portal like a rock and stays on its
-layer, so each layer keeps the danger designed for it. A player crosses at the spot the
-portal pushed them out to, 64 units from its centre, so no two gates a player could meet on
-one layer lie within `World.GATE_SPACING` of each other, or a player would be caught by a
-second gate on arrival. `GATE_SPACING` is derived: `2 × (Portal.RADIUS + MAX_ROBOT_BODY) +
-GATE_MARGIN` (22), which is 150 today and grows with the largest robot body. **Rocks stay 2
-rings clear** of every gate and every portal landing spot (`World.getRockPosition`,
-`GATE_ROCK_RINGS`, also derived), so a pad is always reachable and nobody lands in a rock. New players join on layer 01 on a free cell centre at least
-`World.SPAWN_CLEARANCE` (3) cells from every portal, exit and boss, and from mobs when
-possible (`World.spawnCell`). A fully random spawn put about 1 join in 250 close enough to an
-exit to leave within a second. The airborne plane, its clouds and the half-alpha "ground seen
-from above" are gone; only the player's own layer is drawn.
+on 02, 10 up on 03. A player whose tick ends on a portal's cell is put down on that portal's
+**arrival cell**, its east neighbour (`World.arrivalOf`, #31 Q3, #33), on the layer it leads
+to, on the cell's centre, and stops (`Player.hopPortal`). Routes end on a portal's cell on
+both sides (`Unit.endAtPortal` / `LocalPlayer._endAtPortal`, via `stopsOn`), so a dash can't
+skip over one. A mob never steps onto a gate or an arrival cell (`World.mobCanEnter`) and
+stays on its layer, so each layer keeps the danger designed for it. Portals aren't paired:
+the arrival is the entered portal's own east neighbour on the `to` layer. Gates a player
+could meet on one layer are at least `World.GATE_SPACING` (4) rings apart (#34), and
+placement rejects a portal whose arrival cell is off the map, blocked or a gate. **Rocks stay
+`World.GATE_ROCK_RINGS` (2) rings clear** of every gate and of every portal leading to the
+layer (`World.gateKeepOut`, used by `World.getRockPosition`), which covers each arrival cell
+and its neighbours, so a pad is always reachable and nobody lands in a rock. Both are plain
+constants since hex-cells P2; they were derived from push-out radii before. New players join
+on layer 01 on a free cell centre at least `World.SPAWN_CLEARANCE` (3) cells from every
+portal, exit and boss, and from mobs when possible (`World.spawnCell`). A fully random spawn
+put about 1 join in 250 close enough to an exit to leave within a second. The airborne plane,
+its clouds and the half-alpha "ground seen from above" are gone; only the player's own layer
+is drawn.
 
 ## Verification path
 
@@ -43,7 +49,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 28 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 26 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
@@ -51,10 +57,34 @@ cd services/battle-royale-server && npm test          # node --test via ts-node
 The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typechecked**. A
 type error in a spec only shows up if ts-node trips over it at run time.
 
-**Unit stats live in one table**, `src/archetypes/archetypes.ts` (peep, grunt, boss, and the
-robots and gunner to come): body, HP, speed, loot, contact damage, kill-stat keys, skills
-with per-archetype overrides, and AI routines with their parameters. There is no `Boss`
-class. `src/archetypes/baseline.spec.ts` pins the pre-refactor behaviour; change it only on
+**Server cost per player: `services/battle-royale-server/tools/load/`.** One command
+builds the server, runs it with a timing probe, ramps headless bots and prints a table
+(world ms per tick, CPU, per-client KB/s, join size, connect failures):
+
+```
+cd plunder-land-client           && npm ci   # the bots use its socket.io-client
+cd services/battle-royale-server && tools/load/ramp.sh --steps "0 100 400" --step-secs 30
+```
+
+It defaults to port 8100 with Redis pointed at the dead port 6399, refuses 6379 and 8000,
+and stops the server and every bot process by PID, on exit and on Ctrl-C. Give parallel
+lanes their own `--port` and `--redis-port`. The 2026-09-25 baseline (`29e82fa`, M4 Max) is
+in its README: 13.6 ms world per tick at 100 players, 60.2 at 400, one core saturated at
+~684. **Tick time varies a lot between runs of the same commit** (at 100 players, 7.5 to
+18.2 ms across four runs; bandwidth agrees within 5%), so judge a change only by running
+the old and new commits back to back on the same machine, at least twice each.
+`--detail 1` adds per-function timings (`spans.cjs`/`spans.py`: calls, self and inclusive ms
+per tick for ~75 server functions, socket writes and emits per tick, and a CPU budget split
+into tick / input / GC / networking / kernel). Judge a CPU change by **CPU ms per
+player-second**, which it prints: on 2026-09-26 about 40% of the server's CPU was sending,
+not simulating. `--frames 0` makes the bots connect as pre-frame clients.
+
+**Unit stats live in one table**, `src/archetypes/archetypes.ts` (peep, grunt, boss, gunner):
+body, HP, speed, loot, contact damage with its cooldown and range in rings (`contact.rings`,
+1 for every mob), kill-stat keys, skills with per-archetype overrides, and AI routines with
+their parameters. `body` is the wire's `radius` and is drawing only: since hex-cells P1-P3
+(#31) every gameplay rule reads cells, never a radius. There is no `Boss` class.
+`src/archetypes/baseline.spec.ts` pins the pre-refactor behaviour; change it only on
 purpose. `plunder-land-client/tools/archetype-bot.mjs <server-url>` records what a real
 join sees on the wire (Node 22.18+).
 
@@ -80,7 +110,7 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
 - ~9 × `Type 'Point' is missing ... from type 'ObservablePoint'`. Verified harmless:
   pixi's `set anchor` (and the other transform setters) do `this._anchor.copyFrom(value)`,
   so assigning a plain `Point` works correctly at runtime. Typings quirk only.
-- 18 × `Property 'setHP' / 'setMaxHP' / 'loot' / 'pushState' ... does not exist on type
+- 17 × `Property 'setHP' / 'setMaxHP' / 'loot' / 'pushState' ... does not exist on type
   'GameObject'` in `game.ts`'s `onObjectUpdated`. `LOOKUP` is typed as `GameObject` but holds `Unit`
   subclasses. Runtime-correct, type-unsafe. Fixing it properly means introducing a union
   or widening the base class — a real refactor, deliberately not done.
@@ -91,10 +121,10 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   implicit `any` parameters in `vfx/meleeattack.effect.ts` went when that file was
   rewritten; `game.ts`'s four "possibly undefined" went with the layer code they were in.)
 
-Anything **outside** these three groups is a new regression. The count is 28: 6 `Point`,
-19 `GameObject`, 3 nits (measured 2026-09-25, `three-ground-layers`: `cloud.ts`'s `Point`
-and `game.ts`'s four nits went with the airborne plane; it was 33). Compare the sorted
-error list, not just the count, before dismissing.
+Anything **outside** these three groups is a new regression. The count is 26: 6 `Point`,
+17 `GameObject`, 3 nits (measured 2026-09-26, `hex-cells-p4-cleanup`: the two `impulse`
+errors went with the dead `impulse` read in `onObjectUpdated`; it was 28). Compare the
+sorted error list, not just the count, before dismissing.
 
 ## Running it locally
 
@@ -128,11 +158,11 @@ http://localhost:3000/?server=http://localhost:8000
 ```
 
 Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested`, and
-count the `create` records. A healthy join into a settled world streams about 980 objects,
-plus 45 item pickups (medkits 8/10/12 and bombs 3/5/7 by layer):
-30 Portals, 12 Exits, 408 Obstacles (136 a layer), 450 Consumables (150 a layer, filling at
-one a layer a tick, so fewer in a world under 40 s old) and 81 Mobs. The per-layer split
-must match `LAYERS`.
+count the `create` records. Since interest filtering (#35) a join gets only layer 01's
+terrain (136 rocks, 10 portals, 4 exits and any live StoneWall stones) plus the units and
+pickups inside its interest box, and its own `create_own`: about 150 terrain records plus
+10-20, 4-11 KB. The whole-world counts (per layer: 136 rocks, 150 loot, the item and mob
+numbers in `LAYERS`) are checked by the world specs, not by a join.
 
 ## Bundle size
 
@@ -190,13 +220,25 @@ lockfiles, and treat any dependency bump as something to smoke-test.
 Server → client messages (`create`, `create_own`, `update`, `destroy`, `effect`,
 `standings`) are binary. Each event is **one** buffer containing length-prefixed records.
 
-**`standings`** goes out about once a second (every `round(1000 / tick)` flushes, no timer),
-the same buffer to every connection. It carries one record per player, ranked on the server
-by carried loot: `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0]`. Status is 0 ACTIVE,
-1 EXTRACTED, 2 DEAD (a disconnect counts as DEAD). The enum is `Standing` in `world.ts`,
-copied by hand on the client, and append-only. Finished players linger 10 s in
-`World.FINISHED`, capped at 64. The client finds its own row by id while it's ACTIVE (ids
-are recycled after a player leaves). Either side can deploy first.
+**`standings`** goes out about once a second (every `round(1000 / tick)` flushes, no timer).
+Each connection gets the top 10 rows of the board (`Multiplayer.STANDINGS_TOP`) plus its own
+row, appended, when it is not among them (decision #30). The board is ranked once per send
+(`Multiplayer.rankStandings`); `StandingsBoard.bufferFor` hands every connection in the top 10
+the same buffer and appends the own row, found by player object, for the rest. The board is
+every player plus the recently finished, ranked on the server by carried loot, ties by id;
+finished rows rank by their loot and can hold top-10 places. A record is
+`[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank]`, rank 1-based on the whole
+board (ties get distinct ranks in id order), because the appended own row is not at its rank's
+position. Status is 0 ACTIVE, 1 EXTRACTED, 2 DEAD (a disconnect counts as DEAD). The enum is
+`Standing` in `world.ts`, copied by hand on the client in `src/ui/components/standings.ts`
+(pixi-free, with the decoder and `pickShown`; `standings.spec.ts` runs them against the
+server's bytes), and append-only. Finished players linger 10 s in `World.FINISHED`, capped at
+64. The client finds its own row by id while it's ACTIVE (ids are recycled after a player
+leaves), so the DEAD/EXTRACTED own row sent on the tick a run ends is not highlighted. The
+client reads the rank when two bytes follow the NUL and otherwise ranks by position (a server
+from before the rank); an older client stops at the NUL and ranks by position, so it would show
+the appended own row as 11th. **Ship the client first.** Fields after the rank are for later
+additions. Measured 2026-09-26: about 0.19 KB/s per client at both 100 and 400 players.
 
 The other events' records are laid out like this:
 
@@ -245,6 +287,22 @@ records**, because that header is the client's clock and its input acknowledgeme
 it with `Game.splitRecords(buffer, 8)`; `unpackRecords` is the headerless form used by the
 other four events.
 
+**Who gets what (decision #35, interest-filtered-broadcasts).** Terrain (everything in
+`World.OBSTACLES`: rocks, StoneWall stones, portals, exits) goes to every connection on its
+layer, whatever the distance: the client routes the whole layer. Units, pickups and
+projectiles go only to connections whose client is on their layer (`Connection.layer`) with
+them strictly inside the interest box: a `create` when they come into it (from
+`Multiplayer.update`, whichever side moved; pickups get an update from the pass at the end
+of `World.update`), deltas while held, and a destroy with only `id` once beyond
+`INTEREST_RADIUS + EXIT_MARGIN` (2 cells) or off the layer. Who holds what is
+`Connection.known` / `GameObject.knownBy`; updates and destroys go to exactly the holders.
+Nothing is sent about an object after its destroy (`Multiplayer.gone`): a create after a
+destroy in one flush is applied create first by the client and leaves a ghost. A layer
+change swaps the client at the player's own next update (`switchLayer`), in the flush with
+its new tag. The join snapshot is the layer's terrain plus what is in range. Effects are
+layer-checked. `World.INTEREST` is per layer. `changedAt`/`seen` and `pendingObjectIDs` are
+gone.
+
 `ackElapsedMs` is how long the server has been applying `lastInputSeq`. It exists because
 the sequence number alone does not say how far *into* an input the server has got, and
 without it every reconciliation drags the player backwards by a fraction of a tick. A
@@ -265,8 +323,7 @@ aim; anything else, including a buffer under 5 bytes or a slot that is not a who
 in range, is ignored (`Multiplayer.parseSkill`, `Player.tryExecuteSkill`). The client sends
 the cell under the desktop mouse (`src/skills/aim.ts`), or a bare number when the mouse is
 off the map, on the HUD, on the player's own cell, or the input is touch. No aim, or an
-aim at the caster's own cell, fires along `facing`. Fireball and icicle fly toward the aimed
-cell's centre at any angle and on to their range. Ranged walks a hex line of cells toward the
+aim at the caster's own cell, fires along `facing`. Fireball and icicle fly the hex line through the aimed cell, like ranged, for 10 cells. Ranged walks a hex line of cells toward the
 aimed cell (see "Every area of effect" under Skills). Breaths snap the aim to one of
 six and **hold** it for their lifetime (`SectorArea.fixedDirection`), while an unaimed breath
 still follows facing. Dash, StoneWall, Melee and Defend ignore the aim. Mobs aim at their
@@ -280,8 +337,8 @@ caster's cell along the held direction, `SectorArea.tipCell`). The tip rather th
 because the client can place the caster a cell off; one cell sideways at 3 rings turns the
 vector under 20 degrees, so snapping from the client's own view of the caster still lands on
 the server's direction. **Types 5 and 6 are the fireball and icicle blasts**, always aimed:
-their cell is the blast's centre (the struck unit's cell, or the projectile's own cell on
-expiry). The client can't work that out for itself, because the destroy record carries no
+their cell is the blast's centre (the struck unit's cell, or the last cell of its line if it
+struck nobody). The client can't work that out for itself, because the destroy record carries no
 position and its last known position is a tick behind the hit. Effects draw the cells the
 server damages; the client's port of the cone and ring logic is `src/vfx/cells.ts`, and
 `effectcells.spec.ts` checks it against the server's.
@@ -317,16 +374,21 @@ an old client stops parsing a record at an index it doesn't know, and fields are
 in dirty order, not table order, so it can lose a position update in the same record.
 Ship the client before, or together with, the server.
 
-`direction` and `impulse` have serialiser cases on both sides but are **not** in
-`fieldOrder`, so `indexOf` returns -1 and they would encode as key index 255. They are
-currently unreachable because `dirtyFields.add('direction')` / `('impulse')` are commented
-out in `gameobject.ts`. Add them to `fieldOrder` before ever re-enabling those.
+`direction` has a serialiser case on the server but is **not** in `fieldOrder`, so
+`indexOf` returns -1 and it would encode as key index 255, which the client (with no case
+for it) reads as an unknown index and stops parsing the record. It is unreachable because
+`dirtyFields.add('direction')` is commented out in `gameobject.ts`. Add it to `fieldOrder`
+and `allFields` before ever re-enabling it. (`impulse` had the same, plus a client decoder
+case; both went in hex-cells P4 with Dash's decaying velocity boost.)
 
 **`Unit.facing` is the fallback aim and the "behind" reference.**
 Aimed skills use the clicked cell (see `skill` above). Without an aim they use `facing`, and
 Dash and StoneWall always do. `stop()` zeroes `direction`, so anything reading `direction`
-fired at the caster's own feet once they stood still. `facing` is the last non-zero direction
-(unit length, East until the unit first moves), kept current by `Unit`'s `direction` setter.
+fired at the caster's own feet once they stood still. `facing` is the last non-zero heading
+(unit length, East until the unit first moves), kept current by `Unit`'s `direction` setter
+and set by `walkPath` and `step` for each segment walked, so a walk ends facing along its last
+centre-to-centre step. The client's `LocalPlayer.facingIndex` tracks it the same way, which
+is what sends a standing dash the same way on both sides.
 On the wire it is field `facing` (index 13): the `World.FACING_INDEX` of the vector, one byte,
 0-5, marked dirty only when that index changes, so a unit walking straight sends nothing.
 Remote sprites at rest face it.
@@ -343,16 +405,16 @@ grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, l
 indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
 flag, vision and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
 id: players 8, mobs 6). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
-falls back to today's sprite for an unknown id. An object that comes back into a
-connection's range is re-sent whole in `update`, so a full record can arrive there too.
+falls back to today's sprite for an unknown id. An object that comes into a
+connection's range is sent a `create`. A whole record can still arrive in `update` when a
+layer change keeps an object the client already holds (`switchLayer`).
 
 **Extraction is a channel, and exits are zones.** A player whose centre is on an exit's cell
 counts down that layer's `LAYERS.extractMs` (5 / 7 / 9 s). The check runs each tick at the
 top of `Player.update` (`channelExtract`). Stepping off cancels it, and so does any hit that
 lowers hp + armor (a hit that Defend floors to 0 doesn't). Finishing calls `player.exit()`,
-and an exited player can't be hit. **Exits aren't solid to players but stay solid to mobs, on
-both sides identically:** `GameObject.solidFor(unit)` on the server, and
-`LocalPlayer.SOLID_TYPES` (rocks and portals) deciding what enters the client's `COLLIDERS`.
+and an exited player can't be hit. **Nothing is solid since hex-cells P2:** a player walks onto an exit's cell, and a mob never
+steps onto one (`World.mobCanEnter`).
 `extract.spec.ts` runs the client's real `LocalPlayer` and a server `Player` over the same
 routes and asserts identical positions each tick. Change one and that spec will tell you.
 **`extractProgress` (19)** is a uint8, 0 when not extracting, else 1–254 as 255ths of the
@@ -392,7 +454,9 @@ raw in milliseconds throws `ERR_OUT_OF_RANGE` for every real value including 100
 
 ## The grid, and how it is drawn
 
-`Hex.SIZE` is **45 world units** and `utils/hex.ts`, `utils/path.ts` and `utils/archetypes.ts`
+`Hex.SIZE` is **45 world units, the distance between neighbouring cell centres** (not
+centre to corner: a corner is 26 from the centre, the inradius `Hex.RADIUS` 22.5, and one
+ring is 39–45 units depending on direction). `utils/hex.ts`, `utils/path.ts` and `utils/archetypes.ts`
 are byte-identical in both packages (`mirror.spec.ts` enforces it). It was 35, picked so 140 u/s covered one cell
 per 250 ms tick; that coincidence lost to legibility — the player sprite is 50 px and the
 game draws at 1:1, so a 35-unit cell was smaller than the character standing on it. Movement
@@ -404,7 +468,8 @@ radii, the eastern-edge cell in `world.spec.ts`. Three separate literals went st
 time the cell size moved.
 
 **Entering the last cell of a route is not arriving at it.** `followPath` (server `unit.ts`,
-client `localplayer.ts`) re-aims the index after a shove and nothing else; it caps the index at
+client `localplayer.ts`) only ever re-aims the index (after push-out's shoves until hex-cells P2; now only when a
+tick carries a unit past a cell); it caps the index at
 the last cell and never ends a route. `walkPath` / `_step` is the only thing that does, and it
 finishes exactly on the centre. The two were in the wrong order once and a walk came to rest
 about half a cell short of the middle, every time — invisible while a cell was 35 units and a
@@ -417,11 +482,15 @@ destination. `LocalPlayer._arrive` keeps the destination so the packet keeps ask
 the server's `sameCells` check makes the repeat free. `stop()` stays for a real stop.
 
 **A layer change ends the route, on both sides** (`Unit.changeLayer`, `LocalPlayer.changeLayer`):
-set the tag, then `stop()`. The client calls it when the tag arrives, a tick or so late.
-Until then it stays pressed against the portal, which is where the server put its player,
-and the server ignores its repeated old-route packets (`sameCells`), so there's no
-correction. `extract.spec.ts`'s mirror harness covers it with the tag 1–3 ticks late. Known
-gap: a new click in that window is planned on the old layer and shows as a correction.
+set the tag, then `stop()`. The client doesn't predict the hop: it walks to the portal's
+centre and waits there. When the tag arrives, a tick or so late, `LocalPlayer.changeLayer`
+jumps with no easing to the position that came in the same record (`Game.onObjectUpdated`
+reconciles a record's position before its tag, and `reconcile` remembers it), then stops.
+The arrival is one cell away, inside the reconcile dead zone, so without the jump it would
+be ignored. The server ignores the client's repeated old-route packets meanwhile
+(`sameCells` in `Multiplayer.onPointer`). `extract.spec.ts`'s mirror harness covers it with
+the tag 1-3 ticks late. Known gap: a new click in that window is planned on the old layer and
+shows as a correction.
 
 `HexTerrain` (`src/objects/hexterrain.ts`) draws the ground as one sprite per cell, pooled,
 rebuilt only when the camera's own cell changes. Two things about it are load-bearing:
@@ -469,8 +538,11 @@ like it did.
    immediately and reconciles against the server. It is the one object in the scene that is
    never fed through `onObjectUpdated` — `Game.PLAYER`'s position comes from
    `Game.LOCAL.renderX/renderY` in `Game.update`. `LocalPlayer._step` mirrors the server's
-   `Unit.update` integration and push-out; **if one changes, the other has to change with
-   it** or prediction starts fighting the authority.
+   `Unit.walkPath`, including Dash (`routeBudget` / `_routeBudget`), the route cut at portals
+   (`endAtPortal` / `_endAtPortal`) and the facing set for each segment walked; **if one
+   changes, the other has to change with it** or prediction starts fighting the authority.
+   There is no push-out on either side (hex-cells P2): terrain blocks cells, units don't, and
+   routes only cross free cells.
 2. **Remote units are interpolated**, not chased. `Unit.pushState` records authoritative
    states and `Unit.update` renders at `now - Session.interpolationDelay`, interpolating
    between the two states straddling that time, extrapolating for a bounded window on
@@ -485,6 +557,18 @@ like it did.
    small disagreement is walked off over ~100 ms; a disagreement over 220 units is treated as
    a teleport and shown immediately.
 
+**Mobs step cell to cell** (`Unit.step`, hex-cells P2, #31). The AI sets `stepGoal` (a cell
+and how near to get) every tick; at each cell centre the mob takes the neighbour nearest the
+goal that `World.mobCanEnter` allows (not blocked, not a gate or arrival cell, not held),
+ties to the lowest `Hex.DIRECTIONS` index, and stays if none is nearer (`Unit.chooseStep`,
+greedy: a single rock on the hex axis stops it dead; BFS is the documented upgrade in a
+comment there). A step once started is always finished. **One mob per cell**: a mob holds
+the cell it left and the one it enters until it arrives (`World.STEPS`), and its own cell at
+rest (`World.mobHolds`, through the `UNITS` index). Players may share cells with each other
+and with mobs. Contact damage lands within the archetype's `contact.rings` (1: adjacent or
+the same cell, `Mob.touch`), and the chase stops there (`GuardPosition.chaseStop`, or at the
+standoff if that is further: the gunner's 5).
+
 `Session` (`src/net/session.ts`) owns every timing constant, and separates what the server
 *says* (`tickMs`, from `hello`) from what the connection *delivers* (`arrivalP95`, measured).
 Interpolation is timed off the measured value.
@@ -493,7 +577,9 @@ Interpolation is timed off the measured value.
 recently" no longer means "gone". `Game.stillPresent` treats a silent unit as present if it
 is inside the interest radius and absent otherwise. The old per-player 3-byte id heartbeat
 is gone; the update header replaced it with a fixed per-connection cost instead of a
-per-visible-player one (break-even at about three visible players).
+per-visible-player one (break-even at about three visible players). Since #35 a unit that
+leaves a client's view is destroyed (a destroy without `hp`, which the client hides at once),
+so `stillPresent` only matters for a held unit idling in the exit margin.
 
 ## Things that are deliberate
 
@@ -520,10 +606,26 @@ per-visible-player one (break-even at about three visible players).
 - **A dead unit stays findable until the next tick's sweep.** `FIND_IN_CELLS` and the world
   lists still return it, so anything that damages, credits or destroys a unit must check
   `destroyed` first. `Unit.hit` does. A second hit on a corpse used to free its id twice
-  and credit a second kill.
+  and credit a second kill. The cell index keeps it too, until the sweep.
+  `NEAREST_IN_CELLS` skips it by default; `FIND_IN_CELLS` and `UNITS_ON` don't.
+  So `World.MOBS.length` is not the population: a mob killed during the tick's MOBS pass
+  after its own sweep check (a gunner's shot, a boss's breath inside the victim's own update)
+  stays as a corpse until the next tick, and `refillLayer` (which counts live mobs) has
+  already replaced it. The list holds one more than `LAYERS` on about 1 tick in 100; count
+  `!destroyed`. That was the `stepping.spec.ts` "population never filled" (82 vs 81) flake,
+  closed in hex-cells P4.
+- **Units, pickups and gates are indexed by cell** (`World.UNITS`, `PICKUPS`, `GATES`, and
+  `INTEREST` for players by 500-unit bucket; `utils/cellindex.ts`). Server code adds and
+  removes through `World.addUnit`/`removeUnitAt`, `World.PICKUPS.push`/`removeAt`/`remove`
+  and `World.addObstacle`/`removeObstacleAt`/`removeObstacle`, never on the lists directly.
+  A unit refiles itself from the `position`/`tag` setters (`GameObject.placed`). Specs may
+  edit the lists directly: the next lookup rebuilds (counted in `rebuilds`;
+  `cellindex.spec.ts` asserts a world run through its own paths never rebuilds). The one
+  edit the check can't see keeps a list's length and last element, such as replacing a
+  middle element in place.
 - **Tests that tick a real `new World()` get random exits, portals and mobs.** A player
   standing on an exit extracts after the layer's `extractMs`, a portal moves a player to
-  another layer, and gates are solid to mobs (portals are solid to players too; exits aren't). Two test flakes came from this (`c14d74a`, `34835e1`; both
+  another layer, and a mob never steps onto a gate or an arrival cell (`World.mobCanEnter`). Two test flakes came from this (`c14d74a`, `34835e1`; both
   from a portal moving a mob, which it no longer does). Clear `World.OBSTACLES`/`BLOCKED`/
   `MOBS` after building the world unless the test is about the map, and assert only what
   holds wherever the gates land when it is (`layers.spec.ts`).
@@ -554,9 +656,7 @@ uses that isn't in `atlas.json`/`hex.json`.
 **Every area of effect is a set of hex cells, not a radius.** A unit is inside if the cell
 under its centre is. `World.FIND_IN_CELLS` covers rings around a cell: melee is 2 rings
 around the caster, and the fireball/icicle blast is 1 ring around **the cell of the unit
-struck** (or the projectile's own cell if it expires). Centring a distance blast on the
-projectile missed the unit it had just hit, because a projectile's 50-unit collider sets
-it off before the target is inside a 70-unit blast. Breath cones are `World.CONE_CELLS`: the
+struck**, or around the last cell of its line if it struck nobody. Breath cones are `World.CONE_CELLS`: the
 facing snaps to one of the six `Hex.DIRECTIONS`, and each ring is the three forward
 neighbours of the ring before, so ring k has 2k+1 cells. No angle test. **Ranged is a hex
 line** (`Hex.line`, mirrored): cube lerp and round from the caster's cell toward the aimed
@@ -566,20 +666,31 @@ break the same way on both sides (pinned in `hex.spec.ts`). Aiming at a cell's c
 testing distance to the segment missed about 29% of targets 6 cells away.
 
 **Projectiles are not solid, and have their own list.** A `Throwable` lives in
-`World.PROJECTILES`, not `OBSTACLES`, so nothing pushes out of it. It does its own hit test
-after moving, and that test never matches its owner. When it was solid, every fireball
-exploded on its caster. `World.updateProjectiles` walks the list backwards and is the
-**only** place a projectile is removed. Splicing from inside `explode`, which runs within
-the projectile's own update, made the next projectile skip a tick. `OBSTACLES` holds only
-solid things; the rock refill counts only world rocks in it (`World.isRock`: an `Obstacle`
-with no lifetime, so not a StoneWall stone), per layer.
+`World.PROJECTILES`, not `OBSTACLES`. When it was solid, every fireball exploded on its
+caster. **Fireball and icicle step along a 10-cell hex line** (`Throwable.RANGE_CELLS`; the
+skill builds it with `RangedAttack.lineOf`: through the aim, or along the hex facing;
+hex-cells P3, #34). The front starts `HEAD_START` (8) thirds of a cell out and gains `STEP`
+(5) thirds a tick, in integers and not scaled by dt, so it is on line index 4, 6, 7, 9, 10
+after ticks 1-5 (at a non-default `TICK_MS` its speed in u/s changes). Each newly crossed
+index strikes the first unit, never the owner, on that cell or a neighbour of it
+(`SWATH_RINGS` 1), found through `World.UNITS` (`Throwable.findHit`): one on a line cell
+before one beside the line, the earliest line cell first, then the lowest id. Reaching index
+10 bursts there. Reach is 11 cells in every direction; a unit that leaves the swath before
+the front arrives is not hit. Rocks don't stop it. The 1200 ms `lifetime` is still sent, but
+nothing ends a projectile by time. `World.updateProjectiles` walks the list backwards and is
+the **only** place a projectile is removed. Splicing from inside `explode`, which runs within
+the projectile's own update, made the next projectile skip a tick. `OBSTACLES` holds rocks,
+stones, portals and exits; the rock refill counts only world rocks in it (`World.isRock`: an
+`Obstacle` with no lifetime, so not a StoneWall stone), per layer.
 
 **StoneWall is placed behind the caster on purpose**, to block chasers. Do not "fix" it to
 the front. It fills the 3 cells directly behind (`StoneWall.cells`: the neighbours at b-1,
 b, b+1, b opposite the facing), one stone per cell centre. A cell is skipped if it is off
-the map, already blocked, holds a portal or exit, or has a unit on it. `World.BLOCKED` is a
-Set, not a count, so two blockers on one cell would let the first to expire unblock the
-other's cell. The skip is what makes a stone's unconditional unblock safe.
+the map, already blocked, holds a portal or exit, is a portal's arrival cell, has a live unit
+on it, or is held by a mob mid-step (`StoneWall.canPlace`): a mob always finishes a step, so a
+stone on its next cell would trap it. `World.BLOCKED` maps each cell to its one
+blocker, not a count, so two blockers on one cell would let the first to expire unblock
+the other's cell. The skip is what makes a stone's unconditional unblock safe.
 
 ## Known-unfixed
 
@@ -591,34 +702,37 @@ other's cell. The skip is what makes a stone's unconditional unblock safe.
   overriding it with a different signature meant PIXI's own cleanup could never run. `dispose()`
   deliberately does *not* chain to `super.destroy()`: effects hold a reference to their target
   for up to a second after it dies, and freeing the container under them throws. Dropping every
-  reference — `LOOKUP`, `COLLIDERS` and the per-type arrays, all done in `onObjectDestroyed` —
+  reference — `LOOKUP`, `Game.PORTALS` and the per-type arrays, all done in `onObjectDestroyed` —
   is what actually lets it be collected.
 - **AI targets are released when they die.** `GuardPosition` only scans for a new target
   while `owner.target` is null, so a target that dies or extracts used to leave the unit
   permanently blind — wandering, while `UseSkillOnTarget` (which only tests for null) kept
   attacking the corpse. Anything that latches onto a target must clear it the same way.
-  Note the acquisition loop still takes the *last* match from `FIND_AROUND`, not the nearest.
+  **Ranges are rings (#32)**: a player is noticed at `Hex.distance` <= 4 (gunner 6) and kept
+  to 5 (gunner 7); the gunner holds at 5. Acquisition takes the nearest live player by rings,
+  ties to the lowest id. An idle mob wanders to a free cell centre within 1 ring of home.
   **Being hit by a player also sets the target** (`GuardPosition.provoke`), so a mob can no
-  longer be killed from beyond its 200-unit notice range without reacting. It chases until
-  the attacker is more than max(250, the distance at the hit + 50) away, and always switches
-  to whoever hit it last. Breath damage has no attacker attached, so being inside a player's
+  longer be killed from beyond its notice range without reacting. It chases until the
+  attacker is beyond max(lose, the rings at the hit + 1), and always switches to whoever
+  hit it last. Contact damage lands within the archetype's `contact.rings` (1), see "Mobs step cell to cell"
+  under Movement. Breath damage has no attacker attached, so being inside a player's
   cone counts as a hit.
 - **A loot pickup banks and does not heal** (decision #5, `usable-items`). It used to do both;
   healing is the medkit's job now. Items are not loot (#12): a medkit or bomb is an
-  `ItemPickup` in `World.ITEMS`, never a `Consumable`.
+  `ItemPickup` in `World.ITEMS`, never a `Consumable`. Pickups are same-cell (`pickupReach`
+  in rings, null = 0). Death drops (loot and items) land on free cell centres within
+  `World.DROP_RINGS` (2), never on a rock or portal cell (`World.dropCells`).
 - **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (30s); natural spawns do not.**
   The world's own spawner is bounded by a count, drops were not.
-- **Impulse decay is a constant applied to the magnitude** (`IMPULSE_FRICTION`, currently 3.0).
-  Duration is `impulse magnitude / IMPULSE_FRICTION`; Dash starts at 1.5, so 0.5s. Measured: the
-  dash adds ~81 units over two ticks, against a 35-unit baseline tick. **Note the tick
-  granularity** — the server applies the current impulse for a whole tick *then* decays, so a
-  dash can never be shorter than one 250ms tick no matter how high the friction goes. Two earlier
-  versions were wrong: `dt / sqMagnitude` made decay inversely proportional to the square of the
-  impulse, and `reduceBy(dt * F)` decayed each axis independently, so an axis-aligned dash lasted
-  √2 longer than a diagonal one.
-- **Player-versus-player collision is not predicted.** `LocalPlayer._step` replicates the
-  server's obstacle push-out but not its player push-out, so shoving another player produces
-  a correction. Rare and small; revisit if it reads badly in a crowd.
+- **Dash is 3 cells of route at 2.5× speed** (#34, `Unit.dash`, `Unit.routeBudget`;
+  `DASH_CELLS`, `DASH_MULTIPLIER`), predicted by `LocalPlayer.dash`. Standing, it goes up to 3
+  cells along the facing snapped to one of six (`Unit.dashCells`), stopping before a rock,
+  stone or the map edge; with no free cell it is refused and the cooldown is not spent. A
+  slowed dash still covers 3 cells. It is a distance (`dashLeft`), not a time, so client and
+  server cover the same stretch although the server gets the press a tick later; the client's
+  reconcile dead zone widens by the dash's 81-unit gain for a moment after it. It replaced a
+  decaying velocity boost (`impulse`, `IMPULSE_FRICTION`, both deleted in hex-cells P4) that
+  the client could not predict and that could never last less than a tick.
 - **`tickLengthMs` is `TICK_MS` in the environment**, default 250, and is sent to the client
   in `hello`. **Do not re-propose tuning it as a latency fix** — git history shows six changes
   in eight days that ended where they started, and the measured tick is healthy: 200
