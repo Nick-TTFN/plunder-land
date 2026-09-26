@@ -217,9 +217,14 @@ export default class World {
     const bx = Math.floor(x / size)
     const by = Math.floor(y / size)
     const result: Player[] = []
+    // One sync for the nine lookups: `at` syncs on every call, and this runs
+    // for every unit, projectile and pickup every tick.
+    const buckets = World.INTEREST.buckets(tag)
+    if (buckets.size === 0) return result
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
-        for (const player of World.INTEREST.at(tag, Hex.key(bx + dx, by + dy))) result.push(player)
+        const bucket = buckets.get(Hex.key(bx + dx, by + dy))
+        if (bucket !== undefined) for (const player of bucket) result.push(player)
       }
     }
     return result

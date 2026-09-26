@@ -521,6 +521,17 @@ export default class Multiplayer {
     return player.position.withinBounds(x, y, reach)
   }
 
+  /**
+   * True if `player` is among `World.interestCandidates` around `obj`: its
+   * `INTEREST` bucket is within one of `obj`'s on both axes. The layer is
+   * not checked here.
+   */
+  static isCandidate (player: Player, obj: GameObject): boolean {
+    const size = Multiplayer.INTEREST_RADIUS
+    return Math.abs(Math.floor(player.position.x / size) - Math.floor(obj.position.x / size)) <= 1 &&
+      Math.abs(Math.floor(player.position.y / size) - Math.floor(obj.position.y / size)) <= 1
+  }
+
   /** `inView` for an object's own position and layer; `reach` defaults to the interest box. */
   static sees (connection: Connection, obj: GameObject, reach: number = Multiplayer.INTEREST_RADIUS): boolean {
     return Multiplayer.inView(connection, obj.position.x, obj.position.y, obj.tag, reach)
@@ -732,12 +743,27 @@ export default class Multiplayer {
       return changedData
     }
 
-    // Holders found in range here; if that is all of them, none has left.
+    // Holders still in view, found here; if that is all of them, none has
+    // left and the loop over holders below is skipped. A holder in the exit
+    // margin is served here too when it is among the candidates, so one
+    // standing in the margin does not force that loop every tick.
+    const outer = Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN
     let holdersInRange = 0
     for (const player of World.interestCandidates(obj.position.x, obj.position.y, obj.tag)) {
       const connection = this.viewerOf(player)
       if (connection === undefined) continue
-      if (connection !== self && !Multiplayer.sees(connection, obj)) continue
+      if (connection !== self && !Multiplayer.sees(connection, obj)) {
+        // Not in the box. A holder whose client is on this layer (so no
+        // switch pending) and still has it in the margin keeps it.
+        if (connection.layer === player.tag && obj.knownBy.has(connection) && Multiplayer.sees(connection, obj, outer)) {
+          holdersInRange++
+          if (changed) {
+            const data = delta()
+            if (data !== null) this.outbox(connection).update.push(data)
+          }
+        }
+        continue
+      }
       if (obj.knownBy.has(connection)) {
         holdersInRange++
         if (changed) {
@@ -752,13 +778,16 @@ export default class Multiplayer {
     }
 
     if (holdersInRange < obj.knownBy.size) {
-      const outer = Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN
       for (const connection of obj.knownBy) {
         // Its own, and anyone handled above.
         if (connection === self || Multiplayer.sees(connection, obj)) continue
         const player = connection.player
         // A player who died or left this tick: dropped whole at the flush.
         if (player === undefined || Multiplayer.gone(player)) continue
+        // Served above: a candidate (on the object's layer, in the 3 x 3
+        // buckets around it) with no switch pending and it in the margin.
+        if (connection.layer === player.tag && player.tag === obj.tag &&
+          Multiplayer.isCandidate(player, obj) && Multiplayer.sees(connection, obj, outer)) continue
         // Its client changes layer at its player's own update (`switchLayer`),
         // which settles everything it holds. A destroy from here as well
         // could meet a create from the switch for the same id in one flush:
