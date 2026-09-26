@@ -1,36 +1,8 @@
 import { Graphics, Text } from 'pixi.js'
+import { Standing, type StandingRow, pickShown } from './standings'
 
-/** The status byte of a standings row. Mirrors the server's `Standing`. */
-export enum Standing {
-  ACTIVE = 0,
-  EXTRACTED = 1,
-  DEAD = 2
-}
-
-export interface StandingRow {
-  id: number
-  status: Standing
-  loot: number
-  name: string
-}
-
-/**
- * One `standings` record: `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0]`,
- * big-endian (server `Multiplayer.buildStandings`). Anything after the NUL is a
- * field added later and is ignored. A record too short for its fixed part is
- * dropped.
- */
-export function decodeStanding (record: Uint8Array): StandingRow | undefined {
-  if (record.length < 7) return undefined
-  let end = 7
-  while (end < record.length && record[end] !== 0) end++
-  return {
-    id: (record[0] << 8) | record[1],
-    status: record[2],
-    loot: ((record[3] << 24) >>> 0) + (record[4] << 16) + (record[5] << 8) + record[6],
-    name: new TextDecoder().decode(record.subarray(7, end))
-  }
-}
+// Where they lived before the decoder moved to standings.ts; game.ts imports them from here.
+export { Standing, decodeStanding, type StandingRow } from './standings'
 
 const FONT = 'Lilliput Steps'
 const TEXT = 0xF2EEE3
@@ -104,17 +76,11 @@ export class Leaderboard extends Graphics {
   }
 
   /**
-   * `rows` in the server's order, which is the ranking. `ownId` is the local
-   * player's object id: the own row is the ACTIVE one with that id. Ids are
-   * recycled, so a finished row can share it; a live one cannot.
+   * `rows` in the server's order, which is the ranking; `ownId` is the local
+   * player's object id. Which rows show, and with what rank: `pickShown`.
    */
   setStandings (rows: StandingRow[], ownId: number | undefined): void {
-    const ownIndex = ownId === undefined ? -1 : rows.findIndex((r) => r.id === ownId && r.status === Standing.ACTIVE)
-
-    const shown: Array<{ rank: number, row: StandingRow }> = []
-    rows.slice(0, TOP).forEach((row, i) => shown.push({ rank: i + 1, row }))
-    const ownBelow = ownIndex >= TOP
-    if (ownBelow) shown.push({ rank: ownIndex + 1, row: rows[ownIndex] })
+    const { shown, own, ownBelow } = pickShown(rows, ownId, TOP)
 
     // Column widths from what is actually shown.
     let rankW = 0
@@ -160,7 +126,7 @@ export class Leaderboard extends Graphics {
       texts.loot.x = lootRight
       texts.status.x = statusX
       for (const t of [texts.rank, texts.name, texts.loot, texts.status]) t.y = y
-      if (entry.row === rows[ownIndex]) highlightY = y
+      if (entry.row === own) highlightY = y
       y += ROW_HEIGHT
     })
     const height = y + (shown.length === 0 ? 0 : 4)

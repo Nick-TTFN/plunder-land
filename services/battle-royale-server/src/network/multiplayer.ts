@@ -258,8 +258,9 @@ export default class Multiplayer {
   }
 
   /**
-   * `standings`, when given, is this tick's standings board: the same buffer
-   * for every connection, sent under the same gate as the buffered events.
+   * `standings`, when given, is this tick's standings board for this
+   * connection (`StandingsBoard.bufferFor`), sent under the same gate as the
+   * buffered events.
    */
   flush (connection: Connection, tick: number, standings?: Buffer): void {
     const buffered = this._buffer[connection.id]
@@ -665,10 +666,10 @@ export default class Multiplayer {
   }
 
   flushAll (tick: number, dtMs: number = 0): void {
-    const standings = this.standingsDue() ? Multiplayer.buildStandings() : undefined
+    const board = this.standingsDue() ? Multiplayer.rankStandings() : undefined
     for (const connection of this._connections) {
       if (connection.player != null) connection.ackElapsedMs += dtMs
-      this.flush(connection, tick, standings)
+      this.flush(connection, tick, board?.bufferFor(connection.player))
     }
   }
 
@@ -693,45 +694,54 @@ export default class Multiplayer {
     return true
   }
 
+  /** How many of the best rows every connection is sent (decision #30). */
+  static STANDINGS_TOP = 10
+
   /**
-   * The `standings` event: every player in the world plus those who finished
-   * in the last `World.FINISHED_LINGER_MS`, ranked by loot (most first, ties by
-   * id), packed with `packRecords`. One record per player:
+   * The `standings` event: the top `STANDINGS_TOP` rows of the board, plus the
+   * connection's own row when it is not among them, packed with `packRecords`.
+   * The board is every player in the world plus those who finished in the
+   * last `World.FINISHED_LINGER_MS`, ranked by loot (most first, ties by id).
+   * Finished rows rank by their loot like live ones, so they can be among the
+   * top rows, as when the whole board was sent. One record per row:
    *
-   * `[uint16 id][uint8 status][uint32 loot][name, UTF-8][0]`, big-endian.
+   * `[uint16 id][uint8 status][uint32 loot][name, UTF-8][0][uint16 rank]`, big-endian.
    *
-   * Status is a `Standing`: 0 ACTIVE, 1 EXTRACTED, 2 DEAD. The rank is the
-   * record's position. The client finds its own row by id **and** ACTIVE: ids
-   * are recycled a second after a player leaves, so a lingering finished row
-   * can carry the id of a newer object, but no two live players share one.
-   * Fields after the NUL are for later additions (the layer, say) and an older
-   * client ignores them. World-wide, not per plane.
+   * Status is a `Standing`: 0 ACTIVE, 1 EXTRACTED, 2 DEAD. The rank is 1-based,
+   * the row's position on the whole board, so tied rows get distinct ranks in
+   * id order. It is sent because the own row, appended after the top rows, is
+   * not at its rank's position; a client that reads no rank ranks by position
+   * and shows the appended row as 11th, so the client ships first. The client
+   * finds its own row by id **and** ACTIVE: ids are recycled a second after a
+   * player leaves, so a lingering finished row can carry the id of a newer
+   * object, but no two live players share one. The server picks the own row
+   * by the player object, not the id. Fields after the rank are for later
+   * additions (the layer, say) and an older client ignores them. World-wide,
+   * not per plane.
    *
    * A player killed or extracted during this tick is still in PLAYERS until
    * the next tick's sweep moves it to FINISHED; its flags give its status here,
    * so it does not drop off the board for that tick.
+   *
+   * Ranking happens once per board. The per-connection part is
+   * `StandingsBoard.bufferFor`, which returns the shared top buffer itself
+   * unless the own row has to be appended.
    */
-  static buildStandings (): Buffer {
-    const rows: Array<{ id: number, status: Standing, loot: number, name: string }> = []
+  static rankStandings (): StandingsBoard {
+    const rows: StandingsRow[] = []
     for (const player of World.PLAYERS) {
       const status = player.destroyed ? Standing.DEAD : player.exited ? Standing.EXTRACTED : Standing.ACTIVE
-      rows.push({ id: player.id, status, loot: player.loot ?? 0, name: player.name ?? '' })
+      rows.push({ id: player.id, status, loot: player.loot ?? 0, name: player.name ?? '', player })
     }
     for (const finished of World.FINISHED) rows.push(finished)
 
     rows.sort((a, b) => (b.loot - a.loot) || (a.id - b.id))
+    return new StandingsBoard(rows, Multiplayer.STANDINGS_TOP)
+  }
 
-    const records = rows.map((row) => {
-      const name = Buffer.from(row.name, 'utf8')
-      const record = Buffer.alloc(7 + name.length + 1)
-      record.writeUInt16BE(row.id)
-      record.writeUInt8(row.status, 2)
-      record.writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(row.loot))), 3)
-      name.copy(record, 7)
-      // The final byte is already 0: Buffer.alloc zero-fills.
-      return record
-    })
-    return Multiplayer.packRecords(records)
+  /** One connection's `standings` buffer; `own` is its player, if it has one. */
+  static buildStandings (own?: Player): Buffer {
+    return Multiplayer.rankStandings().bufferFor(own)
   }
 
   onDisconnect (socket: Socket): void {
@@ -749,5 +759,62 @@ export default class Multiplayer {
         break
       }
     }
+  }
+}
+
+interface StandingsRow {
+  id: number
+  status: Standing
+  loot: number
+  name: string
+  /** The live player the row is for; absent on a finished row. */
+  player?: Player
+}
+
+/**
+ * One ranked standings board (`Multiplayer.rankStandings`). Encodes the top
+ * rows once; `bufferFor` appends a connection's own row when it is below them.
+ */
+export class StandingsBoard {
+  /** The packed top rows: the same Buffer for every connection. */
+  readonly top: Buffer
+  /** Each live player's index on the board. Finished rows have no player. */
+  private readonly _indexOf = new Map<Player, number>()
+
+  constructor (private readonly _rows: StandingsRow[], private readonly _topCount: number) {
+    const records: Buffer[] = []
+    for (let i = 0; i < _rows.length; i++) {
+      const player = _rows[i].player
+      if (player !== undefined) this._indexOf.set(player, i)
+      if (i < _topCount) records.push(StandingsBoard.encode(_rows[i], i + 1))
+    }
+    this.top = Multiplayer.packRecords(records)
+  }
+
+  /**
+   * The buffer for the connection whose player is `own`: the top rows, plus
+   * `own`'s row if it is on the board and not already among them.
+   */
+  bufferFor (own: Player | undefined): Buffer {
+    if (own === undefined) return this.top
+    const index = this._indexOf.get(own)
+    if (index === undefined || index < this._topCount) return this.top
+    const record = StandingsBoard.encode(this._rows[index], index + 1)
+    const length = Buffer.alloc(2)
+    length.writeUInt16BE(record.length)
+    return Buffer.concat([this.top, length, record], this.top.length + 2 + record.length)
+  }
+
+  /** `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank]`, big-endian. */
+  static encode (row: StandingsRow, rank: number): Buffer {
+    const name = Buffer.from(row.name, 'utf8')
+    const record = Buffer.alloc(7 + name.length + 1 + 2)
+    record.writeUInt16BE(row.id)
+    record.writeUInt8(row.status, 2)
+    record.writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(row.loot))), 3)
+    name.copy(record, 7)
+    // The NUL after the name is already 0: Buffer.alloc zero-fills.
+    record.writeUInt16BE(Math.min(0xFFFF, rank), 7 + name.length + 1)
+    return record
   }
 }

@@ -7,6 +7,10 @@ import World, { Standing } from '../objects/world'
 import Timers from '../objects/timers'
 import { GameObject } from '../objects/gameobject'
 import type Player from '../objects/player'
+// The client's decoder and row picking have no pixi imports, so they load here
+// (as wire.spec.ts loads the client's sprite map): these specs read the
+// server's bytes the way the client does.
+import { decodeStanding, pickShown, type StandingRow } from '../../../../plunder-land-client/src/ui/components/standings'
 
 /**
  * `live-world-leaderboard`: the `standings` event, about once a second, listing
@@ -41,13 +45,12 @@ function unpack (buf: Buffer): Buffer[] {
   return out
 }
 
-interface Row { id: number, status: number, loot: number, name: string }
-
-/** The client's reading of a standings buffer (leaderboard.ts `decodeStandings`). */
-function decode (buf: Buffer): Row[] {
+/** The client's reading of a standings buffer: its own decoder, record by record. */
+function decode (buf: Buffer): StandingRow[] {
   return unpack(buf).map((r) => {
-    const end = r.indexOf(0, 7)
-    return { id: r.readUInt16BE(0), status: r.readUInt8(2), loot: r.readUInt32BE(3), name: r.subarray(7, end).toString('utf8') }
+    const row = decodeStanding(r)
+    assert.ok(row !== undefined)
+    return row
   })
 }
 
@@ -143,7 +146,7 @@ test('rows are ranked by loot, most first, ties by id', () => {
   assert.ok(rows.every((r) => r.status === Standing.ACTIVE))
 })
 
-test('byte layout: [uint16 id][uint8 status][uint32 loot][UTF-8 name][0], length-prefixed', () => {
+test('byte layout: [uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank], length-prefixed', () => {
   setup()
   World.FINISHED.push({ id: 0x1234, name: 'Zoë', loot: 0x01020304, status: Standing.EXTRACTED, at: Date.now() })
 
@@ -152,8 +155,192 @@ test('byte layout: [uint16 id][uint8 status][uint32 loot][UTF-8 name][0], length
   assert.equal(name.length, 4)
   assert.deepEqual(
     [...buf],
-    [0x00, 12, 0x12, 0x34, 0x01, 0x01, 0x02, 0x03, 0x04, ...name, 0x00]
+    [0x00, 14, 0x12, 0x34, 0x01, 0x01, 0x02, 0x03, 0x04, ...name, 0x00, 0x00, 0x01]
   )
+})
+
+test('an old client reads the new records unchanged: it stops at the NUL', () => {
+  setup()
+  World.FINISHED.push({ id: 7, name: 'ANNA', loot: 40, status: Standing.DEAD, at: Date.now() })
+  const record = unpack(Multiplayer.buildStandings())[0]
+  // The pre-rank client's decoder, verbatim in effect: fixed part, then the
+  // name up to the first NUL, and nothing after it is read.
+  let end = 7
+  while (end < record.length && record[end] !== 0) end++
+  assert.equal(record.subarray(7, end).toString('utf8'), 'ANNA')
+  assert.equal(record.length, end + 1 + 2, 'exactly the rank follows the NUL')
+})
+
+test('the client ranks an old server\'s records (no rank) by position', () => {
+  // An old server's board: the whole list, no bytes after the NUL.
+  const old = (id: number, loot: number, name: string): Buffer =>
+    Buffer.concat([Buffer.from([id >> 8, id & 0xFF, Standing.ACTIVE, 0, 0, 0, loot]), Buffer.from(name), Buffer.from([0])])
+  const rows = [old(1, 90, 'A'), old(2, 80, 'B'), old(3, 70, 'C'), old(4, 60, 'D'), old(5, 50, 'E'), old(6, 40, 'F'), old(7, 30, 'ME')]
+    .map((r) => decodeStanding(r) as StandingRow)
+  assert.ok(rows.every((r) => r.rank === undefined))
+  const { shown, own, ownBelow } = pickShown(rows, 7, 5)
+  assert.deepEqual(shown.map((s) => [s.rank, s.row.name]), [[1, 'A'], [2, 'B'], [3, 'C'], [4, 'D'], [5, 'E'], [7, 'ME']])
+  assert.equal(own?.name, 'ME')
+  assert.equal(ownBelow, true)
+})
+
+// standings-top-10 (decision #30): the top STANDINGS_TOP rows plus the own row.
+
+/** `count` players named P1..Pcount with loot 1000, 990, ... in join order. */
+function crowd (multiplayer: Multiplayer, count: number): Array<{ player: Player, sent: Recorded[] }> {
+  const out: Array<{ player: Player, sent: Recorded[] }> = []
+  for (let i = 0; i < count; i++) {
+    const j = join(multiplayer, `c${i + 1}`, `P${i + 1}`)
+    j.player.loot = 1000 - 10 * i
+    out.push(j)
+  }
+  return out
+}
+
+function lastBoard (sent: Recorded[]): StandingRow[] {
+  const boards = standingsSent(sent)
+  assert.ok(boards.length > 0, 'a board was sent')
+  return decode(boards[boards.length - 1])
+}
+
+test('outside the top 10, the own row is appended with its real rank', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 25)
+  for (let tick = 1; tick <= 4; tick++) multiplayer.flushAll(tick, 250)
+
+  const me = players[16] // 17th by loot
+  const rows = lastBoard(me.sent)
+  assert.equal(rows.length, Multiplayer.STANDINGS_TOP + 1)
+  assert.deepEqual(rows.slice(0, 10).map((r) => [r.rank, r.name]), players.slice(0, 10).map((p, i) => [i + 1, `P${i + 1}`]))
+  assert.deepEqual([rows[10].rank, rows[10].name, rows[10].id, rows[10].loot], [17, 'P17', me.player.id, 840])
+
+  // What the client draws: the top five and the own row, ranked 17, not 11.
+  const { shown, own, ownBelow } = pickShown(rows, me.player.id, 5)
+  assert.deepEqual(shown.map((s) => s.rank), [1, 2, 3, 4, 5, 17])
+  assert.equal(own?.name, 'P17')
+  assert.equal(ownBelow, true)
+
+  // Last place too.
+  const last = lastBoard(players[24].sent)
+  assert.deepEqual([last.length, last[10].rank, last[10].name], [11, 25, 'P25'])
+})
+
+test('inside the top 10, nothing is appended and every such connection shares one buffer', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 25)
+  const board = Multiplayer.rankStandings()
+
+  for (let i = 0; i < 10; i++) assert.equal(board.bufferFor(players[i].player), board.top, `P${i + 1}`)
+  assert.equal(board.bufferFor(undefined), board.top)
+  assert.notEqual(board.bufferFor(players[10].player), board.top)
+
+  const tenth = decode(board.bufferFor(players[9].player))
+  assert.equal(tenth.length, 10)
+  assert.deepEqual(tenth.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  assert.equal(tenth.filter((r) => r.id === players[9].player.id).length, 1, 'the own row is not repeated')
+})
+
+test('11th, the first place outside, is appended as rank 11', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 11)
+  const rows = decode(Multiplayer.buildStandings(players[10].player))
+  assert.deepEqual(rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  assert.equal(rows[10].name, 'P11')
+})
+
+test('ties rank by id, across the top-10 cut too', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 14)
+  // Five players tied at 500, straddling ranks 8-12.
+  const tied = players.slice(7, 12)
+  for (const t of tied) t.player.loot = 500
+  for (const p of players.slice(12)) p.player.loot = 1
+  const byId = [...tied].sort((a, b) => a.player.id - b.player.id)
+
+  const board = Multiplayer.rankStandings()
+  const top = decode(board.top)
+  assert.deepEqual(top.slice(7).map((r) => r.id), byId.slice(0, 3).map((t) => t.player.id))
+  assert.deepEqual(top.slice(7).map((r) => r.rank), [8, 9, 10])
+
+  // The two tied players below the cut get distinct ranks, 11 and 12, in id order.
+  for (const [k, rank] of [[3, 11], [4, 12]] as const) {
+    const rows = decode(board.bufferFor(byId[k].player))
+    assert.equal(rows.length, 11)
+    assert.deepEqual([rows[10].id, rows[10].rank, rows[10].loot], [byId[k].player.id, rank, 500])
+  }
+})
+
+test('fewer than 10 players: everyone, ranked, nothing appended', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 4)
+  for (let tick = 1; tick <= 4; tick++) multiplayer.flushAll(tick, 250)
+  for (const p of players) {
+    const rows = lastBoard(p.sent)
+    assert.deepEqual(rows.map((r) => [r.rank, r.name]), [[1, 'P1'], [2, 'P2'], [3, 'P3'], [4, 'P4']])
+  }
+  assert.equal(decode(Multiplayer.buildStandings()).length, 4)
+})
+
+test('finished rows rank by their loot and can take top-10 places', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 12)
+  World.FINISHED.push({ id: 900, name: 'GONE', loot: 995, status: Standing.EXTRACTED, at: Date.now() })
+  World.FINISHED.push({ id: 901, name: 'DIED', loot: 5, status: Standing.DEAD, at: Date.now() })
+
+  const board = Multiplayer.rankStandings()
+  const top = decode(board.top)
+  assert.deepEqual([top[1].name, top[1].rank, top[1].status], ['GONE', 2, Standing.EXTRACTED])
+  assert.ok(!top.some((r) => r.name === 'DIED'))
+  // P10 was pushed out of the top 10 by the finished row.
+  const rows = decode(board.bufferFor(players[9].player))
+  assert.deepEqual([rows.length, rows[10].name, rows[10].rank], [11, 'P10', 11])
+})
+
+test('own row finished this tick: sent with its status and rank, and the client does not take it as its own', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 15)
+  const me = players[12] // 13th
+
+  for (let tick = 1; tick <= 3; tick++) multiplayer.flushAll(tick, 250)
+  // Killed during the tick whose flush sends a board: still in PLAYERS until
+  // the sweep, and the connection still points at it until this flush ends.
+  me.player.destroy()
+  multiplayer.flushAll(4, 250)
+  const rows = lastBoard(me.sent)
+  assert.deepEqual([rows.length, rows[10].name, rows[10].rank, rows[10].status], [11, 'P13', 13, Standing.DEAD])
+  // The client's own row is the ACTIVE one with its id: there is none, so no highlight.
+  assert.equal(pickShown(rows, me.player.id, 5).own, undefined)
+
+  // After that flush the connection is done: no more boards.
+  const before = standingsSent(me.sent).length
+  for (let tick = 5; tick <= 12; tick++) multiplayer.flushAll(tick, 250)
+  assert.equal(standingsSent(me.sent).length, before)
+})
+
+test('a recycled id: the own row is the live player, even when a finished row with its id is in the top 10', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 20)
+  const me = players[15] // 16th
+  // A finished player who held this id before, ranked 1st.
+  World.FINISHED.push({ id: me.player.id, name: 'OLD', loot: 5000, status: Standing.DEAD, at: Date.now() })
+
+  const rows = decode(Multiplayer.buildStandings(me.player))
+  assert.equal(rows.length, 11)
+  assert.deepEqual([rows[0].name, rows[0].id, rows[0].status], ['OLD', me.player.id, Standing.DEAD])
+  assert.deepEqual([rows[10].name, rows[10].id, rows[10].status, rows[10].rank], ['P16', me.player.id, Standing.ACTIVE, 17])
+
+  const { shown, own } = pickShown(rows, me.player.id, 5)
+  assert.equal(own?.name, 'P16')
+  assert.deepEqual(shown[shown.length - 1].rank, 17)
+})
+
+test('a recycled id on a finished row below the cut adds nothing for a live player in the top 10', () => {
+  const { multiplayer } = setup()
+  const players = crowd(multiplayer, 20)
+  const me = players[3] // 4th, in the top 10
+  World.FINISHED.push({ id: me.player.id, name: 'OLD', loot: 0, status: Standing.DEAD, at: Date.now() })
+  const board = Multiplayer.rankStandings()
+  assert.equal(board.bufferFor(me.player), board.top)
 })
 
 test('loot above uint32 is clamped rather than thrown on', () => {
