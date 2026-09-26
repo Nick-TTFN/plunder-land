@@ -431,7 +431,6 @@ export default class Player extends Unit {
       for (const key of value.archetype.killStats) stats[key] = 1
     }
 
-    console.log('stats', stats)
     for (const key in stats) {
       if (stats[key] > 0) {
         await Multiplayer.Instance.redis.hincrby(`stats-${this.playerId}`, key, stats[key])

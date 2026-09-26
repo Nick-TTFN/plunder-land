@@ -294,7 +294,12 @@ export default class World {
    * no-op unless one of them moved within `PICKUP_WATCH_BUCKETS` of it (or a
    * connection's layer or life changed, which `switchLayer`, `admit` and
    * `forget` settle for every pickup at once). Measured 2026-09-26: 47% of
-   * pickups skip at 400 bots, 64% at 100 (server-cpu-trim).
+   * pickups skip at 400 bots, 64% at 100 (server-cpu-trim). Nearly all of
+   * those are on layers where nobody is walking: 2 buckets each way is 40% of
+   * a layer, and at 15-70 moving players a layer one of them is almost always
+   * inside it. The same shortcut for standing units was built and measured
+   * the same day and skipped 0% of player updates (tickbench: on average 15
+   * of the 25 buckets saw a move within a tick), so it was not kept.
    */
   static pickupPass (dt: number): void {
     const near = World.pickupWatch()
