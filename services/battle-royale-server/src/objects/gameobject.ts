@@ -1,4 +1,4 @@
-import Multiplayer from '../network/multiplayer'
+import Multiplayer, { type Connection } from '../network/multiplayer'
 import { Vector } from '../utils/vector'
 import Timers from './timers'
 
@@ -23,13 +23,14 @@ export class GameObject {
   static id = 0
   id: number = 0
   /**
-   * `Multiplayer`'s change counter at this object's last update that carried
-   * changes, 0 if none since it was created. A connection that was last
-   * brought up to date before this missed a change, and gets the whole record
-   * when the object is next in its range (`Multiplayer.update`). Not a wire
-   * field.
+   * The connections whose client holds this object: sent its create and no
+   * destroy since (interest-filtered-broadcasts, decision #35). Its updates
+   * and its destroy go to exactly these. The other half of each
+   * `Connection.known`; only `Multiplayer` writes either. Always empty for
+   * terrain (`Multiplayer.isTerrain`), which goes by layer instead. Not a
+   * wire field.
    */
-  changedAt: number = 0
+  readonly knownBy = new Set<Connection>()
   static FreedIDs: number[] = []
   destroyed: boolean
   dirtyFields: Set<string>

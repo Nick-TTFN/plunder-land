@@ -1,5 +1,5 @@
 import { type Socket } from 'socket.io'
-import { type GameObject } from '../objects/gameobject'
+import { type GameObject, ObjectType } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
 import World, { Standing } from '../objects/world'
@@ -8,7 +8,12 @@ import { Hex } from '../utils/hex'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
 
-class Connection {
+type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
+
+/** Only `id`: the destroy record for an object that left a client's view. */
+const ID_ONLY: ReadonlySet<string> = new Set(['id'])
+
+export class Connection {
   socket: Socket
   player: Player | undefined
   started: boolean = false
@@ -30,18 +35,24 @@ class Connection {
    */
   lastWaypoints: Vector[] = []
   /**
-   * What this connection was last sent of each object: object id to that
-   * object's `changedAt` at the time. An object whose `changedAt` has moved
-   * past it changed while out of this connection's range, and is sent whole
-   * the next time it is in range (`Multiplayer.update`). Bounded by the
-   * largest id (ids are recycled), and dropped with the connection.
+   * The units, pickups and projectiles this connection's client holds: sent
+   * a create and no destroy since (decision #35). The other half of each
+   * object's `knownBy`. It includes the player's own object, which is never
+   * dropped from it while the player lives. Bounded by what is in range, and
+   * emptied when the player goes (`Multiplayer.forget`). Terrain is not in it;
+   * see `layer`.
    */
-  seen = new Map<number, number>()
+  known = new Set<GameObject>()
   /**
-   * `Multiplayer`'s change counter when this connection's join snapshot was
-   * built: every object it has not been sent since is known as of then.
+   * The layer whose terrain (everything in `World.OBSTACLES`) this client
+   * holds, and the layer it is shown on; undefined before a join and after
+   * the player goes. It follows the player's tag at the player's own first
+   * update after a portal (`Multiplayer.switchLayer`), which is the update
+   * that carries the new tag to the client, so the old layer goes and the new
+   * one arrives in the same flush as that tag. Every "can it see this" test
+   * reads this, not the player's tag.
    */
-  joinedAt: number = 0
+  layer: number | undefined
 
   get id (): string {
     return this.socket?.id
@@ -96,7 +107,7 @@ export default class Multiplayer {
   static Instance: Multiplayer
   readonly tickLengthMs: number
   private readonly _connections: Connection[]
-  private _buffer: Record<string, { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }> = {}
+  private _buffer: Record<string, Outbox> = {}
   redis: Redis
 
   /**
@@ -211,36 +222,29 @@ export default class Multiplayer {
         if (i >= 0) World.removeUnitAt(World.PLAYERS as unknown as Unit[], i)
         player.destroy()
       }
+      // Whatever the snapshot had marked as sent, it never was.
+      this.forget(connection)
       delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
       throw e
     }
   }
 
+  /**
+   * The join snapshot (decision #35): the terrain of the player's own layer,
+   * all of it, and the units, pickups and projectiles inside the interest box
+   * around the player. It was every object on every layer.
+   */
   private admit (connection: Connection, player: Player): void {
     this.attach(connection, player)
 
-    this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
+    const out: Outbox = { create: [], create_own: [], effect: [], update: [], destroy: [] }
+    this._buffer[connection.id] = out
 
-    const snapshot: GameObject[] = [
-      ...World.OBSTACLES,
-      ...World.PROJECTILES,
-      ...World.CONSUMABLES,
-      ...World.ITEMS,
-      ...World.PLAYERS,
-      ...World.MOBS
-    ]
-
-    for (const obj of snapshot) {
-      if (obj !== undefined) {
-        if (connection.player === obj) {
-          // allFieldsOwn, not allFields: the owner needs loot and maxVelocity,
-          // and maxVelocity is what makes local prediction possible at all.
-          this._buffer[connection.id].create_own.push(obj.serialiseBinary(obj.allFieldsOwn))
-        } else {
-          this._buffer[connection.id].create.push(obj.serialiseBinary(obj.allFields))
-        }
-      }
-    }
+    this.sendTerrain(connection, out.create)
+    this.sendVisible(connection, out.create)
+    // allFieldsOwn, not allFields: the owner needs loot and maxVelocity,
+    // and maxVelocity is what makes local prediction possible at all.
+    out.create_own.push(player.serialiseBinary(player.allFieldsOwn))
 
     // Everything the client would otherwise have to assume about this server.
     // Sent after the snapshot is built, so a snapshot that throws sends nothing;
@@ -298,7 +302,10 @@ export default class Multiplayer {
     // Exiting removes the player from the world but never set `destroyed`, so the
     // connection kept pointing at it and the input handlers kept reaching it.
     const player = connection.player
-    if (player != null && (player.destroyed || player.exited)) connection.player = undefined
+    if (player != null && (player.destroyed || player.exited)) {
+      connection.player = undefined
+      this.forget(connection)
+    }
   }
 
   /**
@@ -449,11 +456,14 @@ export default class Multiplayer {
   // outgoing traffic ========
 
   /**
-   * Counts every `update` that carried changes. An object's `changedAt` and a
-   * connection's `seen` / `joinedAt` are values of it. Static, like the world
-   * it counts for, and only ever increases.
+   * How far past the interest box a unit, pickup or projectile a client holds
+   * may go before it is sent a destroy, in world units: 2 cells. An object
+   * enters a client's view strictly inside `INTEREST_RADIUS` and leaves it
+   * only beyond `INTEREST_RADIUS + EXIT_MARGIN`, so one standing on the edge,
+   * or a viewer walking to and fro across it, is not destroyed and re-created
+   * every tick. Inside the margin it is still sent its changes.
    */
-  private static _changes = 0
+  static EXIT_MARGIN = 2 * Hex.SIZE
 
   /**
    * Each player's connection, for the players `World.INTEREST` finds. Weak, and
@@ -469,83 +479,304 @@ export default class Multiplayer {
   }
 
   /**
+   * The connection to send to for `player`, a player some object is near:
+   * none for one killed or extracted this tick, who is still in the world
+   * until the next sweep. Its client has been sent its own destroy and is
+   * showing the end of its run.
+   */
+  private viewerOf (player: Player): Connection | undefined {
+    if (Multiplayer.gone(player)) return undefined
+    return this.connectionOf(player)
+  }
+
+  /**
+   * Destroyed, or a player who has extracted. Either has been sent its
+   * destroy, and nothing may be sent about it after that: a create for it
+   * would reach the client ahead of the destroy in the same flush (`create`
+   * is emitted first) and leave a sprite nobody removes.
+   */
+  static gone (obj: GameObject): boolean {
+    return obj.destroyed || (obj as { exited?: boolean }).exited === true
+  }
+
+  /**
+   * Terrain: rocks, StoneWall stones, portals and exits, everything that goes
+   * in `World.OBSTACLES`. It goes to every connection on its layer whatever
+   * the distance (decision #35), because the client routes over the whole
+   * layer from its copy of the blocked cells. By type, because `create` runs
+   * inside the constructor, before the object is in any list.
+   */
+  static isTerrain (obj: GameObject): boolean {
+    return (obj.type & (ObjectType.Obstacle | ObjectType.Portal | ObjectType.Exit)) !== 0
+  }
+
+  /**
+   * True if `connection`'s client is on layer `tag` (its `layer`) and (x, y)
+   * is strictly inside the box of half-width `reach` around its player. The
+   * box test is the one `update` has always used.
+   */
+  static inView (connection: Connection, x: number, y: number, tag: number, reach: number): boolean {
+    const player = connection.player
+    if (player === undefined || connection.layer !== tag) return false
+    return player.position.withinBounds(x, y, reach)
+  }
+
+  /** `inView` for an object's own position and layer; `reach` defaults to the interest box. */
+  static sees (connection: Connection, obj: GameObject, reach: number = Multiplayer.INTEREST_RADIUS): boolean {
+    return Multiplayer.inView(connection, obj.position.x, obj.position.y, obj.tag, reach)
+  }
+
+  /**
+   * Connections by the layer whose terrain they hold (`Connection.layer`).
+   * Made on first use rather than as a field, so a Multiplayer a spec builds
+   * with `Object.create` (skills/aim.spec.ts) can still `attach`.
+   */
+  private _layers: Map<number, Set<Connection>> | undefined
+  private get layers (): Map<number, Set<Connection>> {
+    if (this._layers === undefined) this._layers = new Map()
+    return this._layers
+  }
+
+  private outbox (connection: Connection): Outbox {
+    let out = this._buffer[connection.id]
+    if (out === undefined) {
+      out = { create: [], create_own: [], effect: [], update: [], destroy: [] }
+      this._buffer[connection.id] = out
+    }
+    return out
+  }
+
+  private know (connection: Connection, obj: GameObject): void {
+    connection.known.add(obj)
+    obj.knownBy.add(connection)
+  }
+
+  private unknow (connection: Connection, obj: GameObject): void {
+    connection.known.delete(obj)
+    obj.knownBy.delete(connection)
+  }
+
+  /** Put the connection's client on `tag` in the bookkeeping. Sends nothing. */
+  private setLayer (connection: Connection, tag: number | undefined): void {
+    if (connection.layer !== undefined) this.layers.get(connection.layer)?.delete(connection)
+    connection.layer = tag
+    if (tag === undefined) return
+    let on = this.layers.get(tag)
+    if (on === undefined) {
+      on = new Set()
+      this.layers.set(tag, on)
+    }
+    on.add(connection)
+  }
+
+  /**
+   * Its client holds nothing any more: the player died, extracted, never
+   * finished joining, or the socket went. Sends nothing; the client either
+   * already had the destroy that ended its run or is gone.
+   */
+  private forget (connection: Connection): void {
+    // `known` is missing on a plain object a spec passes as a connection.
+    if (connection.known !== undefined) {
+      for (const obj of connection.known) obj.knownBy.delete(connection)
+      connection.known.clear()
+    }
+    this.setLayer(connection, undefined)
+  }
+
+  /**
    * Make `player` this connection's player: it starts receiving what happens
-   * around it, knowing everything as of now (the join snapshot is built next).
+   * around it on its layer. It holds its own object and nothing else yet; the
+   * join snapshot (`admit`) sends the rest.
    */
   private attach (connection: Connection, player: Player): void {
+    this.forget(connection)
     connection.player = player
-    connection.seen = new Map()
-    connection.joinedAt = Multiplayer._changes
+    connection.known = new Set()
+    this.know(connection, player)
+    this.setLayer(connection, player.tag)
     Multiplayer._connectionOf.set(player, connection)
   }
 
-  create (obj: GameObject): void {
-    const data = obj.serialiseBinary(obj.allFields)
-    for (const connection of this._connections) {
-      if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
+  /** A create for all of the terrain on the connection's layer, into `into`. */
+  private sendTerrain (connection: Connection, into: Buffer[]): void {
+    for (const obj of World.OBSTACLES) {
+      if (obj.tag === connection.layer && !obj.destroyed) into.push(obj.serialiseBinary(obj.allFields))
+    }
+  }
 
-      this._buffer[connection.id].create.push(data)
+  /**
+   * A create, into `into`, for every unit, pickup and projectile inside the
+   * connection's interest box that its client does not hold yet, and mark
+   * them held. For the join and a layer change only: from then on `update`
+   * keeps it current. Players come from `World.INTEREST`; the other lists are
+   * walked whole (about 81 mobs, 500 pickups and a few projectiles), which is
+   * cheap next to serialising what is found.
+   */
+  private sendVisible (connection: Connection, into: Buffer[]): void {
+    const player = connection.player
+    const tag = connection.layer
+    if (player === undefined || tag === undefined) return
+    const visit = (obj: GameObject): void => {
+      if (obj.tag !== tag || obj.knownBy.has(connection) || Multiplayer.gone(obj)) return
+      if (!Multiplayer.sees(connection, obj)) return
+      into.push(obj.serialiseBinary(obj.allFields))
+      this.know(connection, obj)
+    }
+    for (const obj of World.PROJECTILES) visit(obj)
+    for (const obj of World.CONSUMABLES) visit(obj)
+    for (const obj of World.ITEMS) visit(obj)
+    for (const obj of World.interestCandidates(player.position.x, player.position.y, tag)) visit(obj)
+    for (const obj of World.MOBS) visit(obj)
+  }
+
+  /**
+   * The connection's player is on another layer than its client (it came
+   * through a portal last tick): swap the client over, in the flush that
+   * carries the player's new tag. A destroy for the old layer's terrain and
+   * for every unit, pickup and projectile it held there, a create for the new
+   * layer's terrain and for what is in range on it (decision #35). Its own
+   * object is kept. So is anything that came through with it and is still in
+   * view: a destroy and a create for one id in one flush would be applied
+   * create first, and leave a sprite behind.
+   *
+   * What is kept is sent whole, as an update. Between its player's hop and
+   * this, the connection was sent no changes (`update` finds it on neither
+   * layer), so the client may have missed one, such as the other player's own
+   * new tag, and would go on drawing it on the old layer.
+   */
+  private switchLayer (connection: Connection): void {
+    const player = connection.player
+    if (player === undefined) return
+    const out = this.outbox(connection)
+
+    for (const obj of World.OBSTACLES) {
+      if (obj.tag === connection.layer && !obj.destroyed) out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+    }
+    this.setLayer(connection, player.tag)
+    this.sendTerrain(connection, out.create)
+
+    for (const obj of connection.known) {
+      if (obj === player) continue
+      if (Multiplayer.sees(connection, obj, Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN)) {
+        const whole = obj.serialiseBinary(obj.allFields)
+        if (whole !== null) out.update.push(whole)
+        continue
+      }
+      out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+      this.unknow(connection, obj)
+    }
+    this.sendVisible(connection, out.create)
+  }
+
+  /**
+   * A new object. Terrain goes to every connection on its layer; anything
+   * else only to connections whose player is on its layer and has it inside
+   * the interest box, which then hold it (decision #35). Others get it when
+   * it comes into their range (`update`).
+   */
+  create (obj: GameObject): void {
+    if (!Multiplayer.gone(obj)) {
+      const data = obj.serialiseBinary(obj.allFields)
+      if (Multiplayer.isTerrain(obj)) {
+        for (const connection of this.layers.get(obj.tag) ?? []) this.outbox(connection).create.push(data)
+      } else {
+        for (const player of World.interestCandidates(obj.position.x, obj.position.y, obj.tag)) {
+          const connection = this.viewerOf(player)
+          // Its own player's object goes out once, as create_own (`admit`).
+          if (connection === undefined || connection.player === obj) continue
+          if (obj.knownBy.has(connection) || !Multiplayer.sees(connection, obj)) continue
+          this.outbox(connection).create.push(data)
+          this.know(connection, obj)
+        }
+      }
     }
     obj.dirtyFields.clear()
   }
 
   /**
-   * Send `obj`'s changes to every connection whose player is on its layer and
-   * inside the interest box around it (`withinBounds`, `INTEREST_RADIUS`), and
-   * its whole record instead to one that missed a change while it was out of
-   * range.
+   * An object's tick, for every unit, projectile and pickup, changed or not
+   * (a pickup's comes from `World.update`). This is where it comes into and
+   * goes out of each connection's view, whichever of the two moved:
    *
-   * Hex-cells P1: the candidates come from `World.INTEREST` (the 3 x 3 coarse
-   * buckets around the object), not from every connection, and "missed a
-   * change" is a comparison of counters rather than a flag written to every
-   * out-of-range connection on every change: `obj.changedAt` against what the
-   * connection was last sent (`seen`, or its `joinedAt`). It used to mark a
-   * `pendingObjectIDs` entry on each of those connections, which cost the
-   * whole connection list for every moving object every tick. Same records:
-   * a change made while out of range still brings the whole record on
-   * re-entry, and one made in range still goes as a delta.
+   * - a connection whose player is on its layer with it inside the interest
+   *   box, and that does not hold it, is sent a create (the whole record) and
+   *   holds it from then on;
+   * - one that holds it is sent its changes, if any;
+   * - one that holds it and no longer has it within `INTEREST_RADIUS +
+   *   EXIT_MARGIN` on its layer is sent a destroy (`id` only) and drops it.
    *
-   * One difference, at id reuse only: the old flag was keyed by id and
-   * outlived its object, so a new object on a recycled id could be sent whole
-   * once for its predecessor's change. The counters are ordered in time, so
-   * that no longer happens.
+   * So a client is never sent an update for an object it does not hold (the
+   * client ignores those) or a create for one it does (the client would draw
+   * a second sprite and lose track of the first). This replaces hex-cells
+   * P1's `changedAt` / `seen` counters: an object out of range is not held,
+   * so there is no missed change to make up with a whole record.
+   *
+   * The player's own object is always held by its own connection, and is
+   * never destroyed on it except by death or exit. Its first update after a
+   * portal moves its client to the new layer first (`switchLayer`).
    */
   update (obj: GameObject): void {
-    const changed = obj.dirtyFields.size > 0
-    const missedIfBefore = obj.changedAt
-    const stamp = changed ? ++Multiplayer._changes : obj.changedAt
-    let fullData
-    let changedData
-
-    for (const player of World.interestCandidates(obj.position.x, obj.position.y)) {
-      if (player.tag !== obj.tag) continue
-      if (!player.position.withinBounds(obj.position.x, obj.position.y, Multiplayer.INTEREST_RADIUS)) continue
-      const connection = this.connectionOf(player)
-      if (connection === undefined) continue
-
-      let data
-      if (missedIfBefore > (connection.seen.get(obj.id) ?? connection.joinedAt)) {
-        if (fullData == null) {
-          fullData = obj.serialiseBinary(
-            connection.player === obj ? obj.allFieldsOwn : obj.allFields
-          )
-        }
-        data = fullData
-      } else if (changed) {
-        if (changedData == null) changedData = obj.serialiseBinary(obj.dirtyFields)
-        data = changedData
-      } else {
-        continue
-      }
-      connection.seen.set(obj.id, stamp)
-
-      if (data == null) continue
-
-      if (this._buffer[connection.id] === undefined) { this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] } }
-
-      this._buffer[connection.id].update.push(data)
+    if (Multiplayer.gone(obj)) {
+      obj.dirtyFields.clear()
+      return
     }
-    obj.changedAt = stamp
+
+    const self = obj.type === ObjectType.Player ? this.connectionOf(obj as Player) : undefined
+    if (self !== undefined && self.layer !== obj.tag) this.switchLayer(self)
+
+    const changed = obj.dirtyFields.size > 0
+    let changedData: Buffer | null | undefined
+    let fullData: Buffer | null | undefined
+    const delta = (): Buffer | null => {
+      if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
+      return changedData
+    }
+
+    // Holders found in range here; if that is all of them, none has left.
+    let holdersInRange = 0
+    for (const player of World.interestCandidates(obj.position.x, obj.position.y, obj.tag)) {
+      const connection = this.viewerOf(player)
+      if (connection === undefined) continue
+      if (connection !== self && !Multiplayer.sees(connection, obj)) continue
+      if (obj.knownBy.has(connection)) {
+        holdersInRange++
+        if (changed) {
+          const data = delta()
+          if (data !== null) this.outbox(connection).update.push(data)
+        }
+      } else {
+        if (fullData === undefined) fullData = obj.serialiseBinary(obj.allFields)
+        if (fullData !== null) this.outbox(connection).create.push(fullData)
+        this.know(connection, obj)
+      }
+    }
+
+    if (holdersInRange < obj.knownBy.size) {
+      const outer = Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN
+      for (const connection of obj.knownBy) {
+        // Its own, and anyone handled above.
+        if (connection === self || Multiplayer.sees(connection, obj)) continue
+        const player = connection.player
+        // A player who died or left this tick: dropped whole at the flush.
+        if (player === undefined || Multiplayer.gone(player)) continue
+        // Its client changes layer at its player's own update (`switchLayer`),
+        // which settles everything it holds. A destroy from here as well
+        // could meet a create from the switch for the same id in one flush:
+        // two players who come through portals together, each updated before
+        // the other's switch.
+        if (connection.layer !== player.tag) continue
+        if (Multiplayer.sees(connection, obj, outer)) {
+          if (changed) {
+            const data = delta()
+            if (data !== null) this.outbox(connection).update.push(data)
+          }
+          continue
+        }
+        this.outbox(connection).destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+        this.unknow(connection, obj)
+      }
+    }
+
     obj.dirtyFields.clear()
   }
 
@@ -557,6 +788,9 @@ export default class Multiplayer {
    * `SectorArea.tipCell`). The record's own length prefix says which form it
    * is: 4 bytes means unaimed, 8 means aimed. Appended rather than inserted, so
    * a client that reads only the first four bytes still works.
+   *
+   * Sent to connections on the originator's layer with it inside the interest
+   * box. It went to every layer until interest-filtered-broadcasts (#35).
    */
   effect (type: number, originator: Unit, lifetime: number, aimCell?: Vector): void {
     const data = Buffer.alloc(aimCell === undefined ? 4 : 8)
@@ -568,14 +802,10 @@ export default class Multiplayer {
       data.writeInt16BE(aimCell.y, 6)
     }
 
-    // Every layer, as it always was: this test has never looked at the tag.
-    for (const player of World.interestCandidates(originator.position.x, originator.position.y)) {
-      if (!player.position.withinBounds(originator.position.x, originator.position.y, Multiplayer.INTEREST_RADIUS)) continue
+    for (const player of World.interestCandidates(originator.position.x, originator.position.y, originator.tag)) {
       const connection = this.connectionOf(player)
-      if (connection === undefined) continue
-      if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
-
-      this._buffer[connection.id].effect.push(data)
+      if (connection === undefined || !Multiplayer.sees(connection, originator)) continue
+      this.outbox(connection).effect.push(data)
     }
   }
 
@@ -584,9 +814,9 @@ export default class Multiplayer {
    * same record as `effect`, but sent to connections whose player is on `tag`
    * and within the interest radius of the cell's centre. A bomb lands up to 6
    * cells from its thrower and the fuse outlives them, so the thrower's
-   * position says nothing about who can see it, and `effect`'s check ignores
-   * the layer. `originatorId` is carried but the client does not look it up
-   * for these types: by the blast it may be dead, and its id reused.
+   * position says nothing about who can see it. `originatorId` is carried but
+   * the client does not look it up for these types: by the blast it may be
+   * dead, and its id reused.
    */
   effectAt (type: number, originatorId: number, lifetime: number, cell: Vector, tag: number): void {
     const data = Buffer.alloc(8)
@@ -597,23 +827,36 @@ export default class Multiplayer {
     data.writeInt16BE(cell.y, 6)
 
     const centre = Hex.toPosition(cell)
-    for (const player of World.interestCandidates(centre.x, centre.y)) {
-      if (player.tag !== tag) continue
-      if (!player.position.withinBounds(centre.x, centre.y, Multiplayer.INTEREST_RADIUS)) continue
+    for (const player of World.interestCandidates(centre.x, centre.y, tag)) {
       const connection = this.connectionOf(player)
       if (connection === undefined) continue
-      if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
-      this._buffer[connection.id].effect.push(data)
+      if (!Multiplayer.inView(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS)) continue
+      this.outbox(connection).effect.push(data)
     }
   }
 
-  destroy (obj): void {
-    const data = obj.serialiseBinary(obj.dirtyFields)
-    for (const connection of this._connections) {
-      if (this._buffer[connection.id] === undefined) this._buffer[connection.id] = { create: [], create_own: [], effect: [], update: [], destroy: [] }
-      this._buffer[connection.id].destroy.push(data)
+  /**
+   * The object is gone: its destroy record goes to exactly the connections
+   * whose client holds it (terrain: every connection on its layer), including
+   * a unit killed this tick, which is still held until now. Its own
+   * connection holds a player, so it is told of its own death or exit.
+   */
+  destroy (obj: GameObject): void {
+    // Never null: `GameObject.destroy` and `Player.exit` both put `id` in it.
+    const data = obj.serialiseBinary(obj.dirtyFields) ?? obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
+    if (Multiplayer.isTerrain(obj)) {
+      for (const connection of this.layers.get(obj.tag) ?? []) this.outbox(connection).destroy.push(data)
+    } else {
+      for (const connection of obj.knownBy) {
+        this.outbox(connection).destroy.push(data)
+        connection.known.delete(obj)
+      }
+      obj.knownBy.clear()
+    }
 
-      if (connection.player === obj) { this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure) }
+    if (obj.type === ObjectType.Player) {
+      const own = this.connectionOf(obj as Player)
+      if (own !== undefined) this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure)
     }
 
     obj.dirtyFields.clear()
@@ -754,6 +997,7 @@ export default class Multiplayer {
         // and destroying it again freed its id twice and counted the run twice.
         const player = connection.player
         if (player != null && !player.destroyed) player.destroy()
+        this.forget(connection)
         delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
         this._connections.splice(i, 1)
         break

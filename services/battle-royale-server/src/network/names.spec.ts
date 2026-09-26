@@ -1,4 +1,4 @@
-import test, { beforeEach } from 'node:test'
+import test, { beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
@@ -7,6 +7,8 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import { GameObject } from '../objects/gameobject'
 import Player from '../objects/player'
+import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
 
 /**
  * player-names: `start_requested` carries `{ id, name }`, the server keeps a
@@ -295,6 +297,12 @@ beforeEach(() => {
   GameObject.FreedIDs.length = 0
 })
 
+const savedSpawnCell = World.spawnCell
+
+afterEach(() => {
+  World.spawnCell = savedSpawnCell
+})
+
 function setup (): Multiplayer {
   const multiplayer = new Multiplayer(250, okRedis())
   // eslint-disable-next-line no-new
@@ -303,6 +311,11 @@ function setup (): Multiplayer {
   World.CONSUMABLES.length = 0
   World.MOBS.length = 0
   World.BLOCKED.clear()
+  // Everyone joins on one cell. A player's create goes only to players in
+  // range of it (decision #35), and these tests are about what the record
+  // carries, not who gets it.
+  const cell = Hex.toCell(new Vector(2000, 2000))
+  World.spawnCell = () => ({ cell, fallback: false })
   return multiplayer
 }
 

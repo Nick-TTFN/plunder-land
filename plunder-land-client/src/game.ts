@@ -872,6 +872,14 @@ export class Game extends Container {
 
       if (data.hp !== undefined && obj.setHP) { obj.setHP(data.hp) }
 
+      // A unit's destroy without hp means it left this client's view (or, for
+      // a player, extracted), not that it died: the server sends units only to
+      // clients in range and destroys them on the way out (decision #35). Hide
+      // it now. `dispose` would leave a player standing frozen for 1.7 s, and
+      // one that comes straight back is created afresh, so the two would
+      // show side by side.
+      if (data.hp === undefined && obj instanceof Unit && obj !== Game.PLAYER) obj.visible = false
+
       if (obj === Game.PLAYER) {
         if (data.hp === 0) { new TextEffect('Game Over', this, 0, 0) } else { new TextEffect('Win!', this, 0, 0, 64, 'green') }
         setTimeout(this.start.bind(this), 2000)

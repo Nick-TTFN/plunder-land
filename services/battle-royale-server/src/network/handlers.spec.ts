@@ -204,14 +204,23 @@ test('a start that throws while building the snapshot leaves no half-joined play
   const watcher = join(multiplayer, 'eeeeee')
   watcher.emitted.length = 0
 
-  // One object in the world that cannot be serialised: every join sends it.
-  const bad = new Consumable(100, 100, 0)
+  // One object in the world that cannot be serialised, beside the watcher,
+  // and the joiner put down there too: a join is sent only what is in range
+  // on its layer, and the watcher only a joiner in its range (decision #35).
+  const near = watcher.player.position
+  const bad = new Consumable(near.x + 45, near.y, 0)
   bad.serialiseBinary = () => { throw new Error('unserialisable') }
   World.CONSUMABLES.push(bad)
+  const savedSpawnCell = World.spawnCell
+  World.spawnCell = () => ({ cell: Hex.toCell(near), fallback: false })
 
   const joiner = fakeSocket('joiner')
   multiplayer.onConnect(joiner.socket)
-  assert.doesNotThrow(() => { joiner.fire('start_requested', 'cccccc') })
+  try {
+    assert.doesNotThrow(() => { joiner.fire('start_requested', 'cccccc') })
+  } finally {
+    World.spawnCell = savedSpawnCell
+  }
   await settle()
 
   assert.deepEqual(unhandled, [], 'the throw escaped as a rejection')

@@ -152,16 +152,18 @@ export default class World {
   )
 
   /**
-   * Players by coarse square bucket, `Multiplayer.INTEREST_RADIUS` on a side,
-   * every layer together: who might receive an object's update or an effect
-   * (`Multiplayer.update`, `effect`, `effectAt`). The 3 x 3 buckets around a
-   * point hold every player inside the interest box around it, so the box
-   * test itself is unchanged; this only stops it running against every
-   * connection. Membership is `PLAYERS`, kept by the same helpers as `UNITS`.
+   * Players by layer and coarse square bucket, `Multiplayer.INTEREST_RADIUS`
+   * on a side: who might be sent an object's create, update or an effect
+   * (`Multiplayer.create`, `update`, `effect`, `effectAt`). The 3 x 3 buckets
+   * around a point hold every player inside the interest box around it, so
+   * the box test itself is unchanged; this only stops it running against
+   * every connection. Membership is `PLAYERS`, kept by the same helpers as
+   * `UNITS`. By layer since interest-filtered-broadcasts: every caller wants
+   * one layer, and a layer change refiles the player (`unitMoved`).
    */
   static INTEREST = new CellIndex<Player>(
     () => [World.PLAYERS],
-    () => 0,
+    (player) => player.tag,
     (player) => World.bucketKeyOf(player.position.x, player.position.y)
   )
 
@@ -204,20 +206,20 @@ export default class World {
   }
 
   /**
-   * The players who could be inside the interest box around (x, y), every
-   * layer: the 3 x 3 `INTEREST` buckets around it. A bucket is as wide as the
+   * The players on layer `tag` who could be inside the interest box around
+   * (x, y): the 3 x 3 `INTEREST` buckets around it. A bucket is as wide as the
    * box's half-width, and `Vector.withinBounds` is strict, so a player inside
    * the box is never more than one bucket away on either axis. Callers still
-   * run the box test (and the layer test, where they have one).
+   * run the box test.
    */
-  static interestCandidates (x: number, y: number): Player[] {
+  static interestCandidates (x: number, y: number, tag: number): Player[] {
     const size = Multiplayer.INTEREST_RADIUS
     const bx = Math.floor(x / size)
     const by = Math.floor(y / size)
     const result: Player[] = []
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
-        for (const player of World.INTEREST.at(0, Hex.key(bx + dx, by + dy))) result.push(player)
+        for (const player of World.INTEREST.at(tag, Hex.key(bx + dx, by + dy))) result.push(player)
       }
     }
     return result
@@ -501,6 +503,14 @@ export default class World {
     World.updateProjectiles(dt)
 
     for (const layer of World.LAYERS) this.refillLayer(layer)
+
+    // Pickups never move or change, so nothing else would tell a player who
+    // walks up to one that it is there: their create goes only to players in
+    // range (decision #35), and `Multiplayer.update` is where an object comes
+    // into range and goes out of it. Units and projectiles get this from their
+    // own update. Last, so a pickup taken or dropped this tick is settled.
+    for (const pickup of World.CONSUMABLES) pickup.update(dt)
+    for (const item of World.ITEMS) item.update(dt)
   }
 
   /**

@@ -169,8 +169,13 @@ for (const skill of SKILLS) {
     assert.deepEqual(World.PROJECTILES, [])
   })
 
-  test(`a ${skill.name} in flight is in a joining player's snapshot`, async () => {
-    const projectile = castFrom(skill.make, playerAt(1000, 2000))
+  test(`a ${skill.name} in flight is in the snapshot of a player joining in range of it`, async (t) => {
+    const caster = playerAt(1000, 2000)
+    const projectile = castFrom(skill.make, caster)
+    // A join is sent only what is in range on its layer (decision #35), so
+    // the joiner is put down beside the caster.
+    const cell = caster.cell
+    t.mock.method(World, 'spawnCell', () => ({ cell, fallback: false }))
     let sent = 0
     const serialise = projectile.serialiseBinary.bind(projectile)
     projectile.serialiseBinary = (fields) => { sent++; return serialise(fields) }

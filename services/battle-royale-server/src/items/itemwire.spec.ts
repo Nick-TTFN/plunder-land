@@ -153,14 +153,28 @@ test('a change to the inventory goes out as [18, 5, counts...], and only the own
 
 // --- the join snapshot ------------------------------------------------------------
 
-test('a joining player is sent every item on the ground', () => {
+test('a joining player is sent every item in range on its layer, and no other', () => {
+  // Decision #35: items are range-filtered like units. It was every item on
+  // every layer.
   const multiplayer = setup()
-  const pickup = new ItemPickup(500, 500, -1, ITEMS.medkit)
-  World.ITEMS.push(pickup)
-  const a = join(multiplayer, 'a')
+  const at = Hex.toPosition(MID)
+  const near = new ItemPickup(at.x + 100, at.y, 0, ITEMS.medkit)
+  const far = new ItemPickup(at.x + 900, at.y, 0, ITEMS.medkit)
+  const below = new ItemPickup(at.x + 100, at.y, -1, ITEMS.medkit)
+  World.ITEMS.push(near, far, below)
+  const savedSpawnCell = World.spawnCell
+  World.spawnCell = () => ({ cell: MID, fallback: false })
+  let a
+  try {
+    a = join(multiplayer, 'a')
+  } finally {
+    World.spawnCell = savedSpawnCell
+  }
   const created = a.emitted.filter((e) => e.event === 'create').flatMap((e) => records(e.data as Buffer))
   const ids = created.map((r) => r.readUInt16BE(1))
-  assert.ok(ids.includes(pickup.id), 'the item was not in the join snapshot')
+  assert.ok(ids.includes(near.id), 'the item in range was not in the join snapshot')
+  assert.ok(!ids.includes(far.id), 'an item out of range was in the join snapshot')
+  assert.ok(!ids.includes(below.id), 'an item on another layer was in the join snapshot')
 })
 
 // --- use_item -------------------------------------------------------------------------
