@@ -184,7 +184,7 @@ for (const skill of SKILLS) {
     const socket = { id: 'joiner', on: (event: string) => { handlers.push(event) }, emit: () => {} }
     const connection = { socket, player: undefined, get id () { return 'joiner' } }
     const fake = Object.assign(Object.create(Multiplayer.prototype), {
-      tickLengthMs: 250, _buffer: {}, flush: () => {}
+      tickLengthMs: 250, flush: () => {}
     })
 
     await Multiplayer.prototype.onStart.call(fake, connection, 'joiner')

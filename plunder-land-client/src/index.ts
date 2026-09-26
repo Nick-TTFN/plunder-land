@@ -1,5 +1,6 @@
 import TWEEN from '@tweenjs/tween.js'
 import * as io from 'socket.io-client'
+import { framedParser } from './net/framedparser'
 import Stats from 'stats.js'
 import { PopupManager } from './ui/popups/popupmanager'
 import { Game } from './game'
@@ -78,7 +79,8 @@ function start (): void {
 function setup (): void {
   // websocket only: the default starts on HTTP long-polling and merely tries to
   // upgrade, which adds latency to every early message of a run.
-  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'] })
+  // `frames=1` asks for one binary message per tick; see net/framedparser.ts.
+  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' } })
 
   Game.socket.on('connect', () => {
     onConnect()

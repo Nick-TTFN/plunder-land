@@ -374,111 +374,143 @@ export class GameObject {
     return result
   }
 
+  /**
+   * Scratch space for `serialiseBinary`: a record is written here and copied
+   * out once, instead of one small Buffer per field and a concat (which was
+   * most of the serialiser's cost). Grown when a record would not fit, never
+   * shrunk; a record is a few dozen bytes, so 1 KB is almost never outgrown.
+   */
+  private static _scratch = Buffer.alloc(1024)
+
+  private static _room (at: number, bytes: number): Buffer {
+    let scratch = GameObject._scratch
+    if (at + bytes > scratch.length) {
+      const grown = Buffer.alloc(Math.max(scratch.length * 2, at + bytes))
+      scratch.copy(grown, 0, 0, at)
+      GameObject._scratch = scratch = grown
+    }
+    return scratch
+  }
+
+  /** Each field's wire index, by property name (`WIRE_NAME` applied), -1 if not in the table. */
+  private static _indexOf: Map<string, number> | undefined
+
+  private static _fieldIndex (key: string): number {
+    let indices = GameObject._indexOf
+    if (indices === undefined) {
+      indices = new Map()
+      GameObject._indexOf = indices
+    }
+    let index = indices.get(key)
+    if (index === undefined) {
+      index = GameObject.fieldOrder.indexOf(GameObject.WIRE_NAME[key] ?? key)
+      indices.set(key, index)
+    }
+    return index
+  }
+
+  /**
+   * One record: `[field index][payload]` per field, in `serialise`'s key
+   * order. Byte for byte what it was when every field was its own Buffer
+   * (`serialise.spec.ts` holds the old encoder and compares), including the
+   * same RangeError from the same Buffer write for a value that does not fit
+   * its field. The writes go through the same Buffer methods for that reason.
+   */
   serialiseBinary (fields: Set<string>) {
     const dataObj = this.serialise(fields)
     if (dataObj == null) return null
-    const raw: Buffer[] = []
+    let at = 0
     for (const key in dataObj) {
       const value = dataObj[key]
       if (value === undefined) continue
 
-      raw.push(this.getBuffer(GameObject.fieldOrder.indexOf(GameObject.WIRE_NAME[key] ?? key)))
+      // A key that is not in the table writes -1, as it always has (see
+      // `direction` in CLAUDE.md "Wire format").
+      GameObject._room(at, 1).writeInt8(GameObject._fieldIndex(key), at)
+      at += 1
       switch (key) {
         case 'id':
-          raw.push(this.getBuffer2(value))
+        case 'hp':
+        case 'maxHp':
+        case 'armor':
+        case 'maxArmor':
+          GameObject._room(at, 2).writeUInt16BE(value, at)
+          at += 2
           break
-        case 'type': {
-          // Unsigned: ObjectType.Item is 128 (see ObjectType).
-          const byte = Buffer.alloc(1)
-          byte.writeUInt8(value)
-          raw.push(byte)
+        // Unsigned: ObjectType.Item is 128 (see ObjectType); archetype ids are
+        // append-only and may pass 127; the extract progress runs to 254.
+        case 'type':
+        case 'archetype':
+        case 'item':
+        case 'extractProgress':
+          GameObject._room(at, 1).writeUInt8(value, at)
+          at += 1
+          break
+        case 'position': {
+          const scratch = GameObject._room(at, 4)
+          scratch.writeInt16BE(Math.floor(value.x), at)
+          scratch.writeInt16BE(Math.floor(value.y), at + 2)
+          at += 4
           break
         }
-        case 'position':
-          raw.push(this.getBufferVec2(value))
+        case 'direction': {
+          const scaled = value.multiply(127)
+          const scratch = GameObject._room(at, 2)
+          scratch.writeInt8(Math.floor(scaled.x), at)
+          scratch.writeInt8(Math.floor(scaled.y), at + 1)
+          at += 2
           break
-        case 'direction':
-          raw.push(this.getBufferVec(value.multiply(127)))
-          break
-        case 'hp':
-          raw.push(this.getBuffer2(value))
-          break
+        }
+        // Already the snapped index for `facing`: Unit.serialise swaps the vector for it.
         case 'level':
-          raw.push(this.getBuffer(value))
+        case 'tag':
+        case 'to':
+        case 'radius':
+        case 'facing':
+          GameObject._room(at, 1).writeInt8(value, at)
+          at += 1
           break
-        case 'loot': {
+        case 'loot':
           // As `loot32`. Saturated and whole, like the standings row: the
           // client only displays it, and the banked total comes from here.
-          const wide = Buffer.alloc(4)
-          wide.writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(value))))
-          raw.push(wide)
-          break
-        }
-        case 'tag':
-          raw.push(this.getBuffer(value))
-          break
-        case 'to':
-          raw.push(this.getBuffer(value))
-          break
-        case 'radius':
-          raw.push(this.getBuffer(value))
+          GameObject._room(at, 4).writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(value))), at)
+          at += 4
           break
         case 'lifetime':
           // Centiseconds in a uint16. It was a single signed byte, which capped
           // any lifetime at 12.7s - fine for a 3s fireball, silently wrong for
           // the 60s timer on dropped loot, where the client's countdown ring
           // would finish while the pickup sat there for another 47 seconds.
-          raw.push(this.getBuffer2(Math.min(65535, Math.floor(value / 100))))
+          GameObject._room(at, 2).writeUInt16BE(Math.min(65535, Math.floor(value / 100)), at)
+          at += 2
           break
         case 'maxVelocity':
-          raw.push(this.getBuffer(Math.floor(value / 10)))
+          GameObject._room(at, 1).writeInt8(Math.floor(value / 10), at)
+          at += 1
           break
-        case 'maxHp':
-          raw.push(this.getBuffer2(value))
-          break
-        case 'armor':
-          raw.push(this.getBuffer2(value))
-          break
-        case 'maxArmor':
-          raw.push(this.getBuffer2(value))
-          break
-        case 'archetype': {
-          // Unsigned, unlike getBuffer: ids are append-only and may pass 127.
-          const byte = Buffer.alloc(1)
-          byte.writeUInt8(value)
-          raw.push(byte)
-          break
-        }
-        case 'item': {
-          const byte = Buffer.alloc(1)
-          byte.writeUInt8(value)
-          raw.push(byte)
-          break
-        }
         case 'inventory': {
           const counts = value as readonly number[]
-          const bytes = Buffer.alloc(1 + counts.length)
-          bytes.writeUInt8(counts.length)
-          counts.forEach((count, i) => { bytes.writeUInt8(count, 1 + i) })
-          raw.push(bytes)
+          const scratch = GameObject._room(at, 1 + counts.length)
+          scratch.writeUInt8(counts.length, at)
+          for (let i = 0; i < counts.length; i++) scratch.writeUInt8(counts[i], at + 1 + i)
+          at += 1 + counts.length
           break
         }
-        case 'extractProgress': {
-          // Unsigned, like archetype: the progress runs to 254.
-          const byte = Buffer.alloc(1)
-          byte.writeUInt8(value)
-          raw.push(byte)
+        case 'name': {
+          // Buffer.from(value) did the encoding before; it throws on a
+          // non-string the same way this does.
+          const bytes = Buffer.from(value)
+          const scratch = GameObject._room(at, bytes.length + 1)
+          bytes.copy(scratch, at)
+          scratch[at + bytes.length] = 0
+          at += bytes.length + 1
           break
         }
-        case 'facing':
-          // Already the snapped index: Unit.serialise swaps the vector for it.
-          raw.push(this.getBuffer(value))
-          break
-        case 'name':
-          raw.push(Buffer.from(value), Buffer.alloc(1)); break
       }
     }
-    return Buffer.concat(raw)
+    const out = Buffer.allocUnsafe(at)
+    GameObject._scratch.copy(out, 0, 0, at)
+    return out
   }
 
   getBuffer (value: number): Buffer {

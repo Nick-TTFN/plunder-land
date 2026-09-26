@@ -65,6 +65,14 @@ cd plunder-land-client        && npm run build   # webpack -> dist/
 cd services/battle-royale-server && npm run build   # swc -> dist/
 ```
 
+**The server builds to ES2022** (`.swcrc`: `jsc.target` with `useDefineForClassFields: true`,
+server-cpu-trim, 2026-09-26). With no target swc compiled to ES5, which is slower and also
+**differed from what the specs run**: it rewrites `\p{…}` regexes into code-point tables from
+its own Unicode version, and `Player.sanitiseName` then failed the names fuzz spec 20 times
+out of 20 against the swc build (0 of 20 at ES2022, which keeps the regexes native). The specs
+run through ts-node (tsc, `ESNext`, define semantics), and define semantics are pinned in
+`.swcrc` so the two agree on class fields. Node 18 (the container) runs ES2022.
+
 ### Client typecheck baseline (2026-09-08: 36 errors)
 
 The client is **not** at zero and fixing it to zero is not expected. Known-benign:
@@ -197,6 +205,34 @@ The other events' records are laid out like this:
 ```
 
 Pack: `Multiplayer.packRecords` (server). Unpack: `Game.unpackRecords` (client).
+
+**One frame per tick (server-cpu-trim, 2026-09-26).** socket.io sends every binary event as
+two WebSocket frames (a text placeholder, then the buffer), and a connection got up to five
+binary events a tick; every frame is a socket write, and sending was the biggest single CPU
+cost on the server. A client that connects with query `frames=1` is sent `frames: 1` in
+`hello`, and from then on **one engine.io message per flush** (`socket.conn.write`, no
+socket.io events at all after `hello`):
+
+```
+[uint8 version = 1][uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]
+then sections to the end: [uint8 kind][uint32 length][payload]
+kinds: 1 create, 2 create_own, 3 effect, 4 destroy, 5 standings, 6 update
+```
+
+Each payload is byte for byte the buffer that event carries unframed (the update section
+without the header, which is the frame's). Sections go in the order the events always went
+out; an empty one is left out. Pack: `Multiplayer.packFrame`. The client's
+`src/net/framedparser.ts` is a socket.io `parser` whose decoder turns each frame back into
+those events (`update` always last, the header alone when there are no records), so no game
+handler knows the difference. It decodes normally until a `hello` with `frames: 1`, and again
+after a disconnect, so a new client works against an old server, and an old client never asks
+and gets the events as before. **Kinds and the version are append-only.** `frame.spec.ts`
+checks framed against unframed flushes of the same outbox and that both kind tables agree;
+`interest.framed.spec.ts` runs every interest test again over frames through the client's
+decoder. `tools/load/loadbot.mjs` has its own JS copy of the decoder. **Ship the client
+first** is not needed here (the flag is the negotiation), but the client must be deployed for
+any player to get the saving. Client → server messages are still socket.io events, two frames
+each for the binary ones (`pointer`, `skill`, `use_item`); that is the next thing to frame.
 
 **The `update` event additionally carries an 8-byte header before the records:**
 

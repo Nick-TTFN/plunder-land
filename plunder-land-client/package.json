@@ -25,6 +25,7 @@
     "html-webpack-plugin": "^5.5.0",
     "pixi.js": "^7.2.4",
     "socket.io-client": "^4.6.1",
+    "socket.io-parser": "4.2.7",
     "stats.js": "^0.17.0",
     "webpack": "^5.76.3",
     "webpack-bundle-analyzer": "^4.8.0",

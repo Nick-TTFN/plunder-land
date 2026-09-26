@@ -10,6 +10,10 @@ const dist = process.env.PROBE_DIST
 let World, Multiplayer
 const out = process.env.PROBE_OUT
 const WINDOW_MS = Number(process.env.PROBE_WINDOW_MS ?? 5000)
+// PROBE_DETAIL=1|2 adds per-function spans (spans.cjs) to each line.
+const DETAIL = Number(process.env.PROBE_DETAIL ?? 0)
+const detail = DETAIL > 0 ? require('./spans.cjs') : undefined
+let wrapNs = 0
 
 const now = () => Number(process.hrtime.bigint()) / 1e6
 let acc = fresh()
@@ -41,6 +45,7 @@ wrap(Multiplayer.prototype, 'flushAll', (ms) => { acc.flush.push(ms) })
 wrap(Multiplayer.prototype, 'update', (ms) => { acc.mpUpdateMs += ms; acc.mpUpdateCalls++ })
 for (const n of ['onPointer', 'onSkill', 'onUseItem']) wrap(Multiplayer.prototype, n, (ms) => { acc.inputMs += ms; acc.inputs++ })
 wrap(Multiplayer.prototype, 'admit', (ms) => { acc.admitMs += ms; acc.admits++ })
+if (detail !== undefined) wrapNs = detail.install(dist, DETAIL)
 
 })
 
@@ -84,8 +89,10 @@ setInterval(() => {
     gcMsPerSec: +(a.gcMs / (wall / 1000)).toFixed(2),
     elu: +e2.utilization.toFixed(3),
     cpuPctOneCore: +(((c2.user + c2.system) / 1000) / wall * 100).toFixed(1),
+    cpuSysPct: +((c2.system / 1000) / wall * 100).toFixed(1),
     rssMB: +(process.memoryUsage().rss / 1048576).toFixed(0),
-    heapMB: +(process.memoryUsage().heapUsed / 1048576).toFixed(0)
+    heapMB: +(process.memoryUsage().heapUsed / 1048576).toFixed(0),
+    ...(detail !== undefined ? detail.take(a.world.length, wrapNs) : {})
   }
   fs.appendFileSync(out, JSON.stringify(line) + '\n')
 }, WINDOW_MS).unref()

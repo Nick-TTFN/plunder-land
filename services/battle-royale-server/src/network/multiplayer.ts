@@ -54,6 +54,24 @@ export class Connection {
    */
   layer: number | undefined
 
+  /**
+   * What this connection is sent at the next flush. Here rather than in a
+   * table keyed by socket id: the broadcast loop reaches it once per record
+   * per holder, and a string-keyed lookup each time was a measurable part of
+   * the tick (server-cpu-trim).
+   */
+  outbox: Outbox | undefined
+
+  /**
+   * The client asked for one binary frame per tick (`?frames=1` on connect),
+   * and this server said yes in `hello`. Everything a flush sends then goes
+   * in one engine.io message (`Multiplayer.packFrame`) instead of one
+   * socket.io event per kind, each of which socket.io sends as two WebSocket
+   * frames (a text placeholder and the buffer). An old client never asks and
+   * gets the events as before.
+   */
+  framed: boolean = false
+
   get id (): string {
     return this.socket?.id
   }
@@ -107,7 +125,6 @@ export default class Multiplayer {
   static Instance: Multiplayer
   readonly tickLengthMs: number
   private readonly _connections: Connection[]
-  private _buffer: Record<string, Outbox> = {}
   redis: Redis
 
   /**
@@ -151,6 +168,7 @@ export default class Multiplayer {
   onConnect (socket: Socket): void {
     const connection = new Connection()
     connection.socket = socket
+    connection.framed = socket.handshake?.query?.frames === '1'
 
     socket.on('start_requested', (data) => {
       if (connection.started) return
@@ -224,7 +242,7 @@ export default class Multiplayer {
       }
       // Whatever the snapshot had marked as sent, it never was.
       this.forget(connection)
-      delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
+      connection.outbox = undefined
       throw e
     }
   }
@@ -238,7 +256,7 @@ export default class Multiplayer {
     this.attach(connection, player)
 
     const out: Outbox = { create: [], create_own: [], effect: [], update: [], destroy: [] }
-    this._buffer[connection.id] = out
+    connection.outbox = out
 
     this.sendTerrain(connection, out.create)
     this.sendVisible(connection, out.create)
@@ -255,7 +273,10 @@ export default class Multiplayer {
       interest: Multiplayer.INTEREST_RADIUS,
       // Every layer's tag, top (01) first. The client builds its planes from
       // this and labels portals by position in it, so it never hardcodes a tag.
-      layers: World.TAGS
+      layers: World.TAGS,
+      // Only to a client that asked: it now gets one frame per tick. Sent in
+      // the same engine.io stream as that frame, so it always arrives first.
+      ...(connection.framed ? { frames: Multiplayer.FRAME_VERSION } : {})
     })
 
     this.flush(connection, 0)
@@ -267,12 +288,16 @@ export default class Multiplayer {
    * buffered events.
    */
   flush (connection: Connection, tick: number, standings?: Buffer): void {
-    const buffered = this._buffer[connection.id]
+    const buffered = connection.outbox
 
     // Always drop the buffer, even for a socket that never started a run.
     // Clients connect on page load but only send `start_requested` on button
     // click, so returning early here leaked a buffer per idle visitor.
-    if (connection.player != null) {
+    if (connection.player != null && connection.framed) {
+      connection.socket.conn.write(Multiplayer.packFrame(
+        buffered, standings, tick, connection.lastInputSeq, connection.ackElapsedMs
+      ))
+    } else if (connection.player != null) {
       if (buffered !== undefined) {
         for (const event in buffered) {
           if (event === 'update') continue
@@ -297,7 +322,7 @@ export default class Multiplayer {
       )
     }
 
-    if (buffered !== undefined) this._buffer[connection.id] = undefined
+    connection.outbox = undefined
 
     // Exiting removes the player from the world but never set `destroyed`, so the
     // connection kept pointing at it and the input handlers kept reaching it.
@@ -549,10 +574,10 @@ export default class Multiplayer {
   }
 
   private outbox (connection: Connection): Outbox {
-    let out = this._buffer[connection.id]
+    let out = connection.outbox
     if (out === undefined) {
       out = { create: [], create_own: [], effect: [], update: [], destroy: [] }
-      this._buffer[connection.id] = out
+      connection.outbox = out
     }
     return out
   }
@@ -735,19 +760,18 @@ export default class Multiplayer {
     const self = obj.type === ObjectType.Player ? this.connectionOf(obj as Player) : undefined
     if (self !== undefined && self.layer !== obj.tag) this.switchLayer(self)
 
+    // Encoded at most once each, on first need, and shared by every
+    // connection it goes to. `null` from the serialiser means nothing to send.
     const changed = obj.dirtyFields.size > 0
     let changedData: Buffer | null | undefined
     let fullData: Buffer | null | undefined
-    const delta = (): Buffer | null => {
-      if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
-      return changedData
-    }
 
     // Holders still in view, found here; if that is all of them, none has
     // left and the loop over holders below is skipped. A holder in the exit
     // margin is served here too when it is among the candidates, so one
     // standing in the margin does not force that loop every tick.
     const outer = Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN
+    const knownBy = obj.knownBy
     let holdersInRange = 0
     for (const player of World.interestCandidates(obj.position.x, obj.position.y, obj.tag)) {
       const connection = this.viewerOf(player)
@@ -755,20 +779,20 @@ export default class Multiplayer {
       if (connection !== self && !Multiplayer.sees(connection, obj)) {
         // Not in the box. A holder whose client is on this layer (so no
         // switch pending) and still has it in the margin keeps it.
-        if (connection.layer === player.tag && obj.knownBy.has(connection) && Multiplayer.sees(connection, obj, outer)) {
+        if (connection.layer === player.tag && knownBy.has(connection) && Multiplayer.sees(connection, obj, outer)) {
           holdersInRange++
           if (changed) {
-            const data = delta()
-            if (data !== null) this.outbox(connection).update.push(data)
+            if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
+            if (changedData !== null) this.outbox(connection).update.push(changedData)
           }
         }
         continue
       }
-      if (obj.knownBy.has(connection)) {
+      if (knownBy.has(connection)) {
         holdersInRange++
         if (changed) {
-          const data = delta()
-          if (data !== null) this.outbox(connection).update.push(data)
+          if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
+          if (changedData !== null) this.outbox(connection).update.push(changedData)
         }
       } else {
         if (fullData === undefined) fullData = obj.serialiseBinary(obj.allFields)
@@ -777,8 +801,9 @@ export default class Multiplayer {
       }
     }
 
-    if (holdersInRange < obj.knownBy.size) {
-      for (const connection of obj.knownBy) {
+    if (holdersInRange < knownBy.size) {
+      let gone: Buffer | undefined
+      for (const connection of knownBy) {
         // Its own, and anyone handled above.
         if (connection === self || Multiplayer.sees(connection, obj)) continue
         const player = connection.player
@@ -796,12 +821,13 @@ export default class Multiplayer {
         if (connection.layer !== player.tag) continue
         if (Multiplayer.sees(connection, obj, outer)) {
           if (changed) {
-            const data = delta()
-            if (data !== null) this.outbox(connection).update.push(data)
+            if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
+            if (changedData !== null) this.outbox(connection).update.push(changedData)
           }
           continue
         }
-        this.outbox(connection).destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+        if (gone === undefined) gone = obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
+        this.outbox(connection).destroy.push(gone)
         this.unknow(connection, obj)
       }
     }
@@ -927,14 +953,82 @@ export default class Multiplayer {
   // and the client reconnected forever. Batching also collapses ~650 WebSocket
   // frames per join into one.
   static packRecords (records: Buffer[], header?: Buffer): Buffer {
-    const parts: Buffer[] = []
-    if (header !== undefined) parts.push(header)
+    const start = header?.length ?? 0
+    const out = Buffer.allocUnsafe(start + Multiplayer.packedLength(records))
+    if (header !== undefined) header.copy(out, 0)
+    Multiplayer.writeRecords(records, out, start)
+    return out
+  }
+
+  /** Bytes `records` take packed: a uint16 length before each. */
+  static packedLength (records: Buffer[]): number {
+    let bytes = 0
+    for (const record of records) bytes += 2 + record.length
+    return bytes
+  }
+
+  /** Write `records` packed into `out` from `at`; returns the offset after them. */
+  static writeRecords (records: Buffer[], out: Buffer, at: number): number {
     for (const record of records) {
-      const header = Buffer.alloc(2)
-      header.writeUInt16BE(record.length)
-      parts.push(header, record)
+      out.writeUInt16BE(record.length, at)
+      record.copy(out, at + 2)
+      at += 2 + record.length
     }
-    return Buffer.concat(parts)
+    return at
+  }
+
+  /**
+   * The one binary frame a framed connection gets per tick (`Connection.framed`):
+   *
+   * `[uint8 version][uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]`
+   * then sections to the end: `[uint8 kind][uint32 length][payload]`.
+   *
+   * The header is the `update` header. Each payload is exactly the buffer the
+   * matching event carries unframed: records packed as `packRecords` does,
+   * and for standings the board's buffer. Kinds, in the order written, which
+   * is the order the events have always gone out in: 1 create, 2 create_own,
+   * 3 effect, 4 destroy, 5 standings, 6 update. An empty section is left out,
+   * and the client still applies the header when there are no update records.
+   * The kind numbers are a wire contract: append-only, like field indices.
+   */
+  static FRAME_VERSION = 1
+  static FRAME_KINDS: ReadonlyArray<[keyof Outbox | 'standings', number]> = [
+    ['create', 1], ['create_own', 2], ['effect', 3], ['destroy', 4], ['standings', 5], ['update', 6]
+  ]
+
+  static packFrame (out: Outbox | undefined, standings: Buffer | undefined, tick: number, lastInputSeq: number, ackElapsedMs: number): Buffer {
+    let bytes = 9
+    for (const [kind] of Multiplayer.FRAME_KINDS) {
+      if (kind === 'standings') {
+        if (standings !== undefined) bytes += 5 + standings.length
+        continue
+      }
+      const records = out?.[kind]
+      if (records !== undefined && records.length > 0) bytes += 5 + Multiplayer.packedLength(records)
+    }
+    const frame = Buffer.allocUnsafe(bytes)
+    frame.writeUInt8(Multiplayer.FRAME_VERSION, 0)
+    frame.writeUInt32BE(tick >>> 0, 1)
+    frame.writeUInt16BE(lastInputSeq, 5)
+    frame.writeUInt16BE(Math.min(65535, Math.round(ackElapsedMs)), 7)
+    let at = 9
+    for (const [kind, code] of Multiplayer.FRAME_KINDS) {
+      if (kind === 'standings') {
+        if (standings === undefined) continue
+        frame.writeUInt8(code, at)
+        frame.writeUInt32BE(standings.length, at + 1)
+        standings.copy(frame, at + 5)
+        at += 5 + standings.length
+        continue
+      }
+      const records = out?.[kind]
+      if (records === undefined || records.length === 0) continue
+      frame.writeUInt8(code, at)
+      const end = Multiplayer.writeRecords(records, frame, at + 5)
+      frame.writeUInt32BE(end - at - 5, at + 1)
+      at = end
+    }
+    return frame
   }
 
   flushAll (tick: number, dtMs: number = 0): void {
@@ -1027,7 +1121,7 @@ export default class Multiplayer {
         const player = connection.player
         if (player != null && !player.destroyed) player.destroy()
         this.forget(connection)
-        delete this._buffer[connection.id] // eslint-disable-line @typescript-eslint/no-dynamic-delete
+        connection.outbox = undefined
         this._connections.splice(i, 1)
         break
       }

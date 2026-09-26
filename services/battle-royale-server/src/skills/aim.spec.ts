@@ -319,12 +319,11 @@ test('the effect record is 4 bytes unaimed and 8 with the aim appended', () => {
   // hex-cells P1: effects find their recipients through World.INTEREST and the
   // player's registered connection, not by walking _connections.
   ;(mp as any).attach(connection, player)
-  ;(mp as any)._buffer = {}
 
   mp.effect(3, player, 1)
   mp.effect(0, player, 1000, new Vector(-2, 300))
 
-  const [plain, aimed] = (mp as any)._buffer.c.effect as Buffer[]
+  const [plain, aimed] = (connection as any).outbox.effect as Buffer[]
   assert.equal(plain.length, 4)
   assert.equal(aimed.length, 8)
   assert.equal(aimed.readInt8(0), 0)

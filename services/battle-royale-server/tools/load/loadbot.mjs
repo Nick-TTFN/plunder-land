@@ -7,6 +7,7 @@
 // exponential backoff (0.5 s doubling to 10 s, jittered), so a saturated server
 // shows up as `connectFails`, not as bots that silently never play.
 // Writes one JSON line of traffic stats per 5 s window to outFile.
+// LOADBOT_FRAMES=0 connects as a client from before one-frame-per-tick.
 //
 // Dependencies, resolved from this file's location, never from the cwd:
 // - socket.io-client from the client package (`plunder-land-client`, which
@@ -33,6 +34,45 @@ function load (dir, id, hint) {
   }
 }
 const { io } = load(CLIENT, 'socket.io-client', `Run \`npm ci\` in ${CLIENT}, or set LOADBOT_CLIENT_DIR.`)
+const parser = load(CLIENT, 'socket.io-parser', `Run \`npm ci\` in ${CLIENT}, or set LOADBOT_CLIENT_DIR.`)
+
+// One frame per tick (LOADBOT_FRAMES, default 1, as the game client asks):
+// the same decoding as the client's src/net/framedparser.ts, which is
+// TypeScript and can't be loaded here. Sections are split back into the
+// events below, so the rest of the bot doesn't know the difference. With 0
+// the bot connects as an older client and gets one socket.io event per kind.
+const FRAMES = (process.env.LOADBOT_FRAMES ?? '1') === '1'
+const KINDS = { 1: 'create', 2: 'create_own', 3: 'effect', 4: 'destroy', 5: 'standings', 6: 'update' }
+function unpackFrame (b) {
+  if (b.length < 9 || b[0] !== 1) return undefined
+  const view = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  const events = []; let update
+  let at = 9
+  while (at + 5 <= b.length) {
+    const kind = b[at]; const len = view.getUint32(at + 1); const start = at + 5
+    if (start + len > b.length) break
+    at = start + len
+    if (KINDS[kind] === 'update') update = b.subarray(start, start + len)
+    else if (KINDS[kind] !== undefined) events.push([KINDS[kind], b.slice(start, start + len).buffer])
+  }
+  const packet = new Uint8Array(8 + (update?.length ?? 0))
+  packet.set(b.subarray(1, 9), 0); if (update) packet.set(update, 8)
+  events.push(['update', packet.buffer])
+  return events
+}
+class FramedDecoder extends parser.Decoder {
+  constructor () {
+    super(); this.framed = false
+    this.on('decoded', (p) => { if (p.type === parser.PacketType.EVENT && p.data?.[0] === 'hello') this.framed = p.data[1]?.frames === 1 })
+  }
+  add (obj) {
+    if (!this.framed || typeof obj === 'string') return super.add(obj)
+    const b = obj instanceof ArrayBuffer ? new Uint8Array(obj) : new Uint8Array(obj.buffer, obj.byteOffset, obj.byteLength)
+    for (const data of unpackFrame(b) ?? []) this.emitReserved('decoded', { type: parser.PacketType.EVENT, nsp: '/', data })
+  }
+  destroy () { this.framed = false; super.destroy() }
+}
+const FRAMED_OPTS = FRAMES ? { parser: { Encoder: parser.Encoder, Decoder: FramedDecoder }, query: { frames: '1' } } : {}
 const { Hex } = load(SERVER, './dist/utils/hex.js', `Run \`npm run build\` in ${SERVER}.`)
 const { Vector } = load(SERVER, './dist/utils/vector.js', `Run \`npm run build\` in ${SERVER}.`)
 
@@ -91,7 +131,7 @@ class Bot {
     this.ownId = undefined; this.pos = undefined; this.route = []; this.seq = 1
     this.nextRouteAt = 0; this.nextSkillAt = Date.now() + rand(500, 3000); this.lastUpdateAt = undefined
     this.joinBytes = 0; this.joinDone = false
-    const s = this.socket = io(url, { transports: ['websocket'], reconnection: false, forceNew: true })
+    const s = this.socket = io(url, { transports: ['websocket'], reconnection: false, forceNew: true, ...FRAMED_OPTS })
     const tally = (ev, raw) => {
       const n = raw?.byteLength ?? raw?.length ?? JSON.stringify(raw).length
       stats.bytes[ev] = (stats.bytes[ev] ?? 0) + n

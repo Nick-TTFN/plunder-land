@@ -4,6 +4,7 @@
 #   tools/load/ramp.sh [--steps "0 100 400"] [--step-secs 45] [--settle 15]
 #                      [--warmup 45] [--port 8100] [--redis-port 6399] [--out DIR]
 #                      [--batch 50] [--spread-ms 10000] [--cpu-prof] [--no-build]
+#                      [--detail 0|1|2] [--frames 0|1]
 #
 # Builds the server, starts it from dist/ with probe.cjs preloaded on --port,
 # with Redis pointed at --redis-port (which must be dead: stats writes fail and
@@ -16,16 +17,19 @@
 #
 # Output (in --out, default a fresh temp dir): server.jsonl (probe), bots.jsonl
 # (bots), steps.log, botcpu.log, server.log, bots.err, and a .cpuprofile with
-# --cpu-prof. The table at the end is analyse.py over that folder.
+# --cpu-prof. The table at the end is analyse.py over that folder; with
+# --detail 1 or 2 the probe also times every hot function (spans.cjs) and
+# spans.py prints where each step's tick went. --frames 0 makes the bots
+# connect as clients from before one frame per tick (default 1).
 set -eo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER="$(cd "$HERE/../.." && pwd)"
 
 STEPS="0 100 400"; STEP_SECS=45; SETTLE=15; WARMUP=45; PORT=8100; REDIS_PORT=6399
-OUT=""; BATCH=50; SPREAD_MS=10000; CPU_PROF=0; BUILD=1
+OUT=""; BATCH=50; SPREAD_MS=10000; CPU_PROF=0; BUILD=1; DETAIL=0; FRAMES=1
 
-usage () { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage () { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --steps) STEPS="$2"; shift 2 ;;
@@ -39,6 +43,8 @@ while [ $# -gt 0 ]; do
     --spread-ms) SPREAD_MS="$2"; shift 2 ;;
     --cpu-prof) CPU_PROF=1; shift ;;
     --no-build) BUILD=0; shift ;;
+    --detail) DETAIL="$2"; shift 2 ;;
+    --frames) FRAMES="$2"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "ramp: unknown argument $1" >&2; usage 2 ;;
   esac
@@ -89,7 +95,7 @@ PROF=()
 [ "$CPU_PROF" = 1 ] && PROF=(--cpu-prof --cpu-prof-dir "$OUT")
 # cwd is $OUT so dotenv finds no .env: the environment below is the whole config.
 (cd "$OUT" && exec env PORT="$PORT" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" \
-  PROBE_DIST="$SERVER/dist" PROBE_OUT="$OUT/server.jsonl" \
+  PROBE_DIST="$SERVER/dist" PROBE_OUT="$OUT/server.jsonl" PROBE_DETAIL="$DETAIL" \
   node -r "$HERE/probe.cjs" ${PROF[@]+"${PROF[@]}"} "$SERVER/dist/index.js") > "$OUT/server.log" 2>&1 &
 SERVER_PID=$!
 echo "ramp: server pid $SERVER_PID on :$PORT (redis -> dead :$REDIS_PORT)"
@@ -108,7 +114,7 @@ current=0
 for target in $STEPS; do
   while [ "$current" -lt "$target" ]; do
     n=$(( target - current < BATCH ? target - current : BATCH ))
-    node "$HERE/loadbot.mjs" "http://127.0.0.1:$PORT" "$n" "p${current}_" "$OUT/bots.jsonl" "$SPREAD_MS" >> "$OUT/bots.err" 2>&1 &
+    LOADBOT_FRAMES="$FRAMES" node "$HERE/loadbot.mjs" "http://127.0.0.1:$PORT" "$n" "p${current}_" "$OUT/bots.jsonl" "$SPREAD_MS" >> "$OUT/bots.err" 2>&1 &
     BOT_PIDS+=("$!")
     current=$(( current + n ))
   done
@@ -124,3 +130,4 @@ echo "$(date +%s) end" >> "$OUT/steps.log"
 cleanup
 
 python3 "$HERE/analyse.py" "$OUT" --settle "$SETTLE"
+if [ "$DETAIL" != 0 ]; then python3 "$HERE/spans.py" "$OUT" --settle "$SETTLE"; fi

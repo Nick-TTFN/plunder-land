@@ -19,7 +19,7 @@ processes of 50, and prints the table. It takes about 2.5 minutes. Options:
 step so the join burst doesn't count), `--warmup` (45), `--port`,
 `--redis-port`, `--out` (default a new temp dir), `--batch`, `--spread-ms`
 (10000, how long one process takes to join all its bots), `--cpu-prof`,
-`--no-build`. `ramp.sh --help` prints them.
+`--no-build`, `--detail 1|2` (per-function timings, below). `ramp.sh --help` prints them.
 
 **Rules.** Never use ports 6379 or 8000 (the local dev stack; the script refuses
 them). Give each parallel lane its own `--port` and `--redis-port`. The script
@@ -35,6 +35,8 @@ hand, do the same.
 | `probe.cjs` | `node -r probe.cjs dist/index.js`, with `PROBE_DIST` (the `dist/` folder) and `PROBE_OUT` set. Wraps `World.update`, `Multiplayer.flushAll`, `update`, `admit` and the input handlers without touching the source, and writes one JSON line per 5 s. Costs about 4% of busy time. |
 | `loadbot.mjs` | `node loadbot.mjs <url> <count> <prefix> <outFile> [joinSpreadMs]`. One process, `count` bots. Each re-sends its route every tick (as the client does), re-routes 2-8 cells away every 3-7 s, presses a random aimed skill every ~2 s, sometimes uses an item, and rejoins on death or extraction. A failed connect is retried with backoff (0.5 s doubling to 10 s) and counted as `connectFails`. |
 | `analyse.py` | `python3 analyse.py <dir> [--settle 15] [--json]`. The table. |
+| `spans.cjs` | Loaded by `probe.cjs` when `PROBE_DETAIL` is 1 or 2 (`ramp.sh --detail`). Wraps about 75 named server functions in stack-nested spans (calls, inclusive and self ms per tick), counts socket.io emits and bytes, and counts TCP socket writes (`net.Socket` `_write`/`_writev`, one syscall each). Level 2 adds tiny per-candidate helpers, for call counts only. The wrapper cost is calibrated at start (about 35 ns a call on an M4 Max) and printed as `overhead`; at 400 players it is under 1 ms a tick. A name it can't find is logged as `probe: not wrapped`, so a rename shows up instead of silently reading zero. |
+| `spans.py` | `python3 spans.py <dir> [--settle 15] [--step N] [--top 40]`. Per step: the CPU budget (tick, input handlers, GC, and the rest, which is mostly socket.io/ws sending; main-thread ELU; kernel time), socket writes and emits per tick, then the functions by self time. |
 | `prof.py` | `python3 prof.py <dir or .cpuprofile>`. Top self time and inclusive server time from `ramp.sh --cpu-prof`. |
 
 `loadbot.mjs` resolves its dependencies from its own location, never the cwd:
@@ -115,3 +117,21 @@ is inside the noise above.
 real play), cast StoneWall freely (obstacles grow from 450 to about 650 at
 400 bots, which lengthens every scan), and die far more often than people.
 Localhost network. The server container runs Node 18, not 24.
+
+## server-cpu-trim, 2026-09-26: paired against `9d2a23b`
+
+M4 Max, Node 24.4.1, `--steps "0 200 400" --step-secs 40 --warmup 45`, rounds run
+A, C1, C0, A, C1, C0 back to back. A = `9d2a23b` (ES5 build, one socket.io event per
+kind). C = the change (ES2022 build, allocation-free serialiser and packing, outbox
+on the connection, one frame per tick for clients that ask). C1 = framed bots, C0 =
+bots connecting as older clients (`--frames 0`), which isolates everything but the
+frames. CPU per player-second = cpu % x 10 / players.
+
+| | 200: world ms | 200: CPU ms/player-s | 400: world ms | 400: flush ms | 400: CPU % | 400: CPU ms/player-s |
+|---|---|---|---|---|---|---|
+| A run 1 / 2 | 10.8 / 13.0 | 0.60 / 0.65 | 21.7 / 22.8 | 6.9 / 7.0 | 20.7 / 21.1 | 0.52 / 0.53 |
+| C1 run 1 / 2 | 7.7 / 9.2 | 0.41 / 0.44 | 14.0 / 15.4 | 5.0 / 4.9 | 12.2 / 13.4 | 0.31 / 0.34 |
+| C0 run 1 / 2 | 8.3 / 9.5 | 0.55 / 0.57 | 14.7 / 19.7 | 6.1 / 7.8 | 17.6 / 20.6 | 0.44 / 0.52 |
+
+Per-client bandwidth unchanged (2.25-2.43 KB/s at 400), no connect failures, client
+update gap p95 256-274 ms in every run.

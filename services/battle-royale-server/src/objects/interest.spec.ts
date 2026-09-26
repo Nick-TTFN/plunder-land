@@ -15,6 +15,7 @@ import { type GameObject } from './gameobject'
 import { ARCHETYPES, ITEMS, LAYERS } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparser'
 
 /**
  * interest-filtered-broadcasts (decision #35): who is sent which create,
@@ -36,6 +37,9 @@ import { Vector } from '../utils/vector'
  * real client draws a second sprite and loses the first), an update or a
  * destroy for an id it does not hold.
  */
+
+/** Set by interest.framed.spec.ts before it loads this file. */
+const FRAMED = process.env.INTEREST_SPEC_FRAMED === '1'
 
 const [TOP, MIDDLE, BOTTOM] = LAYERS.map((layer) => layer.tag)
 const R = Multiplayer.INTEREST_RADIUS
@@ -135,7 +139,17 @@ function connect (multiplayer: Multiplayer, id: string): Omit<Client, 'player'> 
   const socket = {
     id,
     on: (event: string, cb: (data: unknown) => void) => { handlers[event] = cb },
-    emit: (event: string, data: unknown) => { mirror.receive(event, data); return true }
+    emit: (event: string, data: unknown) => { mirror.receive(event, data); return true },
+    // interest.framed.spec.ts runs every test here again with one frame per
+    // tick, split back into events by the client's own decoder.
+    handshake: { query: FRAMED ? { frames: '1' } : {} },
+    conn: {
+      write: (frame: Buffer) => {
+        const events = unpackFrame(new Uint8Array(frame))
+        assert.ok(events !== undefined, 'a frame the client cannot read')
+        for (const [event, data] of events) mirror.receive(event, Buffer.from(data))
+      }
+    }
   } as unknown as Socket
   multiplayer.onConnect(socket)
   return { id, mirror, fire: (event, data) => { handlers[event](data) } }
