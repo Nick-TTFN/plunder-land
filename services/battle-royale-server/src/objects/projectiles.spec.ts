@@ -8,7 +8,9 @@ import Timers from './timers'
 import Player from './player'
 import { Unit } from './unit'
 import { type GameObject, ObjectType } from './gameobject'
-import type Throwable from './throwable'
+import Throwable from './throwable'
+import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
 import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
 
@@ -62,12 +64,17 @@ function castFrom (make: (owner: Unit) => { execute: () => boolean }, owner: Uni
 
 /**
  * A caster facing East (the default facing) with a mob placed so the
- * projectile overlaps it after exactly one tick of flight: it spawns 56 units
- * ahead and moves 75, and the mob is 9 units beyond that, well inside 50 + 10.
+ * projectile strikes it on its first tick of flight. DELIBERATE CHANGE
+ * (hex-cells P3, #34): it was 1000 + 56 + 75 + 9, a spot the 50-unit disc
+ * overlapped after one 75-unit move from a 56-unit spawn. The front now
+ * crosses line cells 1-4 on the first tick, so the mob stands on cell 4.
  */
 function hitterAndMob (): { caster: Player, mob: Unit } {
-  const caster = playerAt(1000, 2000)
-  const mob = new Unit(ObjectType.Mob, 1000 + 56 + 75 + 9, 2000, 10, 0)
+  const home = Hex.toCell(new Vector(1000, 2000))
+  const at = Hex.toPosition(home)
+  const caster = playerAt(at.x, at.y)
+  const cell4 = Hex.toPosition(new Vector(home.x + 4, home.y))
+  const mob = new Unit(ObjectType.Mob, cell4.x, cell4.y, 10, 0)
   mob.hp = 1000
   World.MOBS.push(mob)
   return { caster, mob }
@@ -120,8 +127,12 @@ for (const skill of SKILLS) {
 
       assert.equal(hitter.destroyed, true, 'the setup projectile never hit')
       assert.equal(other.destroyed, false, 'the free projectile hit something')
-      assert.ok(Math.abs(other.position.x - from.x - 300 * DT) < 1e-6,
-        `the free projectile moved ${(other.position.x - from.x).toFixed(1)} units, not ${300 * DT}`)
+      // DELIBERATE CHANGE (hex-cells P3, #34): was 300 * DT. The step is a
+      // fixed 5/3 cells a tick, 75 units along an axis at any dt (the same 75
+      // at the default 250 ms tick). The flyer never moved, so it flies East.
+      const step = Throwable.STEP / 3 * Hex.SIZE
+      assert.ok(Math.abs(other.position.x - from.x - step) < 1e-6,
+        `the free projectile moved ${(other.position.x - from.x).toFixed(1)} units, not ${step}`)
       assert.deepEqual(World.PROJECTILES, [other], 'the exploded projectile is still listed')
     })
   }

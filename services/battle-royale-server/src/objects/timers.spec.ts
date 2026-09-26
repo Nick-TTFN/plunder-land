@@ -228,39 +228,43 @@ const PROJECTILES = [
 ]
 
 for (const skill of PROJECTILES) {
-  test(`two ${skill.name}s in flight with the cooldown below the lifetime each expire on their own`, (t) => {
+  test(`two ${skill.name}s in flight with the cooldown below their flight each end on their own`, (t) => {
+    // Hex-cells P3: a projectile ends at the end of its line, on its own 5th
+    // tick, not on a 1200 ms timer; nothing of one may end the other.
     mockClock(t)
     const player = playerAt(1000, 2000)
     const cast = skill.make(player)
-    cast.cooldown = 500 // the lifetime is 1200
+    cast.cooldown = 500 // under the 5 ticks of a flight
     let explosions = 0
     const explode = cast.explode.bind(cast)
     cast.explode = (target, struck) => { explosions++; explode(target, struck) }
 
     assert.equal(cast.execute(), true)
     const first = World.PROJECTILES[0]
+    flyThrowables()
+    flyThrowables()
     advance(t, 500)
     assert.equal(cast.execute(), true, 'the second cast was refused')
-    const second = World.PROJECTILES[1]
-    assert.notEqual(first, second)
+    const second = World.PROJECTILES.find((p) => p !== first)
+    assert.ok(second !== undefined)
 
-    advance(t, 699)
-    assert.equal(first.destroyed, false, 'the first expired early')
-    advance(t, 1)
-    assert.equal(first.destroyed, true, 'the first outlived its lifetime')
-    assert.equal(second.destroyed, false, 'the first\'s expiry took the second with it')
+    for (let i = 0; i < 2; i++) flyThrowables()
+    assert.equal(first.destroyed, false, 'the first ended early')
+    flyThrowables()
+    assert.equal(first.destroyed, true, 'the first outlived its 5th tick')
+    assert.equal(second.destroyed, false, 'the first\'s end took the second with it')
 
-    advance(t, 499)
-    assert.equal(second.destroyed, false, 'the second expired early')
-    advance(t, 1)
-    assert.equal(second.destroyed, true, 'the second never expired')
+    flyThrowables()
+    assert.equal(second.destroyed, false, 'the second ended early')
+    flyThrowables()
+    assert.equal(second.destroyed, true, 'the second never ended')
 
     assert.equal(explosions, 2)
-    // Expired between ticks; the next tick's sweep is what drops them.
-    World.updateProjectiles(DT)
     assert.equal(World.PROJECTILES.length, 0)
     assert.equal(World.OBSTACLES.length, 0)
     assert.equal(Timers.size, 2, 'only the two freed-id timers should be left')
+    advance(t, 5000)
+    assert.equal(explosions, 2, 'a timer ended one again')
   })
 
   test(`a ${skill.name} that hits something does not explode again when its lifetime ends`, (t) => {

@@ -541,19 +541,22 @@ for (const [name, make] of [
     })
   }
 
-  test(`a ${name} that runs out of lifetime bursts one ring around its own cell`, (t) => {
+  test(`a ${name} that bursts without striking anyone bursts one ring around its own cell`, (t) => {
     mockTimers(t)
     const player = shooterAt(1000, 2000)
     assert.equal(make(player).execute(), true)
     const projectile = World.PROJECTILES[0]
-    // Park it on a known cell in empty space, then let its lifetime run out.
+    // Park it on a known cell in empty space and end it there. Since hex-cells
+    // P3 it ends at the end of its line, not by a timer, and a unit within a
+    // ring of that last cell is struck by the swath first, so the unstruck
+    // burst's ring is only observable by ending it by hand.
     const at = cellCentre(20)
     projectile.position = at
     projectile.direction = new Vector(0, 0)
     const neighbour = mobAt(cellCentre(20, -1))
     const twoOut = mobAt(cellCentre(22))
 
-    advance(t, 5000)
+    projectile.destroy()
 
     assert.ok(projectile.destroyed)
     assert.ok(neighbour.hp < 1000, 'missed a unit next to where it expired')

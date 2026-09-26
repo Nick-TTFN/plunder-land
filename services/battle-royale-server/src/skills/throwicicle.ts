@@ -5,7 +5,7 @@ import { type GameObject, ObjectType } from '../objects/gameobject'
 import Slowdown from '../buffs/slowdown'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
-import Timers from '../objects/timers'
+import { RangedAttack } from './rangedattack'
 import { Hex } from '../utils/hex'
 import GuardPosition from '../ai/guardposition'
 import { type Vector } from '../utils/vector'
@@ -22,27 +22,17 @@ export class Throwicicle extends Skill {
   execute (aimCell?: Vector): boolean {
     if (!super.execute()) return false
 
-    // 1200 ms at 300 u/s is 360 units, 8 cells: out to base vision.
-    const lifetime = 1200
-    // Through the centre of the aimed cell and on to its lifetime (decision #21).
-    const aim = Skill.aimDirection(this.owner, aimCell)
-    const pos = this.owner.position.add(
-      aim.multiply(this.owner.radius * 4)
-    )
+    // A 10-cell hex line through the aimed cell, or along the hex facing
+    // (hex-cells P3, #34); `Throwable` steps along it and bursts at its end.
+    // The 1200 ms lifetime ends nothing now; it is only sent, as before.
     const icicle = new Throwable(
-      pos.x,
-      pos.y,
-      lifetime,
-      aim,
-      300,
+      RangedAttack.lineOf(this.owner, aimCell, Throwable.RANGE_CELLS),
+      1200,
       this.owner.tag,
       this.owner,
       this.explode.bind(this)
     )
     World.PROJECTILES.push(icicle)
-    // Owned by the projectile, not the skill: a hit destroys it, which cancels
-    // this, so any number can be in flight whatever the cooldown.
-    Timers.schedule(lifetime, () => { icicle.destroy() }, icicle)
 
     return true
   }

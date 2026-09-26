@@ -193,8 +193,13 @@ for (const { name, make } of [
 
     assert.equal(make(player).execute(player.cell), true)
     const [projectile] = throwables()
-    assert.ok(projectile.direction.sub(player.facing).getMagnitude() < 1e-9, 'did not fly along facing')
-    assert.ok(Math.abs(projectile.direction.y + 1) < 1e-9, 'facing was not North')
+    // Hex-cells P3: it flies a hex line, so an unaimed cast goes along the hex
+    // facing, `FACING_INDEX(facing)`, as RangedAttack does. North is not one
+    // of the six; it snaps to a northern neighbour.
+    const d = World.FACING_INDEX(player.facing)
+    assert.deepEqual(projectile.line[1], Hex.neighbour(player.cell, d), 'did not fly along the hex facing')
+    assert.ok(Hex.toPosition(projectile.line[1]).y < Hex.toPosition(player.cell).y, 'the hex facing is not northward')
+    assert.equal(projectile.line.length, 11)
   })
 }
 

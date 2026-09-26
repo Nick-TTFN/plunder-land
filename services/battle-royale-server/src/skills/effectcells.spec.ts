@@ -375,7 +375,26 @@ for (const [name, make, type] of [
     assert.ok(target.hp < 1000 || target.destroyed, 'the struck unit was not damaged')
   })
 
-  test(`a ${name} that expires sends its blast on its own cell`, (t) => {
+  test(`a ${name} that reaches the end of its line sends its blast on its last cell`, (t) => {
+    // Hex-cells P3: it ends at the end of its 10-cell line on its 5th tick,
+    // not when a 1200 ms timer runs out.
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
+    const caster = playerOn(new Vector(20, 40))
+    assert.equal(make(caster).execute(new Vector(23, 42)), true)
+    const projectile = World.PROJECTILES[0]
+    for (let k = 0; k < 5; k++) {
+      assert.equal(projectile.destroyed, false, `ended after ${k} ticks`)
+      World.updateProjectiles(DT)
+    }
+
+    const blast = effects.find((e) => e.type === type)
+    assert.ok(projectile.destroyed)
+    const last = projectile.line[projectile.line.length - 1]
+    assert.equal(Hex.distance(caster.cell, last), 10)
+    assert.deepEqual(blast?.aimCell, last)
+  })
+
+  test(`a ${name} ended in flight sends its blast on its own cell`, (t) => {
     t.mock.timers.enable({ apis: ['Date'], now: Date.now() })
     const caster = playerOn(new Vector(20, 40))
     assert.equal(make(caster).execute(), true)
@@ -384,7 +403,7 @@ for (const [name, make, type] of [
     projectile.position = Hex.toPosition(parked)
     projectile.direction = new Vector(0, 0)
 
-    advance(t, 5000)
+    projectile.destroy()
 
     const blast = effects.find((e) => e.type === type)
     assert.ok(projectile.destroyed)

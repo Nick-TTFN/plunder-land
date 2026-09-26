@@ -223,8 +223,9 @@ export default class World {
 
   /**
    * The largest unit body there can be: the biggest in `ARCHETYPES`, or any
-   * bigger one added through `addUnit` (bare units, as specs build). What the
-   * projectile hit test's candidate rings allow for (`Throwable.hitRings`).
+   * bigger one added through `addUnit` (bare units, as specs build). It sized
+   * the projectile's candidate rings (`Throwable.hitRings`) until hex-cells P3
+   * made that hit test a cell swath; unused since, delete in P4.
    */
   static get UNIT_BODY_MAX (): number {
     let most = World._bodySeen
@@ -808,7 +809,8 @@ export default class World {
 
   /**
    * The least distance from a cell's centre to the centre of a cell exactly
-   * `k` steps away. Used by the projectile hit test (`Throwable.hitRings`).
+   * `k` steps away. Used by the projectile hit test (`Throwable.hitRings`)
+   * until hex-cells P3; unused since, delete in P4.
    */
   static ringDistance (k: number): number {
     const origin = new Vector(0, 0)
