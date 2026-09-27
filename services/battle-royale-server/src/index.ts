@@ -43,7 +43,18 @@ function startGame (): void {
     console.log(`listening to ${process.env.PORT}..`)
   })
 
-  const server = new Server(httpserver, { cors: { origin: '*' } })
+  // WebSocket compression (permessage-deflate; bandwidth review, 2026-09-27).
+  // Off by default in ws and engine.io. The recorded traffic of one client
+  // compressed to 48% at these settings: a 4 KB window (serverMaxWindowBits
+  // 12) and memLevel 4 keep the zlib state near 24 KB a connection, against
+  // 256 KB (and 44%) at zlib's defaults. engine.io's own threshold is 1024
+  // bytes, above nearly every message this server sends (325 B on average).
+  // ws warns that zlib under concurrency can fragment memory on Linux, so
+  // WS_DEFLATE=0 turns it off without a build.
+  const deflate = process.env.WS_DEFLATE === '0'
+    ? false
+    : { threshold: 32, serverMaxWindowBits: 12, zlibDeflateOptions: { memLevel: 4 } }
+  const server = new Server(httpserver, { cors: { origin: '*' }, perMessageDeflate: deflate })
 
   server.on('connection', function (socket) {
     multiplayer.onConnect(socket)

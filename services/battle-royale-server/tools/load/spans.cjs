@@ -21,7 +21,7 @@ const now = () => performance.now()
 let spans = new Map()
 const stack = []
 const missing = []
-const counters = { emits: 0, emitBytes: 0, emitsInTick: 0, sockWrites: 0, sockWritevs: 0 }
+const counters = { emits: 0, emitBytes: 0, emitsInTick: 0, sockWrites: 0, sockWritevs: 0, sockBytes: 0 }
 let inTick = false
 
 // What the frames carry, by event and object kind, and for updates by field:
@@ -240,9 +240,19 @@ function install (dist, level) {
   // several chunks). This is the cost the emit count doesn't show.
   const net = require('net')
   const w = net.Socket.prototype._write
-  net.Socket.prototype._write = function (...a) { counters.sockWrites++; return w.apply(this, a) }
+  // Bytes too: what actually leaves on the TCP socket, WebSocket framing and
+  // permessage-deflate included (TLS, TCP and IP headers are not in it).
+  net.Socket.prototype._write = function (...a) {
+    counters.sockWrites++
+    counters.sockBytes += typeof a[0] === 'string' ? Buffer.byteLength(a[0]) : a[0].length
+    return w.apply(this, a)
+  }
   const wv = net.Socket.prototype._writev
-  net.Socket.prototype._writev = function (...a) { counters.sockWritevs++; return wv.apply(this, a) }
+  net.Socket.prototype._writev = function (...a) {
+    counters.sockWritevs++
+    for (const { chunk } of a[0]) counters.sockBytes += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length
+    return wv.apply(this, a)
+  }
   // Marks the tick, for emitsInTick.
   const upd = World.prototype.update
   World.prototype.update = function (...a) { inTick = true; try { return upd.apply(this, a) } finally { inTick = false } }
@@ -283,6 +293,7 @@ function take (ticks, wrapNs) {
     emitKBPerTick: +(c.emitBytes / t / 1024).toFixed(1),
     sockWritesPerTick: +((c.sockWrites + c.sockWritevs) / t).toFixed(1),
     sockWritevsPerTick: +(c.sockWritevs / t).toFixed(1),
+    sockKBPerTick: +(c.sockBytes / t / 1024).toFixed(2),
     wirePerTick: w,
     updateFieldBytesPerTick: wf
   }

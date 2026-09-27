@@ -72,7 +72,16 @@ beforeEach(() => {
 })
 
 /** A world with nothing in it: no exits or portals to extract or move a player. */
-function setup (tickMs = 250): { multiplayer: Multiplayer, world: World } {
+/** Read before any `setup` overrides it. */
+const DEFAULT_INTERVAL_MS = Multiplayer.STANDINGS_INTERVAL_MS
+
+/**
+ * The tests below were written for a board once a second and are about its
+ * content and cadence rules, not its default interval, so they pin 1 s. The
+ * default (3 s since the bandwidth review, 2026-09-27) has its own test.
+ */
+function setup (tickMs = 250, intervalMs = 1000): { multiplayer: Multiplayer, world: World } {
+  Multiplayer.STANDINGS_INTERVAL_MS = intervalMs
   const multiplayer = new Multiplayer(tickMs, okRedis())
   const world = new World(4000)
   World.OBSTACLES.length = 0
@@ -91,7 +100,21 @@ function join (multiplayer: Multiplayer, socketId: string, name: string): { play
   return { player, sent: s.sent }
 }
 
-test('standings go out once every 4 ticks at 250 ms: once a second', () => {
+test('by default the board goes out every 3 s: every 12th tick at 250 ms', () => {
+  assert.equal(DEFAULT_INTERVAL_MS, 3000)
+  const { multiplayer } = setup(250, DEFAULT_INTERVAL_MS)
+  const a = join(multiplayer, 's1', 'ANNA')
+  const due: number[] = []
+  for (let tick = 1; tick <= 36; tick++) {
+    const before = standingsSent(a.sent).length
+    a.player.loot = tick
+    multiplayer.flushAll(tick, 250)
+    if (standingsSent(a.sent).length > before) due.push(tick)
+  }
+  assert.deepEqual(due, [12, 24, 36])
+})
+
+test('standings go out once every 4 ticks at 250 ms with a 1 s interval', () => {
   const { multiplayer } = setup(250)
   const a = join(multiplayer, 's1', 'ANNA')
 

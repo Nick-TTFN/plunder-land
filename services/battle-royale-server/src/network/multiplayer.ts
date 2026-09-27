@@ -541,14 +541,24 @@ export default class Multiplayer {
   }
 
   /**
-   * Terrain: rocks, StoneWall stones, portals and exits, everything that goes
-   * in `World.OBSTACLES`. It goes to every connection on its layer whatever
-   * the distance (decision #35), because the client routes over the whole
-   * layer from its copy of the blocked cells. By type, because `create` runs
-   * inside the constructor, before the object is in any list.
+   * Terrain: portals, exits and any untimed obstacle (world rocks, none since
+   * the valleys). It goes to every connection on its layer whatever the
+   * distance (decision #35), because the client routes over the whole layer
+   * from its copy of the blocked cells. By type and lifetime, because
+   * `create` runs inside the constructor, before the object is in any list;
+   * `GameObject`'s constructor has set the lifetime by then.
+   *
+   * **StoneWall stones are not terrain** (bandwidth review, 2026-09-27): they
+   * go only to connections with them in range, like pickups, and are brought
+   * into and out of view by `World.pickupPass`. Layer-wide they were 41-52% of
+   * every client's traffic in the load harness. A client can plan a route
+   * through a stone it hasn't been sent; the server has routed around it and
+   * corrects it, and the client re-routes as soon as the stone comes into view
+   * (`Game.block`).
    */
   static isTerrain (obj: GameObject): boolean {
-    return (obj.type & (ObjectType.Obstacle | ObjectType.Portal | ObjectType.Exit)) !== 0
+    if ((obj.type & (ObjectType.Portal | ObjectType.Exit)) !== 0) return true
+    return obj.type === ObjectType.Obstacle && !(obj.lifetime > 0)
   }
 
   /**
@@ -657,7 +667,7 @@ export default class Multiplayer {
   /** A create for all of the terrain on the connection's layer, into `into`. */
   private sendTerrain (connection: Connection, into: Buffer[]): void {
     for (const obj of World.OBSTACLES) {
-      if (obj.tag === connection.layer && !obj.destroyed) into.push(Multiplayer.terrainRecord(obj))
+      if (obj.tag === connection.layer && !obj.destroyed && Multiplayer.isTerrain(obj)) into.push(Multiplayer.terrainRecord(obj))
     }
   }
 
@@ -700,6 +710,8 @@ export default class Multiplayer {
       this.know(connection, obj)
     }
     for (const obj of World.PROJECTILES) visit(obj)
+    // StoneWall stones: the obstacles that are not terrain.
+    for (const obj of World.OBSTACLES) if (!Multiplayer.isTerrain(obj)) visit(obj)
     for (const obj of World.CONSUMABLES) visit(obj)
     for (const obj of World.ITEMS) visit(obj)
     for (const obj of World.interestCandidates(player.position.x, player.position.y, tag)) visit(obj)
@@ -727,7 +739,9 @@ export default class Multiplayer {
     const out = this.outbox(connection)
 
     for (const obj of World.OBSTACLES) {
-      if (obj.tag === connection.layer && !obj.destroyed) out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+      if (obj.tag === connection.layer && !obj.destroyed && Multiplayer.isTerrain(obj)) {
+        out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+      }
     }
     this.setLayer(connection, player.tag)
     this.sendTerrain(connection, out.create)
@@ -1102,8 +1116,13 @@ export default class Multiplayer {
 
   // Standings ========
 
-  /** How often the standings board goes out, in ms. Counted in ticks. */
-  static STANDINGS_INTERVAL_MS = 1000
+  /**
+   * How often the standings board goes out, in ms. Counted in ticks. 3 s, not
+   * the 1 s it was (bandwidth review, 2026-09-27): about 170-190 B/s per
+   * client at 1 s whatever the player count, which at a few players was the
+   * largest single part of their traffic.
+   */
+  static STANDINGS_INTERVAL_MS = 3000
   private _ticksSinceStandings = 0
 
   /**

@@ -180,8 +180,13 @@ function gone (obj: GameObject): boolean {
   return obj.destroyed || (obj as { exited?: boolean }).exited === true
 }
 
+/** StoneWall stones: sent by range, not layer-wide (bandwidth review, 2026-09-27). */
+function stones (): GameObject[] {
+  return World.OBSTACLES.filter((o) => !Multiplayer.isTerrain(o))
+}
+
 function dynamics (): GameObject[] {
-  return [...World.PLAYERS, ...World.MOBS, ...World.CONSUMABLES, ...World.ITEMS, ...World.PROJECTILES]
+  return [...World.PLAYERS, ...World.MOBS, ...World.CONSUMABLES, ...World.ITEMS, ...World.PROJECTILES, ...stones()]
 }
 
 /**
@@ -190,7 +195,7 @@ function dynamics (): GameObject[] {
  */
 function tick (multiplayer: Multiplayer, n: number): void {
   for (let i = World.PLAYERS.length - 1; i >= 0; i--) multiplayer.update(World.PLAYERS[i])
-  for (const obj of [...World.MOBS, ...World.PROJECTILES, ...World.CONSUMABLES, ...World.ITEMS]) multiplayer.update(obj)
+  for (const obj of [...World.MOBS, ...World.PROJECTILES, ...World.CONSUMABLES, ...World.ITEMS, ...stones()]) multiplayer.update(obj)
   multiplayer.flushAll(n, 250)
 }
 
@@ -204,7 +209,7 @@ function assertHolds (multiplayer: Multiplayer, client: Client, label: string): 
   const player = client.player
   if (gone(player)) return
   const tag = player.tag
-  const terrain = new Set(World.OBSTACLES.filter((o) => o.tag === tag && !o.destroyed).map((o) => o.id))
+  const terrain = new Set(World.OBSTACLES.filter((o) => o.tag === tag && !o.destroyed && Multiplayer.isTerrain(o)).map((o) => o.id))
   const live = dynamics().filter((o) => !gone(o) && o.tag === tag)
   const inner = live.filter((o) => player.position.withinBounds(o.position.x, o.position.y, R)).map((o) => o.id)
   const outer = new Set(live.filter((o) => player.position.withinBounds(o.position.x, o.position.y, OUTER)).map((o) => o.id))
@@ -589,17 +594,49 @@ test('terrain made or removed while a client is on its layer reaches it wherever
   middle.player.changeLayer(MIDDLE)
   tick(multiplayer, 0)
   for (const client of [top, middle]) client.mirror.clear()
-  const stone = new Obstacle(3800, 3800, TOP, 4000)
+  // An untimed obstacle is terrain (a world rock, before the valleys).
+  const far = rock(3800, 3800, TOP)
+  tick(multiplayer, 1)
+  assert.ok(top.mirror.seen.create.includes(far.id))
+  assert.ok(!middle.mirror.seen.create.includes(far.id))
+  far.destroy()
+  World.removeObstacle(far)
+  tick(multiplayer, 2)
+  assert.ok(top.mirror.seen.destroy.includes(far.id))
+  assert.ok(!middle.mirror.seen.destroy.includes(far.id))
+  assertClean([top, middle], 'terrain')
+})
+
+test('a StoneWall stone reaches only the clients with it in range, and leaves them when they walk off', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const near = join(multiplayer, 'a00031', new Vector(2000, 2000))
+  const far = join(multiplayer, 'a00032', new Vector(200, 200))
+  tick(multiplayer, 0)
+  for (const client of [near, far]) client.mirror.clear()
+
+  const stone = new Obstacle(2100, 2000, TOP, 4000)
   World.addObstacle(stone)
   tick(multiplayer, 1)
-  assert.ok(top.mirror.seen.create.includes(stone.id))
-  assert.ok(!middle.mirror.seen.create.includes(stone.id))
+  assert.ok(near.mirror.seen.create.includes(stone.id), 'in range: created')
+  assert.ok(!far.mirror.seen.create.includes(stone.id), 'out of range: not sent')
+  assert.ok(!Multiplayer.isTerrain(stone))
+
+  // The far player walks up to it: sent when it comes into view.
+  far.player.position = new Vector(2050, 2050)
+  tick(multiplayer, 2)
+  assert.ok(far.mirror.held.has(stone.id), 'walked into range: created')
+  // The near one walks away past the exit margin: destroyed on its client only.
+  near.player.position = new Vector(200, 200)
+  tick(multiplayer, 3)
+  assert.ok(!near.mirror.held.has(stone.id), 'walked out of range: destroyed')
+  assert.ok(stone.knownBy.size === 1)
+
   stone.destroy()
   World.removeObstacle(stone)
-  tick(multiplayer, 2)
-  assert.ok(top.mirror.seen.destroy.includes(stone.id))
-  assert.ok(!middle.mirror.seen.destroy.includes(stone.id))
-  assertClean([top, middle], 'stone')
+  tick(multiplayer, 4)
+  assert.ok(far.mirror.seen.destroy.includes(stone.id), 'its holder hears it go')
+  for (const client of [near, far]) assertHolds(multiplayer, client, 'stone')
+  assertClean([near, far], 'stone')
 })
 
 // --- effects -----------------------------------------------------------------------------

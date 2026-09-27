@@ -314,6 +314,11 @@ export default class World {
     const near = World.pickupWatch()
     for (const pickup of World.CONSUMABLES) if (World.pickupDue(pickup, near)) pickup.update(dt)
     for (const item of World.ITEMS) if (World.pickupDue(item, near)) item.update(dt)
+    // StoneWall stones go only to connections in range too (`Multiplayer.isTerrain`),
+    // and never move, so they come into and out of view here, like a pickup.
+    for (const obj of World.OBSTACLES) {
+      if (!Multiplayer.isTerrain(obj) && World.pickupDue(obj, near)) obj.update(dt)
+    }
   }
 
   /**

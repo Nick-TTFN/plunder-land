@@ -4,6 +4,7 @@ import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer, { type Connection } from '../network/multiplayer'
+import Obstacle from './obstacle'
 import World from './world'
 import Timers from './timers'
 import type Player from './player'
@@ -66,13 +67,25 @@ test('every pickup the pass skips would have done nothing', () => {
   const players: Player[] = []
   for (let i = 0; i < 24; i++) players.push(join(multiplayer, `abcdef${i.toString(16).padStart(2, '0')}`))
   const connections = (multiplayer as unknown as { _connections: Connection[] })._connections
+  // StoneWall stones go through the same pass since the bandwidth review
+  // (2026-09-27): long-lived ones here, so they stay put while players walk.
+  const stones: Obstacle[] = []
+  while (stones.length < 60) {
+    const x = rand() * 4000
+    const y = rand() * 4000
+    const cell = Hex.toCell(new Vector(x, y))
+    if (!Hex.onMap(cell.x, cell.y, World.mapSize) || World.isBlocked(cell.x, cell.y, World.TAGS[0])) continue
+    const stone = new Obstacle(x, y, World.TAGS[0], 600_000)
+    World.addObstacle(stone)
+    stones.push(stone)
+  }
 
   let skipped = 0
   let checked = 0
   const real = World.pickupPass
   World.pickupPass = (dt: number) => {
     const near = World.pickupWatch()
-    for (const pickup of [...World.CONSUMABLES, ...World.ITEMS]) {
+    for (const pickup of [...World.CONSUMABLES, ...World.ITEMS, ...World.OBSTACLES.filter((o) => !Multiplayer.isTerrain(o))]) {
       if (World.pickupDue(pickup, near)) {
         pickup.update(dt)
         checked++

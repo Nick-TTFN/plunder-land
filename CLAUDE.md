@@ -271,7 +271,8 @@ lockfiles, and treat any dependency bump as something to smoke-test.
 Server → client messages (`create`, `create_own`, `update`, `destroy`, `effect`,
 `standings`) are binary. Each event is **one** buffer containing length-prefixed records.
 
-**`standings`** goes out about once a second (every `round(1000 / tick)` flushes, no timer),
+**`standings`** goes out every 3 s (`Multiplayer.STANDINGS_INTERVAL_MS`, #38; it was 1 s)
+(every `round(3000 / tick)` flushes, no timer),
 **and only when the connection's buffer differs from the last one it was sent**
 (`Connection.lastStandings`, cleared by `attach` so a new run always gets it; server-cpu-trim).
 Each connection gets the top 10 rows of the board (`Multiplayer.STANDINGS_TOP`) plus its own
@@ -291,7 +292,14 @@ leaves), so the DEAD/EXTRACTED own row sent on the tick a run ends is not highli
 client reads the rank when two bytes follow the NUL and otherwise ranks by position (a server
 from before the rank); an older client stops at the NUL and ranks by position, so it would show
 the appended own row as 11th. **Ship the client first.** Fields after the rank are for later
-additions. Measured 2026-09-26: about 0.19 KB/s per client at both 100 and 400 players.
+additions. Measured 2026-09-26 at 1 s: about 0.19 KB/s per client at both 100 and 400 players.
+
+**WebSocket compression is on** (permessage-deflate, `src/index.ts`, #38): windowBits 12,
+memLevel 4 (about 24 KB of zlib state per connection), threshold 32 bytes (engine.io's own
+default of 1024 is above nearly every message). `WS_DEFLATE=0` in the environment turns it off
+without a build; ws warns that zlib under concurrency can fragment memory on Linux, so watch RSS
+after a deploy. Browsers negotiate it with no client change. The load harness's per-client
+KB/s is decompressed payload; `sockKBPerTick` (spans, `--detail 1`) is what left the socket.
 
 The other events' records are laid out like this:
 
@@ -340,9 +348,13 @@ records**, because that header is the client's clock and its input acknowledgeme
 it with `Game.splitRecords(buffer, 8)`; `unpackRecords` is the headerless form used by the
 other four events.
 
-**Who gets what (decision #35, interest-filtered-broadcasts).** Terrain (everything in
-`World.OBSTACLES`: rocks, StoneWall stones, portals, exits) goes to every connection on its
-layer, whatever the distance: the client routes the whole layer. Units, pickups and
+**Who gets what (decision #35, interest-filtered-broadcasts; #38).** Terrain (portals, exits
+and any untimed obstacle: `Multiplayer.isTerrain`; the valleys go in `hello`) goes to every
+connection on its layer, whatever the distance: the client routes the whole layer. **StoneWall
+stones are not terrain since #38**: they go by range, like pickups (created on arrival in range
+and brought into and out of view by `World.pickupPass`), because layer-wide they were 41-52% of
+every client's bandwidth. A client can route through a stone it hasn't been sent; the server
+corrects it and the client re-routes when the stone arrives (`Game.block`). Units, pickups and
 projectiles go only to connections whose client is on their layer (`Connection.layer`) with
 them strictly inside the interest box: a `create` when they come into it (from
 `Multiplayer.update`, whichever side moved; pickups get an update from the pass at the end
