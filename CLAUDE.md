@@ -225,7 +225,7 @@ still step greedily (`Unit.chooseStep`) and stall on valley edges; real mob path
 deferred on 2026-09-27.
 
 **The camera is tilted, in drawing only** (`src/objects/tilt.ts`, tile art pass 2026-09-27).
-`Game.CONTAINER.scale.y = TILT` (about 0.744: 0.75 rounded so a tilted row is exactly 29 px), so a world `y` draws at `y * TILT`; rules, wire and
+`Game.CONTAINER.scale.y = TILT` (about 0.924: the art's 0.93 rounded so a tilted row is exactly 36 px; 0.744 until the flat-tile pass), so a world `y` draws at `y * TILT`; rules, wire and
 server stay on the regular top-down grid, and `toLocal` undoes the squash for the pointer and
 the aim. Anything **added straight to the camera or a plane stands up**: `TiltedContainer`
 gives it an `UprightTransform`, which squashes its position and not its shape, and keeps its
@@ -234,21 +234,24 @@ own `scale` (and tweens on it) meaning what they did. Things that lie on the gro
 ranged beam. A new ground-plane overlay needs `onGround`, or it draws unsquashed.
 
 **The ground pads are a separate sheet, `assets/res/ground.png` + `ground.json`**, baked by
-`tools/bake-ground-atlas.py` from one 4x3 art drop, `ground-steel-pointy.png`, kept next to the
-hex sources (not in the repo): steel pads, surface (satin, faceted, brushed, patched) by edge
-(clean, worn, chipped). It is baked **at 2x** (`meta.scale: 2`, linear filtering) and **already
+`tools/bake-ground-atlas.py` from an art drop kept outside the repo
+(`~/.codex/.chatgpt-projects/.../output/hex-arena/pointy-top-tiles-v1`: 12 flat top faces in
+`transparent-top-faces/`, their vertices in `manifest.json`, and `edge-fade.png`): steel faces,
+surface (satin, faceted, brushed, patched) by edge (clean, worn, chipped). It is baked **at 2x** (`meta.scale: 2`, linear filtering) and **already
 squashed by `TILT`** (`meta.tilt`; the client warns on a mismatch), since `HexTerrain` stands up
 and lays its rows at `TILT` of their pitch itself, which keeps pads texel for pixel. The bake
-measures each face's vertices (median over all 12, since rim chips sit on vertices) and remaps
-the face band by band onto a regular hex one cell wide squashed by `TILT`, with a fixed `WALL`
-below it; no overscale, so the bevels are the grid line. A known cell (visible or explored) is a
-raised slab; rows draw top to bottom, so walls show only above unknown cells, which are the
-void: the sheet's outline frame on the lattice, behind every slab.
+remaps each face band by band from the manifest's vertices onto a regular hex one cell wide
+squashed by `TILT`; no overscale, so the bevels are the grid line. A known cell (visible or
+explored) is a flat face; **under each of its two lower edges whose neighbour below is unknown
+(void, valley or off the map), `HexTerrain` hangs that half of the edge fade** (`fade_left` /
+`fade_right`, the fade cut at its apex, tinted `HexTerrain.FADE_TINT` times the fog and layer
+tints, at `HexTerrain.FADE_ALPHA` 0.5). Cells never seen are the sheet's outline frame on the lattice; void cells (`HexTerrain.voidOf`: valleys and off the map) are that outline while unseen and **nothing at all once seen**. Three layers, back to front:
+outlines, fades, faces, so a fade only ever shows over void.
 
 **Why the ground doesn't wobble:** PIXI's `roundPixels` rounds to `settings.RESOLUTION` (1),
 not the renderer's 2x, and with a fractional row pitch every row snapped differently. So pads
 are not rounded; every pad lands on a whole device pixel by construction (column 45, row shift
-22.5, row `ROW_SCREEN` 29, all frames the same size with the face centre on a whole texel), and
+22.5, row `ROW_SCREEN` 36, all face frames the same size with the face centre on a whole texel), and
 the camera and `Game`'s own position are snapped to device pixels. Break any one and it wobbles. Every layer uses the same
 set, tinted by `LAYER_TINT` (`objects/fog.ts`) times the fog's. The old `hexpad/*` frames in
 `hex.json` are now unused and go at its next re-bake.

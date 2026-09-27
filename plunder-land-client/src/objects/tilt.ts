@@ -5,18 +5,18 @@ import { Hex } from '../utils/hex'
 const ROW = Hex.SIZE * Math.sqrt(3) / 2
 
 /**
- * A row of the tilted lattice on screen: about 0.75 of `ROW`, **rounded to a
- * whole pixel** (29). The ground's pads are laid at multiples of it; a
+ * A row of the tilted lattice on screen: about 0.93 of `ROW` (the ground art's
+ * own proportions, 2026-09-27; it was 0.75), **rounded to a whole pixel** (36). The ground's pads are laid at multiples of it; a
  * fractional pitch put every row on a different fraction of a pixel, so seams
- * came out 29 and 30 pixels apart and the ground looked wobbly.
+ * came out a pixel apart from row to row and the ground looked wobbly.
  */
-export const ROW_SCREEN = Math.round(ROW * 0.75)
+export const ROW_SCREEN = Math.round(ROW * 0.93)
 
 /**
  * How much the ground is squashed vertically: the camera is tilted back from
  * straight down, as in the mockup (tile art pass, 2026-09-27). Drawing only.
  * Every rule, the wire and the server stay on the regular top-down grid; a
- * world `y` is drawn at `y * TILT`. About 0.744.
+ * world `y` is drawn at `y * TILT`. About 0.924.
  *
  * `tools/bake-ground-atlas.py` derives the same value and bakes the pads at it
  * (written to `ground.json` as `meta.tilt`); change the two together.

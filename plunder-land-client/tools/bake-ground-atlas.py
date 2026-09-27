@@ -1,36 +1,35 @@
 #!/usr/bin/env python3
 """
-Bake the steel ground pads into `assets/res/ground.png` + `ground.json`.
+Bake the steel ground into `assets/res/ground.png` + `ground.json`.
 
-The source is one 4x3 art drop (`ground-steel-pointy.png`, not checked in, like
-the hex sheet's sources) of pointy-top pads with a short wall under their lower
-edges:
+The sources are an art drop that is not checked in, like the hex sheet's:
 
-    columns  satin, faceted, brushed, patched      (surface)
-    rows     clean, worn, chipped                  (edge)
+    <source-dir>/transparent-top-faces/<surface>-<edge>.png   12 flat top faces
+    <source-dir>/manifest.json                                each face's 6 vertices
+    <source-dir>/edge-fade.png                                the drop under an edge
 
-    python3 tools/bake-ground-atlas.py [source-png]
+    python3 tools/bake-ground-atlas.py [source-dir]
 
-What it produces is a PIXI spritesheet at **scale 2**: every frame is baked at
-twice its on-screen size, so the canvas (which renders at devicePixelRatio,
-capped at 2) draws it texel for texel on a Retina screen, and PIXI reports it
-at half size so nothing on the client scales it by hand.
+Faces are surface (satin, faceted, brushed, patched) by edge (clean, worn,
+chipped), top only, with no walls. The drop into the void is its own sprite,
+the edge fade: two walls, one under each lower edge of a pointy-top cell, fading
+downward. The bake cuts it at its apex into a left and a right half, so the
+client can hang each under exactly the edge whose neighbour below is unknown.
 
-The part worth reading is the warp. The game draws the ground through a tilted
-camera (`TILT` in src/objects/tilt.ts): a regular hex lattice squashed to 0.75
-of its height. Each pad's six face vertices are measured from the image and the
-face is remapped, in three horizontal bands, onto a regular hexagon exactly one
-cell wide squashed by the same `TILT`; the wall under it is resized to a fixed
-`WALL` height. Remapping only `y`, band by band, keeps every edge straight. The
-face lands exactly on its cell, so neighbours' bevels meet and read as the grid
-line, and the wall hangs below where the next row's faces cover it except above
-an unknown cell, which is the drop into the void. Every frame is the same size
-with the face centre on a whole texel (`frame_geometry`), and the tilt is
-rounded so a row is a whole pixel, so every face lands on the same sub-pixel
-phase; without both the ground wobbles.
+The output is a PIXI spritesheet at **scale 2**: every frame is baked at twice
+its on-screen size, so the canvas (which renders at devicePixelRatio, capped at
+2) draws it texel for texel on a Retina screen, and PIXI reports it at half
+size so nothing on the client scales it by hand.
 
-Each frame carries its own `anchor` at the face's centre (the wall makes the
-frame taller than the face), which PIXI turns into `texture.defaultAnchor`.
+The part worth reading is the geometry. The ground is drawn through a tilted
+camera (`TILT` in src/objects/tilt.ts): a regular hex lattice squashed to about
+0.92 of its height. Each face's six vertices come from the manifest and the face
+is remapped, in three horizontal bands, onto a regular hexagon exactly one cell
+wide squashed by the same `TILT`. Remapping only `y` band by band, and `x`
+linearly, keeps every edge straight. The fade is scaled so its top edges land on
+the face's lower edges. Every frame's anchor is the cell centre, on a whole
+texel, and the tilt is rounded so a row is a whole pixel: every face lands on
+the same sub-pixel phase, which is what keeps the ground from wobbling.
 """
 import json
 import math
@@ -39,12 +38,10 @@ import shutil
 import subprocess
 import sys
 
-import numpy
 from PIL import Image, ImageDraw
 
 DEFAULT_SOURCE = os.path.expanduser(
-    '~/.codex/.chatgpt-projects/g-p-6851522c7bbc8191ab349a4bd8e8a3ae/assets/hex_tileset/'
-    'ground-steel-pointy.png'
+    '~/.codex/.chatgpt-projects/g-p-6851522c7bbc8191ab349a4bd8e8a3ae/output/hex-arena/pointy-top-tiles-v1'
 )
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets', 'res')
 
@@ -55,16 +52,10 @@ RESOLUTION = 2
 FACE_W = HEX_SIZE * RESOLUTION
 SIDE = FACE_W / math.sqrt(3)
 # The camera's vertical squash, derived exactly as `TILT` in
-# src/objects/tilt.ts is: about 0.75, rounded so that one row of the tilted
-# lattice is a whole number of screen pixels (29). Anything else puts every row
-# on a different fraction of a pixel and the ground wobbles. Faces are baked
-# already squashed, so the ground draws texel for pixel.
+# src/objects/tilt.ts is: about 0.93 (the art's own proportions), rounded so
+# that one row of the tilted lattice is a whole number of screen pixels (36).
 ROW = HEX_SIZE * math.sqrt(3) / 2
-TILT = round(ROW * 0.75) / ROW
-# Screen height of a slab's wall, as a fraction of the face's width. It must
-# stay under the tilted side (SIDE * TILT, 0.43 of the width), or the next
-# row's faces stop covering it.
-WALL = 0.2
+TILT = round(ROW * 0.93) / ROW
 # The warp runs at this multiple of the output and is then filtered down.
 SUPERSAMPLE = 4
 PADDING = 2
@@ -78,6 +69,13 @@ EDGE_WEIGHTS = {'clean': 4, 'worn': 2, 'chipped': 1}
 # faceted ground, with brushed and patched as the rarer patches.
 REGION_ORDER = ['brushed', 'satin', 'faceted', 'patched']
 
+# The edge fade's own geometry, in its source image: the lower-left vertex, the
+# apex under the cell's bottom vertex, and the lower-right vertex, where its top
+# edges run.
+FADE_LEFT = (434, 300)
+FADE_APEX = (768, 460)
+FADE_RIGHT = (1103, 300)
+
 # Unknown cells are drawn as this outline only (fog of war, decision #36).
 # Neighbours share every edge, so each line is drawn twice: keep it faint.
 OUTLINE_RGBA = (104, 122, 168, 80)
@@ -86,124 +84,97 @@ OUTLINE_WIDTH = 2.0 * RESOLUTION * 0.75
 VOID_RGBA = (18, 26, 42, 150)
 
 
-def runs(mask):
-    out, start = [], None
-    for i, value in enumerate(mask):
-        if value and start is None:
-            start = i
-        if not value and start is not None:
-            out.append((start, i))
-            start = None
-    if start is not None:
-        out.append((start, len(mask)))
-    return out
-
-
-def tile_boxes(alpha):
-    """The 4x3 grid, measured: columns from the whole sheet, rows per column."""
-    solid = alpha > 40
-    cols = [r for r in runs(solid.sum(0) > 3) if r[1] - r[0] > 50]
-    assert len(cols) == len(SURFACES), f'found {len(cols)} columns'
-    boxes = []
-    for x0, x1 in cols:
-        rows = [r for r in runs(solid[:, x0:x1].sum(1) > 3) if r[1] - r[0] > 50]
-        assert len(rows) == len(EDGES), f'column {x0} has {len(rows)} rows'
-        boxes.append([(x0, y0, x1, y1) for y0, y1 in rows])
-    return boxes  # [col][row]
-
-
-def face_rows(rgba, box):
-    """Source rows of the face's top, upper-side, lower-side and bottom vertices.
-
-    The face's rim is a bright bevel and the wall under it is dark, so the lower
-    vertices are where brightness falls hardest, measured a few pixels in from
-    each side (the vertical edges) and down the centre column. The bake prints
-    them; rows that disagree across one row of the sheet mean a bad read.
-    """
-    x0, y0, x1, y1 = box
-    a = rgba[:, :, 3]
-    lum = rgba[:, :, :3].astype(int).sum(2)
-
-    def first_opaque(x):
-        return y0 + int(numpy.argmax(a[y0:y1, x] > 128))
-
-    def rim_end(x, start):
-        # The steepest fall in brightness, averaged over five columns so one
-        # scuff can't win: the bevel's lit edge straight onto the dark wall.
-        column = lum[start:y1, x - 2:x + 3].mean(1)
-        drop = column[:-3] - column[3:]
-        return start + int(numpy.argmax(drop)) + 2
-
-    cx = (x0 + x1) // 2
-    top = first_opaque(cx)
-    sides = []
-    for x in (x0 + 5, x1 - 6):
-        upper = first_opaque(x)
-        # Search for the lower vertex below the edge's midpoint only: above it
-        # everything is face.
-        lower = rim_end(x, upper + 10)
-        sides.append((upper, lower))
-    upper = sum(s[0] for s in sides) / 2
-    lower = sum(s[1] for s in sides) / 2
-    bottom = rim_end(cx, int(lower))
-    return top, upper, lower, bottom
-
-
 def frame_geometry():
-    """Every frame's size and face-centre row, in texels, shared by all.
+    """Every face frame's size and centre row, in texels, shared by all.
 
-    The face centre sits on a whole texel row, and the frame is the same size
-    for every pad, so the anchor puts every face on the same sub-pixel phase:
-    neighbours' bevels meet identically all over the ground.
+    The centre sits on a whole texel row and every face frame is the same size,
+    so the anchor puts every face on the same sub-pixel phase.
     """
     half = SIDE * TILT
     centre = math.ceil(half) + 1
-    height = math.ceil(centre + half + WALL * FACE_W) + 2
-    return centre, height
+    return centre, 2 * centre
 
 
-def warp(image, box, rows):
-    """Remap one pad onto a regular hexagon one cell wide, face centre known."""
-    x0, y0, x1, y1 = box
-    top, upper, lower, bottom = rows
+def face(image, vertices):
+    """Remap one face onto a regular hexagon one cell wide, squashed by TILT.
+
+    `vertices` are the manifest's, clockwise from the top: top, upper right,
+    lower right, bottom, lower left, upper left.
+    """
     k = SUPERSAMPLE
-    # Destination rows of the same vertices: a regular hexagon squashed by the
-    # tilt, then the wall at its own fixed height.
+    top, upper_r, lower_r, bottom, lower_l, upper_l = vertices
+    x0 = (upper_l[0] + lower_l[0]) / 2
+    x1 = (upper_r[0] + lower_r[0]) / 2
+    rows = [top[1], (upper_l[1] + upper_r[1]) / 2, (lower_l[1] + lower_r[1]) / 2, bottom[1]]
+
     centre, frame_h = frame_geometry()
     off = centre - SIDE * TILT
-    targets = [off + t for t in (0, SIDE / 2 * TILT, SIDE * 1.5 * TILT, SIDE * 2 * TILT)]
-    sources = [top, upper, lower, bottom]
-    sources.append(y1)
-    targets.append(targets[3] + WALL * FACE_W)
-
-    width = FACE_W * k
-    height = frame_h * k
-    # Anything above the top vertex (the anti-aliased tip) goes with band one.
-    sources[0] = y0
-    targets[0] = off - (top - y0) * ((targets[1] - off) / (upper - top))
+    inner = [off + t for t in (0, SIDE / 2 * TILT, SIDE * 1.5 * TILT, SIDE * 2 * TILT)]
+    # The anti-aliased margins above the top vertex and below the bottom one
+    # ride with the outer bands' scales.
+    sources = [0, rows[1], rows[2], image.size[1]]
+    targets = [
+        inner[0] - rows[0] * (inner[1] - inner[0]) / (rows[1] - rows[0]),
+        inner[1], inner[2],
+        inner[3] + (image.size[1] - rows[3]) * (inner[3] - inner[2]) / (rows[3] - rows[2]),
+    ]
+    # x: one texel of air each side, the face's flat sides on 1 and FACE_W + 1.
+    width = FACE_W + 2
+    sx = (x1 - x0) / FACE_W
+    left, right = x0 - sx, x0 + sx * (FACE_W + 1)
 
     mesh = []
     for i in range(len(sources) - 1):
-        d0 = round(targets[i] * k)
-        d1 = round(targets[i + 1] * k)
+        d0 = max(0, round(targets[i] * k))
+        d1 = min(frame_h * k, round(targets[i + 1] * k))
         if d1 <= d0:
             continue
-        s0, s1 = sources[i], sources[i + 1]
-        # Quad corners in source: NW, SW, SE, NE.
-        quad = (x0, s0, x0, s1, x1, s1, x1, s0)
-        mesh.append(((0, max(0, d0), width, d1), quad))
+        # Clip the band's source rows to what lands inside the frame.
+        scale = (sources[i + 1] - sources[i]) / (targets[i + 1] - targets[i])
+        s0 = sources[i] + (d0 / k - targets[i]) * scale
+        s1 = sources[i] + (d1 / k - targets[i]) * scale
+        mesh.append(((0, d0, width * k, d1), (left, s0, left, s1, right, s1, right, s0)))
 
-    premultiplied = image.convert('RGBa')
-    big = premultiplied.transform((width, height), Image.MESH, mesh, Image.BICUBIC)
-    small = big.resize((FACE_W, frame_h), Image.LANCZOS)
-    # A pixel of air each side, so filtering never smears into a neighbour.
-    framed = Image.new('RGBa', (FACE_W + 2, frame_h))
-    framed.paste(small, (1, 0))
-    return framed.convert('RGBA'), {'x': 0.5, 'y': centre / frame_h}
+    big = image.convert('RGBa').transform((width * k, frame_h * k), Image.MESH, mesh, Image.BICUBIC)
+    small = big.resize((width, frame_h), Image.LANCZOS).convert('RGBA')
+    return small, {'x': 0.5, 'y': centre / frame_h}
+
+
+def fade_halves(image):
+    """The edge fade, scaled onto the cell's lower edges and cut at the apex.
+
+    Both halves are anchored at the cell centre, which lands on a whole texel,
+    and meet at x = 0, so drawn together they are the whole fade again.
+    """
+    k = SUPERSAMPLE
+    # Source pixels per texel, across and down.
+    per_x = (FADE_RIGHT[0] - FADE_LEFT[0]) / FACE_W
+    per_y = (FADE_APEX[1] - FADE_LEFT[1]) / (SIDE / 2 * TILT)
+    # The cell centre, in the source: above the apex by the lower half-height.
+    cx = FADE_APEX[0]
+    cy = FADE_APEX[1] - SIDE * TILT * per_y
+
+    # Everything with any alpha, in texels from the centre, rounded outward.
+    alpha = image.split()[3].point(lambda a: 255 if a > 2 else 0)
+    bx0, by0, bx1, by1 = alpha.getbbox()
+    top = math.floor((by0 - cy) / per_y) - 1
+    bottom = math.ceil((by1 - cy) / per_y) + 1
+    halves = {}
+    for name, (tx0, tx1) in {
+        'left': (math.floor((bx0 - cx) / per_x) - 1, 0),
+        'right': (0, math.ceil((bx1 - cx) / per_x) + 1),
+    }.items():
+        w, h = tx1 - tx0, bottom - top
+        # Output pixel (X, Y) at supersample -> source.
+        data = (per_x / k, 0, cx + tx0 * per_x, 0, per_y / k, cy + top * per_y)
+        big = image.convert('RGBa').transform((w * k, h * k), Image.AFFINE, data, Image.BICUBIC)
+        small = big.resize((w, h), Image.LANCZOS).convert('RGBA')
+        halves[f'ground/fade_{name}.png'] = (small, {'x': -tx0 / w, 'y': -top / h})
+    return halves
 
 
 def outline():
-    """The unknown cell: a thin regular-hexagon stroke on nothing."""
+    """The unknown cell: a thin hexagon stroke, squashed by TILT, on nothing."""
     k = SUPERSAMPLE
     centre, frame_h = frame_geometry()
     w, h = (FACE_W + 2) * k, frame_h * k
@@ -222,52 +193,28 @@ def outline():
     return small, {'x': 0.5, 'y': centre / frame_h}
 
 
-def clean_alpha(image):
-    """The art drop's background is alpha 1-4 noise, not zero; zero it."""
-    rgba = numpy.array(image)
-    rgba[rgba[:, :, 3] < 24] = 0
-    return Image.fromarray(rgba, 'RGBA')
-
-
 def bake():
     source = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SOURCE
-    image = clean_alpha(Image.open(source).convert('RGBA'))
-    rgba = numpy.array(image)
-    boxes = tile_boxes(rgba[:, :, 3])
+    with open(os.path.join(source, 'manifest.json')) as handle:
+        manifest = {t['name']: t for t in json.load(handle)['tiles']}
 
-    # Every pad was drawn to one template, so each vertex's offset below the
-    # tile's own top vertex is taken as the median over all twelve. A single
-    # tile's read is not trustworthy: a rim chip on a vertex (the chipped row
-    # has them on purpose) makes a steeper drop than the wall does.
-    measured = {(c, r): face_rows(rgba, boxes[c][r])
-                for c in range(len(SURFACES)) for r in range(len(EDGES))}
-    offsets = [
-        float(numpy.median([rows[i] - rows[0] for rows in measured.values()]))
-        for i in range(4)
-    ]
-    # The bottom vertex is the worst read of the four (the chipped row has a
-    # chip right on it), and a vertically squashed regular hexagon has its lower
-    # band exactly as tall as its upper one, so take it from those instead.
-    offsets[3] = offsets[2] + offsets[1]
-    print(f'face vertex offsets below the top vertex: {[round(o) for o in offsets]}')
+    tiles = {}
+    for surface in SURFACES:
+        for edge in EDGES:
+            key = f'{surface}-{edge}'
+            image = Image.open(os.path.join(source, 'transparent-top-faces', f'{key}.png')).convert('RGBA')
+            tiles[f'ground/{surface}_{edge}.png'] = face(image, manifest[key]['top_face_vertices_px'])
+    tiles.update(fade_halves(Image.open(os.path.join(source, 'edge-fade.png')).convert('RGBA')))
+    tiles['ground/outline.png'] = outline()
+    for name, (tile, anchor) in tiles.items():
+        print(f'{name:28} {tile.size}  anchor ({anchor["x"]:.3f}, {anchor["y"]:.3f})')
 
-    tiles, anchors = {}, {}
-    for c, surface in enumerate(SURFACES):
-        for r, edge in enumerate(EDGES):
-            name = f'ground/{surface}_{edge}.png'
-            top = measured[(c, r)][0]
-            rows = [top + o for o in offsets]
-            tiles[name], anchors[name] = warp(image, boxes[c][r], rows)
-            print(f'{name:28} read {[round(v - top) for v in measured[(c, r)]]}  '
-                  f'-> {tiles[name].size}')
-    tiles['ground/outline.png'], anchors['ground/outline.png'] = outline()
-
-    frames, size = pack(tiles)
-    for name, anchor in anchors.items():
+    frames, size = pack({name: tile for name, (tile, _) in tiles.items()})
+    for name, (_, anchor) in tiles.items():
         frames[name]['anchor'] = anchor
 
     sheet = Image.new('RGBA', size, (0, 0, 0, 0))
-    for name, tile in tiles.items():
+    for name, (tile, _) in tiles.items():
         sheet.paste(tile, (frames[name]['frame']['x'], frames[name]['frame']['y']))
     png = os.path.join(OUT, 'ground.png')
     sheet.save(png, optimize=True)
@@ -297,6 +244,7 @@ def bake():
                 'tilt': TILT,
                 'regions': {'ground/steel': [f'ground/{s}' for s in REGION_ORDER]},
                 'outline': 'ground/outline.png',
+                'fade': {'left': 'ground/fade_left.png', 'right': 'ground/fade_right.png'},
             },
         }, handle, separators=(',', ':'))
         handle.write('\n')

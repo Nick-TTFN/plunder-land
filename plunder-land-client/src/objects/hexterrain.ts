@@ -35,19 +35,20 @@ import { ROW_SCREEN, TILT } from './tilt'
  * upright, so it lays its own rows out at `TILT` of their pitch and its pads
  * are baked already squashed, which keeps them texel for pixel.
  *
- * A known cell (visible or explored) is a raised slab: its face plus a short
- * wall hanging below it (`tools/bake-ground-atlas.py`), anchored at the face's
- * centre. Rows are laid out top to bottom, so each row's faces cover the walls
- * of the row above, and a wall shows only where the cell below is unknown.
- * An unknown cell is the void: a faint outline on the lattice, in a layer
- * behind every slab, so walls fall in front of it. A valley's cell is
- * always unknown (`Game.VOIDS`, set in `Game.onHello`).
+ * A known cell (visible or explored) is a flat face. Where the neighbour below
+ * one of its two lower edges is unknown, that edge gets its half of the **edge
+ * fade** (`tools/bake-ground-atlas.py`): a wall dropping into the void and
+ * fading out. A cell the player has never seen is a faint outline on the
+ * lattice. A void cell (a valley, or off the map: `voidOf`) is never ground: an
+ * outline while unseen, and nothing at all once seen, so explored valleys read
+ * as empty space. Three layers, back to front: outlines, fades, faces, so a
+ * fade shows only over void and never over a face.
  *
  * **Pads are not pixel-rounded.** PIXI's `roundPixels` rounds to
  * `settings.RESOLUTION` (1), not the renderer's 2x, which snapped pads to
  * whole CSS pixels a different way on each row. Instead every pad sits on a
  * whole device pixel by construction: the column pitch is 45, the row shift
- * 22.5 and the row pitch `ROW_SCREEN` 29, the frames put the face centre on a
+ * 22.5 and the row pitch `ROW_SCREEN` 36, the frames put the face centre on a
  * whole texel, and `Game` snaps the camera to device pixels.
  */
 export class HexTerrain extends Container {
@@ -80,11 +81,18 @@ export class HexTerrain extends Container {
   private readonly regions: Texture[][]
   /** What an unknown cell is drawn as instead of its face. */
   private readonly outline: Texture
-  /** Behind `slabs`: the unknown cells' outlines. */
+  /** The edge fade's halves, under a lower-left and a lower-right edge. */
+  private readonly fadeLeft: Texture
+  private readonly fadeRight: Texture
+  /** Back to front: the unknown cells' outlines, the edge fades, the faces. */
   private readonly voids = new Container()
+  private readonly fades = new Container()
   private readonly slabs = new Container()
   /** One outline per pooled pad, shown instead of it when the cell is unknown. */
   private readonly voidPool: Sprite[] = []
+  /** Per pooled pad, its two fade halves, shown under an edge with unknown below. */
+  private readonly leftPool: Sprite[] = []
+  private readonly rightPool: Sprite[] = []
   private readonly pool: Sprite[] = []
   /** Each pooled pad's cell, for re-tinting without a relayout (`retint`). */
   private readonly padQ: number[] = []
@@ -97,8 +105,23 @@ export class HexTerrain extends Container {
    */
   seenOf: ((q: number, r: number) => Seen) | undefined
 
+  /**
+   * True for a cell that is never ground: a valley (`Game.VOIDS`) or off the
+   * map. Set by `Game` per layer. Unset, every cell is ground.
+   */
+  voidOf: ((q: number, r: number) => boolean) | undefined
+
   /** This plane's own tint, multiplied into the fog's: deeper reads colder. */
   tint = 0xFFFFFF
+
+  /**
+   * The edge fade's colour, multiplied in with the fog's and the plane's: the
+   * art is grey, and the mockup's walls are the tiles' navy.
+   */
+  static FADE_TINT = 0x8FA6D6
+
+  /** The edge fade's opacity: half the art's, which read too strong in play. */
+  static FADE_ALPHA = 0.5
 
   /**
    * The camera cell and view size the current layout was built for.
@@ -112,16 +135,18 @@ export class HexTerrain extends Container {
   private _viewWidth = 0
   private _viewHeight = 0
 
-  constructor (regions: Texture[][], outline: Texture) {
+  constructor (regions: Texture[][], outline: Texture, fadeLeft: Texture, fadeRight: Texture) {
     super()
     this.regions = regions
     this.outline = outline
+    this.fadeLeft = fadeLeft
+    this.fadeRight = fadeRight
     // Nothing here overlaps anything but its own neighbours, and the row order
     // below is already the order it wants drawing in. Sorting ~1400 children
     // every frame for that would be pure cost.
     this.sortableChildren = false
     this.eventMode = 'none'
-    for (const part of [this.voids, this.slabs]) {
+    for (const part of [this.voids, this.fades, this.slabs]) {
       part.sortableChildren = false
       part.eventMode = 'none'
       this.addChild(part)
@@ -149,8 +174,9 @@ export class HexTerrain extends Container {
 
     // A row past each edge, because a pad reaches half its height beyond its
     // own centre and the row pitch is only three quarters of that height; and
-    // one more below for the walls. The view covers `height / TILT` of world.
-    const r0 = Math.floor((y - height / 2 / TILT) / HexTerrain.ROW_PITCH) - 1
+    // one more above, whose fades hang into view. The view covers
+    // `height / TILT` of world.
+    const r0 = Math.floor((y - height / 2 / TILT) / HexTerrain.ROW_PITCH) - 2
     const r1 = Math.ceil((y + height / 2 / TILT) / HexTerrain.ROW_PITCH) + 2
 
     let used = 0
@@ -164,27 +190,23 @@ export class HexTerrain extends Container {
       const q1 = Math.ceil((x + width / 2) / Hex.SIZE - shift) + 1
 
       for (let q = q0; q <= q1; q++) {
-        let pad = this.pool[used]
-        let hole = this.voidPool[used]
-        if (pad === undefined || hole === undefined) {
-          pad = new Sprite()
-          pad.roundPixels = false
-          hole = new Sprite(this.outline)
-          hole.roundPixels = false
-          hole.anchor.copyFrom(this.outline.defaultAnchor)
-          this.pool.push(pad)
-          this.voidPool.push(hole)
-          this.slabs.addChild(pad)
-          this.voids.addChild(hole)
+        if (this.pool[used] === undefined) {
+          this.pool.push(this.sprite(this.slabs))
+          this.voidPool.push(this.sprite(this.voids, this.outline))
+          this.leftPool.push(this.sprite(this.fades, this.fadeLeft))
+          this.rightPool.push(this.sprite(this.fades, this.fadeRight))
+          this.leftPool[used].alpha = HexTerrain.FADE_ALPHA
+          this.rightPool[used].alpha = HexTerrain.FADE_ALPHA
         }
         used++
 
-        pad.scale.set(scale)
-        pad.x = Hex.SIZE * (q + shift)
-        pad.y = HexTerrain.ROW_SCREEN * r
-        hole.scale.set(scale)
-        hole.x = pad.x
-        hole.y = pad.y
+        const px = Hex.SIZE * (q + shift)
+        const py = HexTerrain.ROW_SCREEN * r
+        for (const sprite of [this.pool[used - 1], this.voidPool[used - 1], this.leftPool[used - 1], this.rightPool[used - 1]]) {
+          sprite.scale.set(scale)
+          sprite.x = px
+          sprite.y = py
+        }
         this.padQ[used - 1] = q
         this.padR[used - 1] = r
         this.dress(used - 1)
@@ -197,7 +219,23 @@ export class HexTerrain extends Container {
     for (let i = used; i < this.pool.length; i++) {
       this.pool[i].visible = false
       this.voidPool[i].visible = false
+      this.leftPool[i].visible = false
+      this.rightPool[i].visible = false
     }
+  }
+
+  /** Whether cell (q, r) is drawn as ground: seen, and not void. */
+  private ground (q: number, r: number): boolean {
+    return this.seenOf?.(q, r) !== SEEN.UNKNOWN && this.voidOf?.(q, r) !== true
+  }
+
+  /** A pooled sprite in `layer`, not pixel-rounded (see the class comment). */
+  private sprite (layer: Container, texture?: Texture): Sprite {
+    const sprite = new Sprite(texture)
+    sprite.roundPixels = false
+    if (texture !== undefined) sprite.anchor.copyFrom(texture.defaultAnchor)
+    layer.addChild(sprite)
+    return sprite
   }
 
   /**
@@ -218,19 +256,33 @@ export class HexTerrain extends Container {
     const r = this.padR[i]
     const pad = this.pool[i]
     const seen = this.seenOf?.(q, r) ?? SEEN.VISIBLE
-    const known = seen !== SEEN.UNKNOWN
+    const isVoid = this.voidOf?.(q, r) === true
+    const known = seen !== SEEN.UNKNOWN && !isVoid
+    const left = this.leftPool[i]
+    const right = this.rightPool[i]
     pad.visible = known
-    this.voidPool[i].visible = !known
-    if (!known) return
+    // The outline marks what hasn't been seen, void or not; seen void is empty.
+    this.voidPool[i].visible = seen === SEEN.UNKNOWN
+    if (!known) {
+      left.visible = false
+      right.visible = false
+      return
+    }
 
     const texture = this.faceOf(q, r)
     if (pad.texture !== texture) {
       pad.texture = texture
-      // The frame's own anchor, at the face's centre: the wall below it makes
-      // the frame taller than the face, so 0.5 would put the face high.
       pad.anchor.copyFrom(texture.defaultAnchor)
     }
-    pad.tint = HexTerrain.multiply(FOG_TINT[seen], this.tint)
+    const tint = HexTerrain.multiply(FOG_TINT[seen], this.tint)
+    pad.tint = tint
+
+    // The neighbours below: lower-left (q - 1, r + 1) and lower-right (q, r + 1).
+    left.visible = !this.ground(q - 1, r + 1)
+    right.visible = !this.ground(q, r + 1)
+    const fade = HexTerrain.multiply(tint, HexTerrain.FADE_TINT)
+    left.tint = fade
+    right.tint = fade
   }
 
   /** Two 0xRRGGBB tints multiplied channel by channel, as PIXI would apply both. */

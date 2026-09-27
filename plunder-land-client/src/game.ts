@@ -193,7 +193,9 @@ export class Game extends Container {
       sheet.data.meta.regions[group].map((region: string) =>
         sheet.data.animations[region].map((name: string) => Texture.from(name))
       ),
-      Texture.from(sheet.data.meta.outline)
+      Texture.from(sheet.data.meta.outline),
+      Texture.from(sheet.data.meta.fade.left),
+      Texture.from(sheet.data.meta.fade.right)
     )
     if (Math.abs(sheet.data.meta.tilt - TILT) > 1e-6) {
       console.warn(`ground.json is baked for tilt ${String(sheet.data.meta.tilt)}, the camera is at ${TILT}: re-bake`)
@@ -288,8 +290,10 @@ export class Game extends Container {
     // Each plane's pads take the fog for their own layer, and its own tint.
     this.terrains.forEach((terrain, i) => {
       const tag = this.tags?.[i]
-      terrain.seenOf = (q, r) =>
-        tag !== undefined && Game.VOIDS.get(tag)?.has(Hex.key(q, r)) === true ? SEEN.UNKNOWN : Game.FOG.state(q, r, tag)
+      terrain.seenOf = (q, r) => Game.FOG.state(q, r, tag)
+      // Off the map is void too, so the ground ends in a drop at the edge.
+      terrain.voidOf = (q, r) =>
+        !Hex.onMap(q, r, Session.mapSize) || (tag !== undefined && Game.VOIDS.get(tag)?.has(Hex.key(q, r)) === true)
       terrain.tint = LAYER_TINT[Math.min(i, LAYER_TINT.length - 1)]
     })
     for (const layer of this.layers) {
