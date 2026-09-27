@@ -1,128 +1,159 @@
-import { TapHandler } from '../elements/taphandler'
-import { Sprite, Point, Text, Container, Texture } from 'pixi.js'
-import { PlayerStats } from './playerstats'
+import { Container } from 'pixi.js'
 import { MiniMap } from './minimap'
 import { type Skill } from '../../skills/skill'
-import { ToolKit } from './toolkit'
-import { Inventory } from './inventory'
+import { StatusPanel } from './statuspanel'
+import { RunClock } from './runclock'
+import { SkillPanel, type SkillCard } from './skillpanel'
+import { LayersPanel, FogLegend } from './layerspanel'
+import { Leaderboard } from './leaderboard'
+import { Game } from '../../game'
 
+const MINIMAP = 200
+
+/**
+ * The HUD, laid out as the mockup (hud-rebuild, M2): the status panel top
+ * left, the run clock top centre, the leaderboard top right with the minimap
+ * under it (decision #36: the minimap stays), skills bottom left, and the
+ * layers panel bottom right with the fog legend above it. Placeholder look
+ * throughout (`ui/theme.ts`, `Panel`) until the art pass.
+ *
+ * Everything scales together with the window (`HUD.scale`), down to half
+ * size, and the skill cards wrap into rows to leave room for the layers
+ * panel, so it stays usable at phone width. The leaderboard is added to the
+ * stage by index.ts, not here, because it also shows between runs; its
+ * position still comes from here once a HUD exists.
+ */
 export class HUD extends Container {
-  controlsMap = new Map<string, TapHandler>()
+  static Instance: HUD | undefined
+  static MARGIN = 16
+
+  controlsMap = new Map<string, SkillCard>()
   map: MiniMap | undefined
-  playerStats: PlayerStats | undefined
-  skillBar: Container | undefined
-  inventory: Inventory | undefined
+  status: StatusPanel | undefined
+  clock: RunClock | undefined
+  skills: SkillPanel | undefined
+  layers: LayersPanel | undefined
+  readonly legend = new FogLegend()
+
   constructor () {
     super()
-
+    HUD.Instance = this
+    this.addChild(this.legend)
     window.addEventListener('keydown', this.onKeyDown.bind(this), false)
     window.addEventListener('resize', this.updateLayout.bind(this))
-
     this.updateLayout()
+  }
+
+  /** 1 at 1600 x 900 and up, down to 0.5 on small screens. */
+  static scale (): number {
+    return Math.max(0.5, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
   }
 
   setupGameUI (): void {
-    this.map = new MiniMap(200, 200, 0.3)
+    this.map = new MiniMap(MINIMAP, MINIMAP, 0.3)
     this.addChild(this.map)
-  }
-
-  setupStats (): void {
-    if (this.playerStats != null) return
-    this.playerStats = new PlayerStats()
-    this.addChild(this.playerStats)
-  }
-
-  updateStats (data: { level: number, loot: number }): void {
-    if (this.playerStats == null) return
-    this.playerStats.update(data)
-  }
-
-  setupInventory (): void {
-    if (this.inventory != null) return
-    this.inventory = new Inventory()
-    this.addChild(this.inventory)
     this.updateLayout()
   }
+
+  /** The run's own player exists: status, clock and layers for this run. */
+  setupStats (): void {
+    if (this.status === undefined) {
+      this.status = new StatusPanel()
+      this.addChild(this.status)
+    }
+    if (this.clock === undefined) {
+      this.clock = new RunClock()
+      this.addChild(this.clock)
+    }
+    this.clock.start()
+    if (this.layers === undefined) {
+      this.layers = new LayersPanel()
+      this.addChild(this.layers)
+    }
+    this.layers.reset()
+    this.updateLayout()
+  }
+
+  /** Kept for game.ts's callers: the status panel reads the player every frame. */
+  updateStats (_data: unknown): void {
+    this.status?.update()
+  }
+
+  /** The inventory lives in the status panel (`setupStats`). */
+  setupInventory (): void {}
 
   updateInventory (counts: number[]): void {
-    this.inventory?.update(counts)
+    this.status?.inventory.update(counts)
   }
 
-  setupSkills (value: any[]): void {
-    const keys = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i']
-
-    this.skillBar = new Container()
-    for (const skill of value) {
-      const key = keys.shift()
-      if (key === undefined) { continue }
-      const btn = this.createSkillButton(skill, key, 60, 60)
-      this.skillBar.addChild(btn)
-    }
-
+  setupSkills (value: Skill[]): void {
+    if (this.skills !== undefined) this.removeChild(this.skills)
+    this.skills = new SkillPanel(value)
+    this.controlsMap.clear()
+    for (const card of this.skills.cards) this.controlsMap.set(card.key, card)
+    this.addChild(this.skills)
     this.updateLayout()
-    this.addChild(this.skillBar)
-  }
-
-  createSkillButton (skill: Skill, key: string, width: number, height: number): TapHandler {
-    const btn = new TapHandler(
-      skill.execute.bind(skill),
-      skill.cooldown,
-      width,
-      height,
-      0x00000000
-    )
-
-    const bg = new Sprite(Texture.from('UI/elements/cell.png'))
-    bg.anchor = ToolKit.CENTER_ANCHOR
-    bg.scale = new Point(2, 2)
-    btn.addChild(bg)
-
-    const sprite = new Sprite(skill.uiTexture)
-    sprite.anchor = ToolKit.CENTER_ANCHOR
-    const scale = Math.min(
-      width / skill.uiTexture.frame.width,
-      height / skill.uiTexture.frame.height
-    )
-    sprite.scale = new Point(scale, scale)
-    btn.addChild(sprite)
-    const btnLabel = new Text(key.toUpperCase(), {
-      fontFamily: 'Lilliput Steps',
-      fontSize: 32,
-      fill: '0xA39171',
-      stroke: 'black',
-      strokeThickness: 8
-    })
-    btnLabel.x = -btnLabel.width + 2
-    btnLabel.y = height / 2 - btnLabel.height
-
-    btn.addChild(btnLabel)
-    this.controlsMap.set(key, btn)
-    return btn
   }
 
   updateLayout (): void {
-    if (this.map != null) {
-      this.map.x = 20
-      this.map.y = 20
+    const s = HUD.scale()
+    const m = HUD.MARGIN
+    const W = window.innerWidth
+    const H = window.innerHeight
+    const place = (c: Container | undefined, x: number, y: number): void => {
+      if (c === undefined) return
+      c.scale.set(s, s)
+      c.x = Math.round(x)
+      c.y = Math.round(y)
     }
 
-    if (this.playerStats != null) {
-      this.playerStats.x = window.innerWidth - 84
-      this.playerStats.y = 20
+    place(this.status, m, m)
+    // Top centre, unless that runs into the status panel (a phone): then the
+    // top right corner, and the board goes under the status panel below.
+    const statusRight = this.status !== undefined ? m + this.status.panelWidth * s : 0
+    let clockBottom = 0
+    if (this.clock !== undefined) {
+      const cw = this.clock.panelWidth * s
+      const centred = (W - cw) / 2
+      place(this.clock, centred >= statusRight + m ? centred : W - cw - m, m)
+      clockBottom = centred >= statusRight + m ? 0 : m + this.clock.panelHeight * s
     }
 
-    if (this.skillBar != null) {
-      for (let i = 0; i < this.skillBar.children.length; i++) {
-        this.skillBar.children[i].x = -80 * i
-      }
-      this.skillBar.x = window.innerWidth - 100
-      this.skillBar.y = window.innerHeight - 100
+    // Top right: the leaderboard, and the minimap under it. On a screen too
+    // narrow for the status panel and the board side by side, the board goes
+    // under the status panel instead.
+    const board = Leaderboard.Instance
+    let rightTop = Math.max(m, clockBottom + m)
+    if (board !== undefined) {
+      const boardW = board.panelWidth * s
+      const beside = W - boardW - m >= statusRight + m && clockBottom === 0
+      board.scale.set(s, s)
+      board.x = Math.round(beside ? W - boardW - m : m)
+      board.y = Math.round(beside ? m : (this.status !== undefined ? m + this.status.panelHeight * s + m : m))
+      rightTop = beside ? board.y + board.panelHeight * s + m : rightTop
+    }
+    if (this.map !== undefined) {
+      this.map.scale.set(s, s)
+      this.map.x = Math.round(W - MINIMAP * s - m)
+      this.map.y = Math.round(rightTop)
     }
 
-    // Bottom left: the skill bar grows leftward from the bottom right.
-    if (this.inventory != null) {
-      this.inventory.x = 20
-      this.inventory.y = window.innerHeight - 20 - this.inventory.height
+    // Bottom: skills on the left, layers on the right with the fog legend
+    // above it. When the skills would need more than two rows beside the
+    // layers panel (a phone), the layers panel stacks above the skills instead
+    // and the skills get the full width.
+    const lw = this.layers !== undefined ? this.layers.panelWidth * s : 0
+    let stacked = false
+    if (this.skills !== undefined) {
+      this.skills.wrap(Math.max(200, (W - lw - 3 * m) / s))
+      stacked = this.skills.rows > 2
+      if (stacked) this.skills.wrap((W - 2 * m) / s)
+      place(this.skills, m, H - this.skills.panelHeight * s - m)
+    }
+    if (this.layers !== undefined) {
+      const bottom = stacked && this.skills !== undefined ? this.skills.y - m : H - m
+      place(this.layers, W - lw - m, bottom - this.layers.panelHeight * s)
+      place(this.legend, W - this.legend.width * s - m, this.layers.y - 40 * s)
     }
   }
 
@@ -130,42 +161,33 @@ export class HUD extends Container {
     // Keys 1-5 use an item (the mockup), slot 0-4.
     const slot = '12345'.indexOf(e.key)
     if (e.key.length === 1 && slot >= 0) {
-      this.inventory?.use(slot)
+      this.status?.inventory.use(slot)
       return
     }
     this.invokeKeyBoundSkill(e.key)
   }
 
   invokeKeyBoundSkill (value: string): void {
-    if (this.controlsMap.has(value)) {
-      this.controlsMap.get(value)?.invoke()
-    }
+    this.controlsMap.get(value)?.invoke()
   }
 
   update (dt: number): void {
     if (this.map != null) this.map.update(dt)
+    this.status?.update()
+    this.clock?.update()
+    this.skills?.update(performance.now())
+    this.layers?.setCurrent(Game.PLAYER?.tag)
   }
 
   clearGameUI (): void {
-    if (this.map != null) {
-      this.removeChild(this.map)
-      this.map = undefined
+    for (const c of [this.map, this.status, this.clock, this.skills, this.layers]) {
+      if (c !== undefined) this.removeChild(c)
     }
-
-    if (this.playerStats != null) {
-      this.removeChild(this.playerStats)
-      this.playerStats = undefined
-    }
-
-    if (this.skillBar != null) {
-      this.skillBar.removeChildren()
-      this.removeChild(this.skillBar)
-      this.skillBar = undefined
-    }
-
-    if (this.inventory != null) {
-      this.removeChild(this.inventory)
-      this.inventory = undefined
-    }
+    this.map = undefined
+    this.status = undefined
+    this.clock = undefined
+    this.skills = undefined
+    this.layers = undefined
+    this.controlsMap.clear()
   }
 }

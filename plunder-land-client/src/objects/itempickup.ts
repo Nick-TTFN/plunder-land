@@ -23,6 +23,18 @@ export class ItemPickup extends GameObject {
     // A shadow, so it reads as lying on the ground like the loot does.
     g.beginFill(0x000000, 0.3).drawEllipse(0, r * 0.7, r * 0.9, r * 0.35).endFill()
 
+    ItemPickup.drawIcon(g, info, r)
+
+    this.addChild(g)
+    this.DEBUG_DRAW_COLLIDER()
+  }
+
+  /**
+   * The item's placeholder icon, centred on (0, 0) at size `r`, into `g`. Also
+   * the inventory slot icon (`ui/components/inventory.ts`), so the two match
+   * until the art pass replaces both.
+   */
+  static drawIcon (g: Graphics, info: ItemInfo | undefined, r: number): void {
     switch (info?.key) {
       case 'medkit': {
         const s = r * 1.3
@@ -47,8 +59,5 @@ export class ItemPickup extends GameObject {
         g.lineStyle(2, 0x000000, 1)
         g.beginFill(0x9a9a9a).drawCircle(0, 0, r * 0.6).endFill()
     }
-
-    this.addChild(g)
-    this.DEBUG_DRAW_COLLIDER()
   }
 }

@@ -337,6 +337,11 @@ export default class Multiplayer {
     if (player != null && (player.destroyed || player.exited)) {
       connection.player = undefined
       this.forget(connection)
+      // The run is over: the client may ask for another on this socket. It
+      // does, after its game-over screen, and until 2026-09-27 this stayed
+      // true from the first start (since the 2026-09-02 revival), so every
+      // restart without a page reload was silently ignored.
+      connection.started = false
     }
   }
 

@@ -51,7 +51,9 @@ void font.load().then(function () {
 function start (): void {
   Game.socketBytes = 0
   stats.showPanel(3) // 0: fps, 1: ms, 2: mb, 3+: custom
-  document.body.appendChild(stats.dom)
+  // A developer overlay: only with ?stats=1. It sat on top of the HUD's
+  // status panel for every player (hud-rebuild, M2). It still measures either way.
+  if (new URLSearchParams(window.location.search).get('stats') === '1') document.body.appendChild(stats.dom)
 
   document.body.appendChild(app.view as any)
 

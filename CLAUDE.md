@@ -49,7 +49,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 26 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 25 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
@@ -121,9 +121,10 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   implicit `any` parameters in `vfx/meleeattack.effect.ts` went when that file was
   rewritten; `game.ts`'s four "possibly undefined" went with the layer code they were in.)
 
-Anything **outside** these three groups is a new regression. The count is 26: 6 `Point`,
-17 `GameObject`, 3 nits (measured 2026-09-26, `hex-cells-p4-cleanup`: the two `impulse`
-errors went with the dead `impulse` read in `onObjectUpdated`; it was 28). Compare the
+Anything **outside** these three groups is a new regression. The count is 25: 5 `Point`,
+17 `GameObject`, 3 nits (measured 2026-09-27, `hud-rebuild`: one `Point` went with the deleted
+`playerstats.ts`; it was 26 after `hex-cells-p4-cleanup` dropped the two `impulse` errors, 28
+before). Compare the
 sorted error list, not just the count, before dismissing.
 
 ## Running it locally
@@ -149,6 +150,9 @@ looked like the game randomly dropping the connection and resetting the world. N
 stats write is caught and logged, throttled to one line a minute (`stats write failed: …`),
 and the world keeps running. Stats are simply lost, so that log line is the symptom to look
 for. (The `MISCONF` path is covered by the same catch but wasn't run; a dead Redis port was.)
+
+The stats.js performance overlay (fps, socket bytes) shows only with `?stats=1` since
+`hud-rebuild`: it sat on top of the HUD's status panel for every player.
 
 The client's server address lives in `src/config.ts` and defaults to production. Point it
 at a local server with a query param — no source edit needed:

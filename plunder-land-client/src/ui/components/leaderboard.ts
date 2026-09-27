@@ -1,78 +1,87 @@
-import { Graphics, Text } from 'pixi.js'
+import { Graphics, type Text } from 'pixi.js'
 import { Standing, type StandingRow, pickShown } from './standings'
+import { Panel } from './panel'
+import { THEME, two } from '../theme'
+import { HUD } from './hud'
 
 // Where they lived before the decoder moved to standings.ts; game.ts imports them from here.
 export { Standing, decodeStanding, type StandingRow } from './standings'
 
-const FONT = 'Lilliput Steps'
-const TEXT = 0xF2EEE3
-const MUTED = 0xA8A294
-const LOOT = 0xFFD34D
 const STATUS_LABEL: Record<number, string> = {
   [Standing.ACTIVE]: 'ACTIVE',
   [Standing.EXTRACTED]: 'EXTRACTED',
   [Standing.DEAD]: 'DEAD'
 }
 const STATUS_COLOUR: Record<number, number> = {
-  [Standing.ACTIVE]: 0x8FD694,
-  [Standing.EXTRACTED]: 0x6EC6FF,
-  [Standing.DEAD]: 0xFF6B6B
+  [Standing.ACTIVE]: THEME.armor,
+  [Standing.EXTRACTED]: THEME.accent,
+  [Standing.DEAD]: THEME.danger
 }
 
 /** How many rows the board shows before your own. */
 const TOP = 5
-const PAD = 10
-const GAP = 12
-const TITLE_HEIGHT = 26
-const ROW_HEIGHT = 20
+const ROW_H = 38
+const COL = { rank: 0, name: 70, loot: 300, status: 330 }
+const WIDTH = 480
 
-interface RowTexts { rank: Text, name: Text, loot: Text, status: Text }
+interface RowTexts { rank: Text, name: Text, loot: Text, status: Text, dot: Graphics }
 
 /**
- * "THIS RUN": the world's players ranked by the loot they carry, the top five
- * plus your own row, highlighted. Fed by the server's `standings` event about
- * once a second (`Game.onStandings`); it no longer polls `/stats`.
+ * The mockup's top-right LEADERBOARD, "THIS RUN": the world's players ranked
+ * by the loot they carry, the top five plus your own row, highlighted. Fed by
+ * the server's `standings` event (`Game.onStandings`).
  *
  * Its Text objects are made once and reused: a pixi Text owns a canvas
  * texture, and making fresh ones every second would leak them.
  */
-export class Leaderboard extends Graphics {
+export class Leaderboard extends Panel {
   static Instance: Leaderboard | undefined
 
-  private readonly _title: Text
-  private readonly _gap: Text
   private readonly _rows: RowTexts[] = []
+  private readonly _highlight = new Graphics()
+  private readonly _gap: Text
+  private readonly _footer: Text
 
   constructor () {
-    super()
+    super('LEADERBOARD', 'THIS RUN')
     Leaderboard.Instance = this
 
-    this._title = this.text('THIS RUN', 18, TEXT)
-    this._title.x = PAD
-    this._title.y = 6
-    this._gap = this.text('...', 16, MUTED)
+    this.body.addChild(this._highlight)
+    const header = (label: string, x: number, right = false): void => {
+      const t = Panel.text(label, THEME.smallSize, THEME.muted)
+      t.x = x
+      if (right) t.anchor.set(1, 0)
+      this.body.addChild(t)
+    }
+    header('RANK', COL.rank)
+    header('PLAYER', COL.name)
+    header('LOOT', COL.loot, true)
+    header('STATUS', COL.status)
 
     // TOP rows, and one more for your own when it is below them.
     for (let i = 0; i < TOP + 1; i++) {
-      this._rows.push({
-        rank: this.text('', 16, MUTED),
-        name: this.text('', 16, TEXT),
-        loot: this.text('', 16, LOOT),
-        status: this.text('', 16, TEXT)
-      })
+      const row: RowTexts = {
+        rank: Panel.text('', THEME.bodySize + 2, THEME.text),
+        name: Panel.text('', THEME.bodySize, THEME.text),
+        loot: Panel.text('', THEME.bodySize, THEME.text),
+        status: Panel.text('', THEME.bodySize, THEME.text),
+        dot: new Graphics()
+      }
+      row.loot.anchor.set(1, 0)
+      row.rank.x = COL.rank
+      row.name.x = COL.name
+      row.loot.x = COL.loot
+      row.status.x = COL.status + 20
+      row.dot.x = COL.status + 6
+      this.body.addChild(row.rank, row.name, row.loot, row.status, row.dot)
+      this._rows.push(row)
     }
-    this._rows.forEach((row) => { row.loot.anchor.set(1, 0) })
+    this._gap = Panel.text('...', THEME.bodySize, THEME.muted)
+    this._footer = Panel.text('Ranked by loot collected', THEME.smallSize, THEME.muted)
+    this.body.addChild(this._gap, this._footer)
 
     this.setStandings([], undefined)
-
     window.addEventListener('resize', this.onResize.bind(this))
-  }
-
-  private text (value: string, size: number, fill: number): Text {
-    const text = new Text(value, { fill, fontFamily: FONT, fontSize: size })
-    text.anchor.set(0, 0)
-    this.addChild(text)
-    return text
   }
 
   /**
@@ -81,73 +90,55 @@ export class Leaderboard extends Graphics {
    */
   setStandings (rows: StandingRow[], ownId: number | undefined): void {
     const { shown, own, ownBelow } = pickShown(rows, ownId, TOP)
-
-    // Column widths from what is actually shown.
-    let rankW = 0
-    let nameW = 0
-    let lootW = 0
-    let statusW = 0
+    let y = 28
+    this._highlight.clear()
+    this._gap.visible = false
     this._rows.forEach((texts, i) => {
       const entry = shown[i]
       const visible = entry !== undefined
-      for (const t of [texts.rank, texts.name, texts.loot, texts.status]) t.visible = visible
+      for (const t of [texts.rank, texts.name, texts.loot, texts.status, texts.dot]) t.visible = visible
       if (!visible) return
-      const finished = entry.row.status !== Standing.ACTIVE
-      texts.rank.text = `${entry.rank}.`
-      texts.name.text = entry.row.name
-      texts.name.alpha = finished ? 0.65 : 1
-      texts.loot.text = String(entry.row.loot)
-      texts.status.text = STATUS_LABEL[entry.row.status] ?? '?'
-      texts.status.style.fill = STATUS_COLOUR[entry.row.status] ?? MUTED
-      rankW = Math.max(rankW, texts.rank.width)
-      nameW = Math.max(nameW, texts.name.width)
-      lootW = Math.max(lootW, texts.loot.width)
-      statusW = Math.max(statusW, texts.status.width)
-    })
-
-    const nameX = PAD + rankW + 6
-    const lootRight = nameX + nameW + GAP + lootW
-    const statusX = lootRight + GAP
-    const width = Math.max(statusX + statusW + PAD, this._title.width + 2 * PAD, 160)
-
-    let y = TITLE_HEIGHT
-    let highlightY: number | undefined
-    this._gap.visible = false
-    shown.forEach((entry, i) => {
       if (ownBelow && i === shown.length - 1) {
         this._gap.visible = true
-        this._gap.x = PAD
-        this._gap.y = y - 4
-        y += ROW_HEIGHT - 6
+        this._gap.x = COL.name
+        this._gap.y = y - 8
+        y += 16
       }
-      const texts = this._rows[i]
-      texts.rank.x = PAD
-      texts.name.x = nameX
-      texts.loot.x = lootRight
-      texts.status.x = statusX
+      const isOwn = entry.row === own
+      const finished = entry.row.status !== Standing.ACTIVE
+      const colour = STATUS_COLOUR[entry.row.status] ?? THEME.muted
+      texts.rank.text = two(entry.rank)
+      texts.rank.style.fill = entry.rank === 1 ? THEME.loot : THEME.text
+      texts.name.text = entry.row.name
+      texts.name.style.fill = isOwn ? THEME.accent : THEME.text
+      texts.name.alpha = finished ? 0.6 : 1
+      texts.loot.text = entry.row.loot.toLocaleString('en-US')
+      texts.status.text = STATUS_LABEL[entry.row.status] ?? '?'
+      texts.status.style.fill = colour
+      texts.dot.clear().beginFill(colour).drawCircle(0, 9, 5).endFill()
       for (const t of [texts.rank, texts.name, texts.loot, texts.status]) t.y = y
-      if (entry.row === own) highlightY = y
-      y += ROW_HEIGHT
+      texts.dot.y = y
+      if (isOwn) {
+        this._highlight
+          .beginFill(THEME.accent, 0.12).drawRect(-THEME.pad, y - 8, WIDTH, ROW_H - 4).endFill()
+          .beginFill(THEME.accent, 1).drawRect(-THEME.pad, y - 8, 3, ROW_H - 4).endFill()
+      }
+      y += ROW_H
     })
-    const height = y + (shown.length === 0 ? 0 : 4)
-
-    this.clear()
-      .beginFill(0x14161C, 0.85)
-      .lineStyle(1, 0x3A3F4B, 1)
-      .drawRoundedRect(0, 0, width, height, 6)
-      .endFill()
-      .lineStyle(0)
-    if (highlightY !== undefined) {
-      this.beginFill(LOOT, 0.22)
-        .drawRect(2, highlightY - 2, width - 4, ROW_HEIGHT)
-        .endFill()
-    }
-
+    this._footer.y = y + (shown.length === 0 ? 0 : -2)
+    this.fit(WIDTH)
     this.onResize()
   }
 
+  /** Placed by the HUD, which knows what else is on screen; alone at the top right before one exists. */
   onResize (): void {
-    this.x = window.innerWidth - this.width - 10
-    this.y = 10
+    if (HUD.Instance !== undefined) {
+      HUD.Instance.updateLayout()
+      return
+    }
+    const scale = HUD.scale()
+    this.scale.set(scale, scale)
+    this.x = window.innerWidth - this.panelWidth * scale - HUD.MARGIN
+    this.y = HUD.MARGIN
   }
 }
