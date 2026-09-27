@@ -44,7 +44,7 @@ hand, do the same.
 `socket.io-client` from `plunder-land-client` (the server package doesn't
 depend on it; `LOADBOT_CLIENT_DIR` overrides the folder), and `Hex`/`Vector`
 from this server's `dist/utils`, which is why it needs a build. Its field-width
-table (`WIDTH`) mirrors `fieldOrder` up to index 20 (`loot32`); **add a row
+table (`WIDTH`) mirrors `fieldOrder` up to index 21 (`kills`); **add a row
 when a field is appended**, or the bots stop finding their own position and
 stand still.
 

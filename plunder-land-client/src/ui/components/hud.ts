@@ -153,7 +153,10 @@ export class HUD extends Container {
     if (this.layers !== undefined) {
       const bottom = stacked && this.skills !== undefined ? this.skills.y - m : H - m
       place(this.layers, W - lw - m, bottom - this.layers.panelHeight * s)
-      place(this.legend, W - this.legend.width * s - m, this.layers.y - 40 * s)
+      // Local bounds, not `width`: `width` already includes the scale `place`
+      // set last time, so multiplying by `s` again pushed the legend off the
+      // right edge on any screen smaller than 1600 x 900.
+      place(this.legend, W - this.legend.getLocalBounds().width * s - m, this.layers.y - 40 * s)
     }
   }
 

@@ -2,8 +2,19 @@ import { Graphics } from 'pixi.js'
 import { type Vector } from '../../utils/vector'
 import { Hex } from '../../utils/hex'
 
-/** Warm off-white. Reads on both the ground and the grass plane. */
-const COLOUR = 0xF2E4C4
+/**
+ * The mockup's cyan (THEME.accent), world-markers M2. It was a warm off-white;
+ * the dark shadow below is what keeps either legible on textured ground.
+ */
+const COLOUR = 0x3DE0D0
+
+/** Corners of the destination hex, pointy-top, a little inside the cell. */
+const CORNERS: number[] = []
+for (let i = 0; i < 6; i++) {
+  const a = (Math.PI / 3) * i + Math.PI / 6
+  const r = Hex.SIZE / Math.sqrt(3) * 0.92
+  CORNERS.push(Math.cos(a) * r, Math.sin(a) * r)
+}
 
 /**
  * Laid under every mark, a pixel down and slightly wider.
@@ -18,7 +29,7 @@ const SHADOW = 0x1A1208
 
 /**
  * The route the local player is walking: a dot on each cell still to come, and
- * a ring on the destination.
+ * the destination cell outlined and lit (world-markers: it was a ring).
  *
  * It draws `LocalPlayer.remaining` rather than the whole path, so it empties out
  * behind the player as they advance. That is worth saying because it makes the
@@ -75,12 +86,14 @@ export class PathMarker extends Graphics {
     }
 
     const end = Hex.toPosition(cells[cells.length - 1])
-    const ring = Hex.SIZE * 0.31
+    const at = (dy: number): number[] => CORNERS.map((v, i) => v + (i % 2 === 0 ? end.x : end.y + dy))
 
     this.lineStyle(4, SHADOW, 0.5)
-    this.drawCircle(end.x, end.y + 1, ring)
-    this.lineStyle(2, COLOUR, 0.9)
-    this.drawCircle(end.x, end.y, ring)
+    this.drawPolygon(at(1))
+    this.lineStyle(2, COLOUR, 0.95)
+    this.beginFill(COLOUR, 0.22)
+    this.drawPolygon(at(0))
+    this.endFill()
     this.lineStyle(0)
   }
 }

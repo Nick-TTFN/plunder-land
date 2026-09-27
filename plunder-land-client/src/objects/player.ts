@@ -1,4 +1,4 @@
-import { Container, Graphics, Point, Text } from 'pixi.js'
+import { type Container, Point } from 'pixi.js'
 import { Dash } from '../skills/dash'
 import { MeleeAttack } from '../skills/meleeattack'
 import { RangedAttack } from '../skills/rangedattack'
@@ -9,6 +9,8 @@ import { AnimationStates } from '../animation/animationstates'
 import Unit from './unit'
 import { lookFor } from './archetypesprites'
 import { type ArchetypeInfo } from '../utils/archetypes'
+import { namePlate } from '../ui/elements/nameplate'
+import { THEME } from '../ui/theme'
 
 export default class Player extends Unit {
   skills: Skill[]
@@ -20,6 +22,8 @@ export default class Player extends Unit {
 
   constructor (archetype?: ArchetypeInfo) {
     super(0, archetype)
+    // Other players' bars are blue; `setLabel(.., true)` makes your own green.
+    this.hpBar.colour = THEME.armor
 
     // Must match Player.skills on the server: the index of the pressed slot is
     // the whole payload of the `skill` message.
@@ -58,7 +62,7 @@ export default class Player extends Unit {
   }
 
   /**
-   * Draws `text` over the robot, replacing any label already there. Remote
+   * Draws `text` under the robot, replacing any label already there. Remote
    * players get the `name` from their create record, which the server has
    * already sanitised and capped (server `Player.sanitiseName`); the local
    * player gets OWN_LABEL, since its own create record carries no name.
@@ -67,28 +71,12 @@ export default class Player extends Unit {
   setLabel (text: string, own: boolean = false): void {
     if (this.label !== undefined) this.removeChild(this.label)
 
-    const label = new Text(text, {
-      fontFamily: '"Trebuchet MS", Helvetica, sans-serif',
-      fontSize: 10,
-      fill: own ? 0xffe066 : 'white',
-      stroke: 'black',
-      strokeThickness: 1
-    })
-
-    const container = new Container()
-    const graphics = new Graphics()
-    graphics.alpha = 0.4
-    graphics
-      .beginFill(0x000000)
-      .drawRect(-3, 0, label.width + 5, label.height + 2)
-      .endFill()
-    container.addChild(graphics)
-    container.addChild(label)
-
-    container.x = -(label.width + 5) / 2
-    container.y = -50
-    this.addChild(container)
-    this.label = container
+    // Under the feet, as the mockup: YOU in the accent colour, others pale blue.
+    const plate = namePlate(text, own ? THEME.accent : 0xBFE3FF, own ? THEME.accent : THEME.panelBorder)
+    plate.y = this.feetY + 2
+    this.addChild(plate)
+    this.label = plate
+    if (own) this.hpBar.colour = THEME.hp
   }
 
   dispose (): void {
@@ -97,7 +85,7 @@ export default class Player extends Unit {
       this.animation?.setDefault(undefined)
     }
 
-    if (this.progressBar != null) { this.removeChild(this.progressBar.graphics) }
+    this.removeChild(this.hpBar)
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this

@@ -67,6 +67,22 @@ export function rangedRangeCells (rangedCells: number | null | undefined, isMob:
 }
 
 /**
+ * How far a mob's attack reaches from its cell, in rings, for the threat cells
+ * (world-markers, M2), or 0 for none. Boss: its FireBreath cone, which it can
+ * turn to any of the six directions, so the whole disc. Gunner: its
+ * RangedAttack range (`rangedCells`). Grunts only touch (1 ring) and are left
+ * out, or every grunt would stand in a red patch. Takes values, not the row,
+ * so this file still imports nothing; `effectcells.spec.ts` pins it to the
+ * server's numbers.
+ */
+export function threatRingsOf (key: string, kind: string, rangedCells: number | null): number {
+  if (kind !== 'mob') return 0
+  if (key === 'boss') return FIRE_BREATH_RINGS
+  if (key === 'gunner') return rangedRangeCells(rangedCells, true)
+  return 0
+}
+
+/**
  * Port of `World.FACING_INDEX`: the DIRECTIONS index nearest to a world-space
  * vector. Halfway facings round clockwise; a zero vector is East.
  */

@@ -30,7 +30,13 @@ export interface ArchetypeInfo {
   readonly kind: 'robot' | 'mob'
   /** Hopper (#15). Not read by either side yet (step 6). */
   readonly passesObstacles: boolean
-  /** Fog radius, robots only. Not read yet (step 5); null = no fog, as today. */
+  /**
+   * Fog radius in cells (`Hex.distance`), robots only: the client hides units
+   * and pickups further than this from its own cell (`fog-of-war`, M2; the
+   * client's `src/objects/fog.ts`). Cosmetic (decision #36): the server still
+   * sends everything in the interest box. null = no fog. Peep 8 (#16);
+   * Periscope's 11 arrives with the robot (M3).
+   */
   readonly vision: number | null
   /**
    * RangedAttack's range in cells (decision #25), or null for an archetype
@@ -43,7 +49,7 @@ export interface ArchetypeInfo {
 }
 
 export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Object.freeze({
-  peep: Object.freeze({ id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: null, rangedCells: 8 }),
+  peep: Object.freeze({ id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: 8, rangedCells: 8 }),
   grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null }),
   boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null }),
   gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', passesObstacles: false, vision: null, rangedCells: 6 })

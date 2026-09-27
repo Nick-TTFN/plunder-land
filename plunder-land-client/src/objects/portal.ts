@@ -1,10 +1,11 @@
 import { GameObject } from './gameobject'
-import { Sprite, Point, Texture, ObservablePoint, Text } from 'pixi.js'
+import { Sprite, Point, Texture, ObservablePoint } from 'pixi.js'
+import { namePlate } from '../ui/elements/nameplate'
 
 export class Portal extends GameObject {
   /**
    * `up` points the arrow toward the surface. `destination` is the layer
-   * number the portal leads to (1 = layer 01), shown as a label above it;
+   * number the portal leads to (1 = layer 01), shown as a plate under it;
    * undefined for a tag this client was not told about, which draws no label.
    */
   constructor (radius: number, up: boolean, destination?: number) {
@@ -23,17 +24,10 @@ export class Portal extends GameObject {
     this.addChild(this.main)
 
     if (destination !== undefined) {
+      // Under the portal in a violet plate, as the mockup (world-markers).
       // Text, not art: a placeholder until there is a sign for it.
-      const label = new Text(`LAYER ${String(destination).padStart(2, '0')}`, {
-        fontFamily: '"Trebuchet MS", Helvetica, sans-serif',
-        fontSize: 12,
-        fontWeight: 'bold',
-        fill: 'white',
-        stroke: 'black',
-        strokeThickness: 3
-      })
-      label.anchor.set(0.5, 1)
-      label.y = -radius - 4
+      const label = namePlate(`LAYER ${String(destination).padStart(2, '0')}`, 0xD9C8FF, 0x8A5CFF, 12)
+      label.y = radius + 2
       this.addChild(label)
     }
 

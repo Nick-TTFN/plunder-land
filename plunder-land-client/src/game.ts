@@ -14,15 +14,18 @@ import { Vector } from './utils/vector'
 import { Hex } from './utils/hex'
 import { archetypeById } from './utils/archetypes'
 import { PathMarker } from './ui/elements/pathmarker'
+import { ThreatMarker, threatRings, type Threat } from './ui/elements/threatmarker'
 import { Timer } from './ui/elements/timer'
 import { ExtractRing } from './ui/elements/extractring'
 import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
 import { HexTerrain } from './objects/hexterrain'
+import { Fog, SEEN, FOG_TINT } from './objects/fog'
 import Mob from './objects/mob'
 import Player from './objects/player'
 import GameEnterPopup from './ui/popups/gameenterpopup'
+import { RunRecord, RunSummaryCard } from './ui/popups/runsummary'
 
 import { FireBreathEffect } from './vfx/firebreath.effect'
 import { IceBreathEffect } from './vfx/icebreath.effect'
@@ -62,6 +65,8 @@ export class Game extends Container {
   terrains: HexTerrain[] = []
   /** Draws the route the local player is walking. */
   pathMarker: PathMarker | undefined
+  /** Red cells under the mobs that can reach you (world-markers). */
+  threatMarker: ThreatMarker | undefined
   static socket: Socket
   static hud: HUD
   static socketBytes: number
@@ -70,6 +75,10 @@ export class Game extends Container {
   static PLAYER_ID: number | undefined
   static RENDERER: Renderer
   static popups: PopupManager
+  /** Tile fog of war (fog-of-war, M2): reset per run at the own create. */
+  static FOG = new Fog()
+  /** This run's facts for the end-of-run card (run-summary-card, M2). */
+  static RUN = new RunRecord()
   static Instance: Game
   static simulate: boolean
   static loader: any
@@ -204,6 +213,7 @@ export class Game extends Container {
     // Parented in update(), not here: it belongs to whichever plane the player
     // is standing on, and a portal moves them between planes mid-run.
     this.pathMarker = new PathMarker()
+    this.threatMarker = new ThreatMarker()
 
     Game.PORTALS = new Map()
     this.LOOKUP = {}
@@ -252,6 +262,11 @@ export class Game extends Container {
     this.tags = [...Session.layers]
     this.terrains = []
     this.layers = this.tags.map((_, i) => this.createLayer(i === 0 ? 'hexpad/grass' : 'hexpad/ground'))
+    // Each plane's pads take the fog's tint for their own layer.
+    this.terrains.forEach((terrain, i) => {
+      const tag = this.tags?.[i]
+      terrain.tintOf = (q, r) => FOG_TINT[Game.FOG.state(q, r, tag)]
+    })
     for (const layer of this.layers) {
       layer.alpha = 0
       layer.sortableChildren = true
@@ -343,7 +358,10 @@ export class Game extends Container {
       'extractProgress',
       // Carried loot as a uint32, replacing the uint16 loot field, which a haul
       // over 65,535 overflowed. Stored under loot, so nothing downstream changes.
-      'loot32'
+      'loot32',
+      // The player's kills this run, uint16, for the run-summary card. In the
+      // own create and a delta on each kill.
+      'kills'
     ]
 
     const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
@@ -414,6 +432,9 @@ export class Game extends Container {
           value = (buffer[offset++] << 8) + buffer[offset++]
           break
         case 'maxArmor':
+          value = (buffer[offset++] << 8) + buffer[offset++]
+          break
+        case 'kills':
           value = (buffer[offset++] << 8) + buffer[offset++]
           break
         case 'archetype':
@@ -566,6 +587,14 @@ export class Game extends Container {
         data.tag,
         data.maxVelocity ?? 0
       )
+
+      // A new run sees nothing yet; its robot decides how far it sees.
+      Game.FOG.reset(archetypeById(data.archetype)?.vision ?? null)
+      Game.hud.legend.visible = Game.FOG.radius !== null
+
+      Game.RUN.start(archetypeById(data.archetype)?.key)
+      Game.RUN.layer(Session.layerNumber(data.tag))
+      if (typeof data.kills === 'number') Game.RUN.kills = data.kills
 
       Game.hud.setupStats()
       Game.hud.setupSkills(Game.PLAYER.skills)
@@ -807,6 +836,8 @@ export class Game extends Container {
 
       if (Array.isArray(data.inventory) && obj === Game.PLAYER) Game.hud.updateInventory(data.inventory)
 
+      if (typeof data.kills === 'number' && obj === Game.PLAYER) Game.RUN.kills = data.kills
+
       if (data.loot !== undefined && data.loot !== obj.loot) {
         // Was `+${data.loot < obj.loot ? data.loot : data.loot - obj.loot}`, which
         // printed the new absolute total with a plus sign whenever loot fell, and
@@ -832,7 +863,10 @@ export class Game extends Container {
         if (obj === Game.PLAYER) Game.LOCAL.changeLayer(data.tag)
         this.layerOf(obj.tag)?.addChild(obj)
 
-        if (obj === Game.PLAYER) this.updateLayerVisibility(data.tag)
+        if (obj === Game.PLAYER) {
+          this.updateLayerVisibility(data.tag)
+          Game.RUN.layer(Session.layerNumber(data.tag))
+        }
       }
 
       if (data.radius !== undefined && obj.radius !== data.radius) {
@@ -881,8 +915,11 @@ export class Game extends Container {
       if (data.hp === undefined && obj instanceof Unit && obj !== Game.PLAYER) obj.visible = false
 
       if (obj === Game.PLAYER) {
-        if (data.hp === 0) { new TextEffect('Game Over', this, 0, 0) } else { new TextEffect('Win!', this, 0, 0, 64, 'green') }
-        setTimeout(this.start.bind(this), 2000)
+        // The run-summary card replaces "Win!" / "Game Over" and the 2 s
+        // restart: the next run starts when the player asks for it. A destroy
+        // with hp 0 is a death; without hp, an extraction.
+        Game.RUN.finish((obj as Unit).loot ?? 0)
+        Game.popups.show(new RunSummaryCard(data.hp === 0 ? 'dead' : 'extracted', Game.RUN, this.start.bind(this)))
         Game.PLAYER = undefined
         Game.PLAYER_ID = undefined
         Game.hud.clearGameUI()
@@ -938,6 +975,28 @@ export class Game extends Container {
     marker.setPath(Game.LOCAL.remaining)
   }
 
+  /**
+   * The threat cells on the player's plane: every boss and gunner the player
+   * can see (not hidden by fog, not out of view), at the cell it is drawn on.
+   * Re-parented like the route marker.
+   */
+  updateThreatMarker (): void {
+    const marker = this.threatMarker
+    if (marker === undefined || this.layers == null) return
+
+    const threats: Threat[] = []
+    if (Game.PLAYER !== undefined) {
+      const layer = this.layerOf(Game.LOCAL.tag)
+      if (layer !== undefined && marker.parent !== layer) layer.addChild(marker)
+      for (const mob of Game.MOBS) {
+        if (mob.tag !== Game.LOCAL.tag || mob.killed || !mob.visible || !mob.renderable) continue
+        const rings = threatRings(mob.archetype)
+        if (rings > 0) threats.push({ cell: Hex.toCell(new Vector(mob.x, mob.y)), rings })
+      }
+    }
+    marker.setThreats(threats)
+  }
+
   update (dt: number): void {
     // for (const obstacle of Game.OBSTACLES) {
     //   obstacle.update(dt)
@@ -951,6 +1010,14 @@ export class Game extends Container {
 
     // The local player moves on input, not on the network.
     Game.LOCAL.predict(dt)
+
+    // Fog follows the predicted position, like the camera.
+    let fogMoved = false
+    if (Game.PLAYER !== undefined) {
+      const cell = Hex.toCell(new Vector(Game.LOCAL.x, Game.LOCAL.y))
+      fogMoved = Game.FOG.update(cell.x, cell.y, Game.LOCAL.tag)
+    }
+    this.applyFog()
 
     this.updatePathMarker()
 
@@ -979,6 +1046,9 @@ export class Game extends Container {
       }
     }
 
+    // After the mobs have moved to where they are drawn this frame.
+    this.updateThreatMarker()
+
     const layers = this.layers
 
     if (Game.PLAYER != null && layers != null) {
@@ -1005,7 +1075,30 @@ export class Game extends Container {
         // screen-over-scale slice here existed for the half-size ground seen
         // from the airborne plane, which is gone.
         this.terrains[i]?.update(Game.PLAYER.x, Game.PLAYER.y, screen.width, screen.height)
+        if (fogMoved) this.terrains[i]?.retint()
       }
+    }
+  }
+
+  /**
+   * Draw only what the fog lets the player see (fog-of-war, M2): units,
+   * pickups and projectiles on visible cells; terrain on visible and explored
+   * cells; portals, exits and the player's own robot always (#16: gates are
+   * marked through fog). `renderable`, not `visible`: other code already sets
+   * `visible` (a unit that left the interest box, a stale one), and the two
+   * must not undo each other. Cosmetic only (decision #36).
+   */
+  applyFog (): void {
+    const fog = Game.FOG
+    for (const id in this.LOOKUP) {
+      const obj = this.LOOKUP[id]
+      if (obj === Game.PLAYER || obj instanceof Portal || obj instanceof Exit || fog.radius === null) {
+        obj.renderable = true
+        continue
+      }
+      const cell = Hex.toCell(new Vector(obj.x, obj.y))
+      const seen = fog.state(cell.x, cell.y, obj.tag)
+      obj.renderable = obj instanceof Obstacle ? seen !== SEEN.UNKNOWN : seen === SEEN.VISIBLE
     }
   }
 }

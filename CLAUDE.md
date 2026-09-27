@@ -49,7 +49,7 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 25 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 24 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
@@ -115,16 +115,16 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   subclasses. Runtime-correct, type-unsafe. Fixing it properly means introducing a union
   or widening the base class — a real refactor, deliberately not done.
 
-- 3 strictness nits that predate 2026-09-24, listed by file so they can be recognised:
+- 2 strictness nits that predate 2026-09-24, listed by file so they can be recognised:
   `skills/dash.ts` (one "possibly undefined"), `skills/skill.ts` (`uiTexture` not
-  initialised), `ui/elements/progressbar.ts` (`_timeoutId` not initialised). (The two
+  initialised). (`ui/elements/progressbar.ts`'s went with that file in `world-markers`. The two
   implicit `any` parameters in `vfx/meleeattack.effect.ts` went when that file was
   rewritten; `game.ts`'s four "possibly undefined" went with the layer code they were in.)
 
-Anything **outside** these three groups is a new regression. The count is 25: 5 `Point`,
-17 `GameObject`, 3 nits (measured 2026-09-27, `hud-rebuild`: one `Point` went with the deleted
-`playerstats.ts`; it was 26 after `hex-cells-p4-cleanup` dropped the two `impulse` errors, 28
-before). Compare the
+Anything **outside** these three groups is a new regression. The count is 24: 5 `Point`,
+17 `GameObject`, 2 nits (measured 2026-09-27, `world-markers`, which deleted `progressbar.ts`;
+25 after `hud-rebuild`, where one `Point` went with the deleted `playerstats.ts`; 26 after
+`hex-cells-p4-cleanup` dropped the two `impulse` errors, 28 before). Compare the
 sorted error list, not just the count, before dismissing.
 
 ## Running it locally
@@ -442,6 +442,15 @@ dirty. Any uint16/uint8 field fed by an unbounded value can do the same. Audit n
 lifetime is an int8 of ms/100, so a 12.8 s effect would throw; ids are uint16 but recycled a
 second after release, and a 200-bot stress run peaked at id 2,610.
 
+**`kills` (21)** is a player's credited kills this run, a uint16 saturated at 65,535, for the
+end-of-run card (`run-summary-card`, decision #36). A `GameObject` accessor like `armor` (so
+never declare it on a subclass), in `Player.allFieldsOwn` only, incremented by `Player.onKill`
+and sent as a delta to every holder, like loot. It counts what `onKill` credits: breath kills
+have no attacker and don't count, as they don't in the redis `kills` stat. The frame puts
+`update` last, so a kill in the same tick as the player's own destroy never reaches its card.
+**Client first**, like every new index. The load bot's and `spans.cjs`'s `WIDTH` tables and
+`archetype-bot.mjs` have the row.
+
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
 (key 1 = medkit, key 2 = bomb, 3–5 empty). The item table's shared half is the mirrored
@@ -515,6 +524,37 @@ rebuilt only when the camera's own cell changes. Two things about it are load-be
   Choosing per cell out of one palette was the first build and it looked like static —
   patches are what makes it read as ground. `meta.regions` in `hex.json` fixes the order the
   palettes lie along the field; value noise is centre-heavy, so the middle ones dominate.
+
+**Fog of war is cosmetic** (decision #36, `src/objects/fog.ts`). Cells within the robot's
+`vision` rings (the mirrored `utils/archetypes.ts`: peep 8; null = no fog) are visible, cells
+seen before on that layer this run are explored, the rest unknown. The ground is tinted per
+cell (`HexTerrain.tintOf` / `retint`); `Game.applyFog` sets every object's **`renderable`**
+each frame: units, pickups and projectiles only on visible cells, terrain on visible and
+explored, portals, exits and your own robot always (#16). `renderable`, not `visible`, because
+other code already drives `visible` (a unit that left the interest box, a stale one) and the two
+would undo each other. The server still sends everything in its 500-unit box, so a modified
+client sees through fog; server-enforced fog would also cut bandwidth and is not decided. The
+minimap draws only `renderable` objects, or it would show what fog hides.
+
+**World markers** (`world-markers`, M2, placeholder look). Every unit has a fixed-width
+health bar over its head (`ui/elements/unitbar.ts`: 36 px, 60 for a boss; red mobs, blue
+players, green for you); it used to be `maxHp` pixels wide. Names, portal "LAYER 0N" and exit
+"EXTRACT" labels are plates from `ui/elements/nameplate.ts`, under the thing they name. Red
+**threat cells** (`ThreatMarker`) are the union of a disc per boss (FireBreath's 4 rings: it
+can turn to any side) and gunner (its 6-cell shot) the player can see; grunts are left out.
+The reach is `threatRingsOf` in the pixi-free `vfx/cells.ts`, pinned to the server's skills
+by `effectcells.spec.ts`. The route is cyan and ends in a lit hex. Shapes and colours read
+in a 720p frame shrunk to 240p; plate text does not.
+
+**A run ends in a card** (`ui/popups/runsummary.ts`, `run-summary-card`): outcome, time, loot
+banked or lost, kills (`kills`, 21), deepest layer and robot, from `Game.RUN`. Its PLAY
+AGAIN (or Enter / Space) calls `Game.start`; there is no longer a 2 s automatic restart.
+
+**The canvas renders at the screen's density** (`index.ts`: `resolution` = devicePixelRatio
+capped at 2, `autoDensity`, re-read on resize). pixi's default of 1 gave a Retina screen a
+half-resolution canvas stretched 2x, and everything looked soft. Layout, pointer coordinates
+and `renderer.screen` stay in CSS pixels. Headless screenshots need `deviceScaleFactor: 2` to
+see the difference.
 
 An invisible plane sets `layer.visible = false` rather than sitting at alpha 0 — `visible` is
 the only flag that skips PIXI's transform pass as well as the draw, and there are now about a

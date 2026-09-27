@@ -34,7 +34,21 @@ const firebaseConfig = {
 firebase.analytics(firebase.initializeApp(firebaseConfig))
 
 const stats = new Stats()
-const app = new Application()
+/**
+ * The screen's device pixels per CSS pixel, capped at 2: a 3x phone would
+ * otherwise fill 9x the pixels of a 1x screen for little visible gain.
+ */
+function density (): number {
+  return Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+}
+
+// Render at the screen's density. With pixi's default resolution of 1 a Retina
+// screen got a half-resolution canvas stretched 2x by the browser, and every
+// sprite, line and label looked soft. `autoDensity` keeps the canvas's CSS size
+// at the window's, so layout, pointer coordinates and `renderer.screen` all
+// stay in CSS pixels; only the backing store grows. Text follows the
+// renderer's resolution on its own.
+const app = new Application({ resolution: density(), autoDensity: true })
 const socketPanel = stats.addPanel(new Stats.Panel('b/s', '#ff8', '#221'))
 
 settings.ROUND_PIXELS = true
@@ -235,6 +249,8 @@ function frame (): void {
 }
 
 function onResize (): void {
+  // Moving the window to a screen of another density fires a resize too.
+  if (app.renderer.resolution !== density()) app.renderer.resolution = density()
   app.renderer.resize(window.innerWidth, window.innerHeight)
   Game.loader.resize(window.innerWidth, window.innerHeight)
 

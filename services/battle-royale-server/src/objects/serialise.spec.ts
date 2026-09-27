@@ -55,6 +55,8 @@ function legacy (obj: GameObject, fields: Set<string>): Buffer | null {
       case 'maxHp': raw.push(getBuffer2(value)); break
       case 'armor': raw.push(getBuffer2(value)); break
       case 'maxArmor': raw.push(getBuffer2(value)); break
+      // run-summary-card: appended after this encoder was retired, in the same style.
+      case 'kills': raw.push(getBuffer2(Math.max(0, Math.min(0xFFFF, Math.floor(value))))); break
       case 'archetype': { const byte = Buffer.alloc(1); byte.writeUInt8(value); raw.push(byte); break }
       case 'item': { const byte = Buffer.alloc(1); byte.writeUInt8(value); raw.push(byte); break }
       case 'inventory': {

@@ -58,6 +58,8 @@ export class GameObject {
   // 0 rather than undefined for the same reason: `extractProgress` is compared
   // before it is written (Player.channelExtract).
   private _extractProgress: number = 0
+  // 0 for the same reason: Player.onKill increments it.
+  private _kills: number = 0
 
   static fieldOrder: string[] = [
     'id',
@@ -104,7 +106,11 @@ export class GameObject {
     'extractProgress',
     // Carried loot as a uint32 (loot-wire-overflow). The `loot` property goes
     // out under this index; see WIRE_NAME. Appended, as above.
-    'loot32'
+    'loot32',
+    // A player's kills this run, uint16, saturated (run-summary-card, #36):
+    // in the owner's create and a delta on each kill, for the end-of-run card.
+    // Only Player puts it in a snapshot set. Appended, as above.
+    'kills'
   ]
 
   /**
@@ -330,6 +336,16 @@ export class GameObject {
     this.dirtyFields.add('extractProgress')
   }
 
+  /** See 'kills' in `fieldOrder`. Written only by Player. */
+  get kills () {
+    return this._kills
+  }
+
+  set kills (value) {
+    this._kills = value
+    this.dirtyFields.add('kills')
+  }
+
   get name () {
     return this._name
   }
@@ -435,6 +451,11 @@ export class GameObject {
         case 'armor':
         case 'maxArmor':
           GameObject._room(at, 2).writeUInt16BE(value, at)
+          at += 2
+          break
+        case 'kills':
+          // Saturated, so no run can overflow it inside the tick (loot32's lesson).
+          GameObject._room(at, 2).writeUInt16BE(Math.max(0, Math.min(0xFFFF, Math.floor(value))), at)
           at += 2
           break
         // Unsigned: ObjectType.Item is 128 (see ObjectType); archetype ids are

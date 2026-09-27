@@ -163,6 +163,8 @@ const FACING = (v: number): number[] => [13, v]
 const ARMOR = (v: number): number[] => [14, ...u16(v)]
 const MAXARMOR = (v: number): number[] => [15, ...u16(v)]
 const ARCHETYPE = (v: number): number[] => [16, v]
+// run-summary-card, deliberate: a player's kills this run, uint16 at 21.
+const KILLS = (v: number): number[] => [21, ...u16(v)]
 const INVENTORY = (...counts: number[]): number[] => [18, counts.length, ...counts]
 
 test('the byte helpers use today\'s field indices', () => {
@@ -180,7 +182,9 @@ test('the byte helpers use today\'s field indices', () => {
       // extract-channel (progress byte), deliberate: appended.
       'extractProgress',
       // loot-wire-overflow, deliberate: carried loot as a uint32, appended.
-      'loot32']
+      'loot32',
+      // run-summary-card, deliberate: a player's kills this run, appended.
+      'kills']
   )
 })
 
@@ -261,7 +265,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
     // Steps 3 and 4, deliberate, as above.
     ...ARMOR(50), ...MAXARMOR(50), ...ARCHETYPE(1),
     // usable-items, deliberate: the owner's own inventory, five empty slots.
-    ...INVENTORY(0, 0, 0, 0, 0)
+    ...INVENTORY(0, 0, 0, 0, 0),
+    // run-summary-card, deliberate: the run's kills, starting at 0.
+    ...KILLS(0)
   ])
 })
 

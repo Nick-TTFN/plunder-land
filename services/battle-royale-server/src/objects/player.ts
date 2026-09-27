@@ -73,6 +73,9 @@ export default class Player extends Unit {
 
     // The owner's own record only. Its create for everyone else stays as it was.
     this.allFieldsOwn.add('inventory')
+    // Kills this run, for the end-of-run card (run-summary-card). Starts at 0,
+    // so the owner's create always carries it.
+    this.allFieldsOwn.add('kills')
 
     Multiplayer.Instance.create(this)
   }
@@ -415,6 +418,10 @@ export default class Player extends Unit {
 
   onKill (value: GameObject): void {
     super.onKill(value)
+
+    // The run's count, on the wire as `kills` (21). Every credited kill, mob
+    // or player, as the redis `kills` stat counts them.
+    this.kills++
 
     // Never `void`: see Multiplayer.STATS_LOG. A rejected stats write is an
     // unhandled rejection, and that ends the process.

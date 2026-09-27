@@ -94,8 +94,8 @@ test('archetype is field index 16, after maxArmor', () => {
   assert.equal(GameObject.fieldOrder.indexOf('archetype'), 16)
   // usable-items appended `item` (17) and `inventory` (18) after it, and
   // extract-channel appended `extractProgress` (19), and loot-wire-overflow
-  // appended `loot32` (20).
-  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32'], 'a field after loot32: update this spec')
+  // appended `loot32` (20), and run-summary-card appended `kills` (21).
+  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills'], 'a field after kills: update this spec')
 })
 
 function units (): Array<[string, Unit, number]> {
@@ -116,11 +116,12 @@ test('every archetype unit\'s create record ends with [16, id], and its serialis
   }
 })
 
-test('the player\'s create_own carries [16, 1], followed only by its inventory', () => {
+test('the player\'s create_own carries [16, 1], followed only by its inventory and kills', () => {
   const player = new Player(X, Y, 0, 'p1')
   const own = [...(player.serialiseBinary(player.allFieldsOwn) as Buffer)]
-  // usable-items: the inventory (field 18, five empty slots) now comes last.
-  assert.deepEqual(own.slice(-9), [16, 1, 18, 5, 0, 0, 0, 0, 0])
+  // usable-items: the inventory (field 18, five empty slots) came next;
+  // run-summary-card: then kills (field 21, a uint16 0).
+  assert.deepEqual(own.slice(-12), [16, 1, 18, 5, 0, 0, 0, 0, 0, 21, 0, 0])
 })
 
 test('archetype is never dirty, so it never goes in a delta', () => {

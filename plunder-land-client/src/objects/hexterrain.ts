@@ -53,6 +53,16 @@ export class HexTerrain extends Container {
   /** One palette per region, in the order they lie along the noise field. */
   private readonly regions: Texture[][]
   private readonly pool: Sprite[] = []
+  /** Each pooled pad's cell, for re-tinting without a relayout (`retint`). */
+  private readonly padQ: number[] = []
+  private readonly padR: number[] = []
+  private _used = 0
+
+  /**
+   * The tint for cell (q, r): the fog's (fog-of-war, M2), set by `Game` per
+   * layer. Unset draws every pad untinted, as before fog.
+   */
+  tintOf: ((q: number, r: number) => number) | undefined
 
   /**
    * The camera cell and view size the current layout was built for.
@@ -125,12 +135,27 @@ export class HexTerrain extends Container {
         pad.x = Hex.SIZE * (q + shift)
         pad.y = HexTerrain.ROW_PITCH * r
         pad.visible = true
+        pad.tint = this.tintOf?.(q, r) ?? 0xFFFFFF
+        this.padQ[used - 1] = q
+        this.padR[used - 1] = r
       }
     }
+    this._used = used
 
     // Kept, not destroyed: the count swings by a row or two as the camera moves
     // and a resize is the only thing that changes it for good.
     for (let i = used; i < this.pool.length; i++) this.pool[i].visible = false
+  }
+
+  /**
+   * Re-apply `tintOf` to every pad in use, without laying them out again: the
+   * fog moved but the camera's cell did not (or did, and `update` already
+   * tinted them; this is then a cheap repeat). About 1400 pads.
+   */
+  retint (): void {
+    for (let i = 0; i < this._used; i++) {
+      this.pool[i].tint = this.tintOf?.(this.padQ[i], this.padR[i]) ?? 0xFFFFFF
+    }
   }
 
   /** The face this cell always wears: its region's palette, indexed by its hash. */

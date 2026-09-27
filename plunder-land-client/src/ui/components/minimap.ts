@@ -1,6 +1,11 @@
 import { Graphics } from 'pixi.js'
 import { Game } from '../../game'
 
+/**
+ * The minimap, kept as it was (decision #36). It draws only what the fog lets
+ * the player see (`renderable`, set by `Game.applyFog`), or it would show
+ * every unit the fog hides.
+ */
 export class MiniMap extends Graphics {
   mapWidth: number
   mapHeight: number
@@ -38,7 +43,7 @@ export class MiniMap extends Graphics {
 
     this.beginFill(0xFF6666)
     for (const mob of Game.MOBS) {
-      if (mob.tag === ownPlayer.tag && !mob.killed) {
+      if (mob.tag === ownPlayer.tag && !mob.killed && mob.renderable) {
         this.drawCircle(mob.x * this.mapWidth / 4000, mob.y * this.mapHeight / 4000, mob.maxHP > 100 ? 3 : 1)
       }
     }
@@ -46,14 +51,14 @@ export class MiniMap extends Graphics {
 
     this.beginFill(0xFFFF66)
     for (const consumable of Game.CONSUMABLES) {
-      if (consumable.tag === ownPlayer.tag && !consumable.killed) {
+      if (consumable.tag === ownPlayer.tag && !consumable.killed && consumable.renderable) {
         this.drawCircle(consumable.x * this.mapWidth / 4000, consumable.y * this.mapHeight / 4000, 1)
       }
     }
     this.endFill()
 
     for (const player of Game.PLAYERS) {
-      if (player.tag === ownPlayer.tag && !player.killed) {
+      if (player.tag === ownPlayer.tag && !player.killed && player.renderable) {
         this.beginFill(player === ownPlayer ? 0x33FF99 : 0xFF00FF)
         this.drawCircle(player.x * this.mapWidth / 4000, player.y * this.mapHeight / 4000, 3)
         this.endFill()

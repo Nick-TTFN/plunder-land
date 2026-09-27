@@ -74,6 +74,11 @@ export class Panel extends Container {
     }
   }
 
+  /** Recolour the title (the run-summary card's outcome). */
+  setTitleColour (fill: number): void {
+    if (this._title !== undefined) this._title.style.fill = fill
+  }
+
   get panelWidth (): number { return this._w }
   get panelHeight (): number { return this._h }
 

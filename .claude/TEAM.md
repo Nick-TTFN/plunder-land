@@ -87,15 +87,15 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
 ## Verification
 
 ```
-cd plunder-land-client           && npm run typecheck   # baseline 25 errors, see CLAUDE.md
+cd plunder-land-client           && npm run typecheck   # baseline 24 errors, see CLAUDE.md
 cd services/battle-royale-server && npm run typecheck   # must stay at 0
 cd services/battle-royale-server && npm test            # node --test over src/**/*.spec.ts
 ```
 
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
-CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-09-27, after hud-rebuild:
-client 25, server 0.)
+CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-09-27, after world-markers:
+client 24, server 0.)
 
 Running and smoke-testing locally: CLAUDE.md, "Running it locally".
 

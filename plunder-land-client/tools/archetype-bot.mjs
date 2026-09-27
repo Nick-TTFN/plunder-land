@@ -75,7 +75,7 @@ if (serverUrl === undefined) {
 // Must match the client's allFields (src/game.ts) and the server's fieldOrder.
 const FIELDS = ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
   'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing', 'armor', 'maxArmor', 'archetype',
-  'item', 'inventory', 'extractProgress', 'loot32']
+  'item', 'inventory', 'extractProgress', 'loot32', 'kills']
 const TYPE_NAMES = { 1: 'Obstacle', 2: 'Consumable', 4: 'Player', 8: 'Portal', 16: 'Throwable', 32: 'Mob', 64: 'Exit' }
 const MOB = 32
 const PLAYER = 4
@@ -105,7 +105,7 @@ function decode (buffer) {
     const key = FIELDS[buffer[o++]]
     if (key === undefined) throw new Error(`unknown field index ${buffer[o - 1]}`)
     switch (key) {
-      case 'id': case 'hp': case 'loot': case 'maxHp': case 'armor': case 'maxArmor':
+      case 'id': case 'hp': case 'loot': case 'maxHp': case 'armor': case 'maxArmor': case 'kills':
         data[key] = (buffer[o++] << 8) + buffer[o++]; break
       case 'type': case 'level': case 'radius': case 'facing': case 'archetype': case 'item':
       case 'extractProgress':

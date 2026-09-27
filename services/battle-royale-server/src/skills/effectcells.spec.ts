@@ -128,6 +128,27 @@ test('every archetype\'s built ranged range is the one the client draws it at, l
   assert.deepEqual([...covered].sort(), ['mob', 'robot'], 'no robot or no mob has RangedAttack: this checks less than it says')
 })
 
+test('the threat cells the client draws under a mob reach as far as its attack (world-markers)', () => {
+  // Boss: the FireBreath cone, drawn as the full disc since it can turn.
+  // Gunner: its built RangedAttack. Grunts and robots: none.
+  const owner = playerOn(new Vector(20, 40))
+  for (const archetype of Object.values(ARCHETYPES)) {
+    const info = ARCHETYPE_INFO[archetype.key]
+    const drawn = Client.threatRingsOf(info.key, info.kind, info.rangedCells)
+    const skills = buildSkills(owner, archetype)
+    if (archetype.key === 'boss') {
+      assert.ok(skills.some((s) => s instanceof FireBreath), 'the boss no longer breathes: its threat cells are wrong')
+      assert.equal(drawn, FireBreath.RINGS, 'boss')
+    } else if (archetype.key === 'gunner') {
+      const ranged = skills.find((s): s is RangedAttack => s instanceof RangedAttack)
+      assert.ok(ranged !== undefined)
+      assert.equal(drawn, ranged.range, 'gunner')
+    } else {
+      assert.equal(drawn, 0, archetype.key)
+    }
+  }
+})
+
 test('the drawn range comes from the row when there is one, whatever the unit type', () => {
   // The two fallbacks equal peep's and gunner's ranges, so the test above
   // cannot tell a lookup from a fallback. A value neither default has can.

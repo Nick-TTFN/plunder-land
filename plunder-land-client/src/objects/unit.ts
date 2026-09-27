@@ -1,4 +1,5 @@
-import { ProgressBar } from '../ui/elements/progressbar'
+import { UnitBar } from '../ui/elements/unitbar'
+import { THEME } from '../ui/theme'
 import { type Texture, Sprite, Point, ColorMatrixFilter } from 'pixi.js'
 import { GameObject } from './gameobject'
 import { TextEffect } from '../ui/elements/texteffect'
@@ -18,7 +19,8 @@ const IDLE_EPSILON = 0.05
 export default class Unit extends GameObject {
   shadow: Sprite | undefined
   loot: number = 0
-  progressBar: ProgressBar | undefined
+  /** Health over the head (world-markers): red for mobs; `Player` recolours it. */
+  hpBar: UnitBar
   level: number = 0
   hp: number | undefined
 
@@ -94,8 +96,23 @@ export default class Unit extends GameObject {
       this.shadow.y += this.animation.height / 3
     }
 
-    this.progressBar = new ProgressBar()
-    this.addChild(this.progressBar.graphics)
+    // A fixed width, wider for a boss so it reads as one at a glance.
+    this.hpBar = new UnitBar(archetype?.key === 'boss' ? 60 : 36, THEME.danger)
+    this.hpBar.y = this.headY - UnitBar.HEIGHT - 6
+    this.addChild(this.hpBar)
+  }
+
+  /**
+   * Where the drawn sprite's top and bottom are, relative to the unit's
+   * position: the sprite is anchored at its feet, then moved down a third of
+   * its height (above). Labels go under the feet and the bar over the head.
+   */
+  get headY (): number {
+    return this.animation !== undefined ? this.animation.y - this.animation.height : -30
+  }
+
+  get feetY (): number {
+    return this.animation !== undefined ? this.animation.y : 10
   }
 
   initAnimation (): void {}
@@ -110,13 +127,7 @@ export default class Unit extends GameObject {
 
     this.maxHP = value
 
-    if (this.progressBar !== undefined) {
-      this.progressBar.width = this.maxHP
-      this.progressBar.graphics.x = -this.progressBar.width / 2
-      this.progressBar.graphics.y = this.radius + 5
-    }
-
-    if (this.hp !== undefined) this.progressBar?.setValue(this.hp / this.maxHP)
+    if (this.hp !== undefined) this.hpBar.setValue(this.hp / this.maxHP)
   }
 
   setHP (value: number): void {
@@ -140,7 +151,7 @@ export default class Unit extends GameObject {
     }
 
     this.hp = value
-    this.progressBar?.setValue(this.hp / this.maxHP)
+    this.hpBar.setValue(this.hp / this.maxHP)
   }
 
   /** Record an authoritative position. Replaces the old chase-the-target model. */
