@@ -3,6 +3,7 @@ import { Vector } from '../../utils/vector'
 import { Hex } from '../../utils/hex'
 import { type ArchetypeInfo } from '../../utils/archetypes'
 import { type Cell, discCells, threatRingsOf } from '../../vfx/cells'
+import { onGround } from '../../objects/tilt'
 
 /** The mockup's red. */
 const COLOUR = 0xFF4A4A
@@ -44,6 +45,8 @@ export class ThreatMarker extends Graphics {
 
   constructor () {
     super()
+    // Drawn on the ground: squashed with it by the tilted camera.
+    onGround(this)
     this.eventMode = 'none'
     // Over the ground (-1000), under the route (-1) and the cell telegraphs.
     this.zIndex = -2

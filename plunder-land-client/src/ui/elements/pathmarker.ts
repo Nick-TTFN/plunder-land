@@ -1,6 +1,7 @@
 import { Graphics } from 'pixi.js'
 import { type Vector } from '../../utils/vector'
 import { Hex } from '../../utils/hex'
+import { onGround } from '../../objects/tilt'
 
 /**
  * The mockup's cyan (THEME.accent), world-markers M2. It was a warm off-white;
@@ -50,6 +51,8 @@ export class PathMarker extends Graphics {
 
   constructor () {
     super()
+    // Drawn on the ground: squashed with it by the tilted camera.
+    onGround(this)
     this.zIndex = -1
     this.eventMode = 'none'
   }

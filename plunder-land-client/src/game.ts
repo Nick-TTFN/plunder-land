@@ -21,7 +21,8 @@ import { Throwable } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
 import { HexTerrain } from './objects/hexterrain'
-import { Fog, SEEN, FOG_TINT } from './objects/fog'
+import { Fog, SEEN, LAYER_TINT } from './objects/fog'
+import { TILT, TiltedContainer, onGround } from './objects/tilt'
 import Mob from './objects/mob'
 import Player from './objects/player'
 import GameEnterPopup from './ui/popups/gameenterpopup'
@@ -111,6 +112,14 @@ export class Game extends Container {
    */
   static BLOCKED: Map<number, Set<number>> = new Map()
 
+  /**
+   * Each layer's valleys by tag, from `hello.voids` (`Session.voids`): cells
+   * that are blocked for routing, like `BLOCKED`, and that the ground always
+   * draws as unknown void. Replaced wholesale on every `hello`, so a new
+   * server's map never mixes with an old one's.
+   */
+  static VOIDS: Map<number, Set<number>> = new Map()
+
   static isBlocked (q: number, r: number, tag: number | undefined): boolean {
     // Off the map counts as solid, matching `World.isBlocked`. Without it the
     // client would happily route out past the edge while the server refused,
@@ -118,7 +127,8 @@ export class Game extends Container {
     // them agreeing about.
     if (!Hex.onMap(q, r, Session.mapSize)) return true
     if (tag === undefined) return false
-    return Game.BLOCKED.get(tag)?.has(Hex.key(q, r)) ?? false
+    const key = Hex.key(q, r)
+    return Game.VOIDS.get(tag)?.has(key) === true || Game.BLOCKED.get(tag)?.has(key) === true
   }
 
   static block (q: number, r: number, tag: number): void {
@@ -171,17 +181,23 @@ export class Game extends Container {
    * under all of them and under the path marker at -1.
    */
   createLayer (group: string): Container {
-    const layer = new Container()
+    // On the ground itself, so the camera's tilt squashes it; everything added
+    // to it then stands up (objects/tilt.ts).
+    const layer = onGround(new TiltedContainer())
 
     // `meta.regions` names the palettes in the order the terrain lays them out
     // along its noise field, so the order is the sheet's to decide and not this
     // function's to guess from key order.
-    const sheet = Assets.get('./res/hex.json')
+    const sheet = Assets.get('./res/ground.json')
     const terrain = new HexTerrain(
       sheet.data.meta.regions[group].map((region: string) =>
         sheet.data.animations[region].map((name: string) => Texture.from(name))
-      )
+      ),
+      Texture.from(sheet.data.meta.outline)
     )
+    if (Math.abs(sheet.data.meta.tilt - TILT) > 1e-6) {
+      console.warn(`ground.json is baked for tilt ${String(sheet.data.meta.tilt)}, the camera is at ${TILT}: re-bake`)
+    }
     terrain.zIndex = -1000
 
     layer.addChild(terrain)
@@ -202,7 +218,10 @@ export class Game extends Container {
 
     // main container
     if (Game.CONTAINER === undefined) {
-      Game.CONTAINER = new Container()
+      // The tilted camera (objects/tilt.ts): the ground is drawn squashed to
+      // TILT of its height, and toLocal undoes it for the pointer and the aim.
+      Game.CONTAINER = new TiltedContainer()
+      Game.CONTAINER.scale.y = TILT
       this.addChild(Game.CONTAINER)
     }
     // The layers come from the server, in `hello` (see onHello).
@@ -252,20 +271,26 @@ export class Game extends Container {
    * emitted before the join's first flush, so the layers exist before any
    * object that stands on them arrives.
    *
-   * Layer 01 is grass and every deeper layer is ground: the hex sheet has two
-   * palettes, so 02 and 03 look alike until there is art for a third.
+   * Every layer is the same steel ground (`ground.json`), tinted darker and
+   * colder per layer (`LAYER_TINT`) until there is art for each.
    */
   onHello (data: Parameters<typeof Session.onHello>[0]): void {
     Session.onHello(data)
+    Game.VOIDS = new Map(Session.layers.map((tag, i) => [tag, Session.voids[i]]))
+    // A later hello (a new run, or a reconnect to a restarted server) may
+    // bring a different map: redraw the ground's fog over it.
+    for (const terrain of this.terrains) terrain.retint()
     if (this.layers != null) return
 
     this.tags = [...Session.layers]
     this.terrains = []
-    this.layers = this.tags.map((_, i) => this.createLayer(i === 0 ? 'hexpad/grass' : 'hexpad/ground'))
-    // Each plane's pads take the fog's tint for their own layer.
+    this.layers = this.tags.map(() => this.createLayer('ground/steel'))
+    // Each plane's pads take the fog for their own layer, and its own tint.
     this.terrains.forEach((terrain, i) => {
       const tag = this.tags?.[i]
-      terrain.tintOf = (q, r) => FOG_TINT[Game.FOG.state(q, r, tag)]
+      terrain.seenOf = (q, r) =>
+        tag !== undefined && Game.VOIDS.get(tag)?.has(Hex.key(q, r)) === true ? SEEN.UNKNOWN : Game.FOG.state(q, r, tag)
+      terrain.tint = LAYER_TINT[Math.min(i, LAYER_TINT.length - 1)]
     })
     for (const layer of this.layers) {
       layer.alpha = 0
@@ -1052,8 +1077,11 @@ export class Game extends Container {
     const layers = this.layers
 
     if (Game.PLAYER != null && layers != null) {
-      Game.CONTAINER.x = -Game.PLAYER.x
-      Game.CONTAINER.y = -Game.PLAYER.y
+      // Snapped to device pixels, so the ground (laid out on whole device
+      // pixels, see HexTerrain) stays on them as the camera moves.
+      const res = Game.RENDERER.resolution
+      Game.CONTAINER.x = -Math.round(Game.PLAYER.x * res) / res
+      Game.CONTAINER.y = -Math.round(Game.PLAYER.y * TILT * res) / res
 
       const screen = Game.RENDERER.screen
 

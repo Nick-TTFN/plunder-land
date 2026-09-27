@@ -148,7 +148,24 @@ export class Hex {
     return x >= 0 && x <= size
   }
 
-  /** Steps between two cells. */
+  /**
+   * Every cell on a map `size` units across, in one fixed order: rows top to
+   * bottom, cells left to right. A consumed order: `hello.voids` is run-length
+   * encoded over it, so both sides must walk it identically (this file is
+   * mirrored). Bounds from the map's corners, padded by one; `onMap` trims.
+   */
+  static mapCells (size: number): Vector[] {
+    const qMin = Hex.toCell(new Vector(0, size)).x - 1
+    const qMax = Hex.toCell(new Vector(size, 0)).x + 1
+    const rMax = Hex.toCell(new Vector(size, size)).y + 1
+    const cells: Vector[] = []
+    for (let r = -1; r <= rMax; r++) {
+      for (let q = qMin; q <= qMax; q++) if (Hex.onMap(q, r, size)) cells.push(new Vector(q, r))
+    }
+    return cells
+  }
+
+    /** Steps between two cells. */
   static distance (a: Vector, b: Vector): number {
     const q = a.x - b.x
     const r = a.y - b.y

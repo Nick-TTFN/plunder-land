@@ -137,20 +137,15 @@ for (const skill of SKILLS) {
     })
   }
 
-  test(`${skill.name}s in flight do not count toward the rock refill`, () => {
+  test(`${skill.name}s in flight are not obstacles`, () => {
     const world = new World(4000)
     for (let i = 0; i < 3; i++) castFrom(skill.make, playerAt(500 + 1000 * i, 3000))
     assert.equal(World.PROJECTILES.length, 3)
 
     world.update(DT)
 
-    // DELIBERATE CHANGE (decision #26, `three-ground-layers`): the refill was a
-    // world-wide 300 that counted the gates; it is now LAYERS' rocks per layer,
-    // counting rocks only.
-    for (const layer of World.LAYERS) {
-      const rocks = World.OBSTACLES.filter((o) => o.tag === layer.tag && World.isRock(o))
-      assert.equal(rocks.length, layer.rocks, `the refill stopped short on layer ${layer.tag}`)
-    }
+    // This was also about the rock refill counting them; world rocks went
+    // with the valleys (tile art pass, 2026-09-27).
     assert.equal(World.OBSTACLES.some((o) => o.type === ObjectType.Throwable), false,
       'a projectile is in the obstacle list')
   })

@@ -5,15 +5,23 @@ export const SEEN = { UNKNOWN: 0, EXPLORED: 1, VISIBLE: 2 } as const
 export type Seen = typeof SEEN[keyof typeof SEEN]
 
 /**
- * Pad tints per state: placeholders until the art pass (decision #36). Keep
- * the fog legend's swatches (`FogLegend` in ui/components/layerspanel.ts)
- * roughly in step with these.
+ * Pad tints per state (decision #36, tile art pass). An unknown cell is not
+ * tinted: `HexTerrain` draws it as the ground sheet's outline instead of a
+ * face. Keep the fog legend's swatches (`FogLegend` in
+ * ui/components/layerspanel.ts) roughly in step with these.
  */
 export const FOG_TINT: Readonly<Record<Seen, number>> = {
   [SEEN.VISIBLE]: 0xFFFFFF,
-  [SEEN.EXPLORED]: 0x4A5560,
-  [SEEN.UNKNOWN]: 0x0A0D12
+  [SEEN.EXPLORED]: 0x707C92,
+  [SEEN.UNKNOWN]: 0xFFFFFF
 }
+
+/**
+ * Each plane's ground tint, top (01) first, multiplied into the fog's: the
+ * same steel gets darker and colder the deeper you are. A layer past the end
+ * takes the last entry.
+ */
+export const LAYER_TINT: readonly number[] = [0xFFFFFF, 0xD2DAEC, 0xAEBAD8]
 
 /**
  * Tile fog of war (fog-of-war, M2). Cells within `radius` rings of the

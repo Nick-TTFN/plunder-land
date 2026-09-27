@@ -54,15 +54,15 @@ test('LAYERS holds #26\'s numbers, top layer first', () => {
     return {
       tag: l.tag,
       loot: l.lootMultiplier,
-      rocks: l.rocks,
+      voids: l.voidShare,
       cap: l.naturalLoot,
       mobs: l.mobs.map((m) => `${m.archetype.key} ${m.count}`)
     }
   }
   assert.equal(LAYERS.length, 3)
-  assert.deepEqual(row(0), { tag: 0, loot: 1, rocks: 136, cap: 150, mobs: ['grunt 22', 'gunner 0', 'boss 0'] })
-  assert.deepEqual(row(1), { tag: -1, loot: 1.75, rocks: 136, cap: 150, mobs: ['grunt 18', 'gunner 8', 'boss 2'] })
-  assert.deepEqual(row(2), { tag: -2, loot: 3, rocks: 136, cap: 150, mobs: ['grunt 14', 'gunner 14', 'boss 3'] })
+  assert.deepEqual(row(0), { tag: 0, loot: 1, voids: 1 / 3, cap: 150, mobs: ['grunt 22', 'gunner 0', 'boss 0'] })
+  assert.deepEqual(row(1), { tag: -1, loot: 1.75, voids: 1 / 3, cap: 150, mobs: ['grunt 18', 'gunner 8', 'boss 2'] })
+  assert.deepEqual(row(2), { tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['grunt 14', 'gunner 14', 'boss 3'] })
   assert.deepEqual(World.TAGS, [0, -1, -2])
 })
 
@@ -124,7 +124,8 @@ function worldWithoutGates (): World {
   return world
 }
 
-test('every layer is filled to its own rock count, and a StoneWall stone is not a rock', () => {
+test('no world rocks are placed any more, and a StoneWall stone is not a rock', () => {
+  // The valleys replaced world rocks (tile art pass, 2026-09-27; valleys.spec.ts).
   const world = worldWithoutGates()
   // A timed obstacle, as StoneWall places, before the first refill.
   const stone = new Obstacle(2000, 2000, TOP, 5000)
@@ -132,12 +133,9 @@ test('every layer is filled to its own rock count, and a StoneWall stone is not 
 
   world.update(DT)
 
-  for (const layer of LAYERS) {
-    const rocks = World.OBSTACLES.filter((o) => o.tag === layer.tag && World.isRock(o)).length
-    assert.equal(rocks, layer.rocks, `rocks on layer ${layer.tag}`)
-  }
+  assert.equal(World.OBSTACLES.filter((o) => World.isRock(o)).length, 0)
   assert.equal(World.isRock(stone), false)
-  assert.equal(World.OBSTACLES.filter((o) => o.tag === TOP).length, LAYERS[0].rocks + 1)
+  assert.equal(World.OBSTACLES.filter((o) => o.tag === TOP).length, 1)
 })
 
 const natural = (tag: number): Consumable[] =>

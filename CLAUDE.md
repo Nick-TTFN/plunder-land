@@ -16,7 +16,7 @@ The world is **three ground layers**, 01 on top to 03 at the bottom, with tags *
 (depth is `-tag`). Deeper is richer and more dangerous (decisions #3, #16, #26). **Every
 per-layer number lives in one table, `LAYERS` in `src/archetypes/archetypes.ts`**: tag, loot
 multiplier (×1 / ×1.75 / ×3 on natural pickups and on every mob's loot, not on what a dead
-player drops), rocks (136 each, world rocks only), natural loot cap (150 each, death drops
+player drops), the void share (1/3 each, the valleys), natural loot cap (150 each, death drops
 uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive (grunts 22/18/14,
 gunners 0/8/14, bosses 0/2/3, 81 in all). `World.refillLayer` tops each layer up to it every
 tick, counting per layer. The layer tags reach the client in `hello.layers`; **the client
@@ -31,10 +31,11 @@ skip over one. A mob never steps onto a gate or an arrival cell (`World.mobCanEn
 stays on its layer, so each layer keeps the danger designed for it. Portals aren't paired:
 the arrival is the entered portal's own east neighbour on the `to` layer. Gates a player
 could meet on one layer are at least `World.GATE_SPACING` (4) rings apart (#34), and
-placement rejects a portal whose arrival cell is off the map, blocked or a gate. **Rocks stay
-`World.GATE_ROCK_RINGS` (2) rings clear** of every gate and of every portal leading to the
-layer (`World.gateKeepOut`, used by `World.getRockPosition`), which covers each arrival cell
-and its neighbours, so a pad is always reachable and nobody lands in a rock. Both are plain
+placement rejects a portal whose arrival cell is off the map, blocked or a gate. **Every gate
+is `World.GATE_ROCK_RINGS` (2) rings clear of void** on its layer, and a portal is as clear on
+the layer it leads to (`World.placeGate`; `World.gateKeepOut` is the same disc), which covers
+each arrival cell and its neighbours, so a pad is always reachable and nobody lands in a
+valley. Both are plain
 constants since hex-cells P2; they were derived from push-out radii before. New players join
 on layer 01 on a free cell centre at least `World.SPAWN_CLEARANCE` (3) cells from every
 portal, exit and boss, and from mobs when possible (`World.spawnCell`). A fully random spawn
@@ -163,9 +164,10 @@ http://localhost:3000/?server=http://localhost:8000
 
 Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested`, and
 count the `create` records. Since interest filtering (#35) a join gets only layer 01's
-terrain (136 rocks, 10 portals, 4 exits and any live StoneWall stones) plus the units and
-pickups inside its interest box, and its own `create_own`: about 150 terrain records plus
-10-20, 4-11 KB. The whole-world counts (per layer: 136 rocks, 150 loot, the item and mob
+terrain (10 portals, 4 exits and any live StoneWall stones; the valleys come in `hello.voids`,
+about 1 KB a layer) plus the units and pickups inside its interest box, and its own
+`create_own`. (Before the valleys it was about 150 terrain records plus 10-20, 4-11 KB, not
+re-measured since.) The whole-world counts (per layer: the void share, 150 loot, the item and mob
 numbers in `LAYERS`) are checked by the world specs, not by a join.
 
 ## Bundle size
@@ -205,6 +207,51 @@ The script owns three things worth knowing before touching either sheet:
   makes neighbours overlap once positions are rounded to whole pixels.
 - **Both sheets' 6x6 grids are measured, not assumed.** Neither is on the clean 209 px pitch
   the image size implies, and one prop has a stray pixel that reads as a seventh row.
+
+**The valleys replaced world rocks** (`src/objects/valleys.ts`, tile art pass 2026-09-27).
+About a third of each layer (`LAYERS.voidShare`) is void: winding chasms from ridged value
+noise, void specks under 12 cells filled back in, free scraps under 30 cells filled, and every
+other cut-off region joined to the rest by a one-cell bridge carved across the shortest stretch
+of void, so each layer's ground is one walkable region (`valleys.spec.ts`). Carved once per
+layer in the `World` constructor, before the gates, at random (every server start is a new
+map, ~30 ms a layer); void cells are in `World.BLOCKED` with a null blocker and in
+`World.VOIDS`. They are not objects: they reach the client as **`hello.voids`**, per layer in
+`layers` order, alternating free/void run lengths over `Hex.mapCells(map)` (mirrored in
+`utils/hex.ts`, a consumed order), decoded by `Session.decodeRuns` into `Game.VOIDS`, which
+routing (`Game.isBlocked`) and the ground (always unknown void) read. Additive: an older client
+routes into valleys and gets corrected, so **ship the client first**. No world rock is placed
+any more (`World.isRock` still tells StoneWall stones apart for the bomb). **Known gap:** mobs
+still step greedily (`Unit.chooseStep`) and stall on valley edges; real mob pathing was
+deferred on 2026-09-27.
+
+**The camera is tilted, in drawing only** (`src/objects/tilt.ts`, tile art pass 2026-09-27).
+`Game.CONTAINER.scale.y = TILT` (about 0.744: 0.75 rounded so a tilted row is exactly 29 px), so a world `y` draws at `y * TILT`; rules, wire and
+server stay on the regular top-down grid, and `toLocal` undoes the squash for the pointer and
+the aim. Anything **added straight to the camera or a plane stands up**: `TiltedContainer`
+gives it an `UprightTransform`, which squashes its position and not its shape, and keeps its
+own `scale` (and tweens on it) meaning what they did. Things that lie on the ground are marked
+`onGround` and squash with it: the planes, `PathMarker`, `ThreatMarker`, `CellHighlight`, the
+ranged beam. A new ground-plane overlay needs `onGround`, or it draws unsquashed.
+
+**The ground pads are a separate sheet, `assets/res/ground.png` + `ground.json`**, baked by
+`tools/bake-ground-atlas.py` from one 4x3 art drop, `ground-steel-pointy.png`, kept next to the
+hex sources (not in the repo): steel pads, surface (satin, faceted, brushed, patched) by edge
+(clean, worn, chipped). It is baked **at 2x** (`meta.scale: 2`, linear filtering) and **already
+squashed by `TILT`** (`meta.tilt`; the client warns on a mismatch), since `HexTerrain` stands up
+and lays its rows at `TILT` of their pitch itself, which keeps pads texel for pixel. The bake
+measures each face's vertices (median over all 12, since rim chips sit on vertices) and remaps
+the face band by band onto a regular hex one cell wide squashed by `TILT`, with a fixed `WALL`
+below it; no overscale, so the bevels are the grid line. A known cell (visible or explored) is a
+raised slab; rows draw top to bottom, so walls show only above unknown cells, which are the
+void: the sheet's outline frame on the lattice, behind every slab.
+
+**Why the ground doesn't wobble:** PIXI's `roundPixels` rounds to `settings.RESOLUTION` (1),
+not the renderer's 2x, and with a fractional row pitch every row snapped differently. So pads
+are not rounded; every pad lands on a whole device pixel by construction (column 45, row shift
+22.5, row `ROW_SCREEN` 29, all frames the same size with the face centre on a whole texel), and
+the camera and `Game`'s own position are snapped to device pixels. Break any one and it wobbles. Every layer uses the same
+set, tinted by `LAYER_TINT` (`objects/fog.ts`) times the fog's. The old `hexpad/*` frames in
+`hex.json` are now unused and go at its next re-bake.
 
 `tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went) and the
 four `obstacle_*` groups in the TexturePacker atlas are now unused — the ground and every obstacle come from the hex sheet. They stay
@@ -733,9 +780,8 @@ before one beside the line, the earliest line cell first, then the lowest id. Re
 the front arrives is not hit. Rocks don't stop it. The 1200 ms `lifetime` is still sent, but
 nothing ends a projectile by time. `World.updateProjectiles` walks the list backwards and is
 the **only** place a projectile is removed. Splicing from inside `explode`, which runs within
-the projectile's own update, made the next projectile skip a tick. `OBSTACLES` holds rocks,
-stones, portals and exits; the rock refill counts only world rocks in it (`World.isRock`: an
-`Obstacle` with no lifetime, so not a StoneWall stone), per layer.
+the projectile's own update, made the next projectile skip a tick. `OBSTACLES` holds
+stones, portals and exits (and held world rocks, `World.isRock`, until the valleys).
 
 **StoneWall is placed behind the caster on purpose**, to block chasers. Do not "fix" it to
 the front. It fills the 3 cells directly behind (`StoneWall.cells`: the neighbours at b-1,

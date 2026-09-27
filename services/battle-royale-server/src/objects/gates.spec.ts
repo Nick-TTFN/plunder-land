@@ -7,9 +7,8 @@ import World from './world'
 import Timers from './timers'
 import Portal from './portal'
 import Exit from './exit'
-import Obstacle from './obstacle'
 import { type GameObject } from './gameobject'
-import { LAYERS, type LayerSpec } from '../archetypes/archetypes'
+import { LAYERS } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
@@ -72,21 +71,14 @@ test('every portal\'s arrival cell is on the map, and no gate is on it or next t
   assert.ok(portals >= 20 * 25, `only ${portals} portals placed`)
 })
 
-// --- rocks off gates --------------------------------------------------------------
-
-type Refill = (layer: LayerSpec) => void
-
-function refillOf (world: World): Refill {
-  const refill = (world as unknown as { refillLayer: Refill }).refillLayer
-  return (layer) => { refill.call(world, layer) }
-}
+// --- void off gates ---------------------------------------------------------------
 
 function isGate (obj: GameObject): obj is Portal | Exit {
   return obj instanceof Portal || obj instanceof Exit
 }
 
 /**
- * The cells a rock on `tag` must stay `GATE_ROCK_RINGS` clear of, worked out
+ * The cells void on `tag` must stay `GATE_ROCK_RINGS` clear of, worked out
  * here from the gates rather than read from `World.gateKeepOut`: each gate on
  * the layer, and each portal elsewhere that puts players down on it.
  */
@@ -96,54 +88,27 @@ function guarded (tag: number): Vector[] {
     .map((g) => Hex.toCell(g.position))
 }
 
-function assertClearOfGates (rock: GameObject): void {
-  const cell = Hex.toCell(rock.position)
-  for (const gate of guarded(rock.tag)) {
-    const d = Hex.distance(cell, gate)
-    assert.ok(d > World.GATE_ROCK_RINGS,
-      `a rock on layer ${rock.tag} at (${cell.x}, ${cell.y}) is ${d} cell(s) from a gate at (${gate.x}, ${gate.y})`)
-  }
-}
-
-test('no rock lands on a gate, or within GATE_ROCK_RINGS of one, over 10,000 refills across 10 random layouts', () => {
-  const WORLDS = 10
-  const REFILLS = 1000
-  let placed = 0
-  let refills = 0
-
-  for (let w = 0; w < WORLDS; w++) {
+test('no void lies on a gate, or within GATE_ROCK_RINGS of one, and every gate is placed, over 10 random worlds', () => {
+  // The valleys replaced world rocks (tile art pass, 2026-09-27); the
+  // keep-out is now enforced by where gates go, not by where rocks go.
+  for (let w = 0; w < 10; w++) {
     reset()
-    const world = new World(4000)
-    const refill = refillOf(world)
-    // The first fill, every layer from empty.
-    for (const layer of World.LAYERS) refill(layer)
-    // The keep-out must not cost the layer its rocks.
+    // eslint-disable-next-line no-new
+    new World(4000)
     for (const layer of World.LAYERS) {
-      assert.equal(World.OBSTACLES.filter((o) => o.tag === layer.tag && World.isRock(o)).length, layer.rocks,
-        `layer ${layer.tag} was not filled`)
-    }
-    for (const rock of World.OBSTACLES.filter(World.isRock)) { assertClearOfGates(rock); placed++ }
-
-    // Then one rock at a time: take a random one away and let the refill
-    // replace it, as it would after anything removed a rock.
-    for (let n = 0; n < REFILLS; n++) {
-      const rocks = World.OBSTACLES.filter(World.isRock)
-      const gone = rocks[Math.floor(Math.random() * rocks.length)] as Obstacle
-      gone.destroy()
-      World.OBSTACLES.splice(World.OBSTACLES.indexOf(gone), 1)
-      const before = new Set(World.OBSTACLES)
-
-      refill(World.LAYERS.find((l) => l.tag === gone.tag) as LayerSpec)
-      refills++
-      const added = World.OBSTACLES.filter((o) => !before.has(o) && World.isRock(o))
-      assert.equal(added.length, 1, 'the refill did not replace the rock')
-      assertClearOfGates(added[0])
-      placed++
+      const gates = guarded(layer.tag)
+      for (const cell of Hex.mapCells(World.mapSize)) {
+        if (!World.VOIDS.get(layer.tag)?.has(Hex.key(cell.x, cell.y))) continue
+        for (const gate of gates) {
+          const d = Hex.distance(cell, gate)
+          assert.ok(d > World.GATE_ROCK_RINGS,
+            `void on layer ${layer.tag} at (${cell.x}, ${cell.y}) is ${d} cell(s) from a gate at (${gate.x}, ${gate.y})`)
+        }
+      }
+      const here = World.OBSTACLES.filter((o) => isGate(o) && o.tag === layer.tag)
+      assert.equal(here.length, layer.portalsUp + layer.portalsDown + layer.exits, `gates on layer ${layer.tag}`)
     }
   }
-
-  assert.equal(refills, WORLDS * REFILLS)
-  assert.ok(placed >= 10_000 + WORLDS * 3 * 136 - WORLDS, `only ${placed} rocks checked`)
 })
 
 test('the keep-out covers a portal\'s landing spot on the layer it leads to', () => {

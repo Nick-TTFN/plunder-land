@@ -1,6 +1,8 @@
 import { Container, Sprite, type Texture } from 'pixi.js'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import { FOG_TINT, SEEN, type Seen } from './fog'
+import { ROW_SCREEN, TILT } from './tilt'
 
 /**
  * The ground of one plane, drawn as one sprite per cell.
@@ -28,13 +30,34 @@ import { Vector } from '../utils/vector'
  * Choosing a face per cell out of one big palette was the first attempt and it
  * looked like static - every tile as different from its neighbour as the
  * palette allowed, which is the one thing real ground never is.
+ *
+ * **Seen through the tilted camera** (objects/tilt.ts). This container stands
+ * upright, so it lays its own rows out at `TILT` of their pitch and its pads
+ * are baked already squashed, which keeps them texel for pixel.
+ *
+ * A known cell (visible or explored) is a raised slab: its face plus a short
+ * wall hanging below it (`tools/bake-ground-atlas.py`), anchored at the face's
+ * centre. Rows are laid out top to bottom, so each row's faces cover the walls
+ * of the row above, and a wall shows only where the cell below is unknown.
+ * An unknown cell is the void: a faint outline on the lattice, in a layer
+ * behind every slab, so walls fall in front of it. A valley's cell is
+ * always unknown (`Game.VOIDS`, set in `Game.onHello`).
+ *
+ * **Pads are not pixel-rounded.** PIXI's `roundPixels` rounds to
+ * `settings.RESOLUTION` (1), not the renderer's 2x, which snapped pads to
+ * whole CSS pixels a different way on each row. Instead every pad sits on a
+ * whole device pixel by construction: the column pitch is 45, the row shift
+ * 22.5 and the row pitch `ROW_SCREEN` 29, the frames put the face centre on a
+ * whole texel, and `Game` snaps the camera to device pixels.
  */
 export class HexTerrain extends Container {
   /**
-   * The cell spacing the pad art was baked at - see `tools/bake-hex-atlas.py`.
+   * The cell spacing the pad and prop art was baked at - see
+   * `tools/bake-ground-atlas.py` and `tools/bake-hex-atlas.py`.
    *
-   * Pads are baked to their exact on-screen size so they land pixel-for-pixel
-   * at scale 1, which is what keeps them crisp under `ROUND_PIXELS`. If
+   * Art is baked to its exact on-screen size (pads at 2x, which the sheet's
+   * `meta.scale` accounts for) so it lands texel for pixel, which is what
+   * keeps it crisp under `ROUND_PIXELS`. If
    * `Hex.SIZE` moves without a re-bake this rescales them so the world is still
    * correct, just softer; re-bake rather than living on it.
    */
@@ -50,8 +73,18 @@ export class HexTerrain extends Container {
    */
   private static readonly REGION_CELLS = 5
 
+  /** Screen distance between rows: the grid's, through the tilt. A whole pixel. */
+  private static readonly ROW_SCREEN = ROW_SCREEN
+
   /** One palette per region, in the order they lie along the noise field. */
   private readonly regions: Texture[][]
+  /** What an unknown cell is drawn as instead of its face. */
+  private readonly outline: Texture
+  /** Behind `slabs`: the unknown cells' outlines. */
+  private readonly voids = new Container()
+  private readonly slabs = new Container()
+  /** One outline per pooled pad, shown instead of it when the cell is unknown. */
+  private readonly voidPool: Sprite[] = []
   private readonly pool: Sprite[] = []
   /** Each pooled pad's cell, for re-tinting without a relayout (`retint`). */
   private readonly padQ: number[] = []
@@ -59,10 +92,13 @@ export class HexTerrain extends Container {
   private _used = 0
 
   /**
-   * The tint for cell (q, r): the fog's (fog-of-war, M2), set by `Game` per
-   * layer. Unset draws every pad untinted, as before fog.
+   * What the player knows about cell (q, r): the fog's (fog-of-war, M2), set
+   * by `Game` per layer. Unset draws every pad visible, as before fog.
    */
-  tintOf: ((q: number, r: number) => number) | undefined
+  seenOf: ((q: number, r: number) => Seen) | undefined
+
+  /** This plane's own tint, multiplied into the fog's: deeper reads colder. */
+  tint = 0xFFFFFF
 
   /**
    * The camera cell and view size the current layout was built for.
@@ -76,14 +112,20 @@ export class HexTerrain extends Container {
   private _viewWidth = 0
   private _viewHeight = 0
 
-  constructor (regions: Texture[][]) {
+  constructor (regions: Texture[][], outline: Texture) {
     super()
     this.regions = regions
+    this.outline = outline
     // Nothing here overlaps anything but its own neighbours, and the row order
     // below is already the order it wants drawing in. Sorting ~1400 children
     // every frame for that would be pure cost.
     this.sortableChildren = false
     this.eventMode = 'none'
+    for (const part of [this.voids, this.slabs]) {
+      part.sortableChildren = false
+      part.eventMode = 'none'
+      this.addChild(part)
+    }
   }
 
   /**
@@ -106,9 +148,10 @@ export class HexTerrain extends Container {
     const scale = Hex.SIZE / HexTerrain.BAKED_FOR
 
     // A row past each edge, because a pad reaches half its height beyond its
-    // own centre and the row pitch is only three quarters of that height.
-    const r0 = Math.floor((y - height / 2) / HexTerrain.ROW_PITCH) - 1
-    const r1 = Math.ceil((y + height / 2) / HexTerrain.ROW_PITCH) + 1
+    // own centre and the row pitch is only three quarters of that height; and
+    // one more below for the walls. The view covers `height / TILT` of world.
+    const r0 = Math.floor((y - height / 2 / TILT) / HexTerrain.ROW_PITCH) - 1
+    const r1 = Math.ceil((y + height / 2 / TILT) / HexTerrain.ROW_PITCH) + 2
 
     let used = 0
 
@@ -122,40 +165,80 @@ export class HexTerrain extends Container {
 
       for (let q = q0; q <= q1; q++) {
         let pad = this.pool[used]
-        if (pad === undefined) {
+        let hole = this.voidPool[used]
+        if (pad === undefined || hole === undefined) {
           pad = new Sprite()
-          pad.anchor.set(0.5)
+          pad.roundPixels = false
+          hole = new Sprite(this.outline)
+          hole.roundPixels = false
+          hole.anchor.copyFrom(this.outline.defaultAnchor)
           this.pool.push(pad)
-          this.addChild(pad)
+          this.voidPool.push(hole)
+          this.slabs.addChild(pad)
+          this.voids.addChild(hole)
         }
         used++
 
-        pad.texture = this.faceOf(q, r)
         pad.scale.set(scale)
         pad.x = Hex.SIZE * (q + shift)
-        pad.y = HexTerrain.ROW_PITCH * r
-        pad.visible = true
-        pad.tint = this.tintOf?.(q, r) ?? 0xFFFFFF
+        pad.y = HexTerrain.ROW_SCREEN * r
+        hole.scale.set(scale)
+        hole.x = pad.x
+        hole.y = pad.y
         this.padQ[used - 1] = q
         this.padR[used - 1] = r
+        this.dress(used - 1)
       }
     }
     this._used = used
 
     // Kept, not destroyed: the count swings by a row or two as the camera moves
     // and a resize is the only thing that changes it for good.
-    for (let i = used; i < this.pool.length; i++) this.pool[i].visible = false
+    for (let i = used; i < this.pool.length; i++) {
+      this.pool[i].visible = false
+      this.voidPool[i].visible = false
+    }
   }
 
   /**
-   * Re-apply `tintOf` to every pad in use, without laying them out again: the
+   * Re-apply the fog to every pad in use, without laying them out again: the
    * fog moved but the camera's cell did not (or did, and `update` already
-   * tinted them; this is then a cheap repeat). About 1400 pads.
+   * applied it; this is then a cheap repeat). About 1400 pads.
    */
   retint (): void {
-    for (let i = 0; i < this._used; i++) {
-      this.pool[i].tint = this.tintOf?.(this.padQ[i], this.padR[i]) ?? 0xFFFFFF
+    for (let i = 0; i < this._used; i++) this.dress(i)
+  }
+
+  /**
+   * Show pooled cell `i` as the fog says: a slab with its face, tinted, or the
+   * void's outline.
+   */
+  private dress (i: number): void {
+    const q = this.padQ[i]
+    const r = this.padR[i]
+    const pad = this.pool[i]
+    const seen = this.seenOf?.(q, r) ?? SEEN.VISIBLE
+    const known = seen !== SEEN.UNKNOWN
+    pad.visible = known
+    this.voidPool[i].visible = !known
+    if (!known) return
+
+    const texture = this.faceOf(q, r)
+    if (pad.texture !== texture) {
+      pad.texture = texture
+      // The frame's own anchor, at the face's centre: the wall below it makes
+      // the frame taller than the face, so 0.5 would put the face high.
+      pad.anchor.copyFrom(texture.defaultAnchor)
     }
+    pad.tint = HexTerrain.multiply(FOG_TINT[seen], this.tint)
+  }
+
+  /** Two 0xRRGGBB tints multiplied channel by channel, as PIXI would apply both. */
+  private static multiply (a: number, b: number): number {
+    const r = ((a >> 16 & 255) * (b >> 16 & 255) / 255) | 0
+    const g = ((a >> 8 & 255) * (b >> 8 & 255) / 255) | 0
+    const bl = ((a & 255) * (b & 255) / 255) | 0
+    return (r << 16) | (g << 8) | bl
   }
 
   /** The face this cell always wears: its region's palette, indexed by its hash. */

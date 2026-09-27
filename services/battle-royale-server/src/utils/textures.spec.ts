@@ -22,7 +22,7 @@ import { join, relative } from 'node:path'
 
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client')
 const SRC = join(CLIENT, 'src')
-const ATLASES = ['assets/res/atlas.json', 'assets/res/hex.json'].map((f) => join(CLIENT, f))
+const ATLASES = ['assets/res/atlas.json', 'assets/res/hex.json', 'assets/res/ground.json'].map((f) => join(CLIENT, f))
 
 /**
  * Files nothing imports, whose names are known to be missing. Each must say

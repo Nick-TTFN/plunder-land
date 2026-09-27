@@ -5,6 +5,7 @@ import { Hex } from '../utils/hex'
 import { Game } from '../game'
 import { type Cell, DIRECTIONS } from './cells'
 import { type GameObject } from '../objects/gameobject'
+import { onGround } from '../objects/tilt'
 
 /** Corner distance of a pointy-top cell whose centres are `Hex.SIZE` apart. */
 const CORNER = Hex.SIZE / Math.sqrt(3)
@@ -69,6 +70,8 @@ export class CellHighlight extends Graphics {
     private readonly _fillAlpha: number = 0.28
   ) {
     super()
+    // Drawn on the ground: squashed with it by the tilted camera.
+    onGround(this)
     this.eventMode = 'none'
     // Over the ground (-1000) and the route marker (-1), under every unit,
     // whose zIndex is its y.

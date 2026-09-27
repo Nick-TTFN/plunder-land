@@ -90,8 +90,8 @@ export class FogLegend extends Container {
   constructor () {
     super()
     const entries: Array<[string, number, number]> = [
-      ['VISIBLE', 0x5E6B7A, 1],
-      ['EXPLORED', 0x1F3140, 1],
+      ['VISIBLE', 0x6A7FA8, 1],
+      ['EXPLORED', 0x3A4458, 1],
       ['UNKNOWN', 0x05080C, 1]
     ]
     let x = 0

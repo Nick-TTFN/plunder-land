@@ -181,8 +181,9 @@ test('every cached terrain record is what encoding the object now gives', () => 
     assert.deepEqual(Multiplayer.terrainRecord(obj), obj.serialiseBinary(obj.allFields), `terrain ${obj.type}#${obj.id}`)
     checked++
   }
-  // Rocks, portals and exits on three layers, and the stones cast in world().
-  assert.ok(checked > 400, `only ${checked} terrain objects`)
+  // Portals and exits on three layers, and the stones cast in world(). (No
+  // world rocks since the valleys, tile art pass: they were 408 of these.)
+  assert.ok(checked > 40, `only ${checked} terrain objects`)
 })
 
 test('a value that does not fit its field throws the same error as before', () => {

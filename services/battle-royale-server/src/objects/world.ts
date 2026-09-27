@@ -17,6 +17,7 @@ import Timers from './timers'
 // another edge to the import cycle described in world.spec.ts.
 import type Throwable from './throwable'
 import { CellIndex } from '../utils/cellindex'
+import { carveValleys, encodeRuns } from './valleys'
 // Read inside functions only (the interest bucket size): multiplayer imports
 // this module, so its default export is not defined yet while this one loads.
 import Multiplayer from '../network/multiplayer'
@@ -106,6 +107,14 @@ export default class World {
    * without an obstacle to explain it is invisible in every log.
    */
   static BLOCKED: Map<number, Map<number, GameObject | null>> = new Map()
+
+  /**
+   * Each layer's valleys (`valleys.ts`): void cells, blocked with no blocker
+   * in `BLOCKED` from the moment the world is built. `VOID_RUNS` is the same
+   * set run-length encoded for `hello.voids`, built once.
+   */
+  static VOIDS: Map<number, Set<number>> = new Map()
+  static VOID_RUNS: Map<number, number[]> = new Map()
 
   /**
    * Rocks, stone-wall stones, portals, exits. Rocks and stones block their
@@ -365,6 +374,18 @@ export default class World {
   constructor (size: number) {
     World.mapSize = size
 
+    // The valleys first: gates are placed on the ground they leave.
+    World.VOIDS.clear()
+    World.VOID_RUNS.clear()
+    for (const layer of World.LAYERS) {
+      const voids = carveValleys(size, layer.voidShare)
+      for (const cell of Hex.mapCells(size)) {
+        if (voids.has(Hex.key(cell.x, cell.y))) World.block(cell.x, cell.y, layer.tag, null)
+      }
+      World.VOIDS.set(layer.tag, voids)
+      World.VOID_RUNS.set(layer.tag, encodeRuns(voids, size))
+    }
+
     // Portals chain the layers in order: 01 <-> 02 <-> 03. A layer's up
     // portals lead to the one before it in LAYERS, its down portals to the one
     // after. A count with no layer to lead to is a table error, not a portal to
@@ -397,15 +418,24 @@ export default class World {
    *
    * Gates are not in `BLOCKED` (they are walked into on purpose), so
    * `getUnobstructedPosition` cannot see them and the spacing is tested here.
-   * Only the constructor places gates, before any rock exists.
+   * Only the constructor places gates, after the valleys and before anything
+   * else.
+   *
+   * A gate's cell is `GATE_ROCK_RINGS` clear of void on its layer, and a
+   * portal's cell is as clear on `to` too, which covers its arrival cell and
+   * every neighbour of it: a pad is always reachable from every side and a
+   * player never lands on the edge of a valley. 60 tries, not the 20 it had
+   * with scattered rocks, because a third of every layer is void.
    */
   private placeGate (tag: number, to: number | undefined): void {
     const reach = to === undefined ? [tag] : [tag, to]
 
-    for (let attempt = 0; attempt < 20; attempt++) {
+    for (let attempt = 0; attempt < 60; attempt++) {
       const pos = this.getUnobstructedPosition(tag)
       if (pos === undefined) continue
       const cell = Hex.toCell(pos)
+      if (!World.isClear(cell.x, cell.y, tag, World.GATE_ROCK_RINGS)) continue
+      if (to !== undefined && !World.isClear(cell.x, cell.y, to, World.GATE_ROCK_RINGS)) continue
 
       if (to !== undefined) {
         const arrival = World.arrivalOf(cell)
@@ -602,13 +632,12 @@ export default class World {
   }
 
   /**
-   * Top a layer back up to its `LAYERS` numbers: rocks all at once, then at
-   * most one natural pickup and one mob of each short archetype per tick.
+   * Top a layer back up to its `LAYERS` numbers: at most one natural pickup
+   * and one mob of each short archetype per tick. (World rocks were refilled
+   * here too until the valleys replaced them, tile art pass 2026-09-27.)
    *
-   * Every count is per layer. The rock refill used to pick
-   * `TAGS[RangeInt(0, 2)]` and fill to a world-wide 300 that included the
-   * gates, so a third layer would have got no rocks at all; mobs and pickups
-   * were world totals on random layers.
+   * Every count is per layer. Mobs and pickups were once world totals on
+   * random layers.
    *
    * Bosses and gunners are counted by archetype, as they were: both guards
    * once read MOBS.length, so five bosses spawned in the first few ticks and
@@ -618,20 +647,6 @@ export default class World {
    */
   private refillLayer (layer: LayerSpec): void {
     const tag = layer.tag
-
-    let rocks = 0
-    for (const obj of World.OBSTACLES) if (obj.tag === tag && World.isRock(obj)) rocks++
-    // Built only when a rock is due: that is one tick in most, and the scan
-    // walks every obstacle.
-    const keepOut = rocks < layer.rocks ? World.gateKeepOut(tag) : new Set<number>()
-    while (rocks < layer.rocks) {
-      const pos = this.getRockPosition(tag, keepOut)
-      // break, not continue: nothing else ends this loop, so skipping without
-      // adding one spins forever inside the tick.
-      if (pos === undefined) break
-      World.addObstacle(new Obstacle(pos.x, pos.y, tag))
-      rocks++
-    }
 
     // Natural pickups only: a death drop has an expiry, and does not count.
     let natural = 0
@@ -867,7 +882,7 @@ export default class World {
   }
 
   /**
-   * Rings around a gate's cell that the rock refill leaves empty: 2 (the
+   * Rings around a gate's cell kept clear of void (and, before the valleys, of world rocks): 2 (the
    * gate's cell, its 6 neighbours and the 12 beyond), decision #34.
    *
    * Gates are not in `BLOCKED` (they are walked into on purpose), so the
@@ -914,33 +929,10 @@ export default class World {
   }
 
   /**
-   * Where the refill puts a world rock on layer `tag`: what
-   * `getUnobstructedPosition(tag)` would pick, but never a cell in
-   * `keepOut` (`gateKeepOut`). Its own function rather than a filter on the
-   * shared one, which also places loot, items and mobs, none of which is
-   * kept off gates. Bounded at 40 tries like it, and undefined after.
-   */
-  private getRockPosition (tag: number, keepOut: Set<number>): Vector | undefined {
-    const rings = World.CLEAR_RINGS
-
-    for (let attempts = 0; attempts < 40; attempts++) {
-      const cell = Hex.toCell(new Vector(
-        Random.RangeInt(0, World.mapSize),
-        Random.RangeInt(0, World.mapSize)
-      ))
-
-      if (keepOut.has(Hex.key(cell.x, cell.y))) continue
-      if (World.isClear(cell.x, cell.y, tag, rings)) return Hex.toPosition(cell)
-    }
-
-    return undefined
-  }
-
-  /**
    * Rings of unblocked cells around a cell the world picks at random for a
-   * pickup, an item, a mob, a gate or a rock (`getUnobstructedPosition`,
-   * `getRockPosition`): 1, the cell and its 6 neighbours. It was a 40-unit
-   * clearance, `ceil(40 / Hex.SIZE)` rings, which is also 1.
+   * pickup, an item, a mob or a gate (`getUnobstructedPosition`; `placeGate`
+   * then asks for `GATE_ROCK_RINGS`): 1, the cell and its 6 neighbours. It was
+   * a 40-unit clearance, `ceil(40 / Hex.SIZE)` rings, which is also 1.
    */
   static CLEAR_RINGS = 1
 

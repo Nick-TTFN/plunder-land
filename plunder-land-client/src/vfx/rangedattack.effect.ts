@@ -7,6 +7,7 @@ import { Hex } from '../utils/hex'
 import Unit from '../objects/unit'
 import { RANGED_RANGE_CELLS, firstOnLine, rangedRangeCells, type Body, type Cell } from './cells'
 import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
+import { onGround } from '../objects/tilt'
 
 /**
  * A beam from the caster to where the shot stops: the first unit on its hex
@@ -69,7 +70,8 @@ export class RangedAttackEffect {
     const length = Math.hypot(end.x - from.x, end.y - from.y)
     const fullLength = RANGED_RANGE_CELLS * Hex.SIZE
 
-    const beam = new Graphics()
+    // Along the ground, so it squashes with the tilted camera like the cells.
+    const beam = onGround(new Graphics())
     beam.eventMode = 'none'
     beam.zIndex = Math.max(from.y, end.y) + 1
     const state = { head: 0, tail: 0 }

@@ -378,8 +378,12 @@ export interface LayerSpec {
    * drops: that is their own haul.
    */
   lootMultiplier: number
-  /** World rocks only: not StoneWall stones, portals or exits. */
-  rocks: number
+  /**
+   * The share of the layer's cells that are void: the valleys (`valleys.ts`),
+   * carved once when the world is built. They replaced world rocks (tile art
+   * pass, 2026-09-27).
+   */
+  voidShare: number
   /** Natural pickups only. Death drops are uncapped and expire on their own. */
   naturalLoot: number
   exits: number
@@ -424,7 +428,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   {
     tag: 0,
     lootMultiplier: 1,
-    rocks: 136,
+    voidShare: 1 / 3,
     naturalLoot: 150,
     exits: 4,
     extractMs: 5000,
@@ -443,7 +447,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   {
     tag: -1,
     lootMultiplier: 1.75,
-    rocks: 136,
+    voidShare: 1 / 3,
     naturalLoot: 150,
     exits: 4,
     extractMs: 7000,
@@ -462,7 +466,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   {
     tag: -2,
     lootMultiplier: 3,
-    rocks: 136,
+    voidShare: 1 / 3,
     naturalLoot: 150,
     exits: 4,
     extractMs: 9000,

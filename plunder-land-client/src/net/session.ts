@@ -1,3 +1,5 @@
+import { Hex } from '../utils/hex'
+
 /**
  * Everything the client would otherwise have to hardcode about the server.
  *
@@ -18,6 +20,11 @@ export class Session {
    * `layers` for): 0 above -1.
    */
   static layers: number[] = [0, -1]
+  /**
+   * Each layer's void cells (the valleys), as `Hex.key`s, in `layers` order,
+   * from `hello.voids`. Empty for a server from before the valleys.
+   */
+  static voids: Array<Set<number>> = []
   static known: boolean = false
 
   /** Rolling window of observed gaps between update packets, in ms. */
@@ -25,7 +32,7 @@ export class Session {
   private static _lastArrival: number = 0
   private static _p95: number = 250
 
-  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown }): void {
+  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown }): void {
     if (typeof data?.tick === 'number' && data.tick > 0) Session.tickMs = data.tick
     if (typeof data?.map === 'number' && data.map > 0) Session.mapSize = data.map
     if (typeof data?.interest === 'number' && data.interest > 0) Session.interestRadius = data.interest
@@ -40,10 +47,32 @@ export class Session {
     )
       ? layers as number[]
       : [0, -1]
+    const voids = data?.voids
+    Session.voids = Session.layers.map((_, i) =>
+      Array.isArray(voids) ? Session.decodeRuns(voids[i], Session.mapSize) : new Set<number>())
     Session.known = true
 
     // Seed the measurement so the first second of play is not timed off a guess.
     if (Session._gaps.length === 0) Session._p95 = Session.tickMs
+  }
+
+  /**
+   * `hello.voids[i]`: alternating free and void run lengths over
+   * `Hex.mapCells(size)` (the server's `encodeRuns`, valleys.ts), starting
+   * with a free run. Anything malformed, or runs that don't cover the map
+   * exactly, reads as no valleys: the server still blocks them, so the worst
+   * case is routes that it corrects.
+   */
+  static decodeRuns (runs: unknown, size: number): Set<number> {
+    const out = new Set<number>()
+    if (!Array.isArray(runs) || !runs.every((n) => Number.isInteger(n) && n >= 0)) return out
+    const cells = Hex.mapCells(size)
+    if ((runs as number[]).reduce((a, b) => a + b, 0) !== cells.length) return out
+    let i = 0
+    ;(runs as number[]).forEach((length, n) => {
+      for (let j = 0; j < length; j++, i++) if (n % 2 === 1) out.add(Hex.key(cells[i].x, cells[i].y))
+    })
+    return out
   }
 
   /** A layer's number as players see it, 1 for the top layer; undefined for an unknown tag. */
