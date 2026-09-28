@@ -3,8 +3,9 @@
 ## What this actually is
 
 An **extraction game**, not a battle royale. There is no round, no lobby, no match
-start/end and no shrinking play area. `World` is constructed once at process start and
-runs forever; players join at a random point when they connect and leave through an
+start/end and no shrinking play area. A process holds one or more `World`s (#39): each run
+goes to the fullest world under `WORLD_CAP`, a new one opens when all are full, and an empty
+one closes after `WORLD_IDLE_MS` (one always stays open). Players join at a random point and leave through an
 `Exit`, which banks the run. Death scatters your loot on the ground via
 `createLootFrom(player)` — the same path mobs use.
 
@@ -308,7 +309,7 @@ the appended own row as 11th. **Ship the client first.** Fields after the rank a
 additions. Measured 2026-09-26 at 1 s: about 0.19 KB/s per client at both 100 and 400 players.
 
 **WebSocket compression is on** (permessage-deflate, `src/index.ts`, #38): windowBits 12,
-memLevel 4 (about 24 KB of zlib state per connection), threshold 32 bytes (engine.io's own
+memLevel 4 (about 140 KB of RSS per connection once it has sent anything, measured 2026-09-27; 24 KB before its first write), threshold 32 bytes (engine.io's own
 default of 1024 is above nearly every message). `WS_DEFLATE=0` in the environment turns it off
 without a build; ws warns that zlib under concurrency can fragment memory on Linux, so watch RSS
 after a deploy. Browsers negotiate it with no client change. The load harness's per-client

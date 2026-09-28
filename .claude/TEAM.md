@@ -83,6 +83,9 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
 - `utils/hex.ts` and `utils/path.ts`, byte-identical in both packages; `mirror.spec.ts`
   enforces it.
 - `LocalPlayer._step` (client) mirrors `Unit.update` (server). If one changes, so does the other.
+- **A new run may be in another world** (#39): the client clears its map, fog and ids on every
+  `Game.start` (`resetForRun`, `net/runmap.ts`). Any new per-run client state must be reset there;
+  `runmap.spec.ts` plays a run in one world and the next in another.
 
 ## Verification
 
