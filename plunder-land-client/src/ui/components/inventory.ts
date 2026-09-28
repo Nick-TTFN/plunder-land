@@ -1,4 +1,4 @@
-import { Container, Graphics, type Text } from 'pixi.js'
+import { Container, Graphics, Sprite, type Text } from 'pixi.js'
 import { Game } from '../../game'
 import { Aim } from '../../skills/aim'
 import { Hex } from '../../utils/hex'
@@ -11,6 +11,8 @@ import { THEME } from '../theme'
 
 const SLOT = 58
 const SLOT_GAP = 8
+/** The item icon's width in a slot; the art is 40 wide, which crowds the count. */
+const ICON = 36
 
 /**
  * The five inventory slots, as in the mockup: a card per slot with its key
@@ -19,8 +21,8 @@ const SLOT_GAP = 8
  *
  * Slots are fixed per kind (utils/items.ts), so key 1 is always the medkit and
  * key 2 always the bomb, whether or not one is carried; slots 3-5 have no kind
- * yet and show empty. Icons are the placeholder drawings the ground pickups
- * use (`ItemPickup.drawIcon`) until the art pass.
+ * yet and show empty. Icons are the arena art, the same drawing as the
+ * ground pickup (`ItemPickup.icon`).
  */
 export class Inventory extends Container {
   private _counts: number[] = new Array<number>(INVENTORY_SLOTS).fill(0)
@@ -57,10 +59,12 @@ export class Inventory extends Container {
 
       const info = itemInSlot(slot)
       const icon = new Container()
-      if (info !== undefined) {
-        const g = new Graphics()
-        ItemPickup.drawIcon(g, info, 16)
-        icon.addChild(g)
+      const texture = ItemPickup.icon(info)
+      if (texture !== undefined) {
+        const sprite = new Sprite(texture)
+        sprite.anchor.set(0.5, 0.5)
+        sprite.scale.set(ICON / texture.frame.width)
+        icon.addChild(sprite)
       }
       icon.x = SLOT / 2 - 3
       icon.y = SLOT / 2 + 2

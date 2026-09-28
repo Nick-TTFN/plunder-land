@@ -184,7 +184,9 @@ test('the byte helpers use today\'s field indices', () => {
       // loot-wire-overflow, deliberate: carried loot as a uint32, appended.
       'loot32',
       // run-summary-card, deliberate: a player's kills this run, appended.
-      'kills']
+      'kills',
+      // arena art pass, deliberate: a projectile's kind, appended.
+      'projectile']
   )
 })
 

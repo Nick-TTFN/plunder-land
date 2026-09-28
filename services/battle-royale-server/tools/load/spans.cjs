@@ -35,7 +35,7 @@ const kindOf = new Map()
 const KIND_NAMES = { 1: 'rock', 2: 'loot', 4: 'player', 8: 'portal', 16: 'projectile', 32: 'mob', 64: 'exit', 128: 'item' }
 const EVENTS = { 1: 'create', 2: 'create_own', 3: 'effect', 4: 'destroy', 5: 'standings', 6: 'update' }
 // Payload widths by field index; -1 NUL string, -2 counted. Mirrors loadbot.mjs's WIDTH.
-const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4, 21: 2 }
+const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4, 21: 2, 22: 1 }
 let FIELD_NAMES = []
 function tallyFrame (frame) {
   let at = 9

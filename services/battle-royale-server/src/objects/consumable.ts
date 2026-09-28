@@ -21,6 +21,9 @@ export default class Consumable extends GameObject {
     // Loot is separate from radius so a big haul can drop without producing a
     // pickup the size of a building.
     this.loot = loot ?? this.radius
+    // In the create too, not only the owner's set: the client sizes the
+    // crystal by value (art pass 2026-09-28). It goes out as `loot32`.
+    this.allFields.add('loot')
 
     Multiplayer.Instance.create(this)
   }

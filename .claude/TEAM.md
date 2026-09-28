@@ -161,5 +161,5 @@ literally: an id pattern given as "for example" would have locked out every real
   `src/ui/components/playerstats.ts`. Dez states values in the spec and Beck applies them.
 - **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See CLAUDE.md,
   Known-unfixed.
-- Art is Nick's boundary. Four skill icons, two player clips and an icicle sprite are missing;
-  list them, don't make them.
+- Art is Nick's boundary. Every unit and two player clips are still missing (the arena pass of
+  2026-09-28 covered everything else); list them, don't make them.

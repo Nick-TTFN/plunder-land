@@ -130,8 +130,9 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   implicit `any` parameters in `vfx/meleeattack.effect.ts` went when that file was
   rewritten; `game.ts`'s four "possibly undefined" went with the layer code they were in.)
 
-Anything **outside** these three groups is a new regression. The count is 24: 5 `Point`,
-17 `GameObject`, 2 nits (measured 2026-09-27, `world-markers`, which deleted `progressbar.ts`;
+Anything **outside** these three groups is a new regression. The count is 22: 3 `Point`,
+17 `GameObject`, 2 nits (measured 2026-09-28, arena art pass, whose rewritten props no longer
+assign a `Point`; 24 after `world-markers`, which deleted `progressbar.ts`;
 25 after `hud-rebuild`, where one `Point` went with the deleted `playerstats.ts`; 26 after
 `hex-cells-p4-cleanup` dropped the two `impulse` errors, 28 before). Compare the
 sorted error list, not just the count, before dismissing.
@@ -267,8 +268,25 @@ the camera and `Game`'s own position are snapped to device pixels. Break any one
 set, tinted by `LAYER_TINT` (`objects/fog.ts`) times the fog's. The old `hexpad/*` frames in
 `hex.json` are now unused and go at its next re-bake.
 
-`tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went) and the
-four `obstacle_*` groups in the TexturePacker atlas are now unused — the ground and every obstacle come from the hex sheet. They stay
+**Props, effects and icons are a third generated sheet, `assets/res/arena.png` + `arena.json`,
+and the two blasts are a fourth, `blasts.png` + `blasts.json`** (arena art pass 2026-09-28),
+baked by `tools/bake-arena-atlas.py` from an art drop kept outside the repo
+(`~/.codex/.chatgpt-projects/.../output/extraction-arena-library-v2`; its `docs/INTEGRATION.md`
+is the artist's contract). Scale 2 like the ground; each frame carries the drop's pivot as its
+`anchor`, so sprites are drawn at scale 1 on their ground point and no client code knows a
+pivot number. Clips list their fps and loop in `meta.clips`, which `AnimationClip` reads (it
+searches `atlas.json`, then the arena sheets). Portal and extract pad are **pre-squashed for
+the tilt**: they stand up, never `onGround`, or they squash twice. Skill icons are resampled
+256 to 68 px. The enter-screen panel and button chrome in the drop are not baked; they wait
+for the robot-preview milestone. JetBrains Mono (the HUD's `THEME.font`) ships in
+`assets/res/fonts/` with its OFL licence; `index.ts` waits for it, and starts without it.
+Loot crystals are picked by value (`Consumable.TIERS`: under 25 small, under 50 medium, else
+large), which is why a pickup's create carries `loot` since this pass.
+
+`tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went), `exit.png`,
+`portal.png`, `fireball/*`, `explosion/*`, `resource/*`, the `UI/controls/*` icons and the
+four `obstacle_*` groups in the TexturePacker atlas are now unused, and so are the `hexprop/*`
+frames in `hex.json`. They stay
 because regenerating that atlas needs TexturePacker, which is not in this toolchain; that is
 about 40 KB of the 327 KB atlas sitting there for nothing.
 
@@ -523,6 +541,15 @@ have no attacker and don't count, as they don't in the redis `kills` stat. The f
 `update` last, so a kill in the same tick as the player's own destroy never reaches its card.
 **Client first**, like every new index. The load bot's and `spans.cjs`'s `WIDTH` tables and
 `archetype-bot.mjs` have the row.
+
+**`projectile` (22)** is a uint8 on a `Throwable`'s create only: `Throwable.FIREBALL` 1,
+`ICICLE` 2 (client `PROJECTILE` in `objects/throwable.ts`; `arenawire.spec.ts` compares the
+two, append-only). The client draws the matching clip; a server from before it sends none and
+everything flies as a fireball. **Client first.** The tools' tables have the row. A
+**Consumable's create carries `loot`** (as `loot32`, 20) since the same pass, so the client can
+size the crystal; no new index, and an older client already decodes it. The client draws a
+projectile one tick behind, gliding between its server positions and pointed along the step
+(`direction` is not on the wire), hidden until its second position.
 
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
@@ -793,17 +820,15 @@ Throwicicle, IceBreath. **The order of `Player.skills` is a wire contract** — 
 the index of the slot pressed and `tryExecuteSkill` indexes straight into the server's array,
 so the two lists must stay identical. The HUD bar binds them to `q w e r t y u i`.
 
-**Four of them use placeholder icons.** The atlas ships exactly four control icons (dash,
-defend, melee, ranged); StoneWall, ThrowFireball, Throwicicle and IceBreath each borrow the
-closest one, listed in `src/skills/placeholders.ts`. The key letter on the button is what
-distinguishes them until real art exists. Also missing and wanted: `player/magic/frame` and
-`player/shoot/shot` clips (Defend and RangedAttack used to call them and only logged an
-error), and an icicle projectile sprite — thrown icicles currently render as fireballs.
-Also a **shield** (Defend) and a **snowflake** (IceBreath): both are drawn with `Graphics`
-for now, because the sprite names they used were never in the atlas. A name missing from the
-atlas isn't a harmless blank: pixi fetches it as a URL and throws an uncaught error on every
-use. `textures.spec.ts` (server) fails on any literal sprite or animation name the client
-uses that isn't in `atlas.json`/`hex.json`.
+**All eight have their own icon since the arena art pass** (2026-09-28; the four that had
+none are still in `src/skills/placeholders.ts`, which kept its name), and the shield,
+snowflake, flame, muzzle flash, icicle and both blasts are arena sprites. Still missing and
+wanted: `player/magic/frame` and `player/shoot/shot` clips (Defend and RangedAttack used to
+call them and only logged an error), and every unit (the drop excludes units). A name
+missing from every sheet isn't a harmless blank: pixi fetches it as a URL and throws an
+uncaught error on every use. `textures.spec.ts` (server) fails on any literal sprite or
+animation name the client uses that isn't in one of the five sheets; names picked from a
+table (`Consumable.TEXTURES`, `ItemPickup`'s `ART`, the skill icons) are not checked.
 
 **Every area of effect is a set of hex cells, not a radius.** A unit is inside if the cell
 under its centre is. `World.FIND_IN_CELLS` covers rings around a cell: melee is 2 rings

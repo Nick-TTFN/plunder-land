@@ -7,7 +7,8 @@ import { Hex } from '../utils/hex'
 import Unit from '../objects/unit'
 import { RANGED_RANGE_CELLS, firstOnLine, rangedRangeCells, type Body, type Cell } from './cells'
 import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
-import { onGround } from '../objects/tilt'
+import { onGround, TILT } from '../objects/tilt'
+import AnimationClip from '../animation/animationclip'
 
 /**
  * A beam from the caster to where the shot stops: the first unit on its hex
@@ -85,6 +86,23 @@ export class RangedAttackEffect {
       beam.lineStyle(3, 0x88ffff, 0.95).moveTo(tx, ty).lineTo(hx, hy)
     }
     layer.addChild(beam)
+
+    // A flash at the muzzle, a little way out along the shot, pointed along it
+    // on screen (the camera squashes y by TILT; the clip stands up).
+    if (length > 0) {
+      const flash = new AnimationClip('fx/muzzle')
+      const out = Math.min(20, length) / length
+      flash.x = from.x + (end.x - from.x) * out
+      flash.y = from.y + (end.y - from.y) * out - owner.radius
+      flash.zIndex = from.y + 2
+      flash.rotation = Math.atan2((end.y - from.y) * TILT, end.x - from.x)
+      flash.onComplete = () => {
+        flash.parent?.removeChild(flash)
+        flash.destroy()
+      }
+      layer.addChild(flash)
+      flash.play()
+    }
 
     // The head crosses the full range in 120 ms, the tail follows it in.
     const travel = 120 * Math.min(1, length / fullLength) + 30

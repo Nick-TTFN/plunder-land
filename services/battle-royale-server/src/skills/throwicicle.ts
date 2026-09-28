@@ -30,7 +30,8 @@ export class Throwicicle extends Skill {
       1200,
       this.owner.tag,
       this.owner,
-      this.explode.bind(this)
+      this.explode.bind(this),
+      Throwable.ICICLE
     )
     World.PROJECTILES.push(icicle)
 

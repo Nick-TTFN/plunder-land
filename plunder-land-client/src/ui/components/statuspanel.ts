@@ -1,4 +1,4 @@
-import { Graphics, type Text } from 'pixi.js'
+import { Sprite, Texture, type Text } from 'pixi.js'
 import { Panel, Bar } from './panel'
 import { Inventory } from './inventory'
 import { THEME } from '../theme'
@@ -23,7 +23,8 @@ export class StatusPanel extends Panel {
   private readonly _hpText: Text
   private readonly _armorBar = new Bar(BAR_W, BAR_H, THEME.armor)
   private readonly _armorText: Text
-  private readonly _armorRow: Graphics
+  private readonly _armorRow: Sprite
+  private readonly _lootIcon = StatusPanel.icon('ui/hud_loot.png')
   private _shown = { loot: NaN, hp: NaN, maxHp: NaN, armor: NaN, maxArmor: NaN }
 
   constructor () {
@@ -32,16 +33,16 @@ export class StatusPanel extends Panel {
     this._lootLabel = Panel.text('LOOT', THEME.smallSize, THEME.muted)
     this._loot = Panel.text('0', THEME.titleSize, THEME.loot)
     this._loot.anchor.set(1, 0)
-    this.addChild(this._lootLabel, this._loot)
+    this.addChild(this._lootIcon, this._lootLabel, this._loot)
 
-    const heart = StatusPanel.heart(THEME.hp)
+    const heart = StatusPanel.icon('ui/hud_heart.png')
     heart.y = BAR_H / 2
     this._hpBar.x = 26
     this._hpText = Panel.text('', THEME.bodySize, THEME.text)
     this._hpText.x = 26 + BAR_W + 14
     this._hpText.y = -4
 
-    this._armorRow = StatusPanel.shield(THEME.armor)
+    this._armorRow = StatusPanel.icon('ui/hud_shield.png')
     this._armorRow.y = ROW + BAR_H / 2
     this._armorBar.x = 26
     this._armorBar.y = ROW
@@ -67,6 +68,8 @@ export class StatusPanel extends Panel {
     this._loot.y = THEME.pad - 2
     this._lootLabel.x = this._loot.x - this._loot.width - 8 - this._lootLabel.width
     this._lootLabel.y = THEME.pad + 4
+    this._lootIcon.x = this._lootLabel.x - 14
+    this._lootIcon.y = this._lootLabel.y + this._lootLabel.height / 2
   }
 
   update (): void {
@@ -98,20 +101,14 @@ export class StatusPanel extends Panel {
     }
   }
 
-  /** Placeholder icons until the art pass. */
-  static heart (colour: number): Graphics {
-    return new Graphics()
-      .beginFill(colour)
-      .drawCircle(5, -2, 5)
-      .drawCircle(13, -2, 5)
-      .drawPolygon([0.5, 0, 17.5, 0, 9, 9])
-      .endFill()
-  }
-
-  static shield (colour: number): Graphics {
-    return new Graphics()
-      .beginFill(colour)
-      .drawPolygon([9, -9, 17, -6, 16, 3, 9, 9, 2, 3, 1, -6])
-      .endFill()
+  /**
+   * An 18 px status glyph from the arena sheet, centred on (9, 0), where the
+   * drawn placeholders sat, so the bars beside them didn't move.
+   */
+  static icon (name: string): Sprite {
+    const sprite = new Sprite(Texture.from(name))
+    sprite.anchor.set(0.5, 0.5)
+    sprite.x = 9
+    return sprite
   }
 }

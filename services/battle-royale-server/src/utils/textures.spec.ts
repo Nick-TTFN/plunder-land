@@ -22,17 +22,13 @@ import { join, relative } from 'node:path'
 
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client')
 const SRC = join(CLIENT, 'src')
-const ATLASES = ['assets/res/atlas.json', 'assets/res/hex.json', 'assets/res/ground.json'].map((f) => join(CLIENT, f))
+const ATLASES = ['assets/res/atlas.json', 'assets/res/hex.json', 'assets/res/ground.json', 'assets/res/arena.json', 'assets/res/blasts.json'].map((f) => join(CLIENT, f))
 
 /**
  * Files nothing imports, whose names are known to be missing. Each must say
  * why, and should go when it is deleted or given art.
  */
-const UNREACHABLE = new Set([
-  // Nothing constructs `Icicle`: thrown icicles render as fireballs (CLAUDE.md
-  // "Skills"). Its 'UI/controls/icicle.png' and 'UI/snowflake.png' do not exist.
-  'objects/icicle.ts'
-])
+const UNREACHABLE = new Set<string>([])
 
 function sourceFiles (dir: string): string[] {
   const out: string[] = []

@@ -1,9 +1,12 @@
-import TWEEN from '@tweenjs/tween.js'
 import AnimationClip from '../animation/animationclip'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { BLAST_RINGS, discCells } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
+import { type Container } from 'pixi.js'
+
+/** The blast clips' frame, in logical px (`blasts.json`, 256 px at scale 2). */
+const BLAST_FRAME = 128
 
 /**
  * A fireball or icicle bursting: the impact cell and its six neighbours
@@ -25,28 +28,26 @@ export class BlastEffect {
 
     const layer = layerOf(tag)
     if (layer === undefined) return
-
-    for (const c of cells) {
-      const at = Hex.toPosition(new Vector(c.x, c.y))
-      const centre = c.x === cell.x && c.y === cell.y
-      setTimeout(() => {
-        const expl = new AnimationClip('explosion/expl')
-        expl.x = at.x
-        expl.y = at.y
-        expl.zIndex = at.y + 1
-        if (icy) expl.tint = 0x9fe6ff
-        const size = centre ? 1.4 : 0.9
-        expl.scale.set(size, size)
-        layer.addChild(expl)
-        expl.play()
-        new TWEEN.Tween(expl.scale)
-          .to({ x: 0, y: 0 }, 500)
-          .onComplete(() => {
-            expl.parent?.removeChild(expl)
-            expl.destroy()
-          })
-          .start()
-      }, centre ? 0 : 60 + 60 * Math.random())
-    }
+    playBlast(layer, cell, BLAST_RINGS, icy ? 'fx/blast_ice' : 'fx/blast_fire')
   }
+}
+
+/**
+ * One blast clip on `cell`, sized so its frame spans the disc of `rings`
+ * around it, played once and removed. The art grows inside a fixed frame,
+ * so nothing here tweens its scale (INTEGRATION.md: no second growth curve).
+ */
+export function playBlast (layer: Container, cell: Vector, rings: number, clip: string): void {
+  const at = Hex.toPosition(cell)
+  const expl = new AnimationClip(clip)
+  expl.x = at.x
+  expl.y = at.y
+  expl.zIndex = at.y + 1
+  expl.scale.set((2 * rings + 1) * Hex.SIZE / BLAST_FRAME)
+  expl.onComplete = () => {
+    expl.parent?.removeChild(expl)
+    expl.destroy()
+  }
+  layer.addChild(expl)
+  expl.play()
 }

@@ -1,10 +1,9 @@
 import TWEEN from '@tweenjs/tween.js'
-import AnimationClip from '../animation/animationclip'
-import { Vector } from '../utils/vector'
-import { Hex } from '../utils/hex'
+import { type Vector } from '../utils/vector'
 import { ITEM_INFO } from '../utils/items'
 import { discCells } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
+import { playBlast } from './blast.effect'
 
 const FUSE_COLOUR = 0xff3b1f
 const BLAST_COLOUR = 0xffa21f
@@ -33,27 +32,7 @@ export class BombEffect {
     const layer = layerOf(tag)
     if (layer === undefined) return
 
-    for (const c of cells) {
-      const at = Hex.toPosition(new Vector(c.x, c.y))
-      const centre = c.x === cell.x && c.y === cell.y
-      setTimeout(() => {
-        const expl = new AnimationClip('explosion/expl')
-        expl.x = at.x
-        expl.y = at.y
-        expl.zIndex = at.y + 1
-        const size = centre ? 1.8 : 1.1
-        expl.scale.set(size, size)
-        layer.addChild(expl)
-        expl.play()
-        new TWEEN.Tween(expl.scale)
-          .to({ x: 0, y: 0 }, 550)
-          .onComplete(() => {
-            expl.parent?.removeChild(expl)
-            expl.destroy()
-          })
-          .start()
-      }, centre ? 0 : 40 + 80 * Math.random())
-    }
+    playBlast(layer, cell, ITEM_INFO.bomb.rings, 'fx/blast_fire')
   }
 
   /** The doomed cells, pulsing faster as the fuse runs down, gone when it ends. */

@@ -6,7 +6,7 @@ export class Defend extends Skill {
   constructor (owner: GameObject) {
     super(owner)
     this.name = 'Defend'
-    this.uiTexture = Texture.from('UI/controls/defend.png')
+    this.uiTexture = Texture.from('ui/skill_defend.png')
     this.cooldown = 8
   }
 

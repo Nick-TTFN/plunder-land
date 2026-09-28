@@ -42,6 +42,16 @@ export default class Throwable extends GameObject {
   static STEP = 5
   /** A crossed cell hits units on it and within this many rings of it. */
   static SWATH_RINGS = 1
+  /**
+   * The `projectile` wire field (index 22): which sprite the client draws.
+   * Append-only, like field indices; the client's copy is `PROJECTILE` in
+   * `src/objects/throwable.ts` (`projectilekind.spec.ts` compares them).
+   */
+  static FIREBALL = 1
+  static ICICLE = 2
+
+  /** `FIREBALL` or `ICICLE`; drawing only, nothing on the server reads it. */
+  readonly projectile: number
 
   owner: Unit
   /** The cells it flies over, the caster's own first. */
@@ -65,7 +75,8 @@ export default class Throwable extends GameObject {
     lifetime: number,
     tag: number,
     owner: Unit,
-    destroyCallback: (value: GameObject, struck?: Unit) => void
+    destroyCallback: (value: GameObject, struck?: Unit) => void,
+    projectile: number
   ) {
     const from = Hex.toPosition(line[0])
     const to = Hex.toPosition(line[line.length - 1])
@@ -83,6 +94,10 @@ export default class Throwable extends GameObject {
     this.direction = line.length > 1 ? to.sub(from).normalised() : new Vector(0, 0)
     this.owner = owner
     this.destroyCallback = destroyCallback
+    this.projectile = projectile
+    // Snapshot sets only: a projectile's kind never changes.
+    this.allFields.add('projectile')
+    this.allFieldsOwn.add('projectile')
 
     Multiplayer.Instance.create(this)
   }

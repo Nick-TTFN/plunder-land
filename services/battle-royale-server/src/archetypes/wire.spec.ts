@@ -94,8 +94,9 @@ test('archetype is field index 16, after maxArmor', () => {
   assert.equal(GameObject.fieldOrder.indexOf('archetype'), 16)
   // usable-items appended `item` (17) and `inventory` (18) after it, and
   // extract-channel appended `extractProgress` (19), and loot-wire-overflow
-  // appended `loot32` (20), and run-summary-card appended `kills` (21).
-  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills'], 'a field after kills: update this spec')
+  // appended `loot32` (20), and run-summary-card appended `kills` (21), and
+  // the arena art pass appended `projectile` (22).
+  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile'], 'a field after projectile: update this spec')
 })
 
 function units (): Array<[string, Unit, number]> {

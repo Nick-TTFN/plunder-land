@@ -17,7 +17,7 @@ import { PathMarker } from './ui/elements/pathmarker'
 import { ThreatMarker, threatRings, type Threat } from './ui/elements/threatmarker'
 import { Timer } from './ui/elements/timer'
 import { ExtractRing } from './ui/elements/extractring'
-import { Throwable } from './objects/throwable'
+import { Throwable, PROJECTILE } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
 import { HexTerrain } from './objects/hexterrain'
@@ -408,7 +408,11 @@ export class Game extends Container {
       'loot32',
       // The player's kills this run, uint16, for the run-summary card. In the
       // own create and a delta on each kill.
-      'kills'
+      'kills',
+      // A projectile's kind, one unsigned byte: PROJECTILE in
+      // objects/throwable.ts. Only in a projectile's create; a server from
+      // before it sends none, and the projectile draws as a fireball.
+      'projectile'
     ]
 
     return decodeRecord(raw, allFields)
@@ -430,28 +434,17 @@ export class Game extends Container {
 
     switch (data.type) {
       case 1: {
-        // Props are baked against the same cell size as the ground they stand
-        // on, so which one an obstacle gets is the only choice left - there is
-        // no size to pick any more. Two sets, because a pine tree on the stone
-        // plane and a ruined arch on the grass one both read as a mistake.
-        // Grass props on layer 01, ground props below, matching the pads.
-        const sheet = Assets.get('./res/hex.json')
-        const frames = sheet.data.animations[
-          Session.layerNumber(data.tag) === 1 ? 'hexprop/grass' : 'hexprop/ground'
-        ]
-        const tex = Texture.from(
-          frames[Math.floor(frames.length * Math.random())]
-        )
-        obj = new Obstacle(tex, data.radius)
+        // A StoneWall stone, the only obstacle since the valleys replaced world
+        // rocks: one crate per cell, on every layer (art pass 2026-09-28).
+        obj = new Obstacle(Texture.from('map/stone_wall.png'), data.radius)
         Game.OBSTACLES.push(obj)
       }
         break
 
       case 1 << 4: {
-        // Projectiles were never rendered: this branch was commented out, so
-        // ThrowFireball and ThrowIcicle fired server-side and showed nothing.
-        // Both use the fireball sprite; the atlas has no icicle art.
-        const throwable = new Throwable()
+        // Fireball or icicle by the `projectile` field; a server from before
+        // it sends none, and every projectile draws as a fireball.
+        const throwable = new Throwable(data.projectile === PROJECTILE.icicle)
         Game.FIREBALLS.push(throwable)
         obj = throwable as unknown as GameObject
         break
@@ -481,12 +474,9 @@ export class Game extends Container {
         break
 
       case 1 << 1:{
-        const sheet = Assets.get('./res/atlas.json')
-        const frames = sheet.data.animations['resource/resource']
-        const tex = Texture.from(
-          frames[Math.floor(frames.length * Math.random())]
-        )
-        const consumable = new Consumable(tex, data.radius, data.radius)
+        // Sized by value (`Consumable.textureFor`). A server from before loot
+        // was in the create sends none; the radius stands in.
+        const consumable = new Consumable(data.loot ?? data.radius, data.radius)
         Game.CONSUMABLES.push(consumable)
         obj = consumable
 
@@ -546,9 +536,12 @@ export class Game extends Container {
       this.updateLayerVisibility(data.tag)
     }
 
-    if (data.lifetime !== undefined) {
+    // A countdown on what expires: dropped loot and items, StoneWall stones.
+    // Not on a projectile, whose lifetime ends nothing (the server bursts it at
+    // the end of its line). No tint any more: it turned the arena art amber.
+    const projectile = (obj as unknown) instanceof Throwable
+    if (data.lifetime !== undefined && !projectile) {
       obj.addChild(new Timer(data.lifetime / 1000))
-      if (obj.main != null) obj.main.tint = 0xffbb00
     }
 
     // Your own robot reads YOU; its create_own record carries no name anyway.
@@ -560,6 +553,8 @@ export class Game extends Container {
     if (data.position !== undefined) {
       obj.x = data.position.x
       obj.y = data.position.y
+      // Its first position: it glides from here once the next one arrives.
+      if (projectile) (obj as unknown as Throwable).setMoveTarget(new Vector(data.position.x, data.position.y))
       // Obstacles never move and are never fed through `update`, so this is the
       // only place their depth can be set. Without it they sit at zIndex 0 and
       // every unit on the plane draws in front of them - which nobody noticed

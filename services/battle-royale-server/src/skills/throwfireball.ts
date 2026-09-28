@@ -29,7 +29,8 @@ export class ThrowFireball extends Skill {
       1200,
       this.owner.tag,
       this.owner,
-      this.explode.bind(this)
+      this.explode.bind(this),
+      Throwable.FIREBALL
     )
     World.PROJECTILES.push(fireball)
 

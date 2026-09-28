@@ -1,0 +1,1225 @@
+{
+ "frames": {
+  "map/extract_pad.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 200,
+    "h": 180
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 200,
+    "h": 180
+   },
+   "sourceSize": {
+    "w": 200,
+    "h": 180
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "map/portal.png": {
+   "frame": {
+    "x": 204,
+    "y": 2,
+    "w": 180,
+    "h": 180
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 180,
+    "h": 180
+   },
+   "sourceSize": {
+    "w": 180,
+    "h": 180
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/shield_00.png": {
+   "frame": {
+    "x": 386,
+    "y": 2,
+    "w": 140,
+    "h": 140
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 140,
+    "h": 140
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 140
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/shield_01.png": {
+   "frame": {
+    "x": 528,
+    "y": 2,
+    "w": 140,
+    "h": 140
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 140,
+    "h": 140
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 140
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/shield_02.png": {
+   "frame": {
+    "x": 670,
+    "y": 2,
+    "w": 140,
+    "h": 140
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 140,
+    "h": 140
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 140
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/shield_03.png": {
+   "frame": {
+    "x": 812,
+    "y": 2,
+    "w": 140,
+    "h": 140
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 140,
+    "h": 140
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 140
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "map/stone_wall.png": {
+   "frame": {
+    "x": 2,
+    "y": 184,
+    "w": 88,
+    "h": 104
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 88,
+    "h": 104
+   },
+   "sourceSize": {
+    "w": 88,
+    "h": 104
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.93
+   }
+  },
+  "map/loot_large.png": {
+   "frame": {
+    "x": 92,
+    "y": 184,
+    "w": 60,
+    "h": 80
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 60,
+    "h": 80
+   },
+   "sourceSize": {
+    "w": 60,
+    "h": 80
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.9
+   }
+  },
+  "ui/item_bomb.png": {
+   "frame": {
+    "x": 154,
+    "y": 184,
+    "w": 80,
+    "h": 80
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 80
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 80
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/item_medkit.png": {
+   "frame": {
+    "x": 236,
+    "y": 184,
+    "w": 80,
+    "h": 80
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 80
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 80
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_dash.png": {
+   "frame": {
+    "x": 318,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_defend.png": {
+   "frame": {
+    "x": 388,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_fireball.png": {
+   "frame": {
+    "x": 458,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_ice_breath.png": {
+   "frame": {
+    "x": 528,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_icicle.png": {
+   "frame": {
+    "x": 598,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_melee.png": {
+   "frame": {
+    "x": 668,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_shoot.png": {
+   "frame": {
+    "x": 738,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/skill_stone_wall.png": {
+   "frame": {
+    "x": 808,
+    "y": 184,
+    "w": 68,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 68,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 68,
+    "h": 68
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/flame_00.png": {
+   "frame": {
+    "x": 878,
+    "y": 184,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/flame_01.png": {
+   "frame": {
+    "x": 944,
+    "y": 184,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/flame_02.png": {
+   "frame": {
+    "x": 2,
+    "y": 290,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/flame_03.png": {
+   "frame": {
+    "x": 68,
+    "y": 290,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/flame_04.png": {
+   "frame": {
+    "x": 134,
+    "y": 290,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/flame_05.png": {
+   "frame": {
+    "x": 200,
+    "y": 290,
+    "w": 64,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 64,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 64,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "map/loot_medium.png": {
+   "frame": {
+    "x": 266,
+    "y": 290,
+    "w": 44,
+    "h": 64
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 44,
+    "h": 64
+   },
+   "sourceSize": {
+    "w": 44,
+    "h": 64
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.875
+   }
+  },
+  "map/bomb.png": {
+   "frame": {
+    "x": 312,
+    "y": 290,
+    "w": 60,
+    "h": 60
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 60,
+    "h": 60
+   },
+   "sourceSize": {
+    "w": 60,
+    "h": 60
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.86
+   }
+  },
+  "map/medkit.png": {
+   "frame": {
+    "x": 374,
+    "y": 290,
+    "w": 60,
+    "h": 60
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 60,
+    "h": 60
+   },
+   "sourceSize": {
+    "w": 60,
+    "h": 60
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.86
+   }
+  },
+  "fx/muzzle_00.png": {
+   "frame": {
+    "x": 436,
+    "y": 290,
+    "w": 48,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/muzzle_01.png": {
+   "frame": {
+    "x": 486,
+    "y": 290,
+    "w": 48,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/muzzle_02.png": {
+   "frame": {
+    "x": 536,
+    "y": 290,
+    "w": 48,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/muzzle_03.png": {
+   "frame": {
+    "x": 586,
+    "y": 290,
+    "w": 48,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "map/loot_small.png": {
+   "frame": {
+    "x": 636,
+    "y": 290,
+    "w": 32,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 32,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 32,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.84
+   }
+  },
+  "map/portal_down.png": {
+   "frame": {
+    "x": 670,
+    "y": 290,
+    "w": 48,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "map/portal_up.png": {
+   "frame": {
+    "x": 720,
+    "y": 290,
+    "w": 48,
+    "h": 48
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 48
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 48
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/fireball_00.png": {
+   "frame": {
+    "x": 770,
+    "y": 290,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.72,
+    "y": 0.5
+   }
+  },
+  "fx/fireball_01.png": {
+   "frame": {
+    "x": 868,
+    "y": 290,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.72,
+    "y": 0.5
+   }
+  },
+  "fx/fireball_02.png": {
+   "frame": {
+    "x": 2,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.72,
+    "y": 0.5
+   }
+  },
+  "fx/fireball_03.png": {
+   "frame": {
+    "x": 100,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.72,
+    "y": 0.5
+   }
+  },
+  "fx/fireball_04.png": {
+   "frame": {
+    "x": 198,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.72,
+    "y": 0.5
+   }
+  },
+  "fx/fireball_05.png": {
+   "frame": {
+    "x": 296,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.72,
+    "y": 0.5
+   }
+  },
+  "fx/icicle_00.png": {
+   "frame": {
+    "x": 394,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.65,
+    "y": 0.5
+   }
+  },
+  "fx/icicle_01.png": {
+   "frame": {
+    "x": 492,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.65,
+    "y": 0.5
+   }
+  },
+  "fx/icicle_02.png": {
+   "frame": {
+    "x": 590,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.65,
+    "y": 0.5
+   }
+  },
+  "fx/icicle_03.png": {
+   "frame": {
+    "x": 688,
+    "y": 356,
+    "w": 96,
+    "h": 40
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 96,
+    "h": 40
+   },
+   "sourceSize": {
+    "w": 96,
+    "h": 40
+   },
+   "anchor": {
+    "x": 0.65,
+    "y": 0.5
+   }
+  },
+  "ui/hud_heart.png": {
+   "frame": {
+    "x": 786,
+    "y": 356,
+    "w": 36,
+    "h": 36
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 36,
+    "h": 36
+   },
+   "sourceSize": {
+    "w": 36,
+    "h": 36
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/hud_loot.png": {
+   "frame": {
+    "x": 824,
+    "y": 356,
+    "w": 36,
+    "h": 36
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 36,
+    "h": 36
+   },
+   "sourceSize": {
+    "w": 36,
+    "h": 36
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "ui/hud_shield.png": {
+   "frame": {
+    "x": 862,
+    "y": 356,
+    "w": 36,
+    "h": 36
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 36,
+    "h": 36
+   },
+   "sourceSize": {
+    "w": 36,
+    "h": 36
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  },
+  "fx/snowflake.png": {
+   "frame": {
+    "x": 900,
+    "y": 356,
+    "w": 32,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 32,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 32,
+    "h": 32
+   },
+   "anchor": {
+    "x": 0.5,
+    "y": 0.5
+   }
+  }
+ },
+ "animations": {
+  "fx/fireball": [
+   "fx/fireball_00.png",
+   "fx/fireball_01.png",
+   "fx/fireball_02.png",
+   "fx/fireball_03.png",
+   "fx/fireball_04.png",
+   "fx/fireball_05.png"
+  ],
+  "fx/icicle": [
+   "fx/icicle_00.png",
+   "fx/icicle_01.png",
+   "fx/icicle_02.png",
+   "fx/icicle_03.png"
+  ],
+  "fx/flame": [
+   "fx/flame_00.png",
+   "fx/flame_01.png",
+   "fx/flame_02.png",
+   "fx/flame_03.png",
+   "fx/flame_04.png",
+   "fx/flame_05.png"
+  ],
+  "fx/muzzle": [
+   "fx/muzzle_00.png",
+   "fx/muzzle_01.png",
+   "fx/muzzle_02.png",
+   "fx/muzzle_03.png"
+  ],
+  "fx/shield": [
+   "fx/shield_00.png",
+   "fx/shield_01.png",
+   "fx/shield_02.png",
+   "fx/shield_03.png"
+  ]
+ },
+ "meta": {
+  "app": "tools/bake-arena-atlas.py",
+  "version": "1.0",
+  "image": "arena.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 1024,
+   "h": 398
+  },
+  "scale": "2",
+  "clips": {
+   "fx/fireball": {
+    "fps": 12,
+    "loop": true
+   },
+   "fx/icicle": {
+    "fps": 10,
+    "loop": true
+   },
+   "fx/flame": {
+    "fps": 16,
+    "loop": false
+   },
+   "fx/muzzle": {
+    "fps": 24,
+    "loop": false
+   },
+   "fx/shield": {
+    "fps": 8,
+    "loop": true
+   }
+  }
+ }
+}

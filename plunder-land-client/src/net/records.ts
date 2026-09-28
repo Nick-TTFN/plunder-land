@@ -85,6 +85,7 @@ export function decodeRecord (raw: ArrayBuffer | Uint8Array, fields: readonly st
         value = buffer[offset++]
         break
       case 'item':
+      case 'projectile':
         value = buffer[offset++]
         break
       case 'inventory': {

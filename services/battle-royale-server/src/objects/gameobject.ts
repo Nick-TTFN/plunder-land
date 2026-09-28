@@ -151,7 +151,11 @@ export class GameObject {
     // A player's kills this run, uint16, saturated (run-summary-card, #36):
     // in the owner's create and a delta on each kill, for the end-of-run card.
     // Only Player puts it in a snapshot set. Appended, as above.
-    'kills'
+    'kills',
+    // A projectile's kind, one unsigned byte: `Throwable.FIREBALL` 1 or
+    // `Throwable.ICICLE` 2 (0 is never sent), so the client draws the right
+    // sprite. Only Throwable sends it, in its create. Appended, as above.
+    'projectile'
   ]
 
   /**
@@ -508,6 +512,7 @@ export class GameObject {
         case 'type':
         case 'archetype':
         case 'item':
+        case 'projectile':
         case 'extractProgress':
           GameObject._room(at, 1).writeUInt8(value, at)
           at += 1

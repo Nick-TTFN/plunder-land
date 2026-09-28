@@ -6,7 +6,7 @@ export class MeleeAttack extends Skill {
   constructor (owner: GameObject) {
     super(owner)
     this.name = 'Melee Attack'
-    this.uiTexture = Texture.from('UI/controls/melee.png')
+    this.uiTexture = Texture.from('ui/skill_melee.png')
     this.cooldown = 1
   }
 
