@@ -1,8 +1,16 @@
 const HTMLWebpackPlugin = require('html-webpack-plugin')
 const CopyWebpackPlugin = require('copy-webpack-plugin')
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer')
+const { DefinePlugin } = require('webpack')
 
 module.exports = (env, options) => {
+  // The game server's address (src/config.ts). Required for a production build,
+  // so a deploy can never ship without one; a development build defaults to a
+  // local server.
+  const serverUrl = process.env.SERVER_URL ||
+    (options.mode === 'production' ? undefined : 'http://localhost:8000')
+  if (serverUrl === undefined) throw new Error('SERVER_URL must be set for a production build')
+
   return {
     devtool: options.mode === 'production' ? 'source-map' : 'inline-source-map',
     devServer: {
@@ -17,6 +25,7 @@ module.exports = (env, options) => {
       hints: false
     },
     plugins: [
+      new DefinePlugin({ __SERVER_URL__: JSON.stringify(serverUrl) }),
       new BundleAnalyzerPlugin({ analyzerMode: 'static', openAnalyzer: false }),
       new CopyWebpackPlugin({
         patterns: [

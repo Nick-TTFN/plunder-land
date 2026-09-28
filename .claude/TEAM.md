@@ -134,13 +134,17 @@ literally: an id pattern given as "for example" would have locked out every real
 
 ## Deploy
 
-- **The client deploys to Firebase Hosting (project `plunderland`) on any push to `main`**,
-  via `.github/workflows/firebase-hosting-merge.yml`. Local `main` is well ahead of
-  `origin/main` (check with `git rev-list --count origin/main..main`) and has never been
+- **The client deploys to Cloudflare Pages on any push to `main`** (decision #40), built by
+  Cloudflare's own Git integration: root `plunder-land-client`, `npm ci && npm run build`,
+  output `dist`, Node from `plunder-land-client/.node-version`, and **`SERVER_URL`** set in the
+  Pages project's build variables. Other branches get preview URLs. Firebase Hosting was removed
+  on 2026-09-28 (Firebase *Analytics* in the client is separate and stays). Local `main` is well
+  ahead of `origin/main` (check with `git rev-list --count origin/main..main`) and has never been
   pushed, so **the first push is a release.** Push only when Nick says so, for that push.
 - The server is not deployed anywhere. There is no server deploy sequence yet.
 - There is no config endpoint to poll, so a client deploy can only be reported as pushed.
-  Report the GitHub Actions run's result if it can be read; otherwise say it is unverified.
+  Report the Pages deployment's result if it can be read (`wrangler pages deployment list`, or the
+  API with the account token, [[reference-deploy-credentials]] in memory); otherwise say it is unverified.
 
 ## Dez
 

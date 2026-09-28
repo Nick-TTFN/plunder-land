@@ -162,8 +162,11 @@ for. (The `MISCONF` path is covered by the same catch but wasn't run; a dead Red
 The stats.js performance overlay (fps, socket bytes) shows only with `?stats=1` since
 `hud-rebuild`: it sat on top of the HUD's status panel for every player.
 
-The client's server address lives in `src/config.ts` and defaults to production. Point it
-at a local server with a query param — no source edit needed:
+The client's server address is baked in at build time from **`SERVER_URL`**
+(`webpack.config.js` → `src/config.ts`). A production build **fails without it**, so a deploy
+can't ship a dead default; Cloudflare Pages' build settings hold the Railway URL (decision #40).
+A development build (`npm start`) defaults to `http://localhost:8000`. A query param overrides
+either at run time — no source edit needed:
 
 ```
 http://localhost:3000/?server=http://localhost:8000
