@@ -125,8 +125,16 @@ export class Session {
     return Math.max(1000, Session._p95 * 6)
   }
 
+  /**
+   * Before every run (`Game.start`). The valleys go too: the next run may be
+   * in another world on the same server (worlds-per-process, #39), and its
+   * `hello` brings that world's. `tickMs`, `mapSize`, `interestRadius` and
+   * `layers` are the server's, not the world's, and `hello` replaces them
+   * anyway.
+   */
   static reset (): void {
     Session._gaps.length = 0
     Session._lastArrival = 0
+    Session.voids = []
   }
 }

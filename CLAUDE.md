@@ -79,6 +79,13 @@ per tick for ~75 server functions, socket writes and emits per tick, and a CPU b
 into tick / input / GC / networking / kernel). Judge a CPU change by **CPU ms per
 player-second**, which it prints: on 2026-09-26 about 40% of the server's CPU was sending,
 not simulating. `--frames 0` makes the bots connect as pre-frame clients.
+**Several worlds** (worlds-per-process): `ramp.sh` passes its environment through, so
+`WORLD_CAP=100 tools/load/ramp.sh …` runs 400 bots as 4 worlds. The probe then sums
+`World.update` and `flushAll` over one pass of the loop (`Worlds.tickAll`), so "world ms" is
+still per tick of the loop, and its counts are summed over the open worlds (`worlds` is the
+number open). It reads each world's own lists: with `World.strict` on, a static `World.X`
+outside `World.run` throws, which is the point, so anything added to the probe must do the
+same.
 
 **Unit stats live in one table**, `src/archetypes/archetypes.ts` (peep, grunt, boss, gunner):
 body, HP, speed, loot, contact damage with its cooldown and range in rings (`contact.rings`,
@@ -699,11 +706,36 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
 
 ## Things that are deliberate
 
-- **One world per process.** `World.PLAYERS`, `MOBS`, `OBSTACLES`, `PROJECTILES`, `CONSUMABLES`,
-  `AREA_EFFECT`, `TAGS`, `mapSize`, `config` are all `static`, and `Multiplayer.Instance`
-  is a static singleton. No rooms, no world reset without a restart, and multi-region means
-  separate non-communicating worlds. Converting these to instance state is the one genuinely
-  structural change the codebase would need for concurrent rooms.
+- **Several worlds per process, behind a current world** (worlds-per-process, decision #39,
+  2026-09-28). Every mutable piece of world state is an instance field of `World` (the lists,
+  `UNIT_SOURCES`, the cell indexes, `BLOCKED`, `VOIDS`, `VOID_RUNS`, `STEPS`, `MOVED_BUCKETS`,
+  `FINISHED`, `mapSize`), and so are its `Timers` queue (`world.timers`), its id pool
+  (`world.ids`: ids are per world) and its `Multiplayer` (`world.multiplayer`). The static
+  names (`World.PLAYERS`, `Timers.schedule`, `GameObject.id`, `Multiplayer.Instance`) are
+  accessors onto **`World.current`**, so game code and specs didn't change. Static methods and
+  constants (`LAYERS`, `TAGS`, `config`, `GATE_SPACING`…) are shared. **`World.run(world, fn)`**
+  makes a world current for synchronous work and restores the previous one; `new World()`
+  makes itself current (so single-world specs just work), `World.build` doesn't.
+  `src/network/worlds.ts` owns the one io server: a run (every `start_requested`, not a
+  connection) goes to the fullest world with fewer than `WORLD_CAP` (200) active players, ties
+  to the oldest, or a new world; one with no active players for `WORLD_IDLE_MS` (300000) closes,
+  never the last. A connection that moves is released completely (`Multiplayer.release`: out of
+  the old connection list and every old object's `knownBy`). The loop ticks and flushes each
+  world in its own `World.run` and try/catch (`Worlds.tickAll`); every socket handler runs in
+  `World.run(itsWorld)` inside `guarded`. **Work outside `World.run` fails loudly**: the server
+  sets `World.strict`, so between runs no world is current and `World.X`, `Timers` and new
+  objects throw; a world ticked, or a Multiplayer used, while another is current throws a
+  `WrongWorldError` (`World.expect`, `Multiplayer.checkWorld`). Both count in `World.wrongWorld`,
+  which `worlds.spec.ts` holds at 0 through a two-world run. **After an `await` no world is
+  current**: capture what a promise needs first (the stats writes take `redis` before theirs).
+  Specs run non-strict: the first `World.X` read before any `new World()` makes a default world
+  with no map, which adopts the queue and id pool already in use. A spec's
+  `Object.create(World.prototype)` ticks the current world, as before. Shared by every world,
+  on purpose: the io server, one Redis client with one error listener (`Multiplayer.shareRedis`),
+  the `ThrottledLog`s, `GameObject._scratch`, `Path` scratch, `_terrainRecords` (weak).
+  **The client ships first**: the next run on a socket may be another world, and the client
+  resets its map, fog and ids per run (`resetForRun` in `net/runmap.ts`, from `Game.start`);
+  an older client keeps `Game.BLOCKED` across runs and would route on the old world's stones.
 - **Nothing is persisted.** The world lives entirely in memory. Redis holds only cumulative
   `stats-*` hashes. This is why the tick has an error boundary — an uncaught throw would
   otherwise take every in-flight run down with the process. It also rules out serverless,

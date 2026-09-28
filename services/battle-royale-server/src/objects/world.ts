@@ -6,7 +6,7 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Random } from '../utils/random'
 import Portal from './portal'
-import { type GameObject, ObjectType } from './gameobject'
+import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob from './mob'
 import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item } from '../archetypes/archetypes'
 import { type Unit } from './unit'
@@ -43,6 +43,28 @@ export interface FinishedPlayer {
   at: number
 }
 
+/** How a world is built (`new World(size, options)`). */
+export interface WorldOptions {
+  /**
+   * The Multiplayer this world sends through, and whose connections are its
+   * clients. Default: the current world's, which is what a spec that assigns
+   * `Multiplayer.Instance` before `new World()` expects. The server always
+   * passes one (`Worlds`), because objects the constructor makes (portals,
+   * exits) are sent through it before the constructor returns.
+   */
+  multiplayer?: Multiplayer
+  /** No valleys and no gates: only the default world (`World.current` before any `new World()`). */
+  empty?: boolean
+}
+
+/**
+ * Work reached the wrong world: no world was current (`World.strict`), or a
+ * world or its Multiplayer was used while another was current. Counted in
+ * `World.wrongWorld` as well as thrown, so it shows up even where a catch
+ * swallows it (`Multiplayer.guarded`, the tick's own try/catch).
+ */
+export class WrongWorldError extends Error {}
+
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
   static DROPPED_LOOT_LIFETIME = 30000
@@ -69,7 +91,7 @@ export default class World {
    */
   static GATE_SPACING = 4
 
-  static mapSize: number
+  mapSize: number
 
   /**
    * How long a player who extracted or died stays on the standings board, in
@@ -90,7 +112,7 @@ export default class World {
    * FINISHED_MAX newer entries push it out (`finish`). Written only by those
    * two, so it is bounded by FINISHED_MAX even if the tick stalls.
    */
-  static FINISHED: FinishedPlayer[] = []
+  FINISHED: FinishedPlayer[] = []
 
   /**
    * Blocked cells per plane: `Hex.key` to the obstacle that blocks it (a rock
@@ -106,15 +128,15 @@ export default class World {
    * releases it on destroy. Nothing else may write to it - a cell blocked
    * without an obstacle to explain it is invisible in every log.
    */
-  static BLOCKED: Map<number, Map<number, GameObject | null>> = new Map()
+  BLOCKED: Map<number, Map<number, GameObject | null>> = new Map()
 
   /**
    * Each layer's valleys (`valleys.ts`): void cells, blocked with no blocker
    * in `BLOCKED` from the moment the world is built. `VOID_RUNS` is the same
    * set run-length encoded for `hello.voids`, built once.
    */
-  static VOIDS: Map<number, Set<number>> = new Map()
-  static VOID_RUNS: Map<number, number[]> = new Map()
+  VOIDS: Map<number, Set<number>> = new Map()
+  VOID_RUNS: Map<number, number[]> = new Map()
 
   /**
    * Rocks, stone-wall stones, portals, exits. Rocks and stones block their
@@ -122,28 +144,28 @@ export default class World {
    * mob never enters (`GATES`, `mobCanEnter`). Nothing is pushed out of any
    * of them (hex-cells P2).
    */
-  static OBSTACLES: GameObject[] = []
+  OBSTACLES: GameObject[] = []
   /**
    * Fireballs and icicles in flight. Their own list, not OBSTACLES: they are
    * not solid, they must not count toward the rock refill, and the tick is the
    * only thing that removes them (see `updateProjectiles`).
    */
-  static PROJECTILES: Throwable[] = []
-  static CONSUMABLES: Consumable[] = []
+  PROJECTILES: Throwable[] = []
+  CONSUMABLES: Consumable[] = []
   /**
    * Usable items on the ground (decision #12). Their own list, not CONSUMABLES:
    * they are not loot and must not count toward a layer's loot cap. Removed by
    * pickup (`Player.update`) and expiry (`World.update`) only.
    */
-  static ITEMS: ItemPickup[] = []
-  static PLAYERS: Player[] = []
-  static MOBS: Unit[] = []
-  static AREA_EFFECT: Area[] = []
+  ITEMS: ItemPickup[] = []
+  PLAYERS: Player[] = []
+  MOBS: Unit[] = []
+  AREA_EFFECT: Area[] = []
 
   // The two unit lists, for the few whole-list passes left (`block`'s
   // re-route) and as the membership of `UNITS`. Previously the spatial queries
   // built a fresh PLAYERS.concat(MOBS) array on every call.
-  static UNIT_SOURCES: Unit[][] = [World.PLAYERS as unknown as Unit[], World.MOBS]
+  UNIT_SOURCES: Unit[][] = [this.PLAYERS as unknown as Unit[], this.MOBS]
 
   /**
    * Players and mobs by layer and cell (`Hex.key` of the cell under the
@@ -154,8 +176,8 @@ export default class World {
    * `removeUnitAt`; a unit that moves or changes layer refiles itself
    * (`Unit.placed`).
    */
-  static UNITS = new CellIndex<Unit>(
-    () => World.UNIT_SOURCES,
+  UNITS = new CellIndex<Unit>(
+    () => this.UNIT_SOURCES,
     (unit) => unit.tag,
     (unit) => World.cellKeyOf(unit.position)
   )
@@ -170,8 +192,8 @@ export default class World {
    * `UNITS`. By layer since interest-filtered-broadcasts: every caller wants
    * one layer, and a layer change refiles the player (`unitMoved`).
    */
-  static INTEREST = new CellIndex<Player>(
-    () => [World.PLAYERS],
+  INTEREST = new CellIndex<Player>(
+    () => [this.PLAYERS],
     (player) => player.tag,
     (player) => World.bucketKeyOf(player.position.x, player.position.y)
   )
@@ -181,8 +203,8 @@ export default class World {
    * Pickups are same-cell (decision #32). Add and remove through its `push` /
    * `removeAt` / `remove`, never on the lists directly.
    */
-  static PICKUPS = new CellIndex<Consumable | ItemPickup>(
-    () => [World.CONSUMABLES, World.ITEMS],
+  PICKUPS = new CellIndex<Consumable | ItemPickup>(
+    () => [this.CONSUMABLES, this.ITEMS],
     (pickup) => pickup.tag,
     (pickup) => World.cellKeyOf(pickup.position)
   )
@@ -195,8 +217,8 @@ export default class World {
    * `removeObstacleAt` / `removeObstacle`. By type code, not `instanceof`:
    * portal.ts and exit.ts import player.ts, which imports this module.
    */
-  static GATES = new CellIndex<GameObject>(
-    () => [World.OBSTACLES],
+  GATES = new CellIndex<GameObject>(
+    () => [this.OBSTACLES],
     (gate) => gate.tag,
     (gate) => World.cellKeyOf(gate.position),
     (obj) => obj.type === ObjectType.Portal || obj.type === ObjectType.Exit
@@ -284,7 +306,7 @@ export default class World {
    * `unitMoved`, so every write to a player's position or layer counts,
    * wherever it comes from.
    */
-  static MOVED_BUCKETS = new Map<number, Set<number>>()
+  MOVED_BUCKETS = new Map<number, Set<number>>()
 
   /**
    * How far round a moved bucket a pickup must look, in buckets. A pickup's
@@ -376,12 +398,195 @@ export default class World {
     ranged: 12
   }
 
-  constructor (size: number) {
-    World.mapSize = size
+  // Worlds (worlds-per-process, decision #39) ========
+
+  /** This world's delayed work (`Timers`), active while the world is current. */
+  readonly timers: Timers
+  /** This world's object ids (`GameObject.id`, `FreedIDs`), active while the world is current. */
+  readonly ids: IdPool
+  /**
+   * The Multiplayer this world's objects are sent through: `Multiplayer.Instance`
+   * while this world is current. Set through `Multiplayer.Instance` or the
+   * constructor, which also bind it (`Multiplayer.world`).
+   */
+  multiplayer: Multiplayer | undefined
+  /** Set by `close`. A closed world is never current again. */
+  closed = false
+
+  private static _current: World | undefined
+
+  /**
+   * In the server (`Worlds`), true: between pieces of work no world is
+   * current, and reaching for one throws a `WrongWorldError` instead of
+   * quietly using whichever world ran last. False in specs, where the first
+   * read makes a default world with no map, so that a spec that builds units
+   * before any `new World()` still has lists to put them in.
+   */
+  static strict = false
+
+  /** How many times the wrong-world guard has fired. Never reset by the server; specs read it. */
+  static wrongWorld = 0
+
+  /**
+   * The world every `World.X` static accessor reads and writes, whose
+   * `Timers` queue and id pool are active, and whose Multiplayer is
+   * `Multiplayer.Instance`. In the server only `World.run` and the
+   * constructor change it; a spec may set it.
+   */
+  static get current (): World {
+    const world = World._current
+    if (world !== undefined) return world
+    if (World.strict) return World.wrong('no world is current: world state was reached outside World.run')
+    // The default world adopts the queue and pool that were active before any
+    // world existed, so a timer or an id from that time is not lost.
+    return new World(0, { empty: true })
+  }
+
+  static set current (world: World) {
+    World.enter(world)
+  }
+
+  /** The current world, or undefined if none is, without making the default one. */
+  static peek (): World | undefined {
+    return World._current
+  }
+
+  private static enter (world: World | undefined): void {
+    if (world?.closed === true) World.wrong('a closed world was made current')
+    World._current = world
+    Timers.active = world?.timers
+    GameObject.pool = world?.ids
+  }
+
+  /**
+   * Make `world` current for `fn`, which must be synchronous, and restore the
+   * previous one afterwards, whatever `fn` does. Work queued inside `fn` (a
+   * promise continuation, a callback) runs after this returns, under another
+   * world or none: capture what it needs before it is queued.
+   */
+  static run<T> (world: World, fn: () => T): T {
+    const previous = World._current
+    World.enter(world)
+    try {
+      return fn()
+    } finally {
+      World.enter(previous)
+    }
+  }
+
+  /**
+   * `new World(size, options)` without leaving it current: the previous
+   * current world (or none) is restored, as `run` does. What `Worlds` uses.
+   */
+  static build (size: number, options: WorldOptions = {}): World {
+    const previous = World._current
+    try {
+      return new World(size, options)
+    } finally {
+      World.enter(previous)
+    }
+  }
+
+  /** Count and throw a `WrongWorldError`. */
+  static wrong (message: string): never {
+    World.wrongWorld++
+    throw new WrongWorldError(message)
+  }
+
+  /** Throw a `WrongWorldError` unless `world` is current. */
+  static expect (world: World, where: string): void {
+    if (World._current !== world) World.wrong(`${where}: its world is not the current one`)
+  }
+
+  /**
+   * Stop this world for good: its timers are dropped, its Multiplayer is
+   * unbound, and it can never be current again. `Worlds` closes a world only
+   * once no connection is attached to it, then drops every reference to it;
+   * nothing outside the world's own objects holds one (no timer, interval or
+   * listener), so it is collected (`worlds.spec.ts`).
+   */
+  close (): void {
+    if (World._current === this) World.enter(undefined)
+    this.closed = true
+    this.timers.clear()
+    if (this.multiplayer?.world === this) this.multiplayer.world = undefined
+  }
+
+  // The per-world state under its old static names: every `World.X` reads and
+  // writes the current world's. The fields are declared further up, next to
+  // their documentation.
+  static get mapSize (): number { return World.current.mapSize }
+  static set mapSize (value: number) { World.current.mapSize = value }
+  static get FINISHED (): FinishedPlayer[] { return World.current.FINISHED }
+  static set FINISHED (value: FinishedPlayer[]) { World.current.FINISHED = value }
+  static get BLOCKED (): Map<number, Map<number, GameObject | null>> { return World.current.BLOCKED }
+  static set BLOCKED (value: Map<number, Map<number, GameObject | null>>) { World.current.BLOCKED = value }
+  static get VOIDS (): Map<number, Set<number>> { return World.current.VOIDS }
+  static set VOIDS (value: Map<number, Set<number>>) { World.current.VOIDS = value }
+  static get VOID_RUNS (): Map<number, number[]> { return World.current.VOID_RUNS }
+  static set VOID_RUNS (value: Map<number, number[]>) { World.current.VOID_RUNS = value }
+  static get OBSTACLES (): GameObject[] { return World.current.OBSTACLES }
+  static set OBSTACLES (value: GameObject[]) { World.current.OBSTACLES = value }
+  static get PROJECTILES (): Throwable[] { return World.current.PROJECTILES }
+  static set PROJECTILES (value: Throwable[]) { World.current.PROJECTILES = value }
+  static get CONSUMABLES (): Consumable[] { return World.current.CONSUMABLES }
+  static set CONSUMABLES (value: Consumable[]) { World.current.CONSUMABLES = value }
+  static get ITEMS (): ItemPickup[] { return World.current.ITEMS }
+  static set ITEMS (value: ItemPickup[]) { World.current.ITEMS = value }
+  static get PLAYERS (): Player[] { return World.current.PLAYERS }
+  static set PLAYERS (value: Player[]) {
+    const world = World.current
+    world.PLAYERS = value
+    world.UNIT_SOURCES = [value as unknown as Unit[], world.MOBS]
+  }
+
+  static get MOBS (): Unit[] { return World.current.MOBS }
+  static set MOBS (value: Unit[]) {
+    const world = World.current
+    world.MOBS = value
+    world.UNIT_SOURCES = [world.PLAYERS as unknown as Unit[], value]
+  }
+
+  static get AREA_EFFECT (): Area[] { return World.current.AREA_EFFECT }
+  static set AREA_EFFECT (value: Area[]) { World.current.AREA_EFFECT = value }
+  static get UNIT_SOURCES (): Unit[][] { return World.current.UNIT_SOURCES }
+  static set UNIT_SOURCES (value: Unit[][]) { World.current.UNIT_SOURCES = value }
+  static get UNITS (): CellIndex<Unit> { return World.current.UNITS }
+  static set UNITS (value: CellIndex<Unit>) { World.current.UNITS = value }
+  static get INTEREST (): CellIndex<Player> { return World.current.INTEREST }
+  static set INTEREST (value: CellIndex<Player>) { World.current.INTEREST = value }
+  static get PICKUPS (): CellIndex<Consumable | ItemPickup> { return World.current.PICKUPS }
+  static set PICKUPS (value: CellIndex<Consumable | ItemPickup>) { World.current.PICKUPS = value }
+  static get GATES (): CellIndex<GameObject> { return World.current.GATES }
+  static set GATES (value: CellIndex<GameObject>) { World.current.GATES = value }
+  static get MOVED_BUCKETS (): Map<number, Set<number>> { return World.current.MOVED_BUCKETS }
+  static set MOVED_BUCKETS (value: Map<number, Set<number>>) { World.current.MOVED_BUCKETS = value }
+  static get STEPS (): Map<number, Map<number, Unit>> { return World.current.STEPS }
+  static set STEPS (value: Map<number, Map<number, Unit>>) { World.current.STEPS = value }
+
+  /**
+   * A new world, made current and left current (the server's `Worlds`
+   * restores the previous one itself). Every world is a new random map.
+   */
+  constructor (size: number, options: WorldOptions = {}) {
+    const previous = World._current
+    if (options.empty === true && previous === undefined) {
+      // The default world: see `current`.
+      this.timers = Timers.active ?? new Timers()
+      this.ids = GameObject.pool ?? new IdPool()
+    } else {
+      this.timers = new Timers()
+      this.ids = new IdPool()
+    }
+    const multiplayer = options.multiplayer ?? previous?.multiplayer
+    if (multiplayer !== undefined) multiplayer.world = this
+    this.multiplayer = multiplayer
+    World.enter(this)
+
+    this.mapSize = size
+    if (options.empty === true) return
 
     // The valleys first: gates are placed on the ground they leave.
-    World.VOIDS.clear()
-    World.VOID_RUNS.clear()
     for (const layer of World.LAYERS) {
       const voids = carveValleys(size, layer.voidShare)
       for (const cell of Hex.mapCells(size)) {
@@ -562,6 +767,13 @@ export default class World {
   }
 
   update (dt: number): void {
+    // Every World.X below is the current world's: ticking any other world
+    // would run this one's clock over another's state. A spec's
+    // `Object.create(World.prototype)` has no state of its own (no `timers`)
+    // and is only a handle on the methods, so it ticks the current world, as
+    // every world did before worlds-per-process.
+    if (World._current !== this && this.timers !== undefined) World.expect(this, 'World.update')
+
     // First, so work that fell due between ticks lands before anything moves,
     // exactly where a setTimeout firing between ticks used to leave it.
     Timers.run(Date.now())
@@ -1116,7 +1328,7 @@ export default class World {
    * died mid-step, cannot leave a cell held for ever. `removeUnitAt` releases
    * a swept mob's claims so the map does not keep them either.
    */
-  static STEPS: Map<number, Map<number, Unit>> = new Map()
+  STEPS: Map<number, Map<number, Unit>> = new Map()
 
   /** Claim `from` and `to` on the mob's layer for a step. */
   static claimStep (unit: Unit, from: Vector, to: Vector): void {

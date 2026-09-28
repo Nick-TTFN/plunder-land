@@ -19,8 +19,50 @@ export class ObjectType {
   static Item = 1 << 7
 }
 
+/**
+ * A world's object ids: the highest ever handed out and those freed since
+ * (a second after their object went, `GameObject.destroy`). One per world
+ * (worlds-per-process, decision #39): a client only ever sees its own world's
+ * ids, and they are uint16 on the wire, so worlds do not share one counter.
+ */
+export class IdPool {
+  last = 0
+  freed: number[] = []
+}
+
 export class GameObject {
-  static id = 0
+  /**
+   * The current world's ids. Written only by `World.current`'s setter. Starts
+   * as a pool of its own, which the default world adopts (see `Timers.active`);
+   * undefined while no world is current (`World.strict`), and then making an
+   * object throws.
+   */
+  static pool: IdPool | undefined = new IdPool()
+
+  private static get _ids (): IdPool {
+    const pool = GameObject.pool
+    if (pool === undefined) throw new Error('GameObject: no world is current (outside World.run)')
+    return pool
+  }
+
+  /** The current world's highest id handed out. Specs reset it. */
+  static get id (): number {
+    return GameObject._ids.last
+  }
+
+  static set id (value: number) {
+    GameObject._ids.last = value
+  }
+
+  /** The current world's freed ids, reused before a new one is counted. */
+  static get FreedIDs (): number[] {
+    return GameObject._ids.freed
+  }
+
+  static set FreedIDs (value: number[]) {
+    GameObject._ids.freed = value
+  }
+
   id: number = 0
   /**
    * The connections whose client holds this object: sent its create and no
@@ -31,7 +73,6 @@ export class GameObject {
    * wire field.
    */
   readonly knownBy = new Set<Connection>()
-  static FreedIDs: number[] = []
   destroyed: boolean
   dirtyFields: Set<string>
   allFieldsOwn: Set<string>
@@ -166,7 +207,8 @@ export class GameObject {
 
     this.position = new Vector(x, y)
     this.type = type
-    this.id = GameObject.FreedIDs.pop() ?? ++GameObject.id
+    const ids = GameObject._ids
+    this.id = ids.freed.pop() ?? ++ids.last
 
     this.destroyed = false
 
@@ -372,8 +414,11 @@ export class GameObject {
     // and a new objectmight take an id of a destroyed object,
     // before clients were notified about it.
     // our server loop is 16ms, thin of a cleaner way to do this.
+    // The pool is taken now, not when the timer runs: the id belongs to the
+    // world this object was in. (The timer runs in that world's tick anyway.)
+    const ids = GameObject._ids
     Timers.schedule(1000, () => {
-      GameObject.FreedIDs.push(this.id)
+      ids.freed.push(this.id)
     })
   }
 

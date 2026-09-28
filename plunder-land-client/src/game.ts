@@ -45,6 +45,8 @@ import { type PopupManager } from './ui/popups/popupmanager'
 import { Exit } from './objects/exit'
 import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
+import { decodeRecord } from './net/records'
+import { RunMap, resetForRun } from './net/runmap'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 
 /** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
@@ -85,40 +87,53 @@ export class Game extends Container {
   static loader: any
 
   /**
-   * Portals per plane: `Hex.key` of the portal's cell to the tag it leads to.
-   * Local prediction ends a route on a portal's cell and waits there for the
-   * server's hop (`LocalPlayer._endAtPortal`), as the server ends it
-   * (`Unit.endAtPortal`). Missing one, prediction walks on past a portal the
-   * server has already taken the player through.
+   * The map this run is on: blocked cells, valleys and portals
+   * (`net/runmap.ts`). Reset by `start` before every run, because the next run
+   * can be in another world on the same server (worlds-per-process, #39).
+   */
+  static MAP = new RunMap()
+
+  /**
+   * Portals per plane: `Hex.key` of the portal's cell to the tag it leads to
+   * (`MAP.portals`). Local prediction ends a route on a portal's cell and
+   * waits there for the server's hop (`LocalPlayer._endAtPortal`), as the
+   * server ends it (`Unit.endAtPortal`). Missing one, prediction walks on past
+   * a portal the server has already taken the player through.
    *
    * It replaced `COLLIDERS` in hex-cells P2: nothing pushes the player out of
    * anything any more, so rocks matter only as blocked cells (`BLOCKED`) and
    * portals only as cells.
    */
-  static PORTALS: Map<number, Map<number, number>> = new Map()
+  static get PORTALS (): Map<number, Map<number, number>> {
+    return Game.MAP.portals
+  }
 
   static portalTo (q: number, r: number, tag: number | undefined): number | undefined {
-    if (tag === undefined) return undefined
-    return Game.PORTALS.get(tag)?.get(Hex.key(q, r))
+    return Game.MAP.portalTo(q, r, tag)
   }
 
   /**
-   * Blocked cells per plane, mirroring `World.BLOCKED` on the server.
+   * Blocked cells per plane, mirroring `World.BLOCKED` on the server
+   * (`MAP.blocked`).
    *
    * Populated from the obstacles the server sends, so it only ever covers what
    * is inside the interest radius - which is the point. The client can only
    * route through cells it can see, and the server searches the same bounded
    * window, so both derive the same path.
    */
-  static BLOCKED: Map<number, Set<number>> = new Map()
+  static get BLOCKED (): Map<number, Set<number>> {
+    return Game.MAP.blocked
+  }
 
   /**
-   * Each layer's valleys by tag, from `hello.voids` (`Session.voids`): cells
-   * that are blocked for routing, like `BLOCKED`, and that the ground always
-   * draws as unknown void. Replaced wholesale on every `hello`, so a new
-   * server's map never mixes with an old one's.
+   * Each layer's valleys by tag, from `hello.voids` (`Session.voids`,
+   * `MAP.voids`): cells that are blocked for routing, like `BLOCKED`, and that
+   * the ground always draws as unknown void. Replaced wholesale on every
+   * `hello`, so a new world's map never mixes with an old one's.
    */
-  static VOIDS: Map<number, Set<number>> = new Map()
+  static get VOIDS (): Map<number, Set<number>> {
+    return Game.MAP.voids
+  }
 
   static isBlocked (q: number, r: number, tag: number | undefined): boolean {
     // Off the map counts as solid, matching `World.isBlocked`. Without it the
@@ -127,17 +142,11 @@ export class Game extends Container {
     // them agreeing about.
     if (!Hex.onMap(q, r, Session.mapSize)) return true
     if (tag === undefined) return false
-    const key = Hex.key(q, r)
-    return Game.VOIDS.get(tag)?.has(key) === true || Game.BLOCKED.get(tag)?.has(key) === true
+    return Game.MAP.has(q, r, tag)
   }
 
   static block (q: number, r: number, tag: number): void {
-    let cells = Game.BLOCKED.get(tag)
-    if (cells === undefined) {
-      cells = new Set()
-      Game.BLOCKED.set(tag, cells)
-    }
-    cells.add(Hex.key(q, r))
+    Game.MAP.block(q, r, tag)
 
     // Mirrors `World.block`, which re-routes anything walking through a cell
     // that just became solid. Without this the client keeps walking its old
@@ -147,7 +156,7 @@ export class Game extends Container {
   }
 
   static unblock (q: number, r: number, tag: number): void {
-    Game.BLOCKED.get(tag)?.delete(Hex.key(q, r))
+    Game.MAP.unblock(q, r, tag)
   }
 
   /** The locally simulated player. Never fed through onObjectUpdated. */
@@ -236,9 +245,18 @@ export class Game extends Container {
     this.pathMarker = new PathMarker()
     this.threatMarker = new ThreatMarker()
 
-    Game.PORTALS = new Map()
+    // Nothing of the last run's map, or of what it saw, is kept: the next run
+    // may be in another world (worlds-per-process, #39), with other valleys,
+    // portals and stones, and ids that name other objects. BLOCKED was never
+    // cleared before this, so a stone from an earlier run stayed solid. This
+    // also does `Session.reset()`.
+    resetForRun(Game.MAP, Game.FOG)
+    // Stops predicting the last run's route until the new own create resets it.
+    Game.LOCAL.stop()
+    Game.LOCAL.ready = false
+    Game.PLAYER = undefined
+    Game.PLAYER_ID = undefined
     this.LOOKUP = {}
-    Session.reset()
 
     Game.socket.off('hello')
     Game.socket.off('create')
@@ -278,7 +296,7 @@ export class Game extends Container {
    */
   onHello (data: Parameters<typeof Session.onHello>[0]): void {
     Session.onHello(data)
-    Game.VOIDS = new Map(Session.layers.map((tag, i) => [tag, Session.voids[i]]))
+    Game.MAP.setVoids(Session.layers, Session.voids)
     // A later hello (a new run, or a reconnect to a restarted server) may
     // bring a different map: redraw the ground's fog over it.
     for (const terrain of this.terrains) terrain.retint()
@@ -393,112 +411,7 @@ export class Game extends Container {
       'kills'
     ]
 
-    const buffer = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
-    const data: Record<string, number | Vector | string | number[]> = {}
-    let offset = 0
-    while (offset < buffer.length) {
-      let value
-      const keyIndex = buffer[offset++]
-      const key = allFields[keyIndex]
-
-      // An unrecognised key index means the stream is already misaligned and
-      // there is no way to know how wide the payload is. Keep what parsed
-      // cleanly rather than emitting garbage for every field after it.
-      if (key === undefined) {
-        console.warn('unknown field index', keyIndex, 'in', buffer)
-        break
-      }
-
-      switch (key) {
-        case 'id':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'type':
-          value = buffer[offset++]
-          break
-        case 'position':
-          value = new Vector(
-            (buffer[offset++] << 8) + buffer[offset++],
-            (buffer[offset++] << 8) + buffer[offset++]
-          )
-          break
-        case 'hp':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'level':
-          value = buffer[offset++]
-          break
-        case 'loot':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'loot32':
-          // Left undefined in value, so it is stored as loot rather than loot32.
-          data.loot = ((buffer[offset++] << 24) >>> 0) + (buffer[offset++] << 16) +
-            (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'tag':
-          value = this.overflow(buffer[offset++], 128)
-          break
-        case 'to':
-          value = this.overflow(buffer[offset++], 128)
-          break
-        case 'radius':
-          value = buffer[offset++]
-          break
-        case 'lifetime':
-          value = ((buffer[offset++] << 8) + buffer[offset++]) * 100
-          break
-        case 'maxVelocity':
-          value = buffer[offset++] * 10
-          break
-        case 'maxHp':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'facing':
-          value = buffer[offset++]
-          break
-        case 'armor':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'maxArmor':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'kills':
-          value = (buffer[offset++] << 8) + buffer[offset++]
-          break
-        case 'archetype':
-          value = buffer[offset++]
-          break
-        case 'item':
-          value = buffer[offset++]
-          break
-        case 'inventory': {
-          const slots = buffer[offset++]
-          const counts: number[] = []
-          for (let i = 0; i < slots; i++) counts.push(buffer[offset++])
-          value = counts
-          break
-        }
-        case 'extractProgress':
-          value = buffer[offset++]
-          break
-        case 'name': {
-          // NUL-terminated UTF-8 (the server writes Buffer.from(name)). It used
-          // to be read one byte per char code, which turns any name outside
-          // ASCII into mojibake - harmless while every name was a hex id,
-          // wrong now that players type their own.
-          const start = offset
-          while (offset < buffer.length && buffer[offset] !== 0) offset++
-          value = new TextDecoder().decode(buffer.subarray(start, offset))
-          offset++ // the NUL
-          break
-        }
-      }
-
-      if (value !== undefined) data[key] = value
-    }
-
-    return data
+    return decodeRecord(raw, allFields)
   }
 
   /**
@@ -665,24 +578,16 @@ export class Game extends Container {
     }
 
     // A portal ends a route on its cell (Game.PORTALS).
-    if (data.type === LocalPlayer.PORTAL_TYPE && data.position !== undefined && data.tag !== undefined) {
-      const cell = Hex.toCell(new Vector(data.position.x, data.position.y))
-      let cells = Game.PORTALS.get(data.tag)
-      if (cells === undefined) {
-        cells = new Map()
-        Game.PORTALS.set(data.tag, cells)
-      }
-      cells.set(Hex.key(cell.x, cell.y), data.to)
+    // Only obstacles block a cell. Portals and exits are places you walk into
+    // on purpose, so routing through them has to stay legal (`RunMap.created`).
+    const cell = Game.MAP.created(data)
+    if (cell !== undefined && Game.LOCAL.tag === data.tag && Game.LOCAL.pathCrosses(cell.x, cell.y)) {
       // A route planned before this portal was in view runs on through it on
       // the client and ends on it on the server (which knows every portal).
-      if (Game.LOCAL.tag === data.tag && Game.LOCAL.pathCrosses(cell.x, cell.y)) Game.LOCAL.portalAppeared()
-    }
-
-    // Only obstacles block a cell. Portals and exits are places you walk into
-    // on purpose, so routing through them has to stay legal.
-    if (data.type === 1 && data.position !== undefined) {
-      const cell = Hex.toCell(new Vector(data.position.x, data.position.y))
-      Game.block(cell.x, cell.y, data.tag)
+      // One planned through a stone that has just come into view re-routes,
+      // as `World.block` does on the server.
+      if (data.type === LocalPlayer.PORTAL_TYPE) Game.LOCAL.portalAppeared()
+      else Game.LOCAL.repath()
     }
 
     this.LOOKUP[data.id] = obj
@@ -921,7 +826,7 @@ export class Game extends Container {
       // Portals never go in play, but a route must not end on one that has.
       if (obj instanceof Portal && obj.tag !== undefined) {
         const cell = Hex.toCell(new Vector(obj.x, obj.y))
-        Game.PORTALS.get(obj.tag)?.delete(Hex.key(cell.x, cell.y))
+        Game.MAP.removePortal(cell.x, cell.y, obj.tag)
       }
 
       // instanceof rather than a type code: `LOOKUP` is typed as GameObject, so

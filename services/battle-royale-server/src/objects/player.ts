@@ -438,9 +438,12 @@ export default class Player extends Unit {
       for (const key of value.archetype.killStats) stats[key] = 1
     }
 
+    // Taken before the first await: after it, whichever world is current (or
+    // none) is not this player's (worlds-per-process).
+    const redis = Multiplayer.Instance.redis
     for (const key in stats) {
       if (stats[key] > 0) {
-        await Multiplayer.Instance.redis.hincrby(`stats-${this.playerId}`, key, stats[key])
+        await redis.hincrby(`stats-${this.playerId}`, key, stats[key])
       }
     }
   }

@@ -48,6 +48,18 @@ table (`WIDTH`) mirrors `fieldOrder` up to index 21 (`kills`); **add a row
 when a field is appended**, or the bots stop finding their own position and
 stand still.
 
+## Several worlds
+
+The server runs several worlds (worlds-per-process, decision #39) and `ramp.sh`
+passes its environment through, so `WORLD_CAP=100 tools/load/ramp.sh --steps "0 400"`
+puts 400 bots in 4 worlds (`WORLD_CAP=1000` keeps them in one). With a server
+that has `dist/network/worlds.js`, the probe sums `World.update` and
+`flushAll` over each pass of the loop (`Worlds.tickAll`), so **world ms** and
+**flush ms** stay per tick of the loop, and adds `worlds` (how many are open)
+to each line, with the counts summed over them. It reads each world's own
+lists: the server sets `World.strict`, and a static `World.X` outside
+`World.run` throws. An older server is probed as before.
+
 ## Reading the table
 
 - **world ms**: mean `World.update` per tick. **bcast ms**: the part of it in

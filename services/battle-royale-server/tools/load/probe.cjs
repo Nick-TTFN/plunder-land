@@ -33,15 +33,39 @@ setImmediate(() => {
 Multiplayer = require(path.join(dist, 'network/multiplayer.js')).default
 World = require(path.join(dist, 'objects/world.js')).default
 let lastTickAt
-wrap(World.prototype, 'update', (ms) => { acc.world.push(ms) })
-const origUpdate = World.prototype.update
-World.prototype.update = function (...a) {
-  const t = now()
-  if (lastTickAt !== undefined) acc.interval.push(t - lastTickAt)
-  lastTickAt = t
-  return origUpdate.apply(this, a)
+const worldsPath = path.join(dist, 'network/worlds.js')
+if (fs.existsSync(worldsPath)) {
+  // Several worlds a process (worlds-per-process): one loop pass ticks and
+  // flushes every world, so world and flush ms are summed over the pass, and
+  // the interval is between passes. `worldMs` stays "per tick of the loop".
+  const Worlds = require(worldsPath).default
+  let pass
+  wrap(World.prototype, 'update', (ms) => { if (pass !== undefined) pass.world += ms })
+  wrap(Multiplayer.prototype, 'flushAll', (ms) => { if (pass !== undefined) pass.flush += ms })
+  const origTickAll = Worlds.prototype.tickAll
+  Worlds.prototype.tickAll = function (...a) {
+    worldsInstance = this
+    const t = now()
+    if (lastTickAt !== undefined) acc.interval.push(t - lastTickAt)
+    lastTickAt = t
+    pass = { world: 0, flush: 0 }
+    try { return origTickAll.apply(this, a) } finally {
+      acc.world.push(pass.world)
+      acc.flush.push(pass.flush)
+      pass = undefined
+    }
+  }
+} else {
+  wrap(World.prototype, 'update', (ms) => { acc.world.push(ms) })
+  const origUpdate = World.prototype.update
+  World.prototype.update = function (...a) {
+    const t = now()
+    if (lastTickAt !== undefined) acc.interval.push(t - lastTickAt)
+    lastTickAt = t
+    return origUpdate.apply(this, a)
+  }
+  wrap(Multiplayer.prototype, 'flushAll', (ms) => { acc.flush.push(ms) })
 }
-wrap(Multiplayer.prototype, 'flushAll', (ms) => { acc.flush.push(ms) })
 wrap(Multiplayer.prototype, 'update', (ms) => { acc.mpUpdateMs += ms; acc.mpUpdateCalls++ })
 for (const n of ['onPointer', 'onSkill', 'onUseItem']) wrap(Multiplayer.prototype, n, (ms) => { acc.inputMs += ms; acc.inputs++ })
 wrap(Multiplayer.prototype, 'admit', (ms) => { acc.admitMs += ms; acc.admits++ })
@@ -60,6 +84,21 @@ const pct = (arr, p) => {
 }
 const mean = (arr) => arr.length ? +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2) : null
 
+// Summed over every open world when the server has several (read off each
+// world's own lists: between loop passes no world is current, and the static
+// `World.PLAYERS` would throw). One world's statics otherwise.
+let worldsInstance
+function counts () {
+  if (World === undefined) return {}
+  const list = worldsInstance !== undefined ? worldsInstance.worlds : undefined
+  if (list === undefined) {
+    if (World.strict) return {}
+    return { players: World.PLAYERS.length, mobs: World.MOBS.length, obstacles: World.OBSTACLES.length, consumables: World.CONSUMABLES.length }
+  }
+  const sum = (key) => list.reduce((n, w) => n + w[key].length, 0)
+  return { worlds: list.length, players: sum('PLAYERS'), mobs: sum('MOBS'), obstacles: sum('OBSTACLES'), consumables: sum('CONSUMABLES') }
+}
+
 let elu = performance.eventLoopUtilization()
 let cpu = process.cpuUsage()
 let at = Date.now()
@@ -72,10 +111,7 @@ setInterval(() => {
   const ticks = a.world.length || 1
   const line = {
     t: Date.now(),
-    players: World.PLAYERS.length,
-    mobs: World.MOBS.length,
-    obstacles: World.OBSTACLES.length,
-    consumables: World.CONSUMABLES.length,
+    ...counts(),
     ticks: a.world.length,
     worldMs: { mean: mean(a.world), p95: pct(a.world, 0.95), max: pct(a.world, 1) },
     flushMs: { mean: mean(a.flush), p95: pct(a.flush, 0.95), max: pct(a.flush, 1) },

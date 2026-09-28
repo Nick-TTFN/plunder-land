@@ -33,10 +33,56 @@ export interface Timer {
  * Eviction: an entry leaves `pending` when it runs, or at the first `run`
  * after it is cancelled that has something due (a run with nothing due returns
  * without looking at the list); `byOwner` loses a key when that owner's last timer runs or
- * is cancelled. Process-global, like every other piece of world state.
+ * is cancelled.
+ *
+ * **One queue per world** (worlds-per-process, decision #39). An instance is a
+ * world's queue (`World.timers`); the static methods, which every caller uses,
+ * act on the current world's (`Timers.active`, switched by `World.current`), so
+ * a timer is scheduled on, and run by, the world whose work scheduled it. A
+ * timer's callback runs inside `World.update`, so inside `World.run` for that
+ * world. With no world current (`World.strict`, between worlds in the server)
+ * `active` is undefined and every static method throws.
  */
 export default class Timers {
-  private static pending: Timer[] = []
+  /**
+   * The current world's queue. Written only by `World.current`'s setter.
+   * Starts as a queue of its own so a spec that schedules before any world
+   * exists still has one; the default world (`World.current` before any
+   * `new World()`) adopts it, so nothing scheduled that early is lost.
+   */
+  static active: Timers | undefined = new Timers()
+
+  private static get queue (): Timers {
+    const queue = Timers.active
+    if (queue === undefined) throw new Error('Timers: no world is current (outside World.run)')
+    return queue
+  }
+
+  static schedule (delayMs: number, fn: () => void, owner?: object): Timer {
+    return Timers.queue.schedule(delayMs, fn, owner)
+  }
+
+  static cancel (timer: Timer | undefined): void {
+    Timers.queue.cancel(timer)
+  }
+
+  static cancelOwner (owner: object): void {
+    Timers.queue.cancelOwner(owner)
+  }
+
+  static run (now: number): void {
+    Timers.queue.run(now)
+  }
+
+  static get size (): number {
+    return Timers.queue.size
+  }
+
+  static clear (): void {
+    Timers.queue.clear()
+  }
+
+  private pending: Timer[] = []
   /**
    * No pending timer is due before this; Infinity when none is pending. `run`
    * returns at once while the clock is short of it, instead of rebuilding the
@@ -44,19 +90,19 @@ export default class Timers {
    * tick). Lowered by `schedule`, recomputed by each `run` that scans. A
    * cancelled timer can leave it early, which costs one scan, never a late run.
    */
-  private static nextDue = Infinity
-  private static readonly byOwner = new Map<object, Set<Timer>>()
+  private nextDue = Infinity
+  private readonly byOwner = new Map<object, Set<Timer>>()
 
   /** Run `fn` at the first tick at least `delayMs` from now. */
-  static schedule (delayMs: number, fn: () => void, owner?: object): Timer {
+  schedule (delayMs: number, fn: () => void, owner?: object): Timer {
     const timer: Timer = { due: Date.now() + delayMs, owner, fn, done: false }
-    Timers.pending.push(timer)
-    if (timer.due < Timers.nextDue) Timers.nextDue = timer.due
+    this.pending.push(timer)
+    if (timer.due < this.nextDue) this.nextDue = timer.due
     if (owner !== undefined) {
-      let set = Timers.byOwner.get(owner)
+      let set = this.byOwner.get(owner)
       if (set === undefined) {
         set = new Set()
-        Timers.byOwner.set(owner, set)
+        this.byOwner.set(owner, set)
       }
       set.add(timer)
     }
@@ -64,18 +110,18 @@ export default class Timers {
   }
 
   /** Harmless on a timer that has already run or been cancelled. */
-  static cancel (timer: Timer | undefined): void {
+  cancel (timer: Timer | undefined): void {
     if (timer === undefined || timer.done) return
     timer.done = true
-    Timers.release(timer)
+    this.release(timer)
   }
 
   /** Cancel everything `owner` has pending. */
-  static cancelOwner (owner: object): void {
-    const set = Timers.byOwner.get(owner)
+  cancelOwner (owner: object): void {
+    const set = this.byOwner.get(owner)
     if (set === undefined) return
     for (const timer of set) timer.done = true
-    Timers.byOwner.delete(owner)
+    this.byOwner.delete(owner)
   }
 
   /**
@@ -84,13 +130,13 @@ export default class Timers {
    * even if already due; a timer cancelled by an earlier one in the same batch
    * does not run.
    */
-  static run (now: number): void {
-    if (Timers.pending.length === 0 || now < Timers.nextDue) return
+  run (now: number): void {
+    if (this.pending.length === 0 || now < this.nextDue) return
 
     const due: Timer[] = []
     const later: Timer[] = []
     let nextDue = Infinity
-    for (const timer of Timers.pending) {
+    for (const timer of this.pending) {
       if (timer.done) continue
       if (timer.due <= now) due.push(timer)
       else {
@@ -98,9 +144,9 @@ export default class Timers {
         if (timer.due < nextDue) nextDue = timer.due
       }
     }
-    Timers.pending = later
+    this.pending = later
     // Before running them: one that schedules another lowers it from here.
-    Timers.nextDue = nextDue
+    this.nextDue = nextDue
     if (due.length === 0) return
 
     // Array.prototype.sort is stable, so equal dues keep scheduling order.
@@ -108,7 +154,7 @@ export default class Timers {
     for (const timer of due) {
       if (timer.done) continue
       timer.done = true
-      Timers.release(timer)
+      this.release(timer)
       try {
         timer.fn()
       } catch (e) {
@@ -118,25 +164,25 @@ export default class Timers {
   }
 
   /** How many timers are waiting. For tests and diagnostics. */
-  static get size (): number {
+  get size (): number {
     let n = 0
-    for (const timer of Timers.pending) if (!timer.done) n++
+    for (const timer of this.pending) if (!timer.done) n++
     return n
   }
 
   /** Drop everything. The world never resets, so this is for tests. */
-  static clear (): void {
-    for (const timer of Timers.pending) timer.done = true
-    Timers.pending = []
-    Timers.nextDue = Infinity
-    Timers.byOwner.clear()
+  clear (): void {
+    for (const timer of this.pending) timer.done = true
+    this.pending = []
+    this.nextDue = Infinity
+    this.byOwner.clear()
   }
 
-  private static release (timer: Timer): void {
+  private release (timer: Timer): void {
     if (timer.owner === undefined) return
-    const set = Timers.byOwner.get(timer.owner)
+    const set = this.byOwner.get(timer.owner)
     if (set === undefined) return
     set.delete(timer)
-    if (set.size === 0) Timers.byOwner.delete(timer.owner)
+    if (set.size === 0) this.byOwner.delete(timer.owner)
   }
 }

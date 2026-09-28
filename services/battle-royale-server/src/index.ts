@@ -2,7 +2,7 @@ import { Server } from 'socket.io'
 import http from 'http'
 import dotenv from 'dotenv'
 import Multiplayer from './network/multiplayer'
-import World from './objects/world'
+import Worlds from './network/worlds'
 dotenv.config()
 
 startGame()
@@ -12,7 +12,16 @@ function startGame (): void {
   // `hello` payload and echoed as a tick counter on every update packet.
   const tickLengthMs = parseInt(process.env.TICK_MS ?? '250')
 
-  const multiplayer = new Multiplayer(tickLengthMs)
+  // Several worlds in this one process (worlds-per-process, decision #39): a
+  // run goes to the fullest world with fewer than WORLD_CAP active players,
+  // and a world with none for WORLD_IDLE_MS closes (one always stays open).
+  const worlds = new Worlds({
+    tickLengthMs,
+    cap: parseInt(process.env.WORLD_CAP ?? '200'),
+    idleMs: parseInt(process.env.WORLD_IDLE_MS ?? '300000'),
+    // One Redis client for every world: stats only.
+    redis: Multiplayer.connectRedis()
+  })
 
   const httpserver = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/healthcheck') {
@@ -22,7 +31,7 @@ function startGame (): void {
     }
 
     if (req.method === 'GET' && req.url === '/stats') {
-      multiplayer.getLeaderboard().then((data) => {
+      worlds.getLeaderboard().then((data) => {
         res.writeHead(200, {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*'
@@ -46,44 +55,37 @@ function startGame (): void {
   // WebSocket compression (permessage-deflate; bandwidth review, 2026-09-27).
   // Off by default in ws and engine.io. The recorded traffic of one client
   // compressed to 48% at these settings: a 4 KB window (serverMaxWindowBits
-  // 12) and memLevel 4 keep the zlib state near 24 KB a connection, against
-  // 256 KB (and 44%) at zlib's defaults. engine.io's own threshold is 1024
-  // bytes, above nearly every message this server sends (325 B on average).
-  // ws warns that zlib under concurrency can fragment memory on Linux, so
-  // WS_DEFLATE=0 turns it off without a build.
+  // 12) and memLevel 4. Measured 2026-09-27 that is about 140 KB of zlib
+  // state per connection once it has written (24 KB before its first write),
+  // against 256 KB+ (and 44%) at zlib's defaults. engine.io's own threshold is
+  // 1024 bytes, above nearly every message this server sends (325 B on
+  // average). ws warns that zlib under concurrency can fragment memory on
+  // Linux, so WS_DEFLATE=0 turns it off without a build.
   const deflate = process.env.WS_DEFLATE === '0'
     ? false
     : { threshold: 32, serverMaxWindowBits: 12, zlibDeflateOptions: { memLevel: 4 } }
   const server = new Server(httpserver, { cors: { origin: '*' }, perMessageDeflate: deflate })
 
   server.on('connection', function (socket) {
-    multiplayer.onConnect(socket)
-
-    socket.on('disconnect', function () {
-      multiplayer.onDisconnect(socket)
-    })
+    worlds.onConnection(socket)
   })
-
-  const world = new World(4000)
 
   // timestamp of each loop
   let previousTick = Date.now()
-  let tick = 0
 
   function gameLoop (): void {
     const now = Date.now()
 
     if (previousTick + tickLengthMs <= now) {
-      const dt = (now - previousTick) / 1000
+      const dtMs = now - previousTick
       previousTick = now
 
-      // The world is held entirely in memory with no persistence, so an uncaught
-      // throw in a single tick would take every player's run down with the process.
-      // Log and keep ticking instead.
+      // The worlds are held entirely in memory with no persistence, so an
+      // uncaught throw in a single tick would take every player's run down with
+      // the process. Each world's tick has its own catch (`Worlds.tickAll`);
+      // this one is for the loop's own bookkeeping.
       try {
-        tick++
-        world.update(dt)
-        multiplayer.flushAll(tick, dt * 1000)
+        worlds.tickAll(dtMs)
       } catch (e) {
         console.error('tick', e)
       }

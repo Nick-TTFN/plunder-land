@@ -129,7 +129,34 @@ export default class Multiplayer {
   static order = ['create', 'update', 'effect', 'destroy']
   static INTEREST_RADIUS = 500
 
-  static Instance: Multiplayer
+  /**
+   * The current world's Multiplayer (`World.current.multiplayer`): every
+   * object's create, update, destroy and effect goes through it. Assigning it
+   * sets the current world's and binds it to that world (specs assign stubs).
+   */
+  static get Instance (): Multiplayer {
+    return World.current.multiplayer as Multiplayer
+  }
+
+  static set Instance (multiplayer: Multiplayer) {
+    const world = World.current
+    const previous = world.multiplayer
+    if (previous !== undefined && previous !== multiplayer && previous.world === world) previous.world = undefined
+    world.multiplayer = multiplayer
+    // A stub (a plain object) has no binding and is never checked.
+    if (multiplayer instanceof Multiplayer) multiplayer.world = world
+  }
+
+  /**
+   * The world this Multiplayer serves (worlds-per-process, decision #39), or
+   * undefined for one no world has adopted (a stub, one built with
+   * `Object.create`, or one whose world closed). While it is set, every entry
+   * point that reads or writes world state checks that this world is current
+   * (`checkWorld`), so a call that reached it outside `World.run` for its own
+   * world throws a `WrongWorldError` instead of mixing two worlds.
+   */
+  world: World | undefined
+
   readonly tickLengthMs: number
   private readonly _connections: Connection[]
   redis: Redis
@@ -158,33 +185,140 @@ export default class Multiplayer {
     Multiplayer.STATS_LOG.report(error)
   }
 
+  /**
+   * With `World.strict` (the server) it is nobody's until a world adopts it
+   * (`new World(size, { multiplayer })`, which binds it), even if a world is
+   * current: it must never replace that world's own. Otherwise (specs) it
+   * becomes the current world's (`Instance`), as it always did.
+   *
+   * A `redis` passed in may be shared (`Worlds` passes one to every world):
+   * one marked by `shareRedis` already has its error listener, and one per
+   * Multiplayer would pile up a listener for every world ever opened (Node
+   * warns past 10). Any other gets one here, as it always did.
+   */
   constructor (tickLengthMs: number, redis?: Redis) {
-    Multiplayer.Instance = this
+    if (!World.strict) Multiplayer.Instance = this
     this.tickLengthMs = tickLengthMs
     this._connections = []
 
+    if (redis !== undefined) {
+      this.redis = redis
+      // A stub from a spec gets the listener it always got; a client from
+      // `connectRedis` (the one `Worlds` shares) has its own already.
+      if (!Multiplayer.sharedRedis.has(redis)) this.redis.on('error', (e) => { Multiplayer.REDIS_LOG.report(e) })
+      return
+    }
     // Start-up does not wait for Redis: ioredis connects in the background and
     // queues commands meanwhile, so a server with Redis down still starts and
     // runs the world; only stats are lost.
-    this.redis = redis ?? new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis')
-    // Without a listener ioredis prints "[ioredis] Unhandled error event" with a
-    // stack on every reconnect attempt, forever, while Redis is down.
-    this.redis.on('error', (e) => { Multiplayer.REDIS_LOG.report(e) })
+    this.redis = Multiplayer.connectRedis()
   }
 
-  onConnect (socket: Socket): void {
+  /**
+   * A Redis client with its error listener. Without the listener ioredis
+   * prints "[ioredis] Unhandled error event" with a stack on every reconnect
+   * attempt, forever, while Redis is down.
+   */
+  static connectRedis (): Redis {
+    return Multiplayer.shareRedis(new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis'))
+  }
+
+  /**
+   * Give `redis` its one error listener and mark it shared, so no Multiplayer
+   * given it adds another (`Worlds` shares one client between every world it
+   * opens). Idempotent.
+   */
+  static shareRedis (redis: Redis): Redis {
+    if (Multiplayer.sharedRedis.has(redis)) return redis
+    redis.on('error', (e) => { Multiplayer.REDIS_LOG.report(e) })
+    Multiplayer.sharedRedis.add(redis)
+    return redis
+  }
+
+  /**
+   * Redis clients that already have their listener (`shareRedis`): a
+   * Multiplayer given one adds none. Weak, so it holds nothing up.
+   */
+  private static readonly sharedRedis = new WeakSet<Redis>()
+
+  /**
+   * Throw a `WrongWorldError` if `multiplayer`'s world is bound and not
+   * current. Static and null-safe because specs call the handlers with no
+   * `this` (`Multiplayer.prototype.onSkill.call(null, ...)`).
+   */
+  private static checkWorld (multiplayer: Multiplayer | null | undefined, where: string): void {
+    const world = multiplayer?.world
+    if (world !== undefined && World.peek() !== world) World.expect(world, where)
+  }
+
+  /**
+   * Run a socket handler: inside `guarded`, and inside `World.run` for this
+   * Multiplayer's world when it has one, so the handler's `World.X` are its
+   * own world's whichever world the tick last ran.
+   */
+  private handle (fn: () => void): void {
+    Multiplayer.guarded(() => {
+      const world = this.world
+      if (world === undefined) fn()
+      else World.run(world, fn)
+    })
+  }
+
+  /**
+   * A connection this Multiplayer's world is sent to. `onConnect` makes one
+   * per socket for a single world (specs); `Worlds` moves one between worlds
+   * per run with `adopt` and `release`.
+   */
+  static connectionFor (socket: Socket): Connection {
     const connection = new Connection()
     connection.socket = socket
     connection.framed = socket.handshake?.query?.frames === '1'
+    return connection
+  }
+
+  /** Take `connection` on: it is flushed with this world from now on. */
+  adopt (connection: Connection): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.adopt')
+    if (!this._connections.includes(connection)) this._connections.push(connection)
+  }
+
+  /**
+   * Let `connection` go completely, for a move to another world: it leaves
+   * the connection list and every object of this world that its client
+   * held forgets it, so nothing of this world reaches it again. Its player,
+   * if it still has a live one, is destroyed as on a disconnect.
+   */
+  release (connection: Connection): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.release')
+    const i = this._connections.indexOf(connection)
+    if (i >= 0) this.drop(connection, i)
+    else this.forget(connection)
+  }
+
+  /** How many connections this Multiplayer flushes. */
+  get connectionCount (): number {
+    return this._connections.length
+  }
+
+  /**
+   * `start_requested`: `{ id, name }` (`parseStart`). Ignored while a run is
+   * in progress on the connection. Throws what `onStart` throws.
+   */
+  startRequested (connection: Connection, data: unknown): void {
+    if (connection.started) return
+    Multiplayer.checkWorld(this, 'Multiplayer.startRequested')
+    const start = Multiplayer.parseStart(data)
+    if (start === undefined) return
+    connection.started = true
+    this.onStart(connection, start.id, start.name)
+  }
+
+  onConnect (socket: Socket): void {
+    const connection = Multiplayer.connectionFor(socket)
 
     socket.on('start_requested', (data) => {
       if (connection.started) return
-      Multiplayer.guarded(() => {
-        const start = Multiplayer.parseStart(data)
-        if (start === undefined) return
-        connection.started = true
-        this.onStart(connection, start.id, start.name)
-      })
+      this.handle(() => { this.startRequested(connection, data) })
     })
     // Registered here rather than in onStart, so a start that fails and is
     // retried does not register them twice. Before a start they do nothing:
@@ -196,14 +330,14 @@ export default class Multiplayer {
     // made right at the end of a cooldown are accepted (socket-handlers-in-
     // boundary, handoff note).
     socket.on('pointer', (data) => {
-      Multiplayer.guarded(() => { this.onPointer(connection, data) })
+      this.handle(() => { this.onPointer(connection, data) })
     })
     socket.on('skill', (data) => {
-      Multiplayer.guarded(() => { this.onSkill(connection, data) })
+      this.handle(() => { this.onSkill(connection, data) })
     })
     // On arrival too, like `skill`: the heal or the fuse starts from the press.
     socket.on('use_item', (data) => {
-      Multiplayer.guarded(() => { this.onUseItem(connection, data) })
+      this.handle(() => { this.onUseItem(connection, data) })
     })
     this._connections.push(connection)
   }
@@ -235,6 +369,7 @@ export default class Multiplayer {
    * flush), and `started` is cleared so it can ask again.
    */
   onStart (connection: Connection, playerId: string, name?: unknown): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.onStart')
     let player: Player | undefined
     try {
       player = World.createPlayer(playerId, name)
@@ -366,6 +501,7 @@ export default class Multiplayer {
   static MAX_WAYPOINTS = 16
 
   onPointer (connection: Connection, data): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.onPointer')
     if (connection.player == null || connection.player.exited || connection.player.destroyed) return
 
     let buf: Buffer
@@ -408,6 +544,7 @@ export default class Multiplayer {
   }
 
   onSkill (connection: Connection, data): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.onSkill')
     const player = connection.player
     if (player == null || player.exited || player.destroyed) return
     const press = Multiplayer.parseSkill(data)
@@ -422,6 +559,7 @@ export default class Multiplayer {
    * the aim; `Player.tryUseItem` validates everything else.
    */
   onUseItem (connection: Connection, data): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.onUseItem')
     const player = connection.player
     if (player == null || player.exited || player.destroyed) return
     const press = Multiplayer.parseSkill(data)
@@ -766,6 +904,7 @@ export default class Multiplayer {
    * it comes into their range (`update`).
    */
   create (obj: GameObject): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.create')
     if (!Multiplayer.gone(obj)) {
       const data = Multiplayer.isTerrain(obj) ? Multiplayer.terrainRecord(obj) : obj.serialiseBinary(obj.allFields)
       if (Multiplayer.isTerrain(obj)) {
@@ -807,6 +946,7 @@ export default class Multiplayer {
    * portal moves its client to the new layer first (`switchLayer`).
    */
   update (obj: GameObject): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.update')
     if (Multiplayer.gone(obj)) {
       obj.dirtyFields.clear()
       return
@@ -914,6 +1054,7 @@ export default class Multiplayer {
    * box. It went to every layer until interest-filtered-broadcasts (#35).
    */
   effect (type: number, originator: Unit, lifetime: number, aimCell?: Vector): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.effect')
     const data = Buffer.alloc(aimCell === undefined ? 4 : 8)
     data.writeInt8(type)
     data.writeUInt16BE(originator.id, 1)
@@ -940,6 +1081,7 @@ export default class Multiplayer {
    * dead, and its id reused.
    */
   effectAt (type: number, originatorId: number, lifetime: number, cell: Vector, tag: number): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.effectAt')
     const data = Buffer.alloc(8)
     data.writeInt8(type)
     data.writeUInt16BE(originatorId, 1)
@@ -963,6 +1105,7 @@ export default class Multiplayer {
    * connection holds a player, so it is told of its own death or exit.
    */
   destroy (obj: GameObject): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.destroy')
     // Never null: `GameObject.destroy` and `Player.exit` both put `id` in it.
     const data = obj.serialiseBinary(obj.dirtyFields) ?? obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
     if (Multiplayer.isTerrain(obj)) {
@@ -991,9 +1134,13 @@ export default class Multiplayer {
 
     if (player.hp > 0) { stats.lootCollected = player.loot }
 
-    for (const key in stats) {
-      if (stats[key] > 0) {
-        await Multiplayer.Instance.redis.hincrby(`stats-${player.playerId}`, key, stats[key])
+    // Taken before the first await: after it, whichever world is current (or
+    // none) is not this player's (worlds-per-process). The key is too.
+    const redis = Multiplayer.Instance.redis
+    const key = `stats-${player.playerId}`
+    for (const field in stats) {
+      if (stats[field] > 0) {
+        await redis.hincrby(key, field, stats[field])
       }
     }
   }
@@ -1004,9 +1151,12 @@ export default class Multiplayer {
   async getLeaderboard (): Promise<Record<string, Record<string, string>>> {
     if (Date.now() - this._leaderboardAt < 3000) return this._leaderboard
 
-    const keys = await this.redis.keys('stats-*')
+    // `this.redis`, never `Multiplayer.Instance`: this runs from the HTTP
+    // handler and across awaits, outside any world (worlds-per-process).
+    const redis = this.redis
+    const keys = await redis.keys('stats-*')
     const data: Record<string, Record<string, string>> = {}
-    for (const key of keys) data[key] = await this.redis.hgetall(key)
+    for (const key of keys) data[key] = await redis.hgetall(key)
 
     this._leaderboard = data
     this._leaderboardAt = Date.now()
@@ -1098,6 +1248,7 @@ export default class Multiplayer {
   }
 
   flushAll (tick: number, dtMs: number = 0): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.flushAll')
     const board = this.standingsDue() ? Multiplayer.rankStandings() : undefined
     for (const connection of this._connections) {
       if (connection.player != null) connection.ackElapsedMs += dtMs
@@ -1191,21 +1342,25 @@ export default class Multiplayer {
   }
 
   onDisconnect (socket: Socket): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.onDisconnect')
     for (let i = 0; i < this._connections.length; i++) {
-      const connection = this._connections[i]
-
-      if (connection.socket === socket) {
-        // Not a player that is already gone. One killed between ticks (a skill
-        // runs from its socket handler) is still here until the next flush,
-        // and destroying it again freed its id twice and counted the run twice.
-        const player = connection.player
-        if (player != null && !player.destroyed) player.destroy()
-        this.forget(connection)
-        connection.outbox = undefined
-        this._connections.splice(i, 1)
+      if (this._connections[i].socket === socket) {
+        this.drop(this._connections[i], i)
         break
       }
     }
+  }
+
+  /** Connection `i` goes: the socket closed, or `release` moves it to another world. */
+  private drop (connection: Connection, i: number): void {
+    // Not a player that is already gone. One killed between ticks (a skill
+    // runs from its socket handler) is still here until the next flush,
+    // and destroying it again freed its id twice and counted the run twice.
+    const player = connection.player
+    if (player != null && !player.destroyed) player.destroy()
+    this.forget(connection)
+    connection.outbox = undefined
+    this._connections.splice(i, 1)
   }
 }
 
