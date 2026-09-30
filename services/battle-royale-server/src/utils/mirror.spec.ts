@@ -20,7 +20,9 @@ import { join } from 'node:path'
 // the wrong sprite; a drifted flag makes prediction fight the server.
 // items.ts: the item ids on the wire and the fixed slot each kind lives in. A
 // drifted slot makes a key use a different item than the readout shows.
-const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts']
+// finishes.ts: the colour and pattern ids of the `finish` field. A drifted id
+// paints another player's robot the wrong colour.
+const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts']
 
 const SERVER = __dirname
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'utils')

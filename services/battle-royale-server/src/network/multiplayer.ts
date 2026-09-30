@@ -310,7 +310,7 @@ export default class Multiplayer {
     const start = Multiplayer.parseStart(data)
     if (start === undefined) return
     connection.started = true
-    this.onStart(connection, start.id, start.name)
+    this.onStart(connection, start.id, start.name, start.finish)
   }
 
   onConnect (socket: Socket): void {
@@ -368,11 +368,11 @@ export default class Multiplayer {
    * has been emitted to the joining client (`hello` goes out just before that
    * flush), and `started` is cleared so it can ask again.
    */
-  onStart (connection: Connection, playerId: string, name?: unknown): void {
+  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown): void {
     Multiplayer.checkWorld(this, 'Multiplayer.onStart')
     let player: Player | undefined
     try {
-      player = World.createPlayer(playerId, name)
+      player = World.createPlayer(playerId, name, finish)
       this.admit(connection, player)
     } catch (e) {
       connection.started = false
@@ -596,22 +596,25 @@ export default class Multiplayer {
   }
 
   /**
-   * `start_requested` is `{ id, name }`: the client's persistent id and the
-   * name it typed, which may be missing or empty. `name` is passed on raw and
-   * cleaned by Player (`Player.sanitiseName`), so its type and content
-   * are not checked here.
+   * `start_requested` is `{ id, name, finish }`: the client's persistent id,
+   * the name it typed, which may be missing or empty, and the robot's finish
+   * (robot-finishes, #41), `[colour, pattern]` for head, body and limbs, which
+   * a client from before finishes doesn't send. `name` and `finish` are passed
+   * on raw and cleaned by Player (`Player.sanitiseName`, `finishFromBytes`),
+   * so their type and content are not checked here. `finish` is only in the
+   * result when it was sent.
    *
    * A bare string is the old form, the id alone, and is still accepted so a
    * client from before names keeps working for one release (player-names,
    * 2026-09-25); remove it after that. Anything without an id of the shape
    * below is ignored and leaves the connection free to ask again.
    */
-  static parseStart (data: unknown): { id: string, name?: unknown } | undefined {
+  static parseStart (data: unknown): { id: string, name?: unknown, finish?: unknown } | undefined {
     if (typeof data === 'string') return Multiplayer.ID_SHAPE.test(data) ? { id: data } : undefined
     if (data === null || typeof data !== 'object') return undefined
-    const { id, name } = data as { id?: unknown, name?: unknown }
+    const { id, name, finish } = data as { id?: unknown, name?: unknown, finish?: unknown }
     if (typeof id !== 'string' || !Multiplayer.ID_SHAPE.test(id)) return undefined
-    return { id, name }
+    return finish === undefined ? { id, name } : { id, name, finish }
   }
 
   /**

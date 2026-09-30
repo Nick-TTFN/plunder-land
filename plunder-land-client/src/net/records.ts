@@ -88,7 +88,10 @@ export function decodeRecord (raw: ArrayBuffer | Uint8Array, fields: readonly st
       case 'projectile':
         value = buffer[offset++]
         break
-      case 'inventory': {
+      case 'inventory':
+      case 'finish': {
+        // A count, then that many bytes: counts per slot, or the finish's
+        // colour and pattern ids (read by `finishFromBytes`).
         const slots = buffer[offset++]
         const counts: number[] = []
         for (let i = 0; i < slots; i++) counts.push(buffer[offset++])

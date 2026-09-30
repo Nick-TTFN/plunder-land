@@ -38,6 +38,7 @@ import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
 import { ItemPickup } from './objects/itempickup'
 import { itemById } from './utils/items'
+import { finishFromBytes } from './utils/finishes'
 import Unit from './objects/unit'
 import { type GameObject } from './objects/gameobject'
 import { type HUD } from './ui/components/hud'
@@ -271,7 +272,7 @@ export class Game extends Container {
     Game.popups.show(new GameEnterPopup(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (playerId: string, name: string): Promise<void> {
+  async onStartRequested (playerId: string, name: string, finish: number[]): Promise<void> {
     Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
@@ -279,10 +280,11 @@ export class Game extends Container {
     Game.socket.on('update', this.onObjectsUpdated.bind(this))
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
     Game.socket.on('standings', this.onStandings.bind(this))
-    // `{ id, name }`: the id is the player's identity (stats are keyed by it),
-    // the name only what others see. The server sanitises and caps the name,
-    // and gives an empty one a callsign made from the id.
-    Game.socket.emit('start_requested', { id: playerId, name })
+    // `{ id, name, finish }`: the id is the player's identity (stats are keyed
+    // by it), the name and the robot's finish only what others see. The server
+    // sanitises and caps the name, gives an empty one a callsign made from the
+    // id, and replaces anything unreadable in the finish with the default.
+    Game.socket.emit('start_requested', { id: playerId, name, finish })
 
     Game.hud.setupGameUI()
   }
@@ -413,7 +415,11 @@ export class Game extends Container {
       // A projectile's kind, one unsigned byte: PROJECTILE in
       // objects/throwable.ts. Only in a projectile's create; a server from
       // before it sends none, and the projectile draws as a fireball.
-      'projectile'
+      'projectile',
+      // A player's finish (robot-finishes, #41): a count, then colour and
+      // pattern for head, body and limbs (utils/finishes.ts). A server from
+      // before it sends none, and the robot is drawn in the default finish.
+      'finish'
     ]
 
     return decodeRecord(raw, allFields)
@@ -498,6 +504,9 @@ export class Game extends Container {
       case 1 << 2:{
         const player = new Player(archetypeById(data.archetype))
         player.setHP(data.hp)
+        // Every create of a player carries its finish; none (a server from
+        // before finishes) or an unreadable one draws the default.
+        player.setFinish(finishFromBytes(data.finish))
         Game.PLAYERS.push(player)
         obj = player
 

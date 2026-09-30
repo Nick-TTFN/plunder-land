@@ -1,8 +1,23 @@
-import { Assets, Container, Graphics, Matrix, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
+import { Assets, BLEND_MODES, Container, Graphics, Matrix, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
 import {
   animationPose, blinkClosure, CLIPS, eyeMatrix, regionMatrix, REGIONS,
   type ClipName, type Matrix as RigMatrix, type Pose
 } from './rig'
+import { colourById, DEFAULT_FINISH, type Finish, type FinishGroup, patternById, type PatternKey } from '../utils/finishes'
+
+/** A finished part's paint group and layers, in draw order (`meta.finish` in peep.json). */
+type FinishMeta = Record<string, { group: FinishGroup, layers: string[] }>
+
+/** One drawn region: a sprite, or a finished part's stack of layers, fitted to the region's box. */
+interface Part {
+  node: Container
+  /** The frame size every layer shares, which the box fit divides by. */
+  w: number
+  h: number
+  group?: FinishGroup
+  shade?: Sprite
+  patterns?: Partial<Record<PatternKey, Sprite>>
+}
 
 /** A clip played over the idle/run loop, then gone (fall_apart holds). */
 interface Action {
@@ -17,7 +32,11 @@ interface Action {
 /**
  * Peep, drawn from the v15 rig (`rig.ts`) instead of a frame sheet: one sprite
  * per painted part from `peep.json` (`tools/bake-peep-atlas.py`), placed every
- * frame from the pose's bone matrices. The clips and all their numbers are the
+ * frame from the pose's bone matrices. A part with a paint group (head, body,
+ * limbs) is a stack of layers instead (robot-finishes, #41): its shading tinted
+ * by the group's colour, the group's pattern at its opacity, the unpainted
+ * details, and the highlights added on top (`setFinish`; the bake explains the
+ * layers). The highlights' additive blend costs a batch break per part. The clips and all their numbers are the
  * drop's; this only decides which clip plays, at what aim, and when to blink.
  *
  * - The idle/run loop follows movement (`setMoving`); `play` lays an action
@@ -46,6 +65,18 @@ export class PeepSprite extends Container {
   /** CSS px from the feet up to the gun arm's shoulder (rig y 79 at rest), where aim is measured from. */
   static readonly SHOULDER_PX = 79 * PeepSprite.SCALE
 
+  /** The run loop plays this much faster than the drop's clip at `STRIDE_SPEED` (Nick, 2026-09-30: 2x). */
+  static readonly RUN_RATE = 2
+  /**
+   * The ground speed, u/s, at which the run loop plays at `RUN_RATE`: peep's
+   * speed (server `ARCHETYPES.peep.speed`). Faster or slower movement plays it
+   * in proportion (`setPace`), so a dash (2.5x) runs the legs 2.5x faster again.
+   */
+  static readonly STRIDE_SPEED = 140
+  /** `setPace`'s range: a stall or a teleport's one-frame jump shouldn't spin or freeze the legs. */
+  static readonly MIN_PACE = 0.5
+  static readonly MAX_PACE = 3
+
   /** See the class comment. Below every cooldown that plays one of these clips (0.75 s). */
   static readonly RETRIGGER_S = 0.6
 
@@ -54,17 +85,24 @@ export class PeepSprite extends Container {
 
   /** True once `peep.json` is loaded; `Player` falls back to the old sprite otherwise. */
   static ready (): boolean {
-    return Assets.cache.has('peep/head.png')
+    return Assets.cache.has('peep/eye_open.png')
+  }
+
+  /** The sheet's `meta.finish`; empty for a sheet from before finishes, whose parts are flat. */
+  private static finishMeta (): FinishMeta {
+    return Assets.cache.get('./res/peep.json')?.data?.meta?.finish ?? {}
   }
 
   private readonly rig = new Container()
-  private readonly parts: Sprite[] = []
+  private readonly parts: Part[] = []
   private readonly shadow = new Graphics()
   private readonly flash = new Graphics()
   private readonly eyeTextures: { open: Texture, smile: Texture }
 
   private base: 'idle' | 'run' = 'idle'
   private baseTime = 0
+  /** Ground speed over `STRIDE_SPEED`, from `setPace`. */
+  private pace = 1
   private action: Action | undefined
   private moveFacing: 1 | -1 = 1
   /** From `setAim`: the aim outside actions, and the facing it wants (undefined = movement's). */
@@ -85,13 +123,17 @@ export class PeepSprite extends Container {
 
     this.shadow.beginFill(0x000000).drawEllipse(0, -2, 70, 9).endFill()
     this.rig.addChild(this.shadow)
+    const finishes = PeepSprite.finishMeta()
     for (const r of REGIONS) {
-      const sprite = new Sprite(r.kind === 'eye' ? this.eyeTextures.open : Texture.from(`peep/${r.art}.png`))
-      sprite.anchor.set(0.5)
-      this.parts.push(sprite)
-      this.rig.addChild(sprite)
+      const finished = r.kind === 'eye' ? undefined : finishes[r.art]
+      const part = finished !== undefined
+        ? PeepSprite.layered(r.art, finished)
+        : PeepSprite.flat(r.kind === 'eye' ? this.eyeTextures.open : Texture.from(`peep/${r.art}.png`))
+      this.parts.push(part)
+      this.rig.addChild(part.node)
     }
     this.rig.addChild(this.flash)
+    this.setFinish(DEFAULT_FINISH)
     this.addChild(this.rig)
 
     host.on('added', this.start, this)
@@ -100,12 +142,63 @@ export class PeepSprite extends Container {
     this.update(0)
   }
 
+  private static flat (texture: Texture): Part {
+    const sprite = new Sprite(texture)
+    sprite.anchor.set(0.5)
+    return { node: sprite, w: texture.width, h: texture.height }
+  }
+
+  private static layered (art: string, meta: FinishMeta[string]): Part {
+    const node = new Container()
+    const part: Part = { node, w: 0, h: 0, group: meta.group, patterns: {} }
+    for (const layer of meta.layers) {
+      const sprite = new Sprite(Texture.from(`peep/${art}/${layer}.png`))
+      sprite.anchor.set(0.5)
+      // Every layer is baked at the part's size, trimmed; `width` is the untrimmed size.
+      part.w = sprite.texture.width
+      part.h = sprite.texture.height
+      if (layer === 'shade') part.shade = sprite
+      else if (layer === 'hi') sprite.blendMode = BLEND_MODES.ADD
+      else if (layer !== 'fixed') {
+        sprite.visible = false
+        part.patterns![layer as PatternKey] = sprite
+      }
+      node.addChild(sprite)
+    }
+    return part
+  }
+
+  /**
+   * Paints each group's parts: the shading tinted by its colour, and only its
+   * pattern shown, at the pattern's opacity. A finish from `finishFromBytes`
+   * only holds ids this build knows; anything else draws uncoloured and plain.
+   */
+  setFinish (finish: Finish): void {
+    for (const part of this.parts) {
+      if (part.group === undefined) continue
+      const { colour, pattern } = finish[part.group]
+      const rgb = colourById(colour)?.rgb ?? [255, 255, 255]
+      if (part.shade !== undefined) part.shade.tint = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+      const info = patternById(pattern)
+      for (const key in part.patterns) {
+        const sprite = part.patterns[key as PatternKey]!
+        sprite.visible = key === info?.key
+        sprite.alpha = info?.opacity ?? 0
+      }
+    }
+  }
+
   /** Movement picks the loop under any action. */
   setMoving (moving: boolean): void {
     const next = moving ? 'run' : 'idle'
     if (next === this.base) return
     this.base = next
     this.baseTime = 0
+  }
+
+  /** Ground speed as a multiple of `STRIDE_SPEED`; scales the run loop only. */
+  setPace (pace: number): void {
+    this.pace = Math.min(PeepSprite.MAX_PACE, Math.max(PeepSprite.MIN_PACE, pace))
   }
 
   setFacing (facing: 1 | -1): void {
@@ -175,7 +268,7 @@ export class PeepSprite extends Container {
   }
 
   update (dt: number): void {
-    this.baseTime += dt
+    this.baseTime += this.base === 'run' ? dt * PeepSprite.RUN_RATE * this.pace : dt
     this.sinceBlink += dt
     if (this.sinceBlink > this.nextBlink + 0.16) {
       this.sinceBlink = 0
@@ -212,11 +305,12 @@ export class PeepSprite extends Container {
     const { state, matrices } = pose
     const info = state.animation
     REGIONS.forEach((r, i) => {
-      const sprite = this.parts[i]
+      const part = this.parts[i]
       let m: RigMatrix
       let w: number
       let h: number
       if (r.kind === 'eye') {
+        const sprite = part.node as Sprite
         const texture = state.eye.expression === 'smile' ? this.eyeTextures.smile : this.eyeTextures.open
         if (sprite.texture !== texture) sprite.texture = texture
         m = eyeMatrix(matrices.head, state.eye)
@@ -229,10 +323,10 @@ export class PeepSprite extends Container {
         h = r.h
       }
       // Fit the texture, whatever its resolution, to the region's box.
-      const fx = w / sprite.texture.width
-      const fy = h / sprite.texture.height
+      const fx = w / part.w
+      const fy = h / part.h
       this.scratch.set(m.a * fx, m.b * fx, m.c * fy, m.d * fy, m.x, m.y)
-      sprite.transform.setFromMatrix(this.scratch)
+      part.node.transform.setFromMatrix(this.scratch)
     })
 
     // The drop's shadow: one under the feet that shrinks with a jump, one

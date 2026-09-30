@@ -2,6 +2,9 @@ import { Container, Point, type Sprite, type Text, Texture } from 'pixi.js'
 import { TapHandler } from '../elements/taphandler'
 import AnimationClip from '../../animation/animationclip'
 import { ToolKit } from '../components/toolkit'
+import { PeepSprite } from '../../peep/peepsprite'
+import { FinishPicker } from './finishpicker'
+import { finishFromBytes, finishToBytes } from '../../utils/finishes'
 
 const ID_KEY = 'plunderland_player_id'
 const NAME_KEY = 'plunderland_player_name'
@@ -42,7 +45,8 @@ function writeStorage (key: string, value: string): void {
 let _pageId: string | undefined
 
 export default class GameEnterPopup extends Container {
-  callback: (playerId: string, name: string) => Promise<void>
+  /** `finish` is the robot's finish as its wire bytes (`finishToBytes`). */
+  callback: (playerId: string, name: string, finish: number[]) => Promise<void>
   bg: Sprite
   container: Container
   title: Text
@@ -52,9 +56,15 @@ export default class GameEnterPopup extends Container {
    * canvas while the popup is up, and removed with it.
    */
   nameInput: HTMLInputElement | undefined
+  /** The finish picker, DOM like the name field, and the robot it paints. */
+  picker: FinishPicker | undefined
+  preview: PeepSprite | undefined
   private _started = false
 
-  constructor (callback: (playerId: string, name: string) => Promise<void>) {
+  /** The preview robot is drawn this much larger than in the world, to show off the finish. */
+  static readonly PREVIEW_SCALE = 1.3
+
+  constructor (callback: (playerId: string, name: string, finish: number[]) => Promise<void>) {
     super()
     this.callback = callback
 
@@ -74,15 +84,25 @@ export default class GameEnterPopup extends Container {
 
     playerPanel.addChild(ToolKit.createSprite(Texture.from('UI/elements/cell.png'), new Point(0, 0), new Point(2, 2)))
 
-    const playerAnim = new AnimationClip('player/idle/idle', 0.2, true)
-    playerAnim.play()
-    playerPanel.addChild(playerAnim)
+    // Your robot in the finish being picked; the old frame clip without the rig.
+    // The cell is centred on the panel's origin, and Peep's origin is its feet.
+    if (PeepSprite.ready()) {
+      this.preview = new PeepSprite(playerPanel)
+      this.preview.scale.set(GameEnterPopup.PREVIEW_SCALE)
+      this.preview.position.set(0, PeepSprite.HEIGHT * GameEnterPopup.PREVIEW_SCALE / 2)
+      playerPanel.addChild(this.preview)
+    } else {
+      const playerAnim = new AnimationClip('player/idle/idle', 0.2, true)
+      playerAnim.play()
+      playerPanel.addChild(playerAnim)
+    }
 
     this.container.addChild(playerPanel)
 
     // Removed from the stage by a start, or by a reconnect clearing the popups:
     // the DOM field has to go either way, or it floats over the game.
     this.on('removed', this.removeNameInput.bind(this))
+    this.on('removed', this.removePicker.bind(this))
 
     this.checkState()
   }
@@ -110,8 +130,32 @@ export default class GameEnterPopup extends Container {
     startButton.position = new Point((this.bg.width) / 2, (this.bg.height) - 45)
     this.container.addChild(startButton)
 
-    // Between the robot and the start button: 70 above the button's centre.
-    this.addNameInput(this.container.y + startButton.y - 70)
+    // Between the robot and the start button: 50 above the button's centre,
+    // and the finish picker between it and the robot.
+    this.addNameInput(this.container.y + startButton.y - 50)
+    this.addPicker(this.container.y + startButton.y - 122)
+  }
+
+  /** `offsetY` is from the popup's centre, like the name field's. */
+  addPicker (offsetY: number): void {
+    if (typeof document === 'undefined') return
+    const picker = new FinishPicker((finish) => { this.preview?.setFinish(finish) })
+    picker.place(offsetY)
+    this.preview?.setFinish(picker.value)
+    document.body.appendChild(picker.element)
+    this.picker = picker
+  }
+
+  /**
+   * With the popup, not with the panel the preview lives on: the panel stays
+   * inside the popup, so the preview's own `removed` hook would never fire and
+   * its ticker would pose it forever.
+   */
+  removePicker (): void {
+    this.picker?.element.remove()
+    this.picker = undefined
+    this.preview?.destroy()
+    this.preview = undefined
   }
 
   /** `offsetY` is from the popup's centre, which PopupManager keeps at the viewport's. */
@@ -168,8 +212,9 @@ export default class GameEnterPopup extends Container {
     const name = this.nameInput?.value.trim() ?? ''
     // An empty name is remembered too, so clearing the field sticks.
     writeStorage(NAME_KEY, name)
+    this.picker?.remember()
 
-    void this.callback(this.playerId, name)
+    void this.callback(this.playerId, name, finishToBytes(this.picker?.value ?? finishFromBytes(undefined)))
     this.parent?.removeChild(this)
   }
 }

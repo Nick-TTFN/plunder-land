@@ -289,16 +289,36 @@ Spine**). `src/peep/rig.ts` is a hand port of the drop's `rig.mjs` + `animations
 bone matrices out, pixi-free); `peeprig.spec.ts` (server) checks it, and the drawn corners of
 every part, against poses sampled from the drop's own modules. A new drop: re-run
 `tools/peep-rig-sync.mjs <drop>` (hulls + fixtures), fix the port until the spec passes, and
-`tools/bake-peep-atlas.py <drop>` (`peep.png`, 5 KB). The rig never reads an image's size, so
+`tools/bake-peep-atlas.py <drop>` (`peep.png`, 12 KB). The rig never reads an image's size, so
 the bake resamples each part to its box in rig units at `PeepSprite.HEIGHT` (44 CSS px, Nick:
-a third of the 128 first tried) x 2; change the height in both. `PeepSprite` places ~14 sprites a frame; no visor mask (Nick's
-call). Clips: idle/run by movement, swing on melee (press and effect, deduped by
+a third of the 128 first tried) x 2; change the height in both. `PeepSprite` places 14 regions a frame (about 35 sprites with finish layers); no visor mask (Nick's
+call). Clips: idle/run by movement (run at `RUN_RATE` 2x the drop's speed, Nick 2026-09-30, scaled
+by ground speed over `STRIDE_SPEED` 140, clamped 0.5-3x, so a dash runs the legs 2.5x faster again;
+`Player.applyPosition` measures it, for remote players too), swing on melee (press and effect, deduped by
 `RETRIGGER_S`), shoot on the ranged effect turned and aimed at the shot's end (the rig draws
 its own muzzle flash), hit on an hp or armor drop, fall_apart on death (removal after 3 s).
 Jump is unused (Nick). Your own robot's gun and eye follow the mouse (`Player.aimAt` from
 `Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
 down are accepted dead zones; no mouse over the world gives facing back to movement. Other
 players aim only in actions: aim isn't on the wire.
+
+**Finishes: each robot's head, body and limbs are painted separately** (robot-finishes,
+decision #41, 2026-09-30), from the drop's material maps (`materials/`: neutral, masks,
+lighting, pattern-data). Every painted part is one paint group; the bake asserts it. Such a part
+is four kinds of layer in `peep.json` (`peep/<art>/shade|zebra|checker|camo|fixed|hi.png`, listed
+in `meta.finish`): the shading tinted by the group's colour, the group's pattern at its opacity,
+the unpainted details, and the highlights with `BLEND_MODES.ADD` (drawn normally they came out
+up to 60/255 too dark; the cost is two batch breaks per part with highlights, six parts, so
+roughly a dozen more draw calls per robot on screen: derived, not measured).
+`PeepSprite.setFinish` applies one. The bake **checks itself** against the drop's
+`compose.mjs`: interior p99 at most 17/255 (the drop clamps to white per pixel, which a
+colour-free layer can't copy) and it fails above 24. Light above 1x (up to 1.36 on the torso)
+is dropped, because a tint can't brighten; Nick accepted it. The colours and patterns are
+`utils/finishes.ts`, mirrored like `items.ts`: the ten colours of the drop's six presets
+(Claude's pick, Nick may change it), patterns none/zebra/checker/camo with the opacity fixed per
+pattern (camo 0.45), and ids append-only. All are free until meta-progression. The enter popup
+has a placeholder picker (DOM, `ui/popups/finishpicker.ts`) with a live preview, remembered in
+localStorage (`plunderland_player_finish`).
 
 `tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went), `exit.png`,
 `portal.png`, `fireball/*`, `explosion/*`, `resource/*`, the `UI/controls/*` icons and the
@@ -475,7 +495,9 @@ flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hel
 `layers` (a server from before three layers) means `[0, -1]`. **Ship the client first**:
 an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
 
-**Client → server `start_requested` is `{ id, name }`** (`Multiplayer.parseStart`). A bare
+**Client → server `start_requested` is `{ id, name, finish }`** (`Multiplayer.parseStart`;
+`finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
+the default, never a refused join; a client from before finishes sends none). A bare
 string, the id alone, is still accepted for one release; drop it after that. The id is the
 client's persistent per-browser id: exactly 6 lowercase hex digits (`genRanHex(6)` in the enter
 popup). The server accepts only `Multiplayer.ID_SHAPE` = `/^[0-9a-f]{6,32}$/` and ignores
@@ -567,6 +589,15 @@ everything flies as a fireball. **Client first.** The tools' tables have the row
 size the crystal; no new index, and an older client already decodes it. The client draws a
 projectile one tick behind, gliding between its server positions and pointed along the step
 (`direction` is not on the wire), hidden until its second position.
+
+**`finish` (23)** is a player's finish (robot-finishes, #41), on every create of a player
+(`allFields` and `allFieldsOwn`), never a delta: `[uint8 count = 6]` then `[colour][pattern]`
+for head, body and limbs, ids from the mirrored `utils/finishes.ts`. **Counted like
+`inventory`**, so a later addition only lengthens it, and `finishFromBytes` reads the first six
+bytes, falling back to the default per group for an id it doesn't know. It is the last field of
+a player's creates, so an older client (which stops at an index it doesn't know) loses only the
+finish (`finishwire.spec.ts`). **Client first**; a server from before it sends none and every
+robot is mint. The tools' tables have the row (`-2`, counted).
 
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots

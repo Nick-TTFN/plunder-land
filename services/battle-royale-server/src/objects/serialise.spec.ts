@@ -68,6 +68,15 @@ function legacy (obj: GameObject, fields: Set<string>): Buffer | null {
         break
       }
       case 'extractProgress': { const byte = Buffer.alloc(1); byte.writeUInt8(value); raw.push(byte); break }
+      // robot-finishes: appended after this encoder was retired, counted like inventory.
+      case 'finish': {
+        const ids = value as readonly number[]
+        const bytes = Buffer.alloc(1 + ids.length)
+        bytes.writeUInt8(ids.length)
+        ids.forEach((id, i) => { bytes.writeUInt8(id, 1 + i) })
+        raw.push(bytes)
+        break
+      }
       case 'facing': raw.push(getBuffer(value)); break
       case 'name': raw.push(Buffer.from(value), Buffer.alloc(1)); break
     }
@@ -109,7 +118,7 @@ function same (obj: GameObject, fields: Set<string>, label: string): void {
 const ALL_KEYS = [
   'id', 'type', 'position', 'direction', 'hp', 'level', 'loot', 'tag', 'to', 'radius', 'lifetime',
   'maxVelocity', 'maxHp', 'armor', 'maxArmor', 'archetype', 'item', 'inventory', 'extractProgress',
-  'facing', 'name', 'notAField'
+  'facing', 'name', 'finish', 'notAField'
 ]
 
 // A small seeded generator, so a failure reproduces.

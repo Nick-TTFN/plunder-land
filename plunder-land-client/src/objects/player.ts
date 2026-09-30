@@ -13,6 +13,7 @@ import { namePlate } from '../ui/elements/nameplate'
 import { THEME } from '../ui/theme'
 import { PeepSprite } from '../peep/peepsprite'
 import { TILT } from './tilt'
+import { type Finish } from '../utils/finishes'
 
 export default class Player extends Unit {
   skills: Skill[]
@@ -49,6 +50,34 @@ export default class Player extends Unit {
       new IceBreath(this)
     ]
     for (let i = 0; i < this.skills.length; i++) this.skills[i].index = i
+  }
+
+  /** When `applyPosition` last ran, and the smoothed ground speed it fed the rig (`PeepSprite.setPace`). */
+  private lastMovedAt = 0
+  private pace = 1
+
+  /**
+   * As Unit's, then the run loop's speed follows the ground speed, from the
+   * same motion the run/idle choice reads (intent for your own robot, the
+   * rendered delta for others), so a dash speeds the legs up for everyone.
+   * Smoothed over about 80 ms: a remote unit's per-frame delta jitters.
+   */
+  applyPosition (nx: number, ny: number, now: number, motionX?: number, motionY?: number): void {
+    const dx = motionX ?? (nx - this.x)
+    const dy = motionY ?? (ny - this.y)
+    super.applyPosition(nx, ny, now, motionX, motionY)
+    const elapsed = now - this.lastMovedAt
+    this.lastMovedAt = now
+    if (this.peep === undefined || elapsed <= 0 || elapsed > 250) return
+    const speed = Math.hypot(dx, dy) / elapsed * 1000
+    if (speed < 1) return
+    this.pace += (speed / PeepSprite.STRIDE_SPEED - this.pace) * Math.min(1, elapsed / 80)
+    this.peep.setPace(this.pace)
+  }
+
+  /** Paints the rigged robot (robot-finishes, #41). The old frame sprite has no finish. */
+  setFinish (finish: Finish): void {
+    this.peep?.setFinish(finish)
   }
 
   initAnimation (): void {

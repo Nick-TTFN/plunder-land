@@ -95,8 +95,9 @@ test('archetype is field index 16, after maxArmor', () => {
   // usable-items appended `item` (17) and `inventory` (18) after it, and
   // extract-channel appended `extractProgress` (19), and loot-wire-overflow
   // appended `loot32` (20), and run-summary-card appended `kills` (21), and
-  // the arena art pass appended `projectile` (22).
-  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile'], 'a field after projectile: update this spec')
+  // the arena art pass appended `projectile` (22), and robot-finishes
+  // appended `finish` (23).
+  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile', 'finish'], 'a field after finish: update this spec')
 })
 
 function units (): Array<[string, Unit, number]> {
@@ -108,21 +109,28 @@ function units (): Array<[string, Unit, number]> {
   ]
 }
 
-test('every archetype unit\'s create record ends with [16, id], and its serialised value is the id', () => {
+// robot-finishes: a player's finish (field 23, counted, the default here) follows its archetype.
+const FINISH_MINT = [23, 6, 2, 1, 1, 0, 1, 0]
+
+test('every archetype unit\'s create record ends with [16, id] (then a player\'s finish), and its serialised value is the id', () => {
   for (const [key, unit, id] of units()) {
-    const bytes = [...(unit.serialiseBinary(unit.allFields) as Buffer)]
+    let bytes = [...(unit.serialiseBinary(unit.allFields) as Buffer)]
+    if (unit instanceof Player) {
+      assert.deepEqual(bytes.slice(-FINISH_MINT.length), FINISH_MINT, `${key} create record`)
+      bytes = bytes.slice(0, -FINISH_MINT.length)
+    }
     assert.deepEqual(bytes.slice(-2), [16, id], `${key} create record`)
     const fields = unit.serialise(unit.allFields) as Record<string, unknown>
     assert.equal(fields.archetype, id, `${key}: the archetype object went to the serialiser`)
   }
 })
 
-test('the player\'s create_own carries [16, 1], followed only by its inventory and kills', () => {
+test('the player\'s create_own carries [16, 1], followed only by its inventory, kills and finish', () => {
   const player = new Player(X, Y, 0, 'p1')
   const own = [...(player.serialiseBinary(player.allFieldsOwn) as Buffer)]
   // usable-items: the inventory (field 18, five empty slots) came next;
-  // run-summary-card: then kills (field 21, a uint16 0).
-  assert.deepEqual(own.slice(-12), [16, 1, 18, 5, 0, 0, 0, 0, 0, 21, 0, 0])
+  // run-summary-card: then kills (field 21, a uint16 0); robot-finishes: then the finish.
+  assert.deepEqual(own.slice(-20), [16, 1, 18, 5, 0, 0, 0, 0, 0, 21, 0, 0, ...FINISH_MINT])
 })
 
 test('archetype is never dirty, so it never goes in a delta', () => {

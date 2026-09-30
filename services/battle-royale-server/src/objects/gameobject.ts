@@ -155,7 +155,13 @@ export class GameObject {
     // A projectile's kind, one unsigned byte: `Throwable.FIREBALL` 1 or
     // `Throwable.ICICLE` 2 (0 is never sent), so the client draws the right
     // sprite. Only Throwable sends it, in its create. Appended, as above.
-    'projectile'
+    'projectile',
+    // A player's finish (robot-finishes, #41): `[uint8 count]` and that many
+    // bytes, `[colour][pattern]` for head, body and limbs (utils/finishes.ts).
+    // Counted like `inventory`, so a later addition only lengthens it. Only
+    // Player sends it, in its creates; it is fixed for the run, so never dirty.
+    // Appended, as above.
+    'finish'
   ]
 
   /**
@@ -559,7 +565,8 @@ export class GameObject {
           GameObject._room(at, 1).writeInt8(Math.floor(value / 10), at)
           at += 1
           break
-        case 'inventory': {
+        case 'inventory':
+        case 'finish': {
           const counts = value as readonly number[]
           const scratch = GameObject._room(at, 1 + counts.length)
           scratch.writeUInt8(counts.length, at)

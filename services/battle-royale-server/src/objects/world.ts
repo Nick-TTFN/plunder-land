@@ -670,11 +670,11 @@ export default class World {
 
   /**
    * Joins on the top layer (#26), at a cell centre `spawnCell` picks. `name`
-   * is the one the player typed, raw; Player's constructor sanitises it.
+   * and `finish` are what the client sent, raw; Player's constructor cleans them.
    */
-  static createPlayer (playerId: string, name?: unknown): Player {
+  static createPlayer (playerId: string, name?: unknown, finish?: unknown): Player {
     const pos = Hex.toPosition(World.spawnCell(World.LAYERS[0].tag).cell)
-    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, undefined, name)
+    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, undefined, name, finish)
     World.addUnit(World.PLAYERS as unknown as Unit[], player)
     return player
   }

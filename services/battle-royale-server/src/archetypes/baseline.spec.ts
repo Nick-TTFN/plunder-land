@@ -166,6 +166,8 @@ const ARCHETYPE = (v: number): number[] => [16, v]
 // run-summary-card, deliberate: a player's kills this run, uint16 at 21.
 const KILLS = (v: number): number[] => [21, ...u16(v)]
 const INVENTORY = (...counts: number[]): number[] => [18, counts.length, ...counts]
+// robot-finishes: the default finish (mint), counted: head cream zebra, body and limbs mint plain.
+const FINISH_MINT = [23, 6, 2, 1, 1, 0, 1, 0]
 
 test('the byte helpers use today\'s field indices', () => {
   assert.deepEqual(
@@ -186,7 +188,9 @@ test('the byte helpers use today\'s field indices', () => {
       // run-summary-card, deliberate: a player's kills this run, appended.
       'kills',
       // arena art pass, deliberate: a projectile's kind, appended.
-      'projectile']
+      'projectile',
+      // robot-finishes, deliberate: a player's finish, appended.
+      'finish']
   )
 })
 
@@ -255,7 +259,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
     // Step 3 (the armor pool), deliberate: the pool goes on the end.
     ...ARMOR(50), ...MAXARMOR(50),
     // Step 4, deliberate: then the archetype id (peep = 1).
-    ...ARCHETYPE(1)
+    ...ARCHETYPE(1),
+    // robot-finishes, deliberate: the finish goes on the end, the default here.
+    ...FINISH_MINT
   ]
   assert.deepEqual(createRecordOf(player).bytes, expectedCreate)
   assert.deepEqual(bytesOf(player, player.allFields), expectedCreate)
@@ -269,7 +275,9 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
     // usable-items, deliberate: the owner's own inventory, five empty slots.
     ...INVENTORY(0, 0, 0, 0, 0),
     // run-summary-card, deliberate: the run's kills, starting at 0.
-    ...KILLS(0)
+    ...KILLS(0),
+    // robot-finishes, deliberate: the finish, as in everyone's create.
+    ...FINISH_MINT
   ])
 })
 

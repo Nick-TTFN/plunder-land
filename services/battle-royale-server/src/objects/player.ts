@@ -8,6 +8,7 @@ import World from './world'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Timers from './timers'
 import { INVENTORY_SLOTS } from '../utils/items'
+import { type Finish, finishFromBytes, finishToBytes } from '../utils/finishes'
 import { type Item } from '../archetypes/archetypes'
 import { itemForSlot, useItem } from '../items/use'
 import type Consumable from './consumable'
@@ -29,6 +30,13 @@ export default class Player extends Unit {
   createdAt: number
   exited: boolean
   playerId: string
+
+  /**
+   * The robot's colours and patterns (robot-finishes, #41), fixed for the run.
+   * Cosmetic: nothing on the server reads it but the wire, where it goes out
+   * as bytes (`serialise`) in every create of this player.
+   */
+  finish: Finish
 
   /**
    * How many of each item the player carries, by fixed slot (utils/items.ts).
@@ -56,11 +64,15 @@ export default class Player extends Unit {
    * `Multiplayer.create` serialises it into everyone's create record, and an
    * empty or unusable one becomes the id's callsign. `playerId` stays the
    * identity - stats are keyed by it, never by the name.
+   *
+   * `finish` is the client's, unchecked; anything unreadable in it becomes
+   * the default finish (`finishFromBytes`) rather than refusing the join.
    */
-  constructor (x: number, y: number, tag: number, playerId: string, archetype: Archetype = ARCHETYPES.peep, name?: unknown) {
+  constructor (x: number, y: number, tag: number, playerId: string, archetype: Archetype = ARCHETYPES.peep, name?: unknown, finish?: unknown) {
     super(ObjectType.Player, x, y, 0, tag, archetype)
     this.playerId = playerId
     this.name = Player.displayName(name, playerId)
+    this.finish = finishFromBytes(finish)
 
     this.setLevel(archetype.level ?? 1)
 
@@ -76,8 +88,19 @@ export default class Player extends Unit {
     // Kills this run, for the end-of-run card (run-summary-card). Starts at 0,
     // so the owner's create always carries it.
     this.allFieldsOwn.add('kills')
+    // Everyone's create, the owner's included, so your own robot is drawn from
+    // what the server holds. Never dirty: it doesn't change within a run.
+    this.allFields.add('finish')
+    this.allFieldsOwn.add('finish')
 
     Multiplayer.Instance.create(this)
+  }
+
+  /** `finish` goes on the wire as its bytes (see 'finish' in `GameObject.fieldOrder`). */
+  serialise (fields: Set<string>): ReturnType<Unit['serialise']> {
+    const result = super.serialise(fields)
+    if (result !== null && 'finish' in result) (result as Record<string, unknown>).finish = finishToBytes(this.finish)
+    return result
   }
 
   /**
