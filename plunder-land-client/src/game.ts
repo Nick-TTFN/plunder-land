@@ -794,6 +794,9 @@ export class Game extends Container {
           delta > 0 ? 'green' : 'orange',
           400
         )
+        // A rise on a total already known is a pickup; the first value seen for
+        // a robot that just came into view is its haul so far, not a pickup.
+        if (obj instanceof Player && delta > 0 && obj.loot !== undefined) obj.onLootGained()
         obj.loot = data.loot
 
         if (obj === Game.PLAYER) Game.hud.updateStats(data)

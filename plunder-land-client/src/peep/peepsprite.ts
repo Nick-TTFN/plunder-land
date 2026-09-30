@@ -36,8 +36,9 @@ interface Action {
  * limbs) is a stack of layers instead (robot-finishes, #41): its shading tinted
  * by the group's colour, the group's pattern at its opacity, the unpainted
  * details, and the highlights added on top (`setFinish`; the bake explains the
- * layers). The highlights' additive blend costs a batch break per part. The clips and all their numbers are the
- * drop's; this only decides which clip plays, at what aim, and when to blink.
+ * layers). The highlights' additive blend costs a batch break per part.
+ * The clips and all their numbers are the drop's; this only decides which
+ * clip plays, at what aim, and when to blink.
  *
  * - The idle/run loop follows movement (`setMoving`); `play` lays an action
  *   (shoot, swing, hit, fall_apart) over it. A new action replaces the one
@@ -45,6 +46,9 @@ interface Action {
  *   restarted (`RETRIGGER_S`): a local press and the server's effect for it
  *   arrive a tick or so apart and are one swing. fall_apart is never replaced.
  * - Blinks run on their own clock, as the drop asks, whatever clip plays.
+ * - `smile` shows the smiling eye for a while. As in the drop's preview, a
+ *   change of expression is a blink with the eye swapped 0.06 s in, while the
+ *   lid is shut, and blinks are automatic only while the eye is open.
  * - Aim is -60 to +60 degrees off the facing, positive up (screen north):
  *   an action's own, else `setAim`'s (your own robot follows the mouse), else level.
  *
@@ -80,6 +84,9 @@ export class PeepSprite extends Container {
   /** See the class comment. Below every cooldown that plays one of these clips (0.75 s). */
   static readonly RETRIGGER_S = 0.6
 
+  /** How far into a blink an expression change swaps the eye (the drop's preview: 0.06 s, lid shut). */
+  static readonly EXPRESSION_SWAP_S = 0.06
+
   /** fall_apart is throttled to this step: each pose runs a physics loop from the detach. */
   static readonly DEBRIS_STEP_S = 1 / 30
 
@@ -109,8 +116,14 @@ export class PeepSprite extends Container {
   private lookAim = 0
   private lookFacing: 1 | -1 | undefined
 
-  private sinceBlink = 0
-  private nextBlink = PeepSprite.blinkGap()
+  /** The eye's clock, seconds; blinks and smiles are times on it. */
+  private eyeClock = 0
+  private blinkAt = -Infinity
+  private nextBlinkAt = PeepSprite.blinkGap()
+  private expression: 'open' | 'smile' = 'open'
+  private pendingExpression: 'open' | 'smile' = 'open'
+  private expressionAt = -Infinity
+  private smileUntil = -Infinity
 
   private lastDebrisT = -1
   private readonly scratch = new Matrix()
@@ -252,6 +265,23 @@ export class PeepSprite extends Container {
     super.destroy({ children: true })
   }
 
+  /**
+   * The smiling eye for `seconds` from now. Asked again while smiling, it
+   * lasts to the later end, without another blink.
+   */
+  smile (seconds: number): void {
+    const until = this.eyeClock + seconds
+    if (this.pendingExpression !== 'smile') this.changeExpression('smile')
+    this.smileUntil = Math.max(this.smileUntil, until)
+  }
+
+  /** The drop's switch: blink now, swap the eye once the lid has shut. */
+  private changeExpression (to: 'open' | 'smile'): void {
+    this.pendingExpression = to
+    this.expressionAt = this.eyeClock
+    this.blinkAt = this.eyeClock
+  }
+
   private static blinkGap (): number {
     return 2.5 + Math.random() * 3.5
   }
@@ -268,11 +298,21 @@ export class PeepSprite extends Container {
   }
 
   update (dt: number): void {
-    this.baseTime += this.base === 'run' ? dt * PeepSprite.RUN_RATE * this.pace : dt
-    this.sinceBlink += dt
-    if (this.sinceBlink > this.nextBlink + 0.16) {
-      this.sinceBlink = 0
-      this.nextBlink = PeepSprite.blinkGap()
+    // Moving against the way it faces (your own robot aiming behind itself),
+    // the run loop plays backwards (Nick, 2026-09-30). `clipTime` wraps it.
+    const facingNow = this.action?.facing ?? this.lookFacing ?? this.moveFacing
+    const backwards = facingNow !== this.moveFacing ? -1 : 1
+    this.baseTime += this.base === 'run' ? dt * PeepSprite.RUN_RATE * this.pace * backwards : dt
+    this.eyeClock += dt
+    const now = this.eyeClock
+    if (this.pendingExpression === 'smile' && now >= this.smileUntil) {
+      this.changeExpression('open')
+      this.nextBlinkAt = Math.max(this.nextBlinkAt, now + PeepSprite.blinkGap())
+    }
+    if (now - this.expressionAt >= PeepSprite.EXPRESSION_SWAP_S) this.expression = this.pendingExpression
+    if (this.expression === 'open' && this.pendingExpression === 'open' && now >= this.nextBlinkAt) {
+      this.blinkAt = now
+      this.nextBlinkAt = now + PeepSprite.blinkGap()
     }
     const action = this.action
     if (action !== undefined) {
@@ -296,7 +336,8 @@ export class PeepSprite extends Container {
     this.rig.scale.set(PeepSprite.SCALE * facing, -PeepSprite.SCALE)
     const pose = animationPose(name, t, {
       aimAngle: playing?.aim ?? this.lookAim,
-      blink: blinkClosure(this.sinceBlink - this.nextBlink)
+      blink: blinkClosure(this.eyeClock - this.blinkAt),
+      expression: this.expression
     })
     this.apply(pose)
   }

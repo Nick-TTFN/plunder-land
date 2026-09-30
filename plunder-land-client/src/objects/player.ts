@@ -75,6 +75,14 @@ export default class Player extends Unit {
     this.peep.setPace(this.pace)
   }
 
+  /** How long a robot smiles after picking up loot (Nick, 2026-09-30). */
+  static readonly LOOT_SMILE_S = 0.5
+
+  /** Loot went up: a pickup. The rigged robot smiles; the old sprite has no face. */
+  onLootGained (): void {
+    this.peep?.smile(Player.LOOT_SMILE_S)
+  }
+
   /** Paints the rigged robot (robot-finishes, #41). The old frame sprite has no finish. */
   setFinish (finish: Finish): void {
     this.peep?.setFinish(finish)

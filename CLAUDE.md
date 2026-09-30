@@ -294,9 +294,13 @@ the bake resamples each part to its box in rig units at `PeepSprite.HEIGHT` (44 
 a third of the 128 first tried) x 2; change the height in both. `PeepSprite` places 14 regions a frame (about 35 sprites with finish layers); no visor mask (Nick's
 call). Clips: idle/run by movement (run at `RUN_RATE` 2x the drop's speed, Nick 2026-09-30, scaled
 by ground speed over `STRIDE_SPEED` 140, clamped 0.5-3x, so a dash runs the legs 2.5x faster again;
-`Player.applyPosition` measures it, for remote players too), swing on melee (press and effect, deduped by
+`Player.applyPosition` measures it, for remote players too; backwards while moving against the
+way it faces, e.g. aiming behind), swing on melee (press and effect, deduped by
 `RETRIGGER_S`), shoot on the ranged effect turned and aimed at the shot's end (the rig draws
 its own muzzle flash), hit on an hp or armor drop, fall_apart on death (removal after 3 s).
+The eye smiles for `Player.LOOT_SMILE_S` (0.5 s, Nick) on a loot gain (not the first loot seen for a
+robot coming into view); as in the drop's preview, a change of expression is a blink with the eye
+swapped 0.06 s in, and auto-blink pauses while smiling (`PeepSprite.smile`).
 Jump is unused (Nick). Your own robot's gun and eye follow the mouse (`Player.aimAt` from
 `Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
 down are accepted dead zones; no mouse over the world gives facing back to movement. Other
