@@ -419,7 +419,10 @@ export class Game extends Container {
       // A player's finish (robot-finishes, #41): a count, then colour and
       // pattern for head, body and limbs (utils/finishes.ts). A server from
       // before it sends none, and the robot is drawn in the default finish.
-      'finish'
+      'finish',
+      // Who took a pickup, a uint16 id, in its destroy record only
+      // (pickup-reach): the pickup flies to them.
+      'collector'
     ]
 
     return decodeRecord(raw, allFields)
@@ -880,8 +883,43 @@ export class Game extends Container {
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete this.LOOKUP[data.id]
 
-      obj.dispose()
+      // Picked up (pickup-reach): it flies to whoever took it, then goes.
+      const collector = data.collector !== undefined ? this.LOOKUP[data.collector] : undefined
+      if (collector instanceof Unit && (obj instanceof Consumable || obj instanceof ItemPickup)) {
+        Game.flyToCollector(obj, collector)
+      } else {
+        obj.dispose()
+      }
     }
+  }
+
+  /** How long a picked-up crystal or item takes to reach its collector, ms. */
+  static readonly PICKUP_FLIGHT_MS = 250
+
+  /**
+   * Pulls a taken pickup into the unit that took it, accelerating and
+   * shrinking, aimed at the unit's position each frame so a moving collector
+   * still catches it; disposed on arrival. Out of every list already, so
+   * nothing else touches it meanwhile. Loot makes a robot smile through its
+   * loot rising (`onObjectUpdated`); an item raises no loot, so it does here.
+   */
+  static flyToCollector (pickup: GameObject, collector: Unit): void {
+    const fromX = pickup.x
+    const fromY = pickup.y
+    const fromScale = pickup.scale.x
+    new TWEEN.Tween({ t: 0 })
+      .to({ t: 1 }, Game.PICKUP_FLIGHT_MS)
+      .easing(TWEEN.Easing.Quadratic.In)
+      .onUpdate(({ t }) => {
+        pickup.x = fromX + (collector.x - fromX) * t
+        pickup.y = fromY + (collector.y - fromY) * t
+        pickup.scale.set(fromScale * (1 - 0.6 * t))
+      })
+      .onComplete(() => {
+        if (pickup instanceof ItemPickup && collector instanceof Player) collector.onLootGained()
+        pickup.dispose()
+      })
+      .start()
   }
 
   /**

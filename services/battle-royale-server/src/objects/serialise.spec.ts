@@ -40,6 +40,8 @@ function legacy (obj: GameObject, fields: Set<string>): Buffer | null {
       case 'position': raw.push(getBufferVec2(value)); break
       case 'direction': raw.push(getBufferVec(value.multiply(127))); break
       case 'hp': raw.push(getBuffer2(value)); break
+      // pickup-reach: appended after this encoder was retired, a uint16 like hp.
+      case 'collector': raw.push(getBuffer2(value)); break
       case 'level': raw.push(getBuffer(value)); break
       case 'loot': {
         const wide = Buffer.alloc(4)
@@ -118,7 +120,7 @@ function same (obj: GameObject, fields: Set<string>, label: string): void {
 const ALL_KEYS = [
   'id', 'type', 'position', 'direction', 'hp', 'level', 'loot', 'tag', 'to', 'radius', 'lifetime',
   'maxVelocity', 'maxHp', 'armor', 'maxArmor', 'archetype', 'item', 'inventory', 'extractProgress',
-  'facing', 'name', 'finish', 'notAField'
+  'facing', 'name', 'finish', 'collector', 'notAField'
 ]
 
 // A small seeded generator, so a failure reproduces.

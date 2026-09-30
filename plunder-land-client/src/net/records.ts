@@ -79,6 +79,7 @@ export function decodeRecord (raw: ArrayBuffer | Uint8Array, fields: readonly st
         value = (buffer[offset++] << 8) + buffer[offset++]
         break
       case 'kills':
+      case 'collector':
         value = (buffer[offset++] << 8) + buffer[offset++]
         break
       case 'archetype':

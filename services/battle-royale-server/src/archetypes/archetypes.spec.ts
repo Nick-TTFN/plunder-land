@@ -188,10 +188,19 @@ function picksUpAt (archetype: Archetype, rings: number): boolean {
   return World.CONSUMABLES.length === 0
 }
 
-test('pickupReach null is the player\'s own cell', () => {
-  assert.equal(ARCHETYPES.peep.pickupReach, null)
+// pickup-reach, deliberate (decision #42): every robot takes what is within a
+// ring; it was its own cell only.
+test('peep picks up within one ring', () => {
+  assert.equal(ARCHETYPES.peep.pickupReach, 1)
   assert.equal(picksUpAt(ARCHETYPES.peep, 0), true, 'missed a pickup on its own cell')
-  assert.equal(picksUpAt(ARCHETYPES.peep, 1), false, 'picked up from the next cell')
+  assert.equal(picksUpAt(ARCHETYPES.peep, 1), true, 'missed a pickup on the next cell')
+  assert.equal(picksUpAt(ARCHETYPES.peep, 2), false, 'picked up from two cells away')
+})
+
+test('pickupReach null is still the unit\'s own cell', () => {
+  const own = { ...ARCHETYPES.peep, pickupReach: null }
+  assert.equal(picksUpAt(own, 0), true)
+  assert.equal(picksUpAt(own, 1), false)
 })
 
 test('a fixed pickupReach is a ring count', () => {

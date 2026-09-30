@@ -212,7 +212,8 @@ const peep: Archetype = {
   // spawn point and the ranged hit.
   body: 14,
   level: 1,
-  pickupReach: null,
+  // pickup-reach (#42): every robot takes loot and items within a ring.
+  pickupReach: 1,
   loot: 0,
   // A player touches nothing: no routine chases with it and nothing calls
   // `Mob.touch` on a player.

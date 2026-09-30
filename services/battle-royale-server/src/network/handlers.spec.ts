@@ -208,7 +208,9 @@ test('a start that throws while building the snapshot leaves no half-joined play
   // and the joiner put down there too: a join is sent only what is in range
   // on its layer, and the watcher only a joiner in its range (decision #35).
   const near = watcher.player.position
-  const bad = new Consumable(near.x + 45, near.y, 0)
+  // Three cells out: in range, but beyond the 1-ring pickup reach
+  // (pickup-reach, #42), or the watcher would take it during the tick.
+  const bad = new Consumable(near.x + 3 * 45, near.y, 0)
   bad.serialiseBinary = () => { throw new Error('unserialisable') }
   World.CONSUMABLES.push(bad)
   const savedSpawnCell = World.spawnCell

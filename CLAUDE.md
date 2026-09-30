@@ -603,6 +603,11 @@ a player's creates, so an older client (which stops at an index it doesn't know)
 finish (`finishwire.spec.ts`). **Client first**; a server from before it sends none and every
 robot is mint. The tools' tables have the row (`-2`, counted).
 
+**`collector` (24)** is a uint16 player id on a pickup's destroy record only, when a player took
+it (`GameObject.destroyCollected`; pickup-reach, #42). The client flies the pickup into that unit
+if it holds it, else disposes it as before. **Client first**; an older client stops at the index,
+after `id`, and drops the pickup as before (`pickupwire.spec.ts`). Tools' tables have the row.
+
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
 (key 1 = medkit, key 2 = bomb, 3–5 empty). The item table's shared half is the mirrored
@@ -947,8 +952,10 @@ the other's cell. The skip is what makes a stone's unconditional unblock safe.
   cone counts as a hit.
 - **A loot pickup banks and does not heal** (decision #5, `usable-items`). It used to do both;
   healing is the medkit's job now. Items are not loot (#12): a medkit or bomb is an
-  `ItemPickup` in `World.ITEMS`, never a `Consumable`. Pickups are same-cell (`pickupReach`
-  in rings, null = 0). Death drops (loot and items) land on free cell centres within
+  `ItemPickup` in `World.ITEMS`, never a `Consumable`. **Every robot picks up loot and items
+  within `pickupReach` rings: 1 (#42; Magnet 3), null = own cell**, one loot and one item a tick
+  (`Player.pickUp`). A taken pickup's destroy names its taker (`collector`, 24), and the client
+  flies it into them (`Game.flyToCollector`, 250 ms). Death drops (loot and items) land on free cell centres within
   `World.DROP_RINGS` (2), never on a rock or portal cell (`World.dropCells`).
 - **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (30s); natural spawns do not.**
   The world's own spawner is bounded by a count, drops were not.

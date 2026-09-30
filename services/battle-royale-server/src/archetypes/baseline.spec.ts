@@ -190,7 +190,9 @@ test('the byte helpers use today\'s field indices', () => {
       // arena art pass, deliberate: a projectile's kind, appended.
       'projectile',
       // robot-finishes, deliberate: a player's finish, appended.
-      'finish']
+      'finish',
+      // pickup-reach, deliberate: who took a pickup, appended.
+      'collector']
   )
 })
 

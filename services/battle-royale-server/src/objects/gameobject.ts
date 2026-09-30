@@ -161,7 +161,11 @@ export class GameObject {
     // Counted like `inventory`, so a later addition only lengthens it. Only
     // Player sends it, in its creates; it is fixed for the run, so never dirty.
     // Appended, as above.
-    'finish'
+    'finish',
+    // Who took a pickup (pickup-reach, #42): the collecting player's id, a
+    // uint16, in the pickup's destroy record only, so the client can fly it to
+    // them. Set by `destroyCollected`. Appended, as above.
+    'collector'
   ]
 
   /**
@@ -411,8 +415,17 @@ export class GameObject {
     Multiplayer.Instance.update(this)
   }
 
+  /** The id of whoever took this pickup; see 'collector' in `fieldOrder`. */
+  collector: number | undefined = undefined
+
+  /** Destroyed by being picked up: the destroy record names the collector. */
+  destroyCollected (by: GameObject): void {
+    this.collector = by.id
+    this.destroy()
+  }
+
   destroy () {
-    this.dirtyFields = new Set(['id', 'hp'])
+    this.dirtyFields = new Set(this.collector === undefined ? ['id', 'hp'] : ['id', 'hp', 'collector'])
     Multiplayer.Instance.destroy(this)
     this.destroyed = true
 
@@ -501,6 +514,7 @@ export class GameObject {
       at += 1
       switch (key) {
         case 'id':
+        case 'collector':
         case 'hp':
         case 'maxHp':
         case 'armor':

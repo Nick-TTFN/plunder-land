@@ -228,11 +228,11 @@ export default class Player extends Unit {
       // Banks it, and nothing else. It used to heal by the same amount too;
       // healing is the medkit's job now (decision #5).
       this.addLoot(loot.loot)
-      loot.destroy()
+      loot.destroyCollected(this)
       World.PICKUPS.remove(World.CONSUMABLES, loot)
     }
     if (item !== undefined && this.addItem(item.kind)) {
-      item.destroy()
+      item.destroyCollected(this)
       World.PICKUPS.remove(World.ITEMS, item)
     }
   }
