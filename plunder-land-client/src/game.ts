@@ -31,6 +31,7 @@ import { RunRecord, RunSummaryCard } from './ui/popups/runsummary'
 import { FireBreathEffect } from './vfx/firebreath.effect'
 import { IceBreathEffect } from './vfx/icebreath.effect'
 import { MeleeAttackEffect } from './vfx/meleeattack.effect'
+import { Aim } from './skills/aim'
 import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
@@ -424,7 +425,10 @@ export class Game extends Container {
    */
   applyArmor (unit: Unit, data: Record<string, unknown>): void {
     if (typeof data.maxArmor === 'number') unit.maxArmor = data.maxArmor
-    if (typeof data.armor === 'number') unit.armor = data.armor
+    if (typeof data.armor === 'number') {
+      if (data.armor < unit.armor) unit.onHurt()
+      unit.armor = data.armor
+    }
   }
 
   onObjectCreated (raw: Uint8Array, own = false): void {
@@ -956,6 +960,7 @@ export class Game extends Container {
       if (player === Game.PLAYER) {
         player.visible = true
         player.applyPosition(Game.LOCAL.renderX, Game.LOCAL.renderY, now, Game.LOCAL.moveX, Game.LOCAL.moveY)
+        player.aimAt(Aim.world())
         continue
       }
       if (this.stillPresent(player, staleBefore)) {

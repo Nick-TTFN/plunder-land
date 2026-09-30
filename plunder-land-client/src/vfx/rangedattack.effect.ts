@@ -87,9 +87,12 @@ export class RangedAttackEffect {
     }
     layer.addChild(beam)
 
+    // A rigged robot turns, aims and fires, flash and all (`PeepSprite`).
+    const rigged = owner instanceof Unit && owner.playAction('shoot', end)
+
     // A flash at the muzzle, a little way out along the shot, pointed along it
     // on screen (the camera squashes y by TILT; the clip stands up).
-    if (length > 0) {
+    if (length > 0 && !rigged) {
       const flash = new AnimationClip('fx/muzzle')
       const out = Math.min(20, length) / length
       flash.x = from.x + (end.x - from.x) * out

@@ -1,4 +1,4 @@
-import { Point } from 'pixi.js'
+import { type IPointData, Point } from 'pixi.js'
 import { Game } from '../game'
 import { Session } from '../net/session'
 import { Hex } from '../utils/hex'
@@ -36,6 +36,16 @@ export class Aim {
   /** The mouse left the canvas. */
   static clear (): void {
     Aim._screen = undefined
+  }
+
+  /**
+   * The world point under the mouse, or undefined when there is no mouse over
+   * the world. No map or own-cell check: the robot's gun follows it
+   * (`Player.aimAt`), and pointing off the map is still pointing.
+   */
+  static world (): IPointData | undefined {
+    if (Aim._screen === undefined || Game.CONTAINER === undefined) return undefined
+    return Game.CONTAINER.toLocal(Aim._screen)
   }
 
   /**

@@ -1,6 +1,7 @@
 import { type GameObject } from '../objects/gameobject'
 import { MELEE_RINGS, discCells } from './cells'
 import { CellHighlight, cellOf } from './cellhighlight'
+import Unit from '../objects/unit'
 
 /** The four swing clips `Player.initAnimation` loads. Mobs have none. */
 const SWINGS = [
@@ -21,6 +22,8 @@ const SWINGS = [
  */
 export class MeleeAttackEffect {
   constructor (owner: GameObject, lifetime: number) {
+    // A rigged robot swings its gun (it has no `animation`); melee is unaimed.
+    if (owner instanceof Unit) owner.playAction('swing')
     const animation = owner.animation
     if (animation !== undefined) {
       const available = SWINGS.filter((name) => animation.clips[name] !== undefined)

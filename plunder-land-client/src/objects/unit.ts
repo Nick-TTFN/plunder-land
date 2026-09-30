@@ -136,6 +136,7 @@ export default class Unit extends GameObject {
 
     if (this.hp === value) return
     if (this.hp !== undefined) {
+      if (value < this.hp) this.onHurt()
       if (this.visible && this.parent !== null && value < this.hp) {
       // eslint-disable-next-line no-new
         new TextEffect(
@@ -240,7 +241,7 @@ export default class Unit extends GameObject {
     if (Math.abs(dx) + Math.abs(dy) < IDLE_EPSILON) {
       if (this.becameIdleAt === 0) this.becameIdleAt = now
       if (now - this.becameIdleAt > 100) {
-        this.animation?.setDefault(this.idleAnimation)
+        this.setMoving(false)
         // A remote unit at rest faces the way the server says it does: the
         // rendered delta is zero, so there is nothing else to read, and a unit
         // that turned without moving (or was met standing still) would face
@@ -253,7 +254,7 @@ export default class Unit extends GameObject {
       }
     } else {
       this.becameIdleAt = 0
-      this.animation?.setDefault(this.runAnimation)
+      this.setMoving(true)
 
       if (Math.abs(dx) > 0.01) this.flip(dx < 0)
     }
@@ -265,6 +266,25 @@ export default class Unit extends GameObject {
     }
 
     this.zIndex = this.y
+  }
+
+  /** Run or idle loop. `Player` overrides it for a rigged robot. */
+  setMoving (moving: boolean): void {
+    this.animation?.setDefault(moving ? this.runAnimation : this.idleAnimation)
+  }
+
+  /** Lost hp or armor. Only a rigged robot shows it (`Player`). */
+  onHurt (): void {}
+
+  /**
+   * An action clip, pointed at `toward` (world units) when given: a swing or
+   * a shot seen in an effect. Only a rigged robot has them (`Player`); true
+   * when one played it, since the rig draws its own muzzle flash.
+   */
+  playAction (name: 'swing' | 'shoot', toward?: { x: number, y: number }): boolean {
+    void name
+    void toward
+    return false
   }
 
   /** Face the sprite (and its shadow) left or right. */

@@ -11,6 +11,8 @@ import { lookFor } from './archetypesprites'
 import { type ArchetypeInfo } from '../utils/archetypes'
 import { namePlate } from '../ui/elements/nameplate'
 import { THEME } from '../ui/theme'
+import { PeepSprite } from '../peep/peepsprite'
+import { TILT } from './tilt'
 
 export default class Player extends Unit {
   skills: Skill[]
@@ -19,6 +21,15 @@ export default class Player extends Unit {
   static OWN_LABEL = 'YOU'
 
   label: Container | undefined
+
+  /** The rigged robot (`src/peep/`); undefined draws the old frame clips in `animation`. */
+  peep: PeepSprite | undefined
+
+  /**
+   * Where a rigged robot's feet are, below the unit's position: where the old
+   * 50 px sprite's were (anchored at its feet, moved down a third of itself).
+   */
+  static readonly PEEP_FEET_Y = 16
 
   constructor (archetype?: ArchetypeInfo) {
     super(0, archetype)
@@ -42,6 +53,12 @@ export default class Player extends Unit {
 
   initAnimation (): void {
     const look = lookFor('robot', this.archetype)
+    if (look.rig === 'peep' && PeepSprite.ready()) {
+      this.peep = new PeepSprite(this)
+      this.peep.y = Player.PEEP_FEET_Y
+      this.addChild(this.peep)
+      return
+    }
     this.runAnimation = look.run
     this.idleAnimation = look.idle ?? look.run
 
@@ -59,6 +76,81 @@ export default class Player extends Unit {
     if (look.tint !== undefined) this.animation.tint = look.tint
     this.animation.play()
     this.addChild(this.animation)
+  }
+
+  // Unit's, plus the rig. (`super.headY` on an accessor doesn't typecheck here.)
+  get headY (): number {
+    if (this.peep !== undefined) return Player.PEEP_FEET_Y - PeepSprite.HEIGHT
+    return this.animation !== undefined ? this.animation.y - this.animation.height : -30
+  }
+
+  get feetY (): number {
+    if (this.peep !== undefined) return Player.PEEP_FEET_Y
+    return this.animation !== undefined ? this.animation.y : 10
+  }
+
+  setMoving (moving: boolean): void {
+    if (this.peep !== undefined) this.peep.setMoving(moving)
+    else super.setMoving(moving)
+  }
+
+  flip (left: boolean): void {
+    if (this.peep !== undefined) this.peep.setFacing(left ? -1 : 1)
+    else super.flip(left)
+  }
+
+  onHurt (): void {
+    // A killing blow's fall_apart (from dispose) replaces this.
+    this.peep?.play('hit')
+  }
+
+  /**
+   * Turns to `toward` and aims at it: the angle it makes with the ground's
+   * left-right axis on screen (so the tilt's squash of y counts), which the
+   * rig clamps to +-60. A point straight above or below keeps the facing.
+   */
+  playAction (name: 'swing' | 'shoot', toward?: { x: number, y: number }): boolean {
+    if (this.peep === undefined) return false
+    if (toward === undefined) {
+      this.peep.play(name)
+      return true
+    }
+    const { aim, facing } = this.aimToward(toward, undefined)
+    this.peep.play(name, aim, facing)
+    return true
+  }
+
+  /**
+   * Your own robot's gun and eye follow the mouse (Nick, 2026-09-30): the
+   * facing flips to the mouse's side, and the aim is the angle on screen,
+   * clamped by the rig to +-60, so straight up and down are small dead zones.
+   * `point` undefined (no mouse over the world, or touch) gives the facing
+   * back to movement and levels the gun. An action's own aim wins while it
+   * plays. Other players' aim isn't on the wire; they aim only in actions.
+   */
+  aimAt (point: { x: number, y: number } | undefined): void {
+    if (this.peep === undefined) return
+    if (point === undefined) {
+      this.peep.setAim(undefined)
+      return
+    }
+    const { aim, facing } = this.aimToward(point, this.peep.aimFacing)
+    this.peep.setAim(aim, facing)
+  }
+
+  /** Mouse this close to straight above or below (screen px) keeps the facing it had. */
+  static readonly AIM_FLIP_DEADBAND = 6
+
+  /**
+   * Facing and aim angle from the gun's shoulder to a world point, on screen:
+   * the tilt squashes y, and the robot stands up from its feet.
+   */
+  private aimToward (point: { x: number, y: number }, keep: 1 | -1 | undefined): { aim: number, facing: 1 | -1 | undefined } {
+    const dx = point.x - this.x
+    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - PeepSprite.SHOULDER_PX)
+    const facing = Math.abs(dx) < Player.AIM_FLIP_DEADBAND ? keep : dx < 0 ? -1 : 1
+    const aim = Math.atan2(-dy, Math.max(Math.abs(dx), 1e-6)) * 180 / Math.PI
+    return { aim, facing }
   }
 
   /**
@@ -81,6 +173,7 @@ export default class Player extends Unit {
 
   dispose (): void {
     if ((this.hp ?? 0) <= 0) {
+      this.peep?.play('fall_apart')
       this.animation?.playClip('player/die/die')
       this.animation?.setDefault(undefined)
     }
@@ -93,7 +186,9 @@ export default class Player extends Unit {
       // A removed PIXI object has `parent === null`, which passed the old
       // `!== undefined` test and then threw on the line below.
       if (self.parent != null) self.parent.removeChild(self)
-    }, 1700)
+      self.peep?.destroy()
+    // fall_apart is 2.2 s and holds its settled pose; leave it a moment.
+    }, this.peep?.dying === true ? 3000 : 1700)
 
     this.killed = true
   }

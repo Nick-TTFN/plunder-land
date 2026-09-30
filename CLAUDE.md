@@ -283,6 +283,23 @@ for the robot-preview milestone. JetBrains Mono (the HUD's `THEME.font`) ships i
 Loot crystals are picked by value (`Consumable.TIERS`: under 25 small, under 50 medium, else
 large), which is why a pickup's create carries `loot` since this pass.
 
+**Peep (every player robot) is a skeletal rig, not a frame sheet** (2026-09-30, from the v15
+drop in `plunder-land-client/codex_output/`, not checked in; it is a custom JS rig, **not
+Spine**). `src/peep/rig.ts` is a hand port of the drop's `rig.mjs` + `animations.mjs` (pose in,
+bone matrices out, pixi-free); `peeprig.spec.ts` (server) checks it, and the drawn corners of
+every part, against poses sampled from the drop's own modules. A new drop: re-run
+`tools/peep-rig-sync.mjs <drop>` (hulls + fixtures), fix the port until the spec passes, and
+`tools/bake-peep-atlas.py <drop>` (`peep.png`, 5 KB). The rig never reads an image's size, so
+the bake resamples each part to its box in rig units at `PeepSprite.HEIGHT` (44 CSS px, Nick:
+a third of the 128 first tried) x 2; change the height in both. `PeepSprite` places ~14 sprites a frame; no visor mask (Nick's
+call). Clips: idle/run by movement, swing on melee (press and effect, deduped by
+`RETRIGGER_S`), shoot on the ranged effect turned and aimed at the shot's end (the rig draws
+its own muzzle flash), hit on an hp or armor drop, fall_apart on death (removal after 3 s).
+Jump is unused (Nick). Your own robot's gun and eye follow the mouse (`Player.aimAt` from
+`Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
+down are accepted dead zones; no mouse over the world gives facing back to movement. Other
+players aim only in actions: aim isn't on the wire.
+
 `tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went), `exit.png`,
 `portal.png`, `fireball/*`, `explosion/*`, `resource/*`, the `UI/controls/*` icons and the
 four `obstacle_*` groups in the TexturePacker atlas are now unused, and so are the `hexprop/*`

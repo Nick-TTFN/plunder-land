@@ -8,9 +8,9 @@ import { type ArchetypeInfo, type ArchetypeKey } from '../utils/archetypes'
  * Deliberately free of pixi imports, so the server's specs can load it and pin
  * the fallback (`archetypes/wire.spec.ts`).
  *
- * **Art is missing** (Nick's boundary): the robots have no bodies of their own
- * and the boss and gunner have no sprites. Until they exist every robot draws
- * the player's clips and every mob draws `mob/mob`, scaled by its body radius
+ * **Art is missing** (Nick's boundary) except for Peep, which is rigged
+ * (`src/peep/`, 2026-09-30): the boss and gunner have no sprites. Until they
+ * exist an unknown robot draws the player's old clips and every mob draws `mob/mob`, scaled by its body radius
  * as before (`Mob.initAnimation`). The gunner is tinted so it can be told from
  * a grunt; it is also smaller (body 24 against 30).
  */
@@ -21,6 +21,11 @@ export interface SpriteLook {
   idle?: string
   /** Multiplied into the sprite's colour. Absent = untinted. */
   tint?: number
+  /**
+   * Drawn by a skeletal rig instead of `run`/`idle` (`src/peep/`), when its
+   * sheet is loaded; `run`/`idle` stay as the fallback.
+   */
+  rig?: 'peep'
 }
 
 /** What a player looked like before archetypes: also the fallback for any robot id this build doesn't know. */
@@ -35,7 +40,7 @@ export const MOB_DEFAULT: SpriteLook = Object.freeze({ run: 'mob/mob' })
  * a missing entry still falls back.
  */
 const LOOKS: Readonly<Record<ArchetypeKey, SpriteLook>> = Object.freeze({
-  peep: ROBOT_DEFAULT,
+  peep: Object.freeze({ ...ROBOT_DEFAULT, rig: 'peep' as const }),
   grunt: MOB_DEFAULT,
   boss: MOB_DEFAULT,
   // A cold blue, far from the grunt's untinted sprite and from the 0xffbb00

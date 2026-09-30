@@ -87,14 +87,15 @@ function start (): void {
   Game.RENDERER = app.renderer as Renderer
   // app.renderer.backgroundColor = 0
 
-  // Five sheets: the original character atlas, the hex props, the ground
-  // pads, and the arena's props, effects and icons with its blasts. Kept apart
-  // because all but the first are generated (`tools/bake-hex-atlas.py`,
-  // `bake-ground-atlas.py`, `bake-arena-atlas.py`) and the first comes out of
+  // Six sheets: the original character atlas, the hex props, the ground
+  // pads, the arena's props, effects and icons with its blasts, and Peep's rig
+  // parts. Kept apart because all but the first are generated
+  // (`tools/bake-hex-atlas.py`, `bake-ground-atlas.py`, `bake-arena-atlas.py`,
+  // `bake-peep-atlas.py`) and the first comes out of
   // TexturePacker. The generated painted sheets keep the default linear
   // filtering: they are art at 2x, not pixel art, and a 1x screen draws them
   // at half size.
-  void Assets.load(['./res/atlas.json', './res/hex.json', './res/ground.json', './res/arena.json', './res/blasts.json']).then((sheets) => {
+  void Assets.load(['./res/atlas.json', './res/hex.json', './res/ground.json', './res/arena.json', './res/blasts.json', './res/peep.json']).then((sheets) => {
     // Props are baked to their exact on-screen size, so at the default cell size
     // they draw one texel to one pixel and this changes nothing. It is here for
     // the case where they do not: a scaled-up pixel-art prop should get bigger
