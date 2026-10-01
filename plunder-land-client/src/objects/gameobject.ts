@@ -3,6 +3,7 @@ import TWEEN from '@tweenjs/tween.js'
 import { type Vector } from '../utils/vector'
 import { type AnimationStates } from '../animation/animationstates'
 import { Game } from '../game'
+import { layShadow } from './shadow'
 
 export class GameObject extends Container {
   DEBUG_COLLIDER: Graphics
@@ -66,7 +67,7 @@ export class GameObject extends Container {
     }
     const shadowSprite = new Sprite(renderTexture)
     shadowSprite.anchor = new Point(0.5, 1)
-    shadowSprite.skew = new Point(0.5, 0)
+    layShadow(shadowSprite)
     return shadowSprite
   }
 

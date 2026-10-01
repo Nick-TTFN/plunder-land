@@ -1,9 +1,10 @@
-import { Assets, BLEND_MODES, Container, Graphics, Matrix, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
+import { AlphaFilter, Assets, BLEND_MODES, Container, Graphics, Matrix, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
 import {
   blinkClosure, regionMatrix,
   type ClipName, type Matrix as RigMatrix, type Pose
 } from '../peep/rig'
 import { type RobotRig, PEEP_RIG } from './robotrig'
+import { layShadow } from '../objects/shadow'
 import { colourById, DEFAULT_FINISH, type Finish, type FinishGroup, patternById, type PatternKey } from '../utils/finishes'
 
 /** A finished part's paint group and layers, in draw order (`meta.finish` in the robot's sheet). */
@@ -18,6 +19,8 @@ interface Part {
   group?: FinishGroup
   shade?: Sprite
   patterns?: Partial<Record<PatternKey, Sprite>>
+  /** Its silhouette in the cast shadow, placed with it; none for the eye, which sits inside the head. */
+  cast?: Container
 }
 
 /** A clip played over the idle/run loop, then gone (fall_apart holds). */
@@ -94,6 +97,9 @@ export class RobotSprite extends Container {
   /** How far into a blink an expression change swaps the eye (the drop's preview: 0.06 s, lid shut). */
   static readonly EXPRESSION_SWAP_S = 0.06
 
+  /** The cast shadow's opacity, as the frame-sheet units' (`Unit`). */
+  static readonly CAST_ALPHA = 0.3
+
   /** fall_apart is throttled to this step: each pose runs a physics loop from the detach. */
   static readonly DEBRIS_STEP_S = 1 / 30
 
@@ -130,6 +136,15 @@ export class RobotSprite extends Container {
   private readonly rig = new Container()
   private readonly parts: Part[] = []
   private readonly shadow = new Graphics()
+  /**
+   * The cast shadow (in game only): every part again, in black, in its own
+   * copy of the rig's space, laid on the ground by `layShadow` like every
+   * other cast shadow. One `AlphaFilter` over the lot, not alpha per part, or
+   * the overlaps would come out darker. A filter is a render pass per robot on
+   * screen.
+   */
+  private readonly cast: Container | undefined
+  private readonly castRig = new Container()
   private readonly flash = new Graphics()
   private readonly eyeTextures: { open: Texture, smile: Texture }
 
@@ -157,7 +172,8 @@ export class RobotSprite extends Container {
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
   private ticking = false
 
-  constructor (private readonly host: Container, private readonly character: RobotRig = PEEP_RIG, lobby = false) {
+  /** `castShadow` adds the silhouette shadow `Player` wants; the lobby stands robots on its platform without one. */
+  constructor (private readonly host: Container, private readonly character: RobotRig = PEEP_RIG, lobby = false, castShadow = false) {
     super()
     this.pxPerUnit = RobotSprite.SCALE * character.drawScale
     this.standHeight = character.referenceUnits * this.pxPerUnit
@@ -176,9 +192,20 @@ export class RobotSprite extends Container {
         : RobotSprite.flat(r.kind === 'eye' ? this.eyeTextures.open : Texture.from(`${sheet}/${r.art}.png`))
       this.parts.push(part)
       this.rig.addChild(part.node)
+      if (castShadow && r.kind !== 'eye') {
+        part.cast = RobotSprite.silhouette(part)
+        this.castRig.addChild(part.cast)
+      }
     }
     this.rig.addChild(this.flash)
     this.setFinish(DEFAULT_FINISH)
+    if (castShadow) {
+      this.cast = new Container()
+      this.cast.filters = [new AlphaFilter(RobotSprite.CAST_ALPHA)]
+      layShadow(this.cast)
+      this.cast.addChild(this.castRig)
+      this.addChild(this.cast)
+    }
     this.addChild(this.rig)
 
     host.on('added', this.start, this)
@@ -191,6 +218,23 @@ export class RobotSprite extends Container {
     const sprite = new Sprite(texture)
     sprite.anchor.set(0.5)
     return { node: sprite, w: texture.width, h: texture.height }
+  }
+
+  /**
+   * A part's outline in black: the flat sprite, or a finished part's shading
+   * and unpainted details (patterns and highlights lie inside those).
+   */
+  private static silhouette (part: Part): Container {
+    const node = new Container()
+    const layers = part.group === undefined ? [part.node as Sprite] : part.node.children as Sprite[]
+    for (const layer of layers) {
+      if (layer.blendMode === BLEND_MODES.ADD || Object.values(part.patterns ?? {}).includes(layer)) continue
+      const sprite = new Sprite(layer.texture)
+      sprite.anchor.set(0.5)
+      sprite.tint = 0x000000
+      node.addChild(sprite)
+    }
+    return node
   }
 
   private static layered (sheet: string, art: string, meta: FinishMeta[string]): Part {
@@ -366,6 +410,7 @@ export class RobotSprite extends Container {
 
     const facing = playing?.facing ?? this.lookFacing ?? this.moveFacing
     this.rig.scale.set(this.pxPerUnit * facing, -this.pxPerUnit)
+    this.castRig.scale.copyFrom(this.rig.scale)
     const pose = this.character.animationPose(name, t, {
       aimAngle: playing?.aim ?? this.lookAim,
       blink: blinkClosure(this.eyeClock - this.blinkAt),
@@ -400,6 +445,7 @@ export class RobotSprite extends Container {
       const fy = h / part.h
       this.scratch.set(m.a * fx, m.b * fx, m.c * fy, m.d * fy, m.x, m.y)
       part.node.transform.setFromMatrix(this.scratch)
+      part.cast?.transform.setFromMatrix(this.scratch)
     })
 
     // The drop's shadow: one under the feet that shrinks with a jump, one

@@ -1,7 +1,8 @@
 import { UnitBar } from '../ui/elements/unitbar'
 import { THEME } from '../ui/theme'
-import { type Texture, Sprite, Point, ColorMatrixFilter } from 'pixi.js'
+import { type Texture, Sprite, ColorMatrixFilter } from 'pixi.js'
 import { GameObject } from './gameobject'
+import { layShadow } from './shadow'
 import { TextEffect } from '../ui/elements/texteffect'
 import { Session } from '../net/session'
 import { type ArchetypeInfo } from '../utils/archetypes'
@@ -88,7 +89,7 @@ export default class Unit extends GameObject {
       this.shadow.alpha = 0.3
       this.shadow.anchor.x = 0.5
       this.shadow.anchor.y = 1
-      this.shadow.skew = new Point(0.5, 0)
+      layShadow(this.shadow)
 
       this.addChild(this.shadow)
 
@@ -273,6 +274,9 @@ export default class Unit extends GameObject {
     this.animation?.setDefault(moving ? this.runAnimation : this.idleAnimation)
   }
 
+  /** `armor` or `maxArmor` changed. Only a player shows it (`Player`'s panel). */
+  onArmor (): void {}
+
   /** Lost hp or armor. Only a rigged robot shows it (`Player`). */
   onHurt (): void {}
 
@@ -292,8 +296,7 @@ export default class Unit extends GameObject {
     if (this.animation == null) return
     this.animation.scale.x = Math.abs(this.animation.scale.x) * (left ? -1 : 1)
     if (this.shadow != null) {
-      this.shadow.scale.x = this.animation.scale.x * 1.1
-      this.shadow.scale.y = this.animation.scale.y * 1.1
+      layShadow(this.shadow, this.animation.scale.x * 1.1, this.animation.scale.y * 1.1)
     }
   }
 }

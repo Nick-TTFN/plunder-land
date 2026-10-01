@@ -1,4 +1,4 @@
-import { type Container, Point } from 'pixi.js'
+import { Point } from 'pixi.js'
 import { Dash } from '../skills/dash'
 import { MeleeAttack } from '../skills/meleeattack'
 import { RangedAttack } from '../skills/rangedattack'
@@ -9,8 +9,7 @@ import { AnimationStates } from '../animation/animationstates'
 import Unit from './unit'
 import { lookFor } from './archetypesprites'
 import { type ArchetypeInfo } from '../utils/archetypes'
-import { namePlate } from '../ui/elements/nameplate'
-import { THEME } from '../ui/theme'
+import { UnitPanel } from '../ui/elements/unitpanel'
 import { RobotSprite } from '../robots/robotsprite'
 import { ROBOT_RIGS } from '../robots/robotrig'
 import { TILT } from './tilt'
@@ -22,7 +21,8 @@ export default class Player extends Unit {
   /** The text drawn over the robot: the player's name, or "YOU" for your own. */
   static OWN_LABEL = 'YOU'
 
-  label: Container | undefined
+  /** Name, hp and armor over the head (`UnitPanel`); it replaces `Unit`'s bare hp bar. */
+  readonly panel = new UnitPanel()
 
   /** The rigged robot (`src/robots/`); undefined draws the old frame clips in `animation`. */
   robot: RobotSprite | undefined
@@ -35,8 +35,11 @@ export default class Player extends Unit {
 
   constructor (archetype?: ArchetypeInfo) {
     super(0, archetype)
-    // Other players' bars are blue; `setLabel(.., true)` makes your own green.
-    this.hpBar.colour = THEME.armor
+    // The panel's hp bar is the one `Unit` feeds.
+    this.removeChild(this.hpBar)
+    this.hpBar = this.panel.hp
+    this.panel.y = this.headY - 4
+    this.addChild(this.panel)
 
     // Must match Player.skills on the server: the index of the pressed slot is
     // the whole payload of the `skill` message.
@@ -93,7 +96,7 @@ export default class Player extends Unit {
     const look = lookFor('robot', this.archetype)
     const rig = look.rig !== undefined ? ROBOT_RIGS[look.rig] : undefined
     if (rig !== undefined && RobotSprite.ready(rig)) {
-      this.robot = new RobotSprite(this, rig)
+      this.robot = new RobotSprite(this, rig, false, true)
       this.robot.y = Player.PEEP_FEET_Y
       this.addChild(this.robot)
       return
@@ -193,21 +196,18 @@ export default class Player extends Unit {
   }
 
   /**
-   * Draws `text` under the robot, replacing any label already there. Remote
-   * players get the `name` from their create record, which the server has
-   * already sanitised and capped (server `Player.sanitiseName`); the local
-   * player gets OWN_LABEL, since its own create record carries no name.
-   * `own` also picks the colour, so YOU stands out from a remote player's name.
+   * Names the panel over the robot. Remote players get the `name` from their
+   * create record, which the server has already sanitised and capped (server
+   * `Player.sanitiseName`); the local player gets OWN_LABEL, since its own
+   * create record carries no name. `own` also picks the colours, so YOU stands
+   * out from a remote player's name.
    */
   setLabel (text: string, own: boolean = false): void {
-    if (this.label !== undefined) this.removeChild(this.label)
+    this.panel.setName(text, own)
+  }
 
-    // Under the feet, as the mockup: YOU in the accent colour, others pale blue.
-    const plate = namePlate(text, own ? THEME.accent : 0xBFE3FF, own ? THEME.accent : THEME.panelBorder)
-    plate.y = this.feetY + 2
-    this.addChild(plate)
-    this.label = plate
-    if (own) this.hpBar.colour = THEME.hp
+  onArmor (): void {
+    this.panel.setArmor(this.armor, this.maxArmor)
   }
 
   dispose (): void {
@@ -217,7 +217,7 @@ export default class Player extends Unit {
       this.animation?.setDefault(undefined)
     }
 
-    this.removeChild(this.hpBar)
+    this.removeChild(this.panel)
 
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this

@@ -308,7 +308,7 @@ its own muzzle flash), hit on an hp or armor drop, fall_apart on death (removal 
 The eye smiles for `Player.LOOT_SMILE_S` (0.5 s, Nick) on a loot gain (not the first loot seen for a
 robot coming into view); as in the drop's preview, a change of expression is a blink with the eye
 swapped 0.06 s in, and auto-blink pauses while smiling (`RobotSprite.smile`).
-Jump is unused (Nick). Your own robot's gun and eye follow the mouse (`Player.aimAt` from
+Jump is unused (Nick). **Cast shadows fall to the bottom right** (Nick, 2026-10-01; they leaned up-left), all through `objects/shadow.ts` (`layShadow`): mobs, StoneWall stones, and in game the rigged robots, whose shadow is every part again in black under one `AlphaFilter` (`RobotSprite.cast`, a render pass per robot on screen; not in the lobby). The drop's contact ellipse stays under the feet. Your own robot's gun and eye follow the mouse (`Player.aimAt` from
 `Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
 down are accepted dead zones; no mouse over the world gives facing back to movement. Other
 players aim only in actions: aim isn't on the wire.
@@ -745,8 +745,11 @@ client sees through fog; server-enforced fog would also cut bandwidth and is not
 minimap draws only `renderable` objects, or it would show what fog hides.
 
 **World markers** (`world-markers`, M2, placeholder look). Every unit has a fixed-width
-health bar over its head (`ui/elements/unitbar.ts`: 36 px, 60 for a boss; red mobs, blue
-players, green for you); it used to be `maxHp` pixels wide. Names, portal "LAYER 0N" and exit
+health bar over its head (`ui/elements/unitbar.ts`: 36 px, 60 for a boss; red); it used to be
+`maxHp` pixels wide. **A player's is a panel over its head** (`ui/elements/unitpanel.ts`, Nick,
+2026-10-01): name (YOU for yours, in the accent colour), then a green hp bar and a blue armor bar,
+40 px, for every player (armor reaches every holder; `Unit.onArmor`). Before, the name plate sat
+under the feet with a blue (green for you) bar over the head. Portal "LAYER 0N" and exit
 "EXTRACT" labels are plates from `ui/elements/nameplate.ts`, under the thing they name. Red
 **threat cells** (`ThreatMarker`) are the union of a disc per boss (FireBreath's 4 rings: it
 can turn to any side) and gunner (its 6-cell shot) the player can see; grunts are left out.

@@ -440,6 +440,7 @@ export class Game extends Container {
       if (data.armor < unit.armor) unit.onHurt()
       unit.armor = data.armor
     }
+    if (typeof data.maxArmor === 'number' || typeof data.armor === 'number') unit.onArmor()
   }
 
   onObjectCreated (raw: Uint8Array, own = false): void {

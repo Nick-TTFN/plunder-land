@@ -12,7 +12,7 @@ export class UnitBar extends Graphics {
   private _lost = 0
   private _timeoutId: ReturnType<typeof setTimeout> | undefined
 
-  constructor (private readonly _barW: number, private _colour: number) {
+  constructor (private readonly _barW: number, private _colour: number, private readonly _barH = UnitBar.HEIGHT) {
     super()
     this.eventMode = 'none'
     this.x = -_barW / 2
@@ -44,7 +44,7 @@ export class UnitBar extends Graphics {
 
   private redraw (): void {
     const w = this._barW
-    const h = UnitBar.HEIGHT
+    const h = this._barH
     this.clear()
       .beginFill(0x05080C, 0.85)
       .drawRect(-1, -1, w + 2, h + 2)
