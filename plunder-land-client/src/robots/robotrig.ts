@@ -20,6 +20,13 @@ export interface RobotRig {
   readonly eyeMatrix: (matrices: Record<string, Matrix>, eye: EyeBone) => Matrix
   /** The eye image's size in the units `eyeMatrix` maps. */
   readonly eyeSize: { readonly w: number, readonly h: number }
+  /**
+   * How much bigger than Peep's pixels per rig unit it is drawn: 1, except
+   * Periscope at 1.35 (Nick, 2026-10-01: "30-40% bigger, he's slim but tall").
+   * Its sheets are baked at the same factor (`bake-peep-atlas.py`
+   * `DRAW_SCALE`), so it still draws texel for pixel. Change both together.
+   */
+  readonly drawScale: number
   /** The reference pose's visible height, rig units. */
   readonly referenceUnits: number
   /** Height of the gun shoulder (the aim origin) above the feet, rig units. */
@@ -40,6 +47,7 @@ export const PEEP_RIG: RobotRig = Object.freeze({
   eyeMatrix: (m: Record<string, Matrix>, eye: EyeBone) => peep.eyeMatrix(m.head, eye),
   // In the head art's pixels (`eye/open.png` is 144 x 198 of the 428 x 388 head).
   eyeSize: Object.freeze({ w: 144, h: 198 }),
+  drawScale: 1,
   // Measured from the drop's reference pose.
   referenceUnits: 245.5,
   shoulderY: 79,
@@ -57,6 +65,7 @@ export const MAGNET_RIG: RobotRig = Object.freeze({
   // Peep's head art and eye, on Magnet's head bone.
   eyeMatrix: (m: Record<string, Matrix>, eye: EyeBone) => magnet.eyeMatrix(m.head, eye),
   eyeSize: Object.freeze({ w: 144, h: 198 }),
+  drawScale: 1,
   referenceUnits: 227.93044,
   shoulderY: 95,
   shadow: Object.freeze({ x: 10, rx: 76, ry: 9, jumpHeight: 42 }),
@@ -77,6 +86,7 @@ export const PERISCOPE_RIG: RobotRig = Object.freeze({
   animationPose: periscope.animationPose,
   eyeMatrix: periscope.eyeMatrix,
   eyeSize: periscope.EYE_SIZE,
+  drawScale: 1.35,
   referenceUnits: 222.63683,
   // The gun mount: body 80 up, mount 16 below it.
   shoulderY: 64,

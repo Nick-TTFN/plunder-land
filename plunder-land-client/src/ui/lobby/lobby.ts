@@ -124,6 +124,7 @@ export default class Lobby extends Container {
   private readonly stage = new Container()
 
   private readonly root: HTMLDivElement
+  private readonly pill: HTMLLabelElement
   private readonly nameInput: HTMLInputElement
   private readonly plate: HTMLDivElement
   private readonly prev: HTMLButtonElement
@@ -158,7 +159,7 @@ export default class Lobby extends Container {
         <nav class="lb-tabs"><span class="lb-tab lb-on">LOBBY</span><span class="lb-tab lb-off" title="Coming soon">COLLECTION</span></nav>
       </header>
       <div class="lb-heading"><h1>CHOOSE YOUR SCAVENGER</h1><p>Find your kind of curious.</p></div>`
-    const pill = el('label', 'lb-pill')
+    const pill = this.pill = el('label', 'lb-pill')
     pill.append(el('span', 'lb-dot'))
     this.nameInput = el('input', 'lb-name')
     this.nameInput.maxLength = NAME_MAX
@@ -434,9 +435,13 @@ export default class Lobby extends Container {
     const h = window.innerHeight
     this.paintBackdrop(w, h)
     const narrow = w < 720
-    const scale = this.scaleFor(h) * (narrow ? 0.8 : 1)
     // On a phone the stats and cards take the lower half, so the robot stands higher.
     const feetY = h * (narrow ? -0.12 : -0.02)
+    // A tall robot (Periscope, drawn 1.35x) is capped to the room between the
+    // name pill and its feet, so its head never reaches the pill.
+    const room = h / 2 + feetY - this.pill.getBoundingClientRect().bottom - 16
+    const stand = (this.robot?.standHeight ?? RobotSprite.PEEP_HEIGHT)
+    const scale = Math.min(this.scaleFor(h) * (narrow ? 0.8 : 1), room > 0 ? room / stand : Infinity)
     const glow = this.platform
     glow.clear()
     const rx = 42 * scale

@@ -144,6 +144,10 @@ PERISCOPE_ARTS = {
     'reflection': ('eye/reflection.png', (3.7, 4.6)),
 }
 
+# Drawn bigger than Peep's px per rig unit by this much, so baked denser by it
+# too (keep in step with `drawScale` in src/robots/robotrig.ts).
+DRAW_SCALE = {'periscope': 1.35}
+
 ROBOTS = {
     'peep': ('peep-animations-v15', PEEP_ARTS),
     'magnet': ('magnet-animations-v2', MAGNET_ARTS),
@@ -337,7 +341,7 @@ def bake():
     lobby = '--lobby' in args
     args = [a for a in args if a != '--lobby']
     robot = args.pop(0) if args and args[0] in ROBOTS else 'peep'
-    density = TEXELS_PER_UNIT * (LOBBY_DENSITY if lobby else 1)
+    density = TEXELS_PER_UNIT * (LOBBY_DENSITY if lobby else 1) * DRAW_SCALE.get(robot, 1)
     out_name = f'{robot}-lobby' if lobby else robot
     drop, arts = ROBOTS[robot]
     source = args[0] if args else os.path.join(DROPS, drop)

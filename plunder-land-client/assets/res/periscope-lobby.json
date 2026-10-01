@@ -4,740 +4,740 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 63,
-    "h": 69
+    "w": 85,
+    "h": 93
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 63,
-    "h": 69
+    "w": 85,
+    "h": 93
    },
    "sourceSize": {
-    "w": 63,
-    "h": 69
+    "w": 85,
+    "h": 93
    }
   },
   "periscope-lobby/chassis/checker.png": {
    "frame": {
-    "x": 67,
+    "x": 89,
     "y": 2,
-    "w": 61,
-    "h": 67
+    "w": 83,
+    "h": 91
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 1,
     "y": 1,
-    "w": 61,
-    "h": 67
+    "w": 83,
+    "h": 91
    },
    "sourceSize": {
-    "w": 63,
-    "h": 69
+    "w": 85,
+    "h": 93
    }
   },
   "periscope-lobby/chassis/shade.png": {
    "frame": {
-    "x": 130,
+    "x": 174,
     "y": 2,
-    "w": 61,
-    "h": 67
+    "w": 83,
+    "h": 91
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 1,
     "y": 1,
-    "w": 61,
-    "h": 67
+    "w": 83,
+    "h": 91
    },
    "sourceSize": {
-    "w": 63,
-    "h": 69
+    "w": 85,
+    "h": 93
    }
   },
   "periscope-lobby/chassis/zebra.png": {
    "frame": {
-    "x": 193,
+    "x": 259,
     "y": 2,
-    "w": 61,
-    "h": 67
+    "w": 83,
+    "h": 90
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 1,
-    "y": 1,
-    "w": 61,
-    "h": 67
+    "y": 2,
+    "w": 83,
+    "h": 90
    },
    "sourceSize": {
-    "w": 63,
-    "h": 69
+    "w": 85,
+    "h": 93
    }
   },
   "periscope-lobby/chassis/camo.png": {
    "frame": {
-    "x": 256,
+    "x": 344,
     "y": 2,
-    "w": 58,
-    "h": 66
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 2,
-    "y": 2,
-    "w": 58,
-    "h": 66
-   },
-   "sourceSize": {
-    "w": 63,
-    "h": 69
-   }
-  },
-  "periscope-lobby/chassis/hi.png": {
-   "frame": {
-    "x": 316,
-    "y": 2,
-    "w": 59,
-    "h": 64
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 1,
-    "w": 59,
-    "h": 64
-   },
-   "sourceSize": {
-    "w": 63,
-    "h": 69
-   }
-  },
-  "periscope-lobby/sensor/fixed.png": {
-   "frame": {
-    "x": 377,
-    "y": 2,
-    "w": 104,
-    "h": 53
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 104,
-    "h": 53
-   },
-   "sourceSize": {
-    "w": 104,
-    "h": 53
-   }
-  },
-  "periscope-lobby/sensor/shade.png": {
-   "frame": {
-    "x": 2,
-    "y": 73,
-    "w": 102,
-    "h": 52
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 0,
-    "w": 102,
-    "h": 52
-   },
-   "sourceSize": {
-    "w": 104,
-    "h": 53
-   }
-  },
-  "periscope-lobby/sensor/zebra.png": {
-   "frame": {
-    "x": 106,
-    "y": 73,
-    "w": 101,
-    "h": 52
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 2,
-    "y": 0,
-    "w": 101,
-    "h": 52
-   },
-   "sourceSize": {
-    "w": 104,
-    "h": 53
-   }
-  },
-  "periscope-lobby/sensor/checker.png": {
-   "frame": {
-    "x": 209,
-    "y": 73,
-    "w": 102,
-    "h": 51
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 1,
-    "w": 102,
-    "h": 51
-   },
-   "sourceSize": {
-    "w": 104,
-    "h": 53
-   }
-  },
-  "periscope-lobby/sensor/camo.png": {
-   "frame": {
-    "x": 313,
-    "y": 73,
-    "w": 96,
-    "h": 50
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 7,
-    "y": 2,
-    "w": 96,
-    "h": 50
-   },
-   "sourceSize": {
-    "w": 104,
-    "h": 53
-   }
-  },
-  "periscope-lobby/sensor/hi.png": {
-   "frame": {
-    "x": 2,
-    "y": 127,
-    "w": 100,
-    "h": 50
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 2,
-    "y": 1,
-    "w": 100,
-    "h": 50
-   },
-   "sourceSize": {
-    "w": 104,
-    "h": 53
-   }
-  },
-  "periscope-lobby/neck/fixed.png": {
-   "frame": {
-    "x": 104,
-    "y": 127,
-    "w": 21,
-    "h": 46
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 21,
-    "h": 46
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 46
-   }
-  },
-  "periscope-lobby/neck/shade.png": {
-   "frame": {
-    "x": 127,
-    "y": 127,
-    "w": 21,
-    "h": 46
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 21,
-    "h": 46
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 46
-   }
-  },
-  "periscope-lobby/neck/checker.png": {
-   "frame": {
-    "x": 150,
-    "y": 127,
-    "w": 20,
-    "h": 45
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 20,
-    "h": 45
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 46
-   }
-  },
-  "periscope-lobby/neck/hi.png": {
-   "frame": {
-    "x": 172,
-    "y": 127,
-    "w": 19,
-    "h": 45
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 0,
-    "w": 19,
-    "h": 45
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 46
-   }
-  },
-  "periscope-lobby/neck/zebra.png": {
-   "frame": {
-    "x": 193,
-    "y": 127,
-    "w": 20,
-    "h": 45
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 0,
-    "w": 20,
-    "h": 45
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 46
-   }
-  },
-  "periscope-lobby/boot_near/fixed.png": {
-   "frame": {
-    "x": 215,
-    "y": 127,
-    "w": 49,
-    "h": 38
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 49,
-    "h": 38
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 38
-   }
-  },
-  "periscope-lobby/boot_far/fixed.png": {
-   "frame": {
-    "x": 266,
-    "y": 127,
-    "w": 45,
-    "h": 35
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 45,
-    "h": 35
-   },
-   "sourceSize": {
-    "w": 45,
-    "h": 35
-   }
-  },
-  "periscope-lobby/neck/camo.png": {
-   "frame": {
-    "x": 313,
-    "y": 127,
-    "w": 21,
-    "h": 31
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 15,
-    "w": 21,
-    "h": 31
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 46
-   }
-  },
-  "periscope-lobby/boot_near/checker.png": {
-   "frame": {
-    "x": 336,
-    "y": 127,
-    "w": 36,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 5,
-    "y": 10,
-    "w": 36,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 38
-   }
-  },
-  "periscope-lobby/boot_near/shade.png": {
-   "frame": {
-    "x": 374,
-    "y": 127,
-    "w": 44,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 10,
-    "w": 44,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 38
-   }
-  },
-  "periscope-lobby/boot_near/camo.png": {
-   "frame": {
-    "x": 420,
-    "y": 127,
-    "w": 44,
-    "h": 26
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 11,
-    "w": 44,
-    "h": 26
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 38
-   }
-  },
-  "periscope-lobby/boot_near/zebra.png": {
-   "frame": {
-    "x": 466,
-    "y": 127,
-    "w": 42,
-    "h": 26
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 11,
-    "w": 42,
-    "h": 26
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 38
-   }
-  },
-  "periscope-lobby/blaster.png": {
-   "frame": {
-    "x": 2,
-    "y": 179,
-    "w": 41,
-    "h": 23
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 41,
-    "h": 23
-   },
-   "sourceSize": {
-    "w": 41,
-    "h": 23
-   }
-  },
-  "periscope-lobby/boot_near/hi.png": {
-   "frame": {
-    "x": 45,
-    "y": 179,
-    "w": 40,
-    "h": 20
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 5,
-    "y": 11,
-    "w": 40,
-    "h": 20
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 38
-   }
-  },
-  "periscope-lobby/boot_far/camo.png": {
-   "frame": {
-    "x": 87,
-    "y": 179,
-    "w": 35,
-    "h": 19
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 5,
-    "y": 10,
-    "w": 35,
-    "h": 19
-   },
-   "sourceSize": {
-    "w": 45,
-    "h": 35
-   }
-  },
-  "periscope-lobby/boot_far/checker.png": {
-   "frame": {
-    "x": 124,
-    "y": 179,
-    "w": 35,
-    "h": 19
+    "w": 77,
+    "h": 89
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 4,
-    "y": 10,
-    "w": 35,
-    "h": 19
+    "y": 3,
+    "w": 77,
+    "h": 89
    },
    "sourceSize": {
-    "w": 45,
-    "h": 35
+    "w": 85,
+    "h": 93
    }
   },
-  "periscope-lobby/boot_far/shade.png": {
+  "periscope-lobby/chassis/hi.png": {
    "frame": {
-    "x": 161,
-    "y": 179,
-    "w": 40,
-    "h": 19
+    "x": 423,
+    "y": 2,
+    "w": 79,
+    "h": 87
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 2,
-    "y": 10,
-    "w": 40,
-    "h": 19
+    "y": 1,
+    "w": 79,
+    "h": 87
    },
    "sourceSize": {
-    "w": 45,
-    "h": 35
+    "w": 85,
+    "h": 93
    }
   },
-  "periscope-lobby/boot_far/zebra.png": {
+  "periscope-lobby/sensor/fixed.png": {
    "frame": {
-    "x": 203,
-    "y": 179,
-    "w": 40,
-    "h": 19
+    "x": 2,
+    "y": 97,
+    "w": 140,
+    "h": 72
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 140,
+    "h": 72
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 72
+   }
+  },
+  "periscope-lobby/sensor/shade.png": {
+   "frame": {
+    "x": 144,
+    "y": 97,
+    "w": 137,
+    "h": 71
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 2,
-    "y": 10,
-    "w": 40,
-    "h": 19
+    "y": 0,
+    "w": 137,
+    "h": 71
    },
    "sourceSize": {
-    "w": 45,
-    "h": 35
+    "w": 140,
+    "h": 72
    }
   },
-  "periscope-lobby/eye_open.png": {
+  "periscope-lobby/sensor/zebra.png": {
    "frame": {
-    "x": 245,
-    "y": 179,
-    "w": 12,
-    "h": 19
+    "x": 283,
+    "y": 97,
+    "w": 135,
+    "h": 71
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 3,
-    "y": 5,
-    "w": 12,
-    "h": 19
-   },
-   "sourceSize": {
-    "w": 16,
-    "h": 29
-   }
-  },
-  "periscope-lobby/shin.png": {
-   "frame": {
-    "x": 259,
-    "y": 179,
-    "w": 12,
-    "h": 19
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
     "y": 0,
-    "w": 12,
-    "h": 19
+    "w": 135,
+    "h": 71
    },
    "sourceSize": {
-    "w": 12,
-    "h": 19
+    "w": 140,
+    "h": 72
    }
   },
-  "periscope-lobby/thigh.png": {
+  "periscope-lobby/sensor/checker.png": {
    "frame": {
-    "x": 273,
-    "y": 179,
-    "w": 13,
-    "h": 19
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 13,
-    "h": 19
-   },
-   "sourceSize": {
-    "w": 13,
-    "h": 19
-   }
-  },
-  "periscope-lobby/boot_far/hi.png": {
-   "frame": {
-    "x": 288,
-    "y": 179,
-    "w": 35,
-    "h": 18
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 5,
-    "y": 11,
-    "w": 35,
-    "h": 18
-   },
-   "sourceSize": {
-    "w": 45,
-    "h": 35
-   }
-  },
-  "periscope-lobby/mount.png": {
-   "frame": {
-    "x": 325,
-    "y": 179,
-    "w": 18,
-    "h": 13
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 18,
-    "h": 13
-   },
-   "sourceSize": {
-    "w": 18,
-    "h": 13
-   }
-  },
-  "periscope-lobby/eye_smile.png": {
-   "frame": {
-    "x": 345,
-    "y": 179,
-    "w": 12,
-    "h": 7
+    "x": 2,
+    "y": 171,
+    "w": 137,
+    "h": 70
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 2,
-    "y": 12,
-    "w": 12,
-    "h": 7
+    "y": 1,
+    "w": 137,
+    "h": 70
    },
    "sourceSize": {
-    "w": 16,
-    "h": 29
+    "w": 140,
+    "h": 72
    }
   },
-  "periscope-lobby/reflection.png": {
+  "periscope-lobby/sensor/camo.png": {
    "frame": {
-    "x": 359,
-    "y": 179,
-    "w": 4,
-    "h": 5
+    "x": 141,
+    "y": 171,
+    "w": 128,
+    "h": 69
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 10,
+    "y": 2,
+    "w": 128,
+    "h": 69
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 72
+   }
+  },
+  "periscope-lobby/sensor/hi.png": {
+   "frame": {
+    "x": 271,
+    "y": 171,
+    "w": 136,
+    "h": 68
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 2,
+    "w": 136,
+    "h": 68
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 72
+   }
+  },
+  "periscope-lobby/neck/fixed.png": {
+   "frame": {
+    "x": 409,
+    "y": 171,
+    "w": 28,
+    "h": 63
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 4,
-    "h": 5
+    "w": 28,
+    "h": 63
    },
    "sourceSize": {
-    "w": 4,
-    "h": 5
+    "w": 28,
+    "h": 63
+   }
+  },
+  "periscope-lobby/neck/shade.png": {
+   "frame": {
+    "x": 439,
+    "y": 171,
+    "w": 27,
+    "h": 63
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 27,
+    "h": 63
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 63
+   }
+  },
+  "periscope-lobby/neck/checker.png": {
+   "frame": {
+    "x": 468,
+    "y": 171,
+    "w": 26,
+    "h": 62
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 26,
+    "h": 62
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 63
+   }
+  },
+  "periscope-lobby/neck/zebra.png": {
+   "frame": {
+    "x": 2,
+    "y": 243,
+    "w": 27,
+    "h": 62
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 27,
+    "h": 62
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 63
+   }
+  },
+  "periscope-lobby/neck/hi.png": {
+   "frame": {
+    "x": 31,
+    "y": 243,
+    "w": 26,
+    "h": 61
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 26,
+    "h": 61
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 63
+   }
+  },
+  "periscope-lobby/boot_near/fixed.png": {
+   "frame": {
+    "x": 59,
+    "y": 243,
+    "w": 65,
+    "h": 51
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 65,
+    "h": 51
+   },
+   "sourceSize": {
+    "w": 67,
+    "h": 51
+   }
+  },
+  "periscope-lobby/boot_far/fixed.png": {
+   "frame": {
+    "x": 126,
+    "y": 243,
+    "w": 59,
+    "h": 47
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 59,
+    "h": 47
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 47
+   }
+  },
+  "periscope-lobby/neck/camo.png": {
+   "frame": {
+    "x": 187,
+    "y": 243,
+    "w": 27,
+    "h": 43
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 20,
+    "w": 27,
+    "h": 43
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 63
+   }
+  },
+  "periscope-lobby/boot_near/checker.png": {
+   "frame": {
+    "x": 216,
+    "y": 243,
+    "w": 49,
+    "h": 37
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 13,
+    "w": 49,
+    "h": 37
+   },
+   "sourceSize": {
+    "w": 67,
+    "h": 51
+   }
+  },
+  "periscope-lobby/boot_near/shade.png": {
+   "frame": {
+    "x": 267,
+    "y": 243,
+    "w": 60,
+    "h": 37
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 60,
+    "h": 37
+   },
+   "sourceSize": {
+    "w": 67,
+    "h": 51
+   }
+  },
+  "periscope-lobby/boot_near/zebra.png": {
+   "frame": {
+    "x": 329,
+    "y": 243,
+    "w": 58,
+    "h": 36
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 14,
+    "w": 58,
+    "h": 36
+   },
+   "sourceSize": {
+    "w": 67,
+    "h": 51
+   }
+  },
+  "periscope-lobby/boot_near/camo.png": {
+   "frame": {
+    "x": 389,
+    "y": 243,
+    "w": 60,
+    "h": 35
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 15,
+    "w": 60,
+    "h": 35
+   },
+   "sourceSize": {
+    "w": 67,
+    "h": 51
+   }
+  },
+  "periscope-lobby/blaster.png": {
+   "frame": {
+    "x": 451,
+    "y": 243,
+    "w": 56,
+    "h": 31
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 56,
+    "h": 31
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 31
+   }
+  },
+  "periscope-lobby/eye_open.png": {
+   "frame": {
+    "x": 2,
+    "y": 307,
+    "w": 16,
+    "h": 27
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 16,
+    "h": 27
+   },
+   "sourceSize": {
+    "w": 21,
+    "h": 39
+   }
+  },
+  "periscope-lobby/boot_far/camo.png": {
+   "frame": {
+    "x": 20,
+    "y": 307,
+    "w": 48,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 13,
+    "w": 48,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 47
+   }
+  },
+  "periscope-lobby/boot_far/checker.png": {
+   "frame": {
+    "x": 70,
+    "y": 307,
+    "w": 48,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 13,
+    "w": 48,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 47
+   }
+  },
+  "periscope-lobby/boot_far/shade.png": {
+   "frame": {
+    "x": 120,
+    "y": 307,
+    "w": 55,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 13,
+    "w": 55,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 47
+   }
+  },
+  "periscope-lobby/boot_far/zebra.png": {
+   "frame": {
+    "x": 177,
+    "y": 307,
+    "w": 55,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 13,
+    "w": 55,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 47
+   }
+  },
+  "periscope-lobby/boot_near/hi.png": {
+   "frame": {
+    "x": 234,
+    "y": 307,
+    "w": 56,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 15,
+    "w": 56,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 67,
+    "h": 51
+   }
+  },
+  "periscope-lobby/shin.png": {
+   "frame": {
+    "x": 292,
+    "y": 307,
+    "w": 16,
+    "h": 25
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 25
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 25
+   }
+  },
+  "periscope-lobby/thigh.png": {
+   "frame": {
+    "x": 310,
+    "y": 307,
+    "w": 17,
+    "h": 25
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 17,
+    "h": 25
+   },
+   "sourceSize": {
+    "w": 17,
+    "h": 25
+   }
+  },
+  "periscope-lobby/boot_far/hi.png": {
+   "frame": {
+    "x": 329,
+    "y": 307,
+    "w": 47,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 15,
+    "w": 47,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 47
+   }
+  },
+  "periscope-lobby/mount.png": {
+   "frame": {
+    "x": 378,
+    "y": 307,
+    "w": 24,
+    "h": 17
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 17
+   },
+   "sourceSize": {
+    "w": 24,
+    "h": 17
+   }
+  },
+  "periscope-lobby/eye_smile.png": {
+   "frame": {
+    "x": 404,
+    "y": 307,
+    "w": 13,
+    "h": 9
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 16,
+    "w": 13,
+    "h": 9
+   },
+   "sourceSize": {
+    "w": 21,
+    "h": 39
+   }
+  },
+  "periscope-lobby/reflection.png": {
+   "frame": {
+    "x": 419,
+    "y": 307,
+    "w": 5,
+    "h": 6
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 5,
+    "h": 6
+   },
+   "sourceSize": {
+    "w": 5,
+    "h": 6
    }
   }
  },
@@ -748,10 +748,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 512,
-   "h": 204
+   "h": 336
   },
   "scale": "2",
-  "texelsPerUnit": 0.985743380855397,
+  "texelsPerUnit": 1.330753564154786,
   "drop": "periscope-animations-v1",
   "finish": {
    "boot_far": {

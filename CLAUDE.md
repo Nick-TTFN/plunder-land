@@ -334,8 +334,12 @@ Periscope's fixtures also sample each clip at twelfths: the fixed times missed a
 key). A sensor head on a two-section neck, a side-mounted gun (aim origin 64 up) that also does
 the melee strike, and an eye in the sensor's own space, so `RobotRig` carries each robot's
 `eyeMatrix` and `eyeSize`. Its neck is painted with the head group (the drop's mask). Sheets:
-`periscope.json` 7 KB, `periscope-lobby.json` 30 KB; its bake self-check is the loosest (arctic
-interior p99 21.4 of the 24 limit), the parts being small.
+`periscope.json` 11 KB, `periscope-lobby.json` 45 KB. **Periscope is drawn 1.35x Peep's pixels
+per rig unit** (Nick, 2026-10-01: "30-40% bigger, he's slim but tall"): `RobotRig.drawScale`, and
+the bake's `DRAW_SCALE` bakes its sheets 1.35x denser to match; change both together. In the
+lobby a robot is also capped to the room between the name pill and its feet, so the tall one
+shrinks to fit on a short screen. Its bake self-check is the loosest (arctic interior p99 about 20
+of the 24 limit), the parts being small.
 
 **Finishes: each robot's head, body and limbs are painted separately** (robot-finishes,
 decision #41, 2026-09-30), from the drop's material maps (`materials/`: neutral, masks,

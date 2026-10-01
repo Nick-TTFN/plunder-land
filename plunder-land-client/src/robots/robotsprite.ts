@@ -118,6 +118,8 @@ export class RobotSprite extends Container {
   readonly standHeight: number
   /** CSS px from the feet up to the gun shoulder, where aim is measured from. */
   readonly shoulderPx: number
+  /** CSS px per rig unit for this robot: `SCALE` times its `drawScale`. */
+  private readonly pxPerUnit: number
 
   private readonly rig = new Container()
   private readonly parts: Part[] = []
@@ -151,8 +153,9 @@ export class RobotSprite extends Container {
 
   constructor (private readonly host: Container, private readonly character: RobotRig = PEEP_RIG, lobby = false) {
     super()
-    this.standHeight = character.referenceUnits * RobotSprite.SCALE
-    this.shoulderPx = character.shoulderY * RobotSprite.SCALE
+    this.pxPerUnit = RobotSprite.SCALE * character.drawScale
+    this.standHeight = character.referenceUnits * this.pxPerUnit
+    this.shoulderPx = character.shoulderY * this.pxPerUnit
     const sheet = RobotSprite.sheetFor(character, lobby)
     this.eyeTextures = { open: Texture.from(`${sheet}/eye_open.png`), smile: Texture.from(`${sheet}/eye_smile.png`) }
 
@@ -356,7 +359,7 @@ export class RobotSprite extends Container {
     }
 
     const facing = playing?.facing ?? this.lookFacing ?? this.moveFacing
-    this.rig.scale.set(RobotSprite.SCALE * facing, -RobotSprite.SCALE)
+    this.rig.scale.set(this.pxPerUnit * facing, -this.pxPerUnit)
     const pose = this.character.animationPose(name, t, {
       aimAngle: playing?.aim ?? this.lookAim,
       blink: blinkClosure(this.eyeClock - this.blinkAt),
