@@ -11,7 +11,8 @@ import { lookFor } from './archetypesprites'
 import { type ArchetypeInfo } from '../utils/archetypes'
 import { namePlate } from '../ui/elements/nameplate'
 import { THEME } from '../ui/theme'
-import { PeepSprite } from '../peep/peepsprite'
+import { RobotSprite } from '../robots/robotsprite'
+import { ROBOT_RIGS } from '../robots/robotrig'
 import { TILT } from './tilt'
 import { type Finish } from '../utils/finishes'
 
@@ -23,8 +24,8 @@ export default class Player extends Unit {
 
   label: Container | undefined
 
-  /** The rigged robot (`src/peep/`); undefined draws the old frame clips in `animation`. */
-  peep: PeepSprite | undefined
+  /** The rigged robot (`src/robots/`); undefined draws the old frame clips in `animation`. */
+  robot: RobotSprite | undefined
 
   /**
    * Where a rigged robot's feet are, below the unit's position: where the old
@@ -52,7 +53,7 @@ export default class Player extends Unit {
     for (let i = 0; i < this.skills.length; i++) this.skills[i].index = i
   }
 
-  /** When `applyPosition` last ran, and the smoothed ground speed it fed the rig (`PeepSprite.setPace`). */
+  /** When `applyPosition` last ran, and the smoothed ground speed it fed the rig (`RobotSprite.setPace`). */
   private lastMovedAt = 0
   private pace = 1
 
@@ -68,11 +69,11 @@ export default class Player extends Unit {
     super.applyPosition(nx, ny, now, motionX, motionY)
     const elapsed = now - this.lastMovedAt
     this.lastMovedAt = now
-    if (this.peep === undefined || elapsed <= 0 || elapsed > 250) return
+    if (this.robot === undefined || elapsed <= 0 || elapsed > 250) return
     const speed = Math.hypot(dx, dy) / elapsed * 1000
     if (speed < 1) return
-    this.pace += (speed / PeepSprite.STRIDE_SPEED - this.pace) * Math.min(1, elapsed / 80)
-    this.peep.setPace(this.pace)
+    this.pace += (speed / RobotSprite.STRIDE_SPEED - this.pace) * Math.min(1, elapsed / 80)
+    this.robot.setPace(this.pace)
   }
 
   /** How long a robot smiles after picking up loot (Nick, 2026-09-30). */
@@ -80,20 +81,21 @@ export default class Player extends Unit {
 
   /** Loot went up: a pickup. The rigged robot smiles; the old sprite has no face. */
   onLootGained (): void {
-    this.peep?.smile(Player.LOOT_SMILE_S)
+    this.robot?.smile(Player.LOOT_SMILE_S)
   }
 
   /** Paints the rigged robot (robot-finishes, #41). The old frame sprite has no finish. */
   setFinish (finish: Finish): void {
-    this.peep?.setFinish(finish)
+    this.robot?.setFinish(finish)
   }
 
   initAnimation (): void {
     const look = lookFor('robot', this.archetype)
-    if (look.rig === 'peep' && PeepSprite.ready()) {
-      this.peep = new PeepSprite(this)
-      this.peep.y = Player.PEEP_FEET_Y
-      this.addChild(this.peep)
+    const rig = look.rig !== undefined ? ROBOT_RIGS[look.rig] : undefined
+    if (rig !== undefined && RobotSprite.ready(rig)) {
+      this.robot = new RobotSprite(this, rig)
+      this.robot.y = Player.PEEP_FEET_Y
+      this.addChild(this.robot)
       return
     }
     this.runAnimation = look.run
@@ -117,28 +119,28 @@ export default class Player extends Unit {
 
   // Unit's, plus the rig. (`super.headY` on an accessor doesn't typecheck here.)
   get headY (): number {
-    if (this.peep !== undefined) return Player.PEEP_FEET_Y - PeepSprite.HEIGHT
+    if (this.robot !== undefined) return Player.PEEP_FEET_Y - this.robot.standHeight
     return this.animation !== undefined ? this.animation.y - this.animation.height : -30
   }
 
   get feetY (): number {
-    if (this.peep !== undefined) return Player.PEEP_FEET_Y
+    if (this.robot !== undefined) return Player.PEEP_FEET_Y
     return this.animation !== undefined ? this.animation.y : 10
   }
 
   setMoving (moving: boolean): void {
-    if (this.peep !== undefined) this.peep.setMoving(moving)
+    if (this.robot !== undefined) this.robot.setMoving(moving)
     else super.setMoving(moving)
   }
 
   flip (left: boolean): void {
-    if (this.peep !== undefined) this.peep.setFacing(left ? -1 : 1)
+    if (this.robot !== undefined) this.robot.setFacing(left ? -1 : 1)
     else super.flip(left)
   }
 
   onHurt (): void {
     // A killing blow's fall_apart (from dispose) replaces this.
-    this.peep?.play('hit')
+    this.robot?.play('hit')
   }
 
   /**
@@ -147,13 +149,13 @@ export default class Player extends Unit {
    * rig clamps to +-60. A point straight above or below keeps the facing.
    */
   playAction (name: 'swing' | 'shoot', toward?: { x: number, y: number }): boolean {
-    if (this.peep === undefined) return false
+    if (this.robot === undefined) return false
     if (toward === undefined) {
-      this.peep.play(name)
+      this.robot.play(name)
       return true
     }
     const { aim, facing } = this.aimToward(toward, undefined)
-    this.peep.play(name, aim, facing)
+    this.robot.play(name, aim, facing)
     return true
   }
 
@@ -166,13 +168,13 @@ export default class Player extends Unit {
    * plays. Other players' aim isn't on the wire; they aim only in actions.
    */
   aimAt (point: { x: number, y: number } | undefined): void {
-    if (this.peep === undefined) return
+    if (this.robot === undefined) return
     if (point === undefined) {
-      this.peep.setAim(undefined)
+      this.robot.setAim(undefined)
       return
     }
-    const { aim, facing } = this.aimToward(point, this.peep.aimFacing)
-    this.peep.setAim(aim, facing)
+    const { aim, facing } = this.aimToward(point, this.robot.aimFacing)
+    this.robot.setAim(aim, facing)
   }
 
   /** Mouse this close to straight above or below (screen px) keeps the facing it had. */
@@ -184,7 +186,7 @@ export default class Player extends Unit {
    */
   private aimToward (point: { x: number, y: number }, keep: 1 | -1 | undefined): { aim: number, facing: 1 | -1 | undefined } {
     const dx = point.x - this.x
-    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - PeepSprite.SHOULDER_PX)
+    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - (this.robot?.shoulderPx ?? 0))
     const facing = Math.abs(dx) < Player.AIM_FLIP_DEADBAND ? keep : dx < 0 ? -1 : 1
     const aim = Math.atan2(-dy, Math.max(Math.abs(dx), 1e-6)) * 180 / Math.PI
     return { aim, facing }
@@ -210,7 +212,7 @@ export default class Player extends Unit {
 
   dispose (): void {
     if ((this.hp ?? 0) <= 0) {
-      this.peep?.play('fall_apart')
+      this.robot?.play('fall_apart')
       this.animation?.playClip('player/die/die')
       this.animation?.setDefault(undefined)
     }
@@ -223,9 +225,9 @@ export default class Player extends Unit {
       // A removed PIXI object has `parent === null`, which passed the old
       // `!== undefined` test and then threw on the line below.
       if (self.parent != null) self.parent.removeChild(self)
-      self.peep?.destroy()
-    // fall_apart is 2.2 s and holds its settled pose; leave it a moment.
-    }, this.peep?.dying === true ? 3000 : 1700)
+      self.robot?.destroy()
+    // fall_apart is 2.2 s (Magnet 2.4) and holds its settled pose; leave it a moment.
+    }, this.robot?.dying === true ? 3000 : 1700)
 
     this.killed = true
   }

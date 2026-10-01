@@ -2,7 +2,7 @@ import { Container, Point, type Sprite, type Text, Texture } from 'pixi.js'
 import { TapHandler } from '../elements/taphandler'
 import AnimationClip from '../../animation/animationclip'
 import { ToolKit } from '../components/toolkit'
-import { PeepSprite } from '../../peep/peepsprite'
+import { RobotSprite } from '../../robots/robotsprite'
 import { FinishPicker } from './finishpicker'
 import { finishFromBytes, finishToBytes } from '../../utils/finishes'
 
@@ -58,7 +58,7 @@ export default class GameEnterPopup extends Container {
   nameInput: HTMLInputElement | undefined
   /** The finish picker, DOM like the name field, and the robot it paints. */
   picker: FinishPicker | undefined
-  preview: PeepSprite | undefined
+  preview: RobotSprite | undefined
   private _started = false
 
   /** The preview robot is drawn this much larger than in the world, to show off the finish. */
@@ -86,10 +86,10 @@ export default class GameEnterPopup extends Container {
 
     // Your robot in the finish being picked; the old frame clip without the rig.
     // The cell is centred on the panel's origin, and Peep's origin is its feet.
-    if (PeepSprite.ready()) {
-      this.preview = new PeepSprite(playerPanel)
+    if (RobotSprite.ready()) {
+      this.preview = new RobotSprite(playerPanel)
       this.preview.scale.set(GameEnterPopup.PREVIEW_SCALE)
-      this.preview.position.set(0, PeepSprite.HEIGHT * GameEnterPopup.PREVIEW_SCALE / 2)
+      this.preview.position.set(0, this.preview.standHeight * GameEnterPopup.PREVIEW_SCALE / 2)
       playerPanel.addChild(this.preview)
     } else {
       const playerAnim = new AnimationClip('player/idle/idle', 0.2, true)

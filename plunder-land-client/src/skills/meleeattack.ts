@@ -16,7 +16,7 @@ export class MeleeAttack extends Skill {
     const rnd = Math.floor(Math.random() * 4) + 1
     this.owner.animation?.playClip(`player/melee_${rnd}/attack`)
     // At once, rather than on the server's effect a tick or so later, which
-    // then doesn't restart it (PeepSprite.RETRIGGER_S).
+    // then doesn't restart it (RobotSprite.RETRIGGER_S).
     if (this.owner instanceof Unit) this.owner.playAction('swing')
   }
 }

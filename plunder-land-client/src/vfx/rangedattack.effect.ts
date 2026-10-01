@@ -87,7 +87,7 @@ export class RangedAttackEffect {
     }
     layer.addChild(beam)
 
-    // A rigged robot turns, aims and fires, flash and all (`PeepSprite`).
+    // A rigged robot turns, aims and fires, flash and all (`RobotSprite`).
     const rigged = owner instanceof Unit && owner.playAction('shoot', end)
 
     // A flash at the muzzle, a little way out along the shot, pointed along it

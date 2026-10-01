@@ -1,11 +1,12 @@
 import { Assets, BLEND_MODES, Container, Graphics, Matrix, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
 import {
-  animationPose, blinkClosure, CLIPS, eyeMatrix, regionMatrix, REGIONS,
+  blinkClosure, eyeMatrix, regionMatrix,
   type ClipName, type Matrix as RigMatrix, type Pose
-} from './rig'
+} from '../peep/rig'
+import { type RobotRig, PEEP_RIG } from './robotrig'
 import { colourById, DEFAULT_FINISH, type Finish, type FinishGroup, patternById, type PatternKey } from '../utils/finishes'
 
-/** A finished part's paint group and layers, in draw order (`meta.finish` in peep.json). */
+/** A finished part's paint group and layers, in draw order (`meta.finish` in the robot's sheet). */
 type FinishMeta = Record<string, { group: FinishGroup, layers: string[] }>
 
 /** One drawn region: a sprite, or a finished part's stack of layers, fitted to the region's box. */
@@ -30,10 +31,13 @@ interface Action {
 }
 
 /**
- * Peep, drawn from the v15 rig (`rig.ts`) instead of a frame sheet: one sprite
- * per painted part from `peep.json` (`tools/bake-peep-atlas.py`), placed every
- * frame from the pose's bone matrices. A part with a paint group (head, body,
- * limbs) is a stack of layers instead (robot-finishes, #41): its shading tinted
+ * A rigged robot, drawn from its rig (`RobotRig`: Peep's v15, `src/peep/rig.ts`;
+ * Magnet's v2, `src/magnet/rig.ts`) instead of a frame sheet: one sprite per
+ * painted part from its sheet (`<sheet>.json`, `tools/bake-peep-atlas.py`),
+ * placed every frame from the pose's bone matrices. Every robot is drawn at
+ * Peep's pixels per rig unit (`SCALE`), so they keep their sizes relative to
+ * each other; it was `PeepSprite` until Magnet (magnet-rig, #42).
+ * A part with a paint group (head, body, limbs) is a stack of layers instead (robot-finishes, #41): its shading tinted
  * by the group's colour, the group's pattern at its opacity, the unpainted
  * details, and the highlights added on top (`setFinish`; the bake explains the
  * layers). The highlights' additive blend costs a batch break per part.
@@ -60,14 +64,11 @@ interface Action {
  * host's `added` and releases on its `removed`, which both `Player.dispose`
  * and `Game.clear` end in.
  */
-export class PeepSprite extends Container {
-  /** CSS px from the feet to the top of the head in the reference pose. Nick, 2026-09-30: a third of the 128 first tried. */
-  static readonly HEIGHT = 44
-  /** That height in rig units (measured from the drop's reference pose). */
-  static readonly REFERENCE_UNITS = 245.5
-  static readonly SCALE = PeepSprite.HEIGHT / PeepSprite.REFERENCE_UNITS
-  /** CSS px from the feet up to the gun arm's shoulder (rig y 79 at rest), where aim is measured from. */
-  static readonly SHOULDER_PX = 79 * PeepSprite.SCALE
+export class RobotSprite extends Container {
+  /** Peep's CSS px from the feet to the top of the head in the reference pose. Nick, 2026-09-30: a third of the 128 first tried. */
+  static readonly PEEP_HEIGHT = 44
+  /** CSS px per rig unit, for every robot: Peep's height over Peep's reference pose. */
+  static readonly SCALE = RobotSprite.PEEP_HEIGHT / PEEP_RIG.referenceUnits
 
   /** The run loop plays this much faster than the drop's clip at `STRIDE_SPEED` (Nick, 2026-09-30: 2x). */
   static readonly RUN_RATE = 2
@@ -90,15 +91,23 @@ export class PeepSprite extends Container {
   /** fall_apart is throttled to this step: each pose runs a physics loop from the detach. */
   static readonly DEBRIS_STEP_S = 1 / 30
 
-  /** True once `peep.json` is loaded; `Player` falls back to the old sprite otherwise. */
-  static ready (): boolean {
-    return Assets.cache.has('peep/eye_open.png')
+  /** True once this robot's sheet is loaded; `Player` falls back to the old sprite otherwise. */
+  static ready (rig: RobotRig = PEEP_RIG): boolean {
+    return Assets.cache.has(`${rig.sheet}/eye_open.png`)
   }
 
   /** The sheet's `meta.finish`; empty for a sheet from before finishes, whose parts are flat. */
-  private static finishMeta (): FinishMeta {
-    return Assets.cache.get('./res/peep.json')?.data?.meta?.finish ?? {}
+  private static finishMeta (rig: RobotRig): FinishMeta {
+    return Assets.cache.get(`./res/${rig.sheet}.json`)?.data?.meta?.finish ?? {}
   }
+
+  /**
+   * CSS px from the feet to the top of the head in the reference pose. Not
+   * `height`: that is pixi's accessor for the drawn bounds.
+   */
+  readonly standHeight: number
+  /** CSS px from the feet up to the gun shoulder, where aim is measured from. */
+  readonly shoulderPx: number
 
   private readonly rig = new Container()
   private readonly parts: Part[] = []
@@ -119,7 +128,7 @@ export class PeepSprite extends Container {
   /** The eye's clock, seconds; blinks and smiles are times on it. */
   private eyeClock = 0
   private blinkAt = -Infinity
-  private nextBlinkAt = PeepSprite.blinkGap()
+  private nextBlinkAt = RobotSprite.blinkGap()
   private expression: 'open' | 'smile' = 'open'
   private pendingExpression: 'open' | 'smile' = 'open'
   private expressionAt = -Infinity
@@ -130,18 +139,22 @@ export class PeepSprite extends Container {
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
   private ticking = false
 
-  constructor (private readonly host: Container) {
+  constructor (private readonly host: Container, private readonly character: RobotRig = PEEP_RIG) {
     super()
-    this.eyeTextures = { open: Texture.from('peep/eye_open.png'), smile: Texture.from('peep/eye_smile.png') }
+    this.standHeight = character.referenceUnits * RobotSprite.SCALE
+    this.shoulderPx = character.shoulderY * RobotSprite.SCALE
+    const sheet = character.sheet
+    this.eyeTextures = { open: Texture.from(`${sheet}/eye_open.png`), smile: Texture.from(`${sheet}/eye_smile.png`) }
 
-    this.shadow.beginFill(0x000000).drawEllipse(0, -2, 70, 9).endFill()
+    const shadow = character.shadow
+    this.shadow.beginFill(0x000000).drawEllipse(shadow.x, -2, shadow.rx, shadow.ry).endFill()
     this.rig.addChild(this.shadow)
-    const finishes = PeepSprite.finishMeta()
-    for (const r of REGIONS) {
+    const finishes = RobotSprite.finishMeta(character)
+    for (const r of character.regions) {
       const finished = r.kind === 'eye' ? undefined : finishes[r.art]
       const part = finished !== undefined
-        ? PeepSprite.layered(r.art, finished)
-        : PeepSprite.flat(r.kind === 'eye' ? this.eyeTextures.open : Texture.from(`peep/${r.art}.png`))
+        ? RobotSprite.layered(sheet, r.art, finished)
+        : RobotSprite.flat(r.kind === 'eye' ? this.eyeTextures.open : Texture.from(`${sheet}/${r.art}.png`))
       this.parts.push(part)
       this.rig.addChild(part.node)
     }
@@ -161,11 +174,11 @@ export class PeepSprite extends Container {
     return { node: sprite, w: texture.width, h: texture.height }
   }
 
-  private static layered (art: string, meta: FinishMeta[string]): Part {
+  private static layered (sheet: string, art: string, meta: FinishMeta[string]): Part {
     const node = new Container()
     const part: Part = { node, w: 0, h: 0, group: meta.group, patterns: {} }
     for (const layer of meta.layers) {
-      const sprite = new Sprite(Texture.from(`peep/${art}/${layer}.png`))
+      const sprite = new Sprite(Texture.from(`${sheet}/${art}/${layer}.png`))
       sprite.anchor.set(0.5)
       // Every layer is baked at the part's size, trimmed; `width` is the untrimmed size.
       part.w = sprite.texture.width
@@ -211,7 +224,7 @@ export class PeepSprite extends Container {
 
   /** Ground speed as a multiple of `STRIDE_SPEED`; scales the run loop only. */
   setPace (pace: number): void {
-    this.pace = Math.min(PeepSprite.MAX_PACE, Math.max(PeepSprite.MIN_PACE, pace))
+    this.pace = Math.min(RobotSprite.MAX_PACE, Math.max(RobotSprite.MIN_PACE, pace))
   }
 
   setFacing (facing: 1 | -1): void {
@@ -233,7 +246,7 @@ export class PeepSprite extends Container {
   play (name: ClipName, aim?: number, facing?: 1 | -1): void {
     const current = this.action
     if (current?.name === 'fall_apart') return
-    if (current !== undefined && current.name === name && current.t < PeepSprite.RETRIGGER_S) {
+    if (current !== undefined && current.name === name && current.t < RobotSprite.RETRIGGER_S) {
       if (aim !== undefined) current.aim = aim
       if (facing !== undefined) current.facing = facing
       return
@@ -302,22 +315,22 @@ export class PeepSprite extends Container {
     // the run loop plays backwards (Nick, 2026-09-30). `clipTime` wraps it.
     const facingNow = this.action?.facing ?? this.lookFacing ?? this.moveFacing
     const backwards = facingNow !== this.moveFacing ? -1 : 1
-    this.baseTime += this.base === 'run' ? dt * PeepSprite.RUN_RATE * this.pace * backwards : dt
+    this.baseTime += this.base === 'run' ? dt * RobotSprite.RUN_RATE * this.pace * backwards : dt
     this.eyeClock += dt
     const now = this.eyeClock
     if (this.pendingExpression === 'smile' && now >= this.smileUntil) {
       this.changeExpression('open')
-      this.nextBlinkAt = Math.max(this.nextBlinkAt, now + PeepSprite.blinkGap())
+      this.nextBlinkAt = Math.max(this.nextBlinkAt, now + RobotSprite.blinkGap())
     }
-    if (now - this.expressionAt >= PeepSprite.EXPRESSION_SWAP_S) this.expression = this.pendingExpression
+    if (now - this.expressionAt >= RobotSprite.EXPRESSION_SWAP_S) this.expression = this.pendingExpression
     if (this.expression === 'open' && this.pendingExpression === 'open' && now >= this.nextBlinkAt) {
       this.blinkAt = now
-      this.nextBlinkAt = now + PeepSprite.blinkGap()
+      this.nextBlinkAt = now + RobotSprite.blinkGap()
     }
     const action = this.action
     if (action !== undefined) {
       action.t += dt
-      if (action.name !== 'fall_apart' && action.t >= CLIPS[action.name].duration) this.action = undefined
+      if (action.name !== 'fall_apart' && action.t >= this.character.clips[action.name].duration) this.action = undefined
     }
     if (dt > 0 && !this.shown()) return
 
@@ -325,16 +338,16 @@ export class PeepSprite extends Container {
     const name = playing?.name ?? this.base
     const t = playing?.t ?? this.baseTime
     if (name === 'fall_apart') {
-      const clamped = Math.min(t, CLIPS.fall_apart.duration)
-      if (this.lastDebrisT >= 0 && clamped - this.lastDebrisT < PeepSprite.DEBRIS_STEP_S &&
-        clamped < CLIPS.fall_apart.duration) return
+      const clamped = Math.min(t, this.character.clips.fall_apart.duration)
+      if (this.lastDebrisT >= 0 && clamped - this.lastDebrisT < RobotSprite.DEBRIS_STEP_S &&
+        clamped < this.character.clips.fall_apart.duration) return
       if (clamped === this.lastDebrisT) return
       this.lastDebrisT = clamped
     }
 
     const facing = playing?.facing ?? this.lookFacing ?? this.moveFacing
-    this.rig.scale.set(PeepSprite.SCALE * facing, -PeepSprite.SCALE)
-    const pose = animationPose(name, t, {
+    this.rig.scale.set(RobotSprite.SCALE * facing, -RobotSprite.SCALE)
+    const pose = this.character.animationPose(name, t, {
       aimAngle: playing?.aim ?? this.lookAim,
       blink: blinkClosure(this.eyeClock - this.blinkAt),
       expression: this.expression
@@ -345,7 +358,7 @@ export class PeepSprite extends Container {
   private apply (pose: Pose): void {
     const { state, matrices } = pose
     const info = state.animation
-    REGIONS.forEach((r, i) => {
+    this.character.regions.forEach((r, i) => {
       const part = this.parts[i]
       let m: RigMatrix
       let w: number
@@ -377,12 +390,13 @@ export class PeepSprite extends Container {
       this.shadow.alpha = 0.28
       this.shadow.scale.set(1)
       this.shadow.beginFill(0x000000)
-      for (const p of info.parts ?? []) this.shadow.drawEllipse(p.x, -1, p.id === 'head' ? 53 : p.id === 'torso' ? 29 : 16, 3)
+      for (const p of info.parts ?? []) this.shadow.drawEllipse(p.x, -1, this.character.debrisShadow[p.id] ?? 16, 3)
       this.shadow.endFill()
     } else {
-      const lift = Math.min(1, info.height / 48)
+      const jump = this.character.shadow.jumpHeight
+      const lift = Math.min(1, info.height / jump)
       this.shadow.alpha = 0.5 - 0.2 * lift
-      this.shadow.scale.set(1 - 0.18 * info.height / 48)
+      this.shadow.scale.set(1 - 0.18 * info.height / jump)
     }
 
     this.flash.clear()
@@ -391,7 +405,8 @@ export class PeepSprite extends Container {
 
   /** The drop's muzzle flash, drawn along the muzzle bone. */
   private drawFlash (m: RigMatrix, amount: number): void {
-    this.scratch.set(m.a, m.b, m.c, m.d, m.x, m.y)
+    const k = this.character.flashScale
+    this.scratch.set(m.a * k, m.b * k, m.c * k, m.d * k, m.x, m.y)
     this.flash.transform.setFromMatrix(this.scratch)
     this.flash.alpha = amount
     const length = 18 + 16 * amount

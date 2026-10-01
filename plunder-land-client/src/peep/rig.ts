@@ -3,7 +3,7 @@ import { HULLS } from './hulls'
 /**
  * Peep's skeletal rig and its seven clips: a TypeScript port of the v15 drop's
  * `tools/rig.mjs` and `tools/animations.mjs` (codex_output, 2026-09-30), with
- * the Canvas drawing left out. Pose in, bone matrices out; `PeepSprite` draws.
+ * the Canvas drawing left out. Pose in, bone matrices out; `RobotSprite` draws.
  *
  * **The drop is the authority.** Every number here is copied, not tuned: the
  * rig was validated there (head clearance, planted feet, wrists joined), and

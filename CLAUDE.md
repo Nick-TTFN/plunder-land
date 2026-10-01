@@ -296,8 +296,8 @@ bone matrices out, pixi-free); `peeprig.spec.ts` (server) checks it, and the dra
 every part, against poses sampled from the drop's own modules. A new drop: re-run
 `tools/peep-rig-sync.mjs <drop>` (hulls + fixtures), fix the port until the spec passes, and
 `tools/bake-peep-atlas.py <drop>` (`peep.png`, 12 KB). The rig never reads an image's size, so
-the bake resamples each part to its box in rig units at `PeepSprite.HEIGHT` (44 CSS px, Nick:
-a third of the 128 first tried) x 2; change the height in both. `PeepSprite` places 14 regions a frame (about 35 sprites with finish layers); no visor mask (Nick's
+the bake resamples each part to its box in rig units at `RobotSprite.PEEP_HEIGHT` (44 CSS px, Nick:
+a third of the 128 first tried) x 2; change the height in both. `RobotSprite` places 14 regions a frame (about 35 sprites with finish layers); no visor mask (Nick's
 call). Clips: idle/run by movement (run at `RUN_RATE` 2x the drop's speed, Nick 2026-09-30, scaled
 by ground speed over `STRIDE_SPEED` 140, clamped 0.5-3x, so a dash runs the legs 2.5x faster again;
 `Player.applyPosition` measures it, for remote players too; backwards while moving against the
@@ -306,11 +306,24 @@ way it faces, e.g. aiming behind), swing on melee (press and effect, deduped by
 its own muzzle flash), hit on an hp or armor drop, fall_apart on death (removal after 3 s).
 The eye smiles for `Player.LOOT_SMILE_S` (0.5 s, Nick) on a loot gain (not the first loot seen for a
 robot coming into view); as in the drop's preview, a change of expression is a blink with the eye
-swapped 0.06 s in, and auto-blink pauses while smiling (`PeepSprite.smile`).
+swapped 0.06 s in, and auto-blink pauses while smiling (`RobotSprite.smile`).
 Jump is unused (Nick). Your own robot's gun and eye follow the mouse (`Player.aimAt` from
 `Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
 down are accepted dead zones; no mouse over the world gives facing back to movement. Other
 players aim only in actions: aim isn't on the wire.
+
+**Magnet is drawn by its own rig** (magnet-rig, #42, from `codex_output/magnet-animations-v2`):
+`src/magnet/rig.ts` ports the drop's `rig.mjs` + `animations.mjs` (gun on the near arm, the magnet
+on the far arm following 30% of the aim, swing with the magnet, a heavier magnet in fall_apart),
+checked by `magnetrig.spec.ts` against 220 poses from the drop (`tools/peep-rig-sync.mjs magnet`).
+One sprite class draws both: `src/robots/robotsprite.ts` (`RobotSprite`, was `PeepSprite`) over a
+`RobotRig` (`src/robots/robotrig.ts`: sheet, regions, clips, pose, reference height, aim shoulder,
+shadow and flash sizes). Every robot is drawn at Peep's pixels per rig unit, so Magnet (227.9 units)
+stands about 41 px to Peep's 44. Its sheet is `magnet.json` (`tools/bake-peep-atlas.py magnet`,
+15 KB). **Known: the Peep port predates a v15 revision of shoot and swing** (the drop's
+`animations.mjs` was rewritten at 17:15 on 2026-09-30, two minutes after `43ee8e2`, adding head/gun
+clearance); `peeprig.fixtures.json` still holds the earlier poses, and re-running the sync tool
+for Peep shows 3 poses differ (head, eye, visor). Not yet ported.
 
 **Finishes: each robot's head, body and limbs are painted separately** (robot-finishes,
 decision #41, 2026-09-30), from the drop's material maps (`materials/`: neutral, masks,
@@ -320,7 +333,7 @@ in `meta.finish`): the shading tinted by the group's colour, the group's pattern
 the unpainted details, and the highlights with `BLEND_MODES.ADD` (drawn normally they came out
 up to 60/255 too dark; the cost is two batch breaks per part with highlights, six parts, so
 roughly a dozen more draw calls per robot on screen: derived, not measured).
-`PeepSprite.setFinish` applies one. The bake **checks itself** against the drop's
+`RobotSprite.setFinish` applies one. The bake **checks itself** against the drop's
 `compose.mjs`: interior p99 at most 17/255 (the drop clamps to white per pixel, which a
 colour-free layer can't copy) and it fails above 24. Light above 1x (up to 1.36 on the torso)
 is dropped, because a tint can't brighten; Nick accepted it. The colours and patterns are

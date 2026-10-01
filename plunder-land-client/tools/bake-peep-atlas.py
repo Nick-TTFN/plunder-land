@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Bake Peep's rig parts into `assets/res/peep.png` + `peep.json` (2026-09-30).
+Bake a robot's rig parts into `assets/res/<robot>.png` + `<robot>.json`
+(2026-09-30): Peep (`peep.json`) and Magnet (`magnet.json`, magnet-rig #42).
 
 The source is the v15 rig drop, which is not checked in (like the other art
 drops): its finish material maps, a few parts that carry no finish, and the
@@ -12,7 +13,12 @@ eye sprites.
     <drop>/eye/open.png, smile.png    the eye, in the head art's pixels (144 x 198)
     <drop>/eye/visor-reflection.png   over the eye, the head art's size
 
-    python3 tools/bake-peep-atlas.py [drop-dir]
+    python3 tools/bake-peep-atlas.py [drop-dir]             # Peep
+    python3 tools/bake-peep-atlas.py magnet [drop-dir]      # Magnet
+
+Every robot is baked at Peep's texels per rig unit, so robots keep their
+drawn sizes relative to each other (Magnet's reference pose is 227.9 units
+tall to Peep's 245.5).
 
 The drop's images are far larger than the game draws them (the head is 428 px
 for about 70 on screen) and each part is a different number of pixels per rig
@@ -63,7 +69,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-DEFAULT_SOURCE = os.path.join(os.path.dirname(__file__), '..', 'codex_output', 'peep-animations-v15')
+DROPS = os.path.join(os.path.dirname(__file__), '..', 'codex_output')
 OUT = os.path.join(os.path.dirname(__file__), '..', 'assets', 'res')
 PADDING = 2
 
@@ -77,7 +83,7 @@ TEXELS_PER_UNIT = 2 * DISPLAY_HEIGHT / REFERENCE_UNITS
 # and 16 wide). The eye's is its 144 x 198 head-art pixels at 178/428 and
 # 159/388 units per pixel. `arm_far` is not drawn by any region. A part whose
 # paint mask is empty is baked flat from `composed/`; the rest as layers.
-ARTS = {
+PEEP_ARTS = {
     'thigh': ('composed/thigh.png', (16, 23)),
     'shin': ('composed/shin.png', (15, 24)),
     'boot_far': ('composed/boot_far.png', (57, 44)),
@@ -91,6 +97,30 @@ ARTS = {
     'eye_open': ('eye/open.png', (144 * 178 / 428, 198 * 159 / 388)),
     'eye_smile': ('eye/smile.png', (144 * 178 / 428, 198 * 159 / 388)),
     'visor_reflection': ('eye/visor-reflection.png', (178, 159)),
+}
+
+# `REGIONS` in src/magnet/rig.ts: the thighs are 16 and 17 wide, the shins 15
+# and 16, the blaster is drawn at 0.76. Magnet has no hand_far; its far arm
+# ends in the magnet.
+MAGNET_ARTS = {
+    'thigh': ('composed/thigh.png', (17, 29)),
+    'shin': ('composed/shin.png', (16, 30)),
+    'boot_far': ('composed/boot_far.png', (57, 44)),
+    'boot_near': ('composed/boot_near.png', (62, 47)),
+    'forearm_far': ('composed/forearm_far.png', (29, 35)),
+    'magnet': ('composed/magnet.png', (108, 96)),
+    'torso': ('composed/torso.png', (80, 77)),
+    'arm_near': ('composed/arm_near.png', (28, 39)),
+    'head': ('composed/head.png', (178, 159)),
+    'blaster': ('composed/blaster.png', (55 * 0.76, 30 * 0.76)),
+    'eye_open': ('eye/open.png', (144 * 178 / 428, 198 * 159 / 388)),
+    'eye_smile': ('eye/smile.png', (144 * 178 / 428, 198 * 159 / 388)),
+    'visor_reflection': ('eye/visor-reflection.png', (178, 159)),
+}
+
+ROBOTS = {
+    'peep': ('peep-animations-v15', PEEP_ARTS),
+    'magnet': ('magnet-animations-v2', MAGNET_ARTS),
 }
 
 PATTERNS = ('zebra', 'checker', 'camo')
@@ -276,7 +306,10 @@ def to_image(rgb, alpha):
 
 
 def bake():
-    source = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SOURCE
+    args = sys.argv[1:]
+    robot = args.pop(0) if args and args[0] in ROBOTS else 'peep'
+    drop, arts = ROBOTS[robot]
+    source = args[0] if args else os.path.join(DROPS, drop)
     tiles = {}
     finished = {}
 
@@ -284,18 +317,18 @@ def bake():
         box = small.getchannel('A').point(lambda a: 255 if a > 2 else 0).getbbox() or (0, 0, 1, 1)
         tiles[name] = (small.crop(box), size, box)
 
-    for art, (file, (w, h)) in ARTS.items():
+    for art, (file, (w, h)) in arts.items():
         size = (max(1, round(w * TEXELS_PER_UNIT)), max(1, round(h * TEXELS_PER_UNIT)))
         painted = layers(source, art, size) if file.startswith('composed/') else None
         if painted is not None:
             group, parts = painted
             finished[art] = (group, size, parts)
             for name, rgb, alpha in parts:
-                add(f'peep/{art}/{name}.png', to_image(rgb, alpha), size)
+                add(f'{robot}/{art}/{name}.png', to_image(rgb, alpha), size)
             continue
         image_full = Image.open(os.path.join(source, file)).convert('RGBA')
         # Premultiplied, so transparent pixels' colour doesn't bleed into edges.
-        add(f'peep/{art}.png', image_full.convert('RGBa').resize(size, Image.LANCZOS).convert('RGBA'), size)
+        add(f'{robot}/{art}.png', image_full.convert('RGBa').resize(size, Image.LANCZOS).convert('RGBA'), size)
 
     check(source, finished)
 
@@ -308,16 +341,16 @@ def bake():
         f['spriteSourceSize'] = {'x': box[0], 'y': box[1], 'w': image.size[0], 'h': image.size[1]}
         f['sourceSize'] = {'w': size[0], 'h': size[1]}
 
-    png = os.path.join(OUT, 'peep.png')
+    png = os.path.join(OUT, f'{robot}.png')
     sheet.save(png)
     optimise(png)
-    with open(os.path.join(OUT, 'peep.json'), 'w') as out:
+    with open(os.path.join(OUT, f'{robot}.json'), 'w') as out:
         json.dump({
             'frames': frames,
             'meta': {
                 'app': 'tools/bake-peep-atlas.py',
                 'version': '1.0',
-                'image': 'peep.png',
+                'image': f'{robot}.png',
                 'format': 'RGBA8888',
                 'size': {'w': sw, 'h': sh},
                 'scale': '2',
@@ -328,7 +361,7 @@ def bake():
                            for art, (g, _, parts) in finished.items()},
             },
         }, out, indent=1)
-    print(f'peep.png {sw}x{sh}, {len(frames)} frames, {os.path.getsize(png) // 1024} KB')
+    print(f'{robot}.png {sw}x{sh}, {len(frames)} frames, {os.path.getsize(png) // 1024} KB')
 
 
 def optimise(png):
