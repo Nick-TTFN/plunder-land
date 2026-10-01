@@ -17,12 +17,12 @@ export interface RosterEntry {
   readonly kind: string
   readonly tagline: string
   /** The archetype key when it can be picked; undefined while locked. */
-  readonly robot: 'peep' | 'magnet' | undefined
+  readonly robot: 'peep' | 'periscope' | 'magnet' | undefined
 }
 
 export const ROSTER: readonly RosterEntry[] = Object.freeze([
   { key: 'peep', name: 'PEEP', kind: 'BALANCED', tagline: 'A little bot. A lot of possibility.', robot: 'peep' },
-  { key: 'periscope', name: 'PERISCOPE', kind: 'SCOUT', tagline: 'Sees the trouble first.', robot: undefined },
+  { key: 'periscope', name: 'PERISCOPE', kind: 'SCOUT', tagline: 'Sees the trouble first.', robot: 'periscope' },
   { key: 'magnet', name: 'MAGNET', kind: 'COLLECTOR', tagline: 'Loot comes to it.', robot: 'magnet' },
   { key: 'hopper', name: 'HOPPER', kind: 'JUMPER', tagline: 'Over walls, not around them.', robot: undefined },
   { key: 'waddle', name: 'WADDLE', kind: 'TANK', tagline: 'Slow to arrive. Slower to leave.', robot: undefined }

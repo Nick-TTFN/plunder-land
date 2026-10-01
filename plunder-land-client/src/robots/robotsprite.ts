@@ -1,6 +1,6 @@
 import { Assets, BLEND_MODES, Container, Graphics, Matrix, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
 import {
-  blinkClosure, eyeMatrix, regionMatrix,
+  blinkClosure, regionMatrix,
   type ClipName, type Matrix as RigMatrix, type Pose
 } from '../peep/rig'
 import { type RobotRig, PEEP_RIG } from './robotrig'
@@ -377,9 +377,9 @@ export class RobotSprite extends Container {
         const sprite = part.node as Sprite
         const texture = state.eye.expression === 'smile' ? this.eyeTextures.smile : this.eyeTextures.open
         if (sprite.texture !== texture) sprite.texture = texture
-        m = eyeMatrix(matrices.head, state.eye)
-        w = 144
-        h = 198
+        m = this.character.eyeMatrix(matrices, state.eye)
+        w = this.character.eyeSize.w
+        h = this.character.eyeSize.h
         sprite.alpha = info.eyeOpacity
       } else {
         m = regionMatrix(matrices[r.bone], r)

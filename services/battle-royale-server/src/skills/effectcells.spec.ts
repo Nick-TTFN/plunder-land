@@ -157,18 +157,19 @@ test('the drawn range comes from the row when there is one, whatever the unit ty
   assert.equal(Client.rangedRangeCells(11, true), 11)
 })
 
-test('an unknown archetype, or one with no rangedCells, draws at today\'s range: players 8, mobs 6', () => {
-  assert.equal(Client.RANGED_RANGE_CELLS, 8)
+// #43: players 6 (it was 8).
+test('an unknown archetype, or one with no rangedCells, draws at today\'s range: players 6, mobs 6', () => {
+  assert.equal(Client.RANGED_RANGE_CELLS, 6)
   assert.equal(Client.RANGED_RANGE_MOB_CELLS, 6)
-  for (const id of [undefined, 0, 2, 200]) {
+  for (const id of [undefined, 0, 4, 200]) {
     // What the effect passes for an id this build doesn't know.
     const rangedCells = archetypeById(id)?.rangedCells
-    assert.equal(Client.rangedRangeCells(rangedCells, false), 8, `player, id ${String(id)}`)
+    assert.equal(Client.rangedRangeCells(rangedCells, false), 6, `player, id ${String(id)}`)
     assert.equal(Client.rangedRangeCells(rangedCells, true), 6, `mob, id ${String(id)}`)
   }
   // A known row with no RangedAttack (a newer server gave it one).
   assert.equal(Client.rangedRangeCells(ARCHETYPE_INFO.grunt.rangedCells, true), 6)
-  assert.equal(Client.rangedRangeCells(null, false), 8)
+  assert.equal(Client.rangedRangeCells(null, false), 6)
 })
 
 test('the client\'s facingIndex equals World.FACING_INDEX all the way round, halfway facings included', () => {

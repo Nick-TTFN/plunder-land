@@ -22,7 +22,7 @@
  * an older client.
  */
 
-export type ArchetypeKey = 'peep' | 'magnet' | 'grunt' | 'boss' | 'gunner'
+export type ArchetypeKey = 'peep' | 'periscope' | 'magnet' | 'grunt' | 'boss' | 'gunner'
 
 /**
  * A robot's stats as the lobby shows them (robot-select, #42), and the server's
@@ -51,8 +51,9 @@ export interface ArchetypeInfo {
    * Fog radius in cells (`Hex.distance`), robots only: the client hides units
    * and pickups further than this from its own cell (`fog-of-war`, M2; the
    * client's `src/objects/fog.ts`). Cosmetic (decision #36): the server still
-   * sends everything in the interest box. null = no fog. Peep 8 (#16);
-   * Periscope's 11 arrives with the robot (M3).
+   * sends everything in the interest box. null = no fog. Robots 6, Periscope 11
+   * (#43; 8 before). Keep it inside the interest box (`Multiplayer.INTEREST_RADIUS`,
+   * 500 units, 11 rings east-west), or the edge of sight shows nothing.
    */
   readonly vision: number | null
   /**
@@ -68,14 +69,18 @@ export interface ArchetypeInfo {
 }
 
 // Robot ids by the brief's order: peep 1, periscope 2, magnet 3, hopper 4,
-// waddle 5 (robot-select, #42). 2, 4 and 5 stay reserved until their robots exist.
+// waddle 5 (robot-select, #42). 4 and 5 stay reserved until their robots exist.
 export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Object.freeze({
   peep: Object.freeze({
-    id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: 8, rangedCells: 8,
+    id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 100, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
+  periscope: Object.freeze({
+    id: 2, key: 'periscope', kind: 'robot', passesObstacles: false, vision: 11, rangedCells: 6,
+    stats: Object.freeze({ maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
+  }),
   magnet: Object.freeze({
-    id: 3, key: 'magnet', kind: 'robot', passesObstacles: false, vision: 8, rangedCells: 8,
+    id: 3, key: 'magnet', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 25, speed: 140, pickupReach: 3, damageScale: 1 })
   }),
   grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null, stats: null }),
@@ -84,7 +89,7 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
 })
 
 /** The robots a player may pick at join, by key, in the lobby's order. */
-export const SELECTABLE_ROBOTS: readonly ArchetypeKey[] = Object.freeze(['peep', 'magnet'])
+export const SELECTABLE_ROBOTS: readonly ArchetypeKey[] = Object.freeze(['peep', 'periscope', 'magnet'])
 
 /** The entry with this wire id, or undefined for 0 and for any id this build doesn't know. */
 export function archetypeById (id: number | undefined): ArchetypeInfo | undefined {

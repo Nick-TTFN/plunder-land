@@ -10,21 +10,23 @@ import { Vector } from './vector'
  * test runner. It only depends on the mirrored `utils/hex.ts`.
  */
 
-test('peep sees 8 rings: a disc of 1 + 3 x 8 x 9 = 217 cells, exactly the cells within 8 rings', () => {
-  assert.equal(ARCHETYPE_INFO.peep.vision, 8)
+// #43, deliberate: 6 rings (it was 8); Periscope 11.
+test('peep sees 6 rings: a disc of 1 + 3 x 6 x 7 = 127 cells, exactly the cells within 6 rings', () => {
+  assert.equal(ARCHETYPE_INFO.peep.vision, 6)
+  assert.equal(ARCHETYPE_INFO.periscope.vision, 11)
   const fog = new Fog()
-  fog.reset(8)
+  fog.reset(6)
   fog.update(10, -4, 0)
   let visible = 0
   for (let q = -10; q <= 30; q++) {
     for (let r = -25; r <= 15; r++) {
-      const inside = Hex.distance(new Vector(q, r), new Vector(10, -4)) <= 8
+      const inside = Hex.distance(new Vector(q, r), new Vector(10, -4)) <= 6
       const seen = fog.state(q, r, 0)
       assert.equal(seen === SEEN.VISIBLE, inside, `cell ${q},${r}`)
       if (inside) visible++
     }
   }
-  assert.equal(visible, 217)
+  assert.equal(visible, 127)
 })
 
 test('cells left behind stay explored; never-seen ones are unknown', () => {

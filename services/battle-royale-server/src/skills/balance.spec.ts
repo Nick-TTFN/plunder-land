@@ -104,21 +104,22 @@ test('a ranged shot at two units in a line hits only the nearer one', () => {
   assert.equal(far.hp, 100, 'the shot went through the nearer unit')
 })
 
-test('a ranged shot reaches eight cells and no further', () => {
+// #43, deliberate: six cells, standard vision (it was eight).
+test('a ranged shot reaches six cells and no further', () => {
   const player = shooterAt(1000, 2000)
-  const outside = new Unit(ObjectType.Mob, 1000 + 9 * Hex.SIZE, 2000, 10, 0)
+  const outside = new Unit(ObjectType.Mob, 1000 + 7 * Hex.SIZE, 2000, 10, 0)
   outside.hp = 100
   World.MOBS.push(outside)
 
   assert.equal(new RangedAttack(player).execute(), true)
-  assert.equal(outside.hp, 100, 'hit a unit nine cells out')
+  assert.equal(outside.hp, 100, 'hit a unit seven cells out')
 
   // Added only now, so it cannot have shielded the unit above.
-  const inside = new Unit(ObjectType.Mob, 1000 + 7.5 * Hex.SIZE, 2000, 10, 0)
+  const inside = new Unit(ObjectType.Mob, 1000 + 5.5 * Hex.SIZE, 2000, 10, 0)
   inside.hp = 100
   World.MOBS.push(inside)
   assert.equal(new RangedAttack(player).execute(), true) // a fresh skill: no cooldown
-  assert.equal(inside.hp, 100 - World.config.ranged, 'missed a unit 7.5 cells out')
+  assert.equal(inside.hp, 100 - World.config.ranged, 'missed a unit 5.5 cells out')
 })
 
 // --- N1 ---------------------------------------------------------------------

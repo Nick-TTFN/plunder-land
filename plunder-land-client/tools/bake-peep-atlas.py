@@ -127,9 +127,27 @@ MAGNET_ARTS = {
     'visor_reflection': ('eye/visor-reflection.png', (178, 159)),
 }
 
+# `REGIONS` in src/periscope/rig.ts. Its eye is Peep's art drawn into a 16 x 29
+# box in the sensor's space, and its glint is `reflection`, not a visor.
+PERISCOPE_ARTS = {
+    'thigh': ('composed/thigh.png', (13, 19)),
+    'shin': ('composed/shin.png', (12, 19)),
+    'boot_far': ('composed/boot_far.png', (46, 35.5)),
+    'boot_near': ('composed/boot_near.png', (50, 38.4)),
+    'neck': ('composed/neck.png', (21, 47)),
+    'chassis': ('composed/chassis.png', (64, 70)),
+    'mount': ('composed/mount.png', (18, 13)),
+    'blaster': ('composed/blaster.png', (42, 23)),
+    'sensor': ('composed/sensor.png', (105, 54)),
+    'eye_open': ('eye/open.png', (16, 29)),
+    'eye_smile': ('eye/smile.png', (16, 29)),
+    'reflection': ('eye/reflection.png', (3.7, 4.6)),
+}
+
 ROBOTS = {
     'peep': ('peep-animations-v15', PEEP_ARTS),
     'magnet': ('magnet-animations-v2', MAGNET_ARTS),
+    'periscope': ('periscope-animations-v1', PERISCOPE_ARTS),
 }
 
 PATTERNS = ('zebra', 'checker', 'camo')

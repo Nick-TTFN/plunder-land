@@ -44,7 +44,7 @@ export const ICE_BREATH_RINGS = 3
  * Server `RangedAttack.RANGE_CELLS`: a player's ranged range, in cells. The
  * fallback for a player whose archetype this build doesn't know.
  */
-export const RANGED_RANGE_CELLS = 8
+export const RANGED_RANGE_CELLS = 6
 /**
  * The gunner's range, in cells: the fallback for a mob whose archetype this
  * build doesn't know, which is what every mob's shot was drawn at before the

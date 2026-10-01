@@ -328,6 +328,15 @@ to 5.5x the in-game size and the game sheet was visibly soft there (Nick, 2026-1
 clearance); `peeprig.fixtures.json` still holds the earlier poses, and re-running the sync tool
 for Peep shows 3 poses differ (head, eye, visor). Not yet ported.
 
+**Periscope is drawn by its own rig** (#43, from `codex_output/periscope-animations-v1`):
+`src/periscope/rig.ts`, checked by `periscoperig.spec.ts` against 432 drop poses (Magnet's and
+Periscope's fixtures also sample each clip at twelfths: the fixed times missed a changed swing
+key). A sensor head on a two-section neck, a side-mounted gun (aim origin 64 up) that also does
+the melee strike, and an eye in the sensor's own space, so `RobotRig` carries each robot's
+`eyeMatrix` and `eyeSize`. Its neck is painted with the head group (the drop's mask). Sheets:
+`periscope.json` 7 KB, `periscope-lobby.json` 30 KB; its bake self-check is the loosest (arctic
+interior p99 21.4 of the 24 limit), the parts being small.
+
 **Finishes: each robot's head, body and limbs are painted separately** (robot-finishes,
 decision #41, 2026-09-30), from the drop's material maps (`materials/`: neutral, masks,
 lighting, pattern-data). Every painted part is one paint group; the bake asserts it. Such a part
@@ -583,10 +592,10 @@ field on `Unit` or any subclass**: it would shadow `GameObject`'s accessor, and 
 would silently never be sent. The server typecheck (TS2610) catches it; swc alone does not.
 
 **`archetype` (16)** is a uint8 id, sent in every unit's create and never as a delta: peep 1,
-magnet 3 (periscope 2, hopper 4, waddle 5 reserved), grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
+periscope 2, magnet 3 (hopper 4, waddle 5 reserved), grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
 indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
 flag, vision and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
-id: players 8, mobs 6). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
+id: players 6, mobs 6; players were 8 before #43). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
 falls back to today's sprite for an unknown id. An object that comes into a
 connection's range is sent a `create`. A whole record can still arrive in `update` when a
 layer change keeps an object the client already holds (`switchLayer`).
@@ -718,7 +727,8 @@ rebuilt only when the camera's own cell changes. Two things about it are load-be
   palettes lie along the field; value noise is centre-heavy, so the middle ones dominate.
 
 **Fog of war is cosmetic** (decision #36, `src/objects/fog.ts`). Cells within the robot's
-`vision` rings (the mirrored `utils/archetypes.ts`: peep 8; null = no fog) are visible, cells
+`vision` rings (the mirrored `utils/archetypes.ts`: 6 for Peep and Magnet, 11 for Periscope since
+#43, 8 before; null = no fog; kept inside the 500-unit interest box, about 11 rings) are visible, cells
 seen before on that layer this run are explored, the rest unknown. The ground is tinted per
 cell (`HexTerrain.tintOf` / `retint`); `Game.applyFog` sets every object's **`renderable`**
 each frame: units, pickups and projectiles only on visible cells, terrain on visible and
@@ -929,7 +939,8 @@ struck**, or around the last cell of its line if it struck nobody. Breath cones 
 facing snaps to one of the six `Hex.DIRECTIONS`, and each ring is the three forward
 neighbours of the ring before, so ring k has 2k+1 cells. No angle test. **Ranged is a hex
 line** (`Hex.line`, mirrored): cube lerp and round from the caster's cell toward the aimed
-cell, on to the range in cells (players 8, gunner 6). It hits the first unit on those cells
+cell, on to the range in cells (players 6 since #43, standard vision, so a player can no longer
+outrange a gunner's 6-ring notice; gunner 6). It hits the first unit on those cells
 (`World.FIRST_ON_LINE`), which includes one on the caster's own cell. A fixed nudge makes ties
 break the same way on both sides (pinned in `hex.spec.ts`). Aiming at a cell's centre and
 testing distance to the segment missed about 29% of targets 6 cells away.

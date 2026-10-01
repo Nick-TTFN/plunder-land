@@ -53,7 +53,8 @@ test('archetype ids are the ones already on the wire (append-only)', () => {
   assert.deepEqual(
     Object.fromEntries(KEYS.map((key) => [key, ARCHETYPE_INFO[key].id])),
     // robot-select (#42), deliberate: magnet appended at 3.
-    { peep: 1, magnet: 3, grunt: 6, boss: 7, gunner: 8 }
+    // #43, deliberate: periscope at 2.
+    { peep: 1, periscope: 2, magnet: 3, grunt: 6, boss: 7, gunner: 8 }
   )
 })
 
@@ -73,7 +74,7 @@ test('archetypeById finds every entry, and nothing for 0, undefined or an unknow
   for (const key of KEYS) assert.equal(archetypeById(ARCHETYPE_INFO[key].id), ARCHETYPE_INFO[key])
   assert.equal(archetypeById(0), undefined)
   assert.equal(archetypeById(undefined), undefined)
-  assert.equal(archetypeById(2), undefined, 'a reserved robot id resolved')
+  assert.equal(archetypeById(4), undefined, 'a reserved robot id resolved')
   assert.equal(archetypeById(200), undefined)
 })
 

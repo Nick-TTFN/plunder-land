@@ -17,7 +17,7 @@ import { Vector } from '../utils/vector'
 /**
  * Task `ranged-hex-line`, decision #25: a ranged shot hits the first unit
  * whose cell is on the hex line from the caster's cell through the aimed cell,
- * out to its range in cells (players 8, gunner 6).
+ * out to its range in cells (players 6 since #43, 8 before; gunner 6).
  *
  * The sweeps are the measurement that motivated the change. Against the old
  * segment-and-radius test the gunner sweep missed 2068-2084 of 7020 shots per
@@ -130,13 +130,13 @@ test('gunner ring-6 sweep: a lone target anywhere in any cell 6 away is hit, gun
   }
 })
 
-test('player sweep: a lone target anywhere in any cell up to 8 away is hit when its cell is aimed at', () => {
+test('player sweep: a lone target anywhere in any cell up to 6 away is hit when its cell is aimed at', () => {
   const target = mobAt(HOME)
   for (const offset of [OFFSETS[0], OFFSETS[3], OFFSETS[6]]) {
     const shooter = playerAt(HOME.add(offset))
     let shots = 0
     let misses = 0
-    for (const cell of cellsAt(HOME_CELL, 1, 8)) {
+    for (const cell of cellsAt(HOME_CELL, 1, 6)) {
       for (const p of pointsIn(cell, 9)) {
         target.position = p
         target.hp = 1000
@@ -145,7 +145,8 @@ test('player sweep: a lone target anywhere in any cell up to 8 away is hit when 
         if (target.hp === 1000) misses++
       }
     }
-    assert.ok(shots > 3000, `only ${shots} shots`)
+    // 6 rings since #43: 126 cells x 21 points = 2646 shots (it was 8 rings, over 3000).
+    assert.ok(shots >= 2646, `only ${shots} shots`)
     assert.equal(misses, 0, `offset ${offset.x},${offset.y}: ${misses}/${shots} missed`)
     World.PLAYERS.length = 0
   }
@@ -156,8 +157,8 @@ test('player sweep: a lone target anywhere in any cell up to 8 away is hit when 
 test('a unit on any cell between the caster and the aimed cell takes the shot instead', () => {
   const shooter = playerAt(HOME)
   let cases = 0
-  for (const aim of cellsAt(HOME_CELL, 2, 8)) {
-    const line = Hex.line(HOME_CELL, aim, 8)
+  for (const aim of cellsAt(HOME_CELL, 2, 6)) {
+    const line = Hex.line(HOME_CELL, aim, 6)
     const n = Hex.distance(HOME_CELL, aim)
     for (let i = 1; i < n; i++) {
       World.MOBS.length = 0
@@ -169,7 +170,8 @@ test('a unit on any cell between the caster and the aimed cell takes the shot in
       cases++
     }
   }
-  assert.ok(cases > 700, `only ${cases} cases`)
+  // Aims 2-6 rings out since #43 (2-8 before, over 700).
+  assert.ok(cases >= 420, `only ${cases} cases`)
 })
 
 test('a unit beside the line is not a blocker', () => {
@@ -188,13 +190,14 @@ test('the shot carries on past the aimed cell to its range, and no further', () 
     World.PLAYERS.length = 0
     World.MOBS.length = 0
     const shooter = playerAt(HOME)
-    const line = Hex.line(HOME_CELL, aim, 9)
-    const beyond = mobOn(line[9])
+    // #43: a robot's range is 6 cells (it was 8).
+    const line = Hex.line(HOME_CELL, aim, 7)
+    const beyond = mobOn(line[7])
     assert.equal(fire(shooter, aim), true)
-    assert.equal(beyond.hp, 1000, `aim ${aim.x},${aim.y}: hit a unit 9 cells out`)
-    const last = mobOn(line[8])
+    assert.equal(beyond.hp, 1000, `aim ${aim.x},${aim.y}: hit a unit 7 cells out`)
+    const last = mobOn(line[6])
     assert.equal(fire(shooter, aim), true)
-    assert.equal(last.hp, 1000 - World.config.ranged, `aim ${aim.x},${aim.y}: missed a unit on the 8th cell`)
+    assert.equal(last.hp, 1000 - World.config.ranged, `aim ${aim.x},${aim.y}: missed a unit on the 6th cell`)
   }
 })
 

@@ -86,6 +86,18 @@ export const LOBBY_CSS = `
 .lb-keys { position: absolute; left: 44px; bottom: 50px; font-size: 13px; letter-spacing: .1em; color: #a9bccd; }
 .lb-keys kbd { display: inline-block; min-width: 18px; padding: 3px 6px; margin: 0 4px 0 8px; border: 1px solid #3a5266; border-radius: 4px;
   font-family: inherit; color: #E6EEF5; text-align: center; }
+@media (max-width: 1300px) {
+  .lb-pill { top: 168px; }
+}
+@media (max-height: 850px) {
+  .lb-cards { bottom: 92px; }
+  .lb-card { width: 112px; height: 124px; }
+  .lb-thumb img { max-width: 80px; max-height: 80px; }
+  .lb-robot { font-size: 38px; }
+  .lb-tagline { font-size: 14px; }
+  .lb-ready { bottom: 28px; padding: 14px 32px; font-size: 22px; }
+  .lb-keys { bottom: 36px; }
+}
 @media (max-width: 1100px) {
   .lb-stats { left: 24px; width: 240px; }
   .lb-heading { left: 24px; }

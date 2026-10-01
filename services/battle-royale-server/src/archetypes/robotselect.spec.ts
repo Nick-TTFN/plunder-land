@@ -74,11 +74,12 @@ function join (multiplayer: Multiplayer, robot: unknown): Player {
   return World.PLAYERS[World.PLAYERS.length - 1]
 }
 
-test('magnet is id 3 and selectable; 2, 4 and 5 stay reserved', () => {
+test('magnet is id 3 and selectable; 4 and 5 stay reserved', () => {
   assert.equal(ARCHETYPE_INFO.magnet.id, 3)
   assert.equal(ARCHETYPE_INFO.magnet.kind, 'robot')
-  assert.deepEqual([...SELECTABLE_ROBOTS], ['peep', 'magnet'])
-  for (const id of [2, 4, 5]) assert.ok(!Object.values(ARCHETYPE_INFO).some((a) => a.id === id), `id ${id} taken`)
+  // #43, deliberate: periscope (2) joined.
+  assert.deepEqual([...SELECTABLE_ROBOTS], ['peep', 'periscope', 'magnet'])
+  for (const id of [4, 5]) assert.ok(!Object.values(ARCHETYPE_INFO).some((a) => a.id === id), `id ${id} taken`)
 })
 
 test('each robot\'s server row plays the stats the lobby shows', () => {
@@ -96,6 +97,10 @@ test('each robot\'s server row plays the stats the lobby shows', () => {
   // Decision #42.
   assert.deepEqual({ ...ARCHETYPE_INFO.peep.stats }, { maxHp: 100, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   assert.deepEqual({ ...ARCHETYPE_INFO.magnet.stats }, { maxHp: 90, armor: 25, speed: 140, pickupReach: 3, damageScale: 1 })
+  // Decision #43.
+  assert.deepEqual({ ...ARCHETYPE_INFO.periscope.stats }, { maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
+  assert.equal(ARCHETYPE_INFO.periscope.vision, 11)
+  assert.equal(ARCHETYPE_INFO.peep.vision, 6)
 })
 
 test('a join asking for magnet is a magnet, and its create record says so', () => {
@@ -113,7 +118,7 @@ test('a join asking for magnet is a magnet, and its create record says so', () =
 
 test('anything but a selectable robot joins as peep, and never refuses the join', () => {
   const multiplayer = setup()
-  for (const robot of [undefined, 'peep', 'periscope', 'hopper', 'grunt', 'boss', 'MAGNET', 3, null, {}, ['magnet']]) {
+  for (const robot of [undefined, 'peep', 'hopper', 'grunt', 'boss', 'MAGNET', 3, null, {}, ['magnet']]) {
     const before = World.PLAYERS.length
     const player = join(multiplayer, robot)
     assert.equal(World.PLAYERS.length, before + 1, `refused ${JSON.stringify(robot)}`)

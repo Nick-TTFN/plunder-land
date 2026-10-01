@@ -276,14 +276,20 @@ test('gunner: a player at 0 hp that it touches is not killed or credited by the 
 
 // --- provoked like a grunt ------------------------------------------------------------
 
-test('gunner: a player shooting it from beyond acquire range is chased and shot back', (t) => {
+// #43, deliberate: a robot's shot is 6 cells, the gunner's notice range, so a
+// player can no longer hit a gunner from beyond it (at 8 cells, it could). A
+// player 7 cells out can't reach it; one at 6 is noticed before it fires.
+test('gunner: a player can no longer outrange it, and one that shoots it is shot back', (t) => {
   mockDate(t)
   const gunner = addGunner()
-  // 7 cells (315): beyond acquire (270), inside the player's 8-cell range.
-  const player = addPlayer(east(7))
+  const far = addPlayer(east(7))
   gunner.update(DT)
   assert.equal(gunner.target, undefined, 'noticed a player beyond acquire')
+  far.skills[2].execute(Hex.toCell(gunner.position))
+  assert.equal(gunner.hp, 40, 'a player shot a gunner from beyond its notice range')
+  World.PLAYERS.length = 0
 
+  const player = addPlayer(east(6))
   assert.equal(player.skills[2].execute(Hex.toCell(gunner.position)), true)
   assert.equal(gunner.hp, 40 - World.config.ranged)
   assert.equal(gunner.target, player, 'not provoked')

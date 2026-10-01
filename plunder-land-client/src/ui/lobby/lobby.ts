@@ -424,9 +424,9 @@ export default class Lobby extends Container {
     this.layout()
   }
 
-  /** The size of the big robot: about a quarter of the screen's height. */
+  /** The size of the big robot: about a quarter of the screen's height, a fifth on a short one. */
   private scaleFor (h: number): number {
-    return Math.max(2.2, Math.min(5.5, h * 0.24 / RobotSprite.PEEP_HEIGHT))
+    return Math.max(2.2, Math.min(5.5, h * (h < 850 ? 0.20 : 0.24) / RobotSprite.PEEP_HEIGHT))
   }
 
   private layout (): void {

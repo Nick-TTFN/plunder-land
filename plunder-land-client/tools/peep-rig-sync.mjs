@@ -4,6 +4,7 @@
  *
  *   node tools/peep-rig-sync.mjs [drop-dir]            # Peep
  *   node tools/peep-rig-sync.mjs magnet [drop-dir]     # Magnet: src/magnet/, magnetrig.*
+ *   node tools/peep-rig-sync.mjs periscope [drop-dir]  # Periscope: src/periscope/, periscoperig.*
  *
  * The drop (default `codex_output/peep-animations-v15`, not checked in) holds
  * the authoritative rig as JavaScript: `tools/rig.mjs`, `tools/animations.mjs`
@@ -27,7 +28,8 @@ const client = join(here, '..')
 // Peep is the default, so the old one-argument form still means Peep.
 const ROBOTS = {
   peep: { drop: 'peep-animations-v15', src: 'peep', fixtures: 'peeprig.fixtures.json', label: 'Peep' },
-  magnet: { drop: 'magnet-animations-v2', src: 'magnet', fixtures: 'magnetrig.fixtures.json', label: 'Magnet' }
+  magnet: { drop: 'magnet-animations-v2', src: 'magnet', fixtures: 'magnetrig.fixtures.json', label: 'Magnet' },
+  periscope: { drop: 'periscope-animations-v1', src: 'periscope', fixtures: 'periscoperig.fixtures.json', label: 'Periscope' }
 }
 const named = ROBOTS[process.argv[2]] !== undefined
 const robot = ROBOTS[named ? process.argv[2] : 'peep']
@@ -63,7 +65,8 @@ function drawnCorners (state, matrices) {
       for (const [u, v] of [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]) pts.push(m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5])
       out.push(pts)
     },
-    beginPath: noop, moveTo: noop, bezierCurveTo: noop, closePath: noop, clip: noop, globalAlpha: 1
+    // Periscope clips its eye to an ellipse; the clip doesn't move anything.
+    beginPath: noop, moveTo: noop, bezierCurveTo: noop, closePath: noop, clip: noop, ellipse: noop, globalAlpha: 1
   }
   rig.drawPose(ctx, new Proxy({}, { get: () => ({}) }), state, matrices, 0, 0, 1, {})
   return out
@@ -90,7 +93,12 @@ const round = (v) => Math.round(v * 1e6) / 1e6
 const poses = []
 for (const name of [...Object.keys(clips)]) {
   const duration = clips[name].duration
-  const times = [0, 0.23, 0.52, 1.1, 1.7, duration, duration + 0.37].filter((t, i, a) => a.indexOf(t) === i)
+  // Twelfths of the clip as well for every robot after Peep: the fixed times
+  // alone missed a changed swing keyframe at 0.40 s. Peep keeps its sampling:
+  // regenerating its fixtures would take the drop's later shoot/swing
+  // revision, which is not ported (CLAUDE.md, the Peep section).
+  const dense = robot === ROBOTS.peep ? [] : Array.from({ length: 11 }, (_, k) => Math.round((k + 1) * duration / 12 * 1e6) / 1e6)
+  const times = [0, 0.23, 0.52, 1.1, 1.7, duration, duration + 0.37, ...dense].filter((t, i, a) => a.indexOf(t) === i)
   for (const t of times) {
     for (const options of OPTIONS) {
       const { state, matrices } = animationPose(name, t, options)

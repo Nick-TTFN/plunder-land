@@ -9,11 +9,11 @@ import { Hex } from '../utils/hex'
 
 export class RangedAttack extends Skill {
   /**
-   * A player's range, in cells: 8, base vision, so you can shoot only what you
-   * see. It was 360 units, the same 8 cells by distance. An archetype
+   * A player's range, in cells: 6, base vision, so you can shoot only what you
+   * see (#43: both were 8, and 360 units before that). An archetype
    * overrides it with `SkillSpec.range` (the gunner's is 6).
    */
-  static RANGE_CELLS = 8
+  static RANGE_CELLS = 6
 
   /** Range in cells: how many steps the hex line runs past the caster's cell. */
   range: number
