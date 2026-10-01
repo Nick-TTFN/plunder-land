@@ -339,9 +339,20 @@ colour-free layer can't copy) and it fails above 24. Light above 1x (up to 1.36 
 is dropped, because a tint can't brighten; Nick accepted it. The colours and patterns are
 `utils/finishes.ts`, mirrored like `items.ts`: the ten colours of the drop's six presets
 (Claude's pick, Nick may change it), patterns none/zebra/checker/camo with the opacity fixed per
-pattern (camo 0.45), and ids append-only. All are free until meta-progression. The enter popup
-has a placeholder picker (DOM, `ui/popups/finishpicker.ts`) with a live preview, remembered in
-localStorage (`plunderland_player_finish`).
+pattern (camo 0.45), and ids append-only. All are free until meta-progression. They are picked in the lobby.
+
+**The lobby replaced the enter popup** (lobby-rework, #42; mockup in the project memory,
+`ideas/lobby-mockup-2026-09-30.png`). `ui/lobby/lobby.ts`: pixi draws the backdrop, the platform
+and the robots (the chosen one large, aiming at the pointer, the next one dimmed); DOM over the
+canvas (`lobbystyle.ts`, all `lb-` classes, placeholder chrome) carries the name pill, robot cards
+(stills rendered from the rigs; Periscope, Hopper and Waddle locked "SOON", `ui/lobby/roster.ts`,
+whose class lines and taglines other than Peep's are placeholder copy), stat bars read from the
+mirrored `stats`, CUSTOMIZE (head/body/limbs rows of the presets' swatches, or MIX for any colour
+and pattern) and READY UP. Keys: left/right, E, Enter. It remembers robot, finish and name
+(`plunderland_player_robot`, `_finish`, `_name`). Not done: the hangar background (art), the
+COLLECTION tab, the title (PLUNDERLAND here; the mockup says SCAVENGERS). `assets/index.html`
+now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the
+bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out as mojibake.
 
 `tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went), `exit.png`,
 `portal.png`, `fireball/*`, `explosion/*`, `resource/*`, the `UI/controls/*` icons and the
@@ -524,8 +535,8 @@ robot's key; anything not selectable plays Peep; until the lobby, the client sen
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
 the default, never a refused join; a client from before finishes sends none). A bare
 string, the id alone, is still accepted for one release; drop it after that. The id is the
-client's persistent per-browser id: exactly 6 lowercase hex digits (`genRanHex(6)` in the enter
-popup). The server accepts only `Multiplayer.ID_SHAPE` = `/^[0-9a-f]{6,32}$/` and ignores
+client's persistent per-browser id: exactly 6 lowercase hex digits (`genRanHex(6)` in the
+lobby). The server accepts only `Multiplayer.ID_SHAPE` = `/^[0-9a-f]{6,32}$/` and ignores
 anything else, so specs must use hex ids too. **Redis stats are keyed by id, never by name**.
 The raw name is cut to `Player.NAME_RAW_MAX` (256 UTF-16 units) first, so a huge name costs
 nothing, and then sanitised by `Player.sanitiseName`: NFKC, no control, zero-width, bidi, private-use

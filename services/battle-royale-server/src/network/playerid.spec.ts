@@ -17,17 +17,18 @@ import Player from '../objects/player'
  * UTF-16 units before sanitising, so its size costs nothing.
  */
 
-const CLIENT_POPUP = join(__dirname, '../../../../plunder-land-client/src/ui/popups/gameenterpopup.ts')
+// The lobby since lobby-rework (#42); the enter popup before.
+const CLIENT_POPUP = join(__dirname, '../../../../plunder-land-client/src/ui/lobby/lobby.ts')
 
 /**
- * The client's generator (`GameEnterPopup.genRanHex`), run from its own source.
- * The popup imports pixi, so the module can't be loaded here; the expression
+ * The client's generator (`genRanHex` in the lobby), run from its own source.
+ * The lobby imports pixi, so the module can't be loaded here; the expression
  * after the arrow is plain JavaScript, so it is lifted out and evaluated. The
  * whole line is pinned too, so a change to it fails here, not silently.
  */
 const CLIENT_SOURCE = readFileSync(CLIENT_POPUP, 'utf8')
 const CLIENT_GENERATOR_LINE = "genRanHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')"
-const GENERATOR_BODY = /^\s*genRanHex = \(size: number\): string => (.+)$/m.exec(CLIENT_SOURCE)?.[1]
+const GENERATOR_BODY = /^\s*(?:const )?genRanHex = \(size: number\): string => (.+)$/m.exec(CLIENT_SOURCE)?.[1]
 // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
 const genRanHex = new Function('size', `return ${GENERATOR_BODY ?? 'undefined'}`) as (size: number) => string
 

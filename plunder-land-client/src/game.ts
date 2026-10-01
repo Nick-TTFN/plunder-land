@@ -25,7 +25,7 @@ import { Fog, SEEN, LAYER_TINT } from './objects/fog'
 import { TILT, TiltedContainer, onGround } from './objects/tilt'
 import Mob from './objects/mob'
 import Player from './objects/player'
-import GameEnterPopup from './ui/popups/gameenterpopup'
+import Lobby from './ui/lobby/lobby'
 import { RunRecord, RunSummaryCard } from './ui/popups/runsummary'
 
 import { FireBreathEffect } from './vfx/firebreath.effect'
@@ -269,10 +269,10 @@ export class Game extends Container {
     Game.socket.off('standings')
     Leaderboard.Instance?.setStandings([], undefined)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    Game.popups.show(new GameEnterPopup(this.onStartRequested.bind(this)))
+    Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (playerId: string, name: string, finish: number[]): Promise<void> {
+  async onStartRequested (playerId: string, name: string, finish: number[], robot: string): Promise<void> {
     Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
@@ -284,9 +284,8 @@ export class Game extends Container {
     // by it), the name and the robot's finish only what others see. The server
     // sanitises and caps the name, gives an empty one a callsign made from the
     // id, and replaces anything unreadable in the finish with the default.
-    // `robot` is the key of the robot picked (robot-select); the server plays
-    // peep for anything it doesn't offer. Until the lobby, `?robot=magnet`.
-    const robot = new URLSearchParams(window.location.search).get('robot') ?? 'peep'
+    // `robot` is the key of the robot picked in the lobby (robot-select); the
+    // server plays peep for anything it doesn't offer.
     Game.socket.emit('start_requested', { id: playerId, name, finish, robot })
 
     Game.hud.setupGameUI()

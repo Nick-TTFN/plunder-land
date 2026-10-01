@@ -627,7 +627,7 @@ export default class Multiplayer {
    * bounded here rather than trusted (bound-player-id, 2026-09-25).
    *
    * Every shipped client makes it the same way, `genRanHex(6)` in the client's
-   * `GameEnterPopup`: six lowercase hex digits, one `Math.floor(random * 16)`
+   * lobby (`ui/lobby/lobby.ts`; `GameEnterPopup` before #42): six lowercase hex digits, one `Math.floor(random * 16)`
    * each. That has been true since 2023-08-02 (27e2c3d), under the storage key
    * `plunderland_test_address` until the revival renamed it to
    * `plunderland_player_id`, and it is what the deployed client (origin/main)
