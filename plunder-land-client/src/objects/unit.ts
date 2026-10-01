@@ -1,6 +1,6 @@
 import { UnitBar } from '../ui/elements/unitbar'
 import { THEME } from '../ui/theme'
-import { type Texture, Sprite, ColorMatrixFilter } from 'pixi.js'
+import { type Point, type Texture, Sprite, ColorMatrixFilter } from 'pixi.js'
 import { GameObject } from './gameobject'
 import { layShadow } from './shadow'
 import { TextEffect } from '../ui/elements/texteffect'
@@ -277,13 +277,18 @@ export default class Unit extends GameObject {
   /** `armor` or `maxArmor` changed. Only a player shows it (`Player`'s panel). */
   onArmor (): void {}
 
+  /** Where a shot leaves a rigged robot's eye, on screen (global); undefined without a rig (`Player`). */
+  eyeGlobal (): Point | undefined {
+    return undefined
+  }
+
   /** Lost hp or armor. Only a rigged robot shows it (`Player`). */
   onHurt (): void {}
 
   /**
    * An action clip, pointed at `toward` (world units) when given: a swing or
    * a shot seen in an effect. Only a rigged robot has them (`Player`); true
-   * when one played it, since the rig draws its own muzzle flash.
+   * when one played it, since the rig draws its own shot (from the eye).
    */
   playAction (name: 'swing' | 'shoot', toward?: { x: number, y: number }): boolean {
     void name

@@ -25,7 +25,7 @@ export interface SpriteLook {
    * Drawn by a skeletal rig instead of `run`/`idle` (`src/peep/`), when its
    * sheet is loaded; `run`/`idle` stay as the fallback.
    */
-  rig?: 'peep' | 'periscope' | 'magnet'
+  rig?: 'peep' | 'periscope' | 'magnet' | 'hopper' | 'waddle'
 }
 
 /** What a player looked like before archetypes: also the fallback for any robot id this build doesn't know. */
@@ -43,6 +43,8 @@ const LOOKS: Readonly<Record<ArchetypeKey, SpriteLook>> = Object.freeze({
   peep: Object.freeze({ ...ROBOT_DEFAULT, rig: 'peep' as const }),
   periscope: Object.freeze({ ...ROBOT_DEFAULT, rig: 'periscope' as const }),
   magnet: Object.freeze({ ...ROBOT_DEFAULT, rig: 'magnet' as const }),
+  hopper: Object.freeze({ ...ROBOT_DEFAULT, rig: 'hopper' as const }),
+  waddle: Object.freeze({ ...ROBOT_DEFAULT, rig: 'waddle' as const }),
   grunt: MOB_DEFAULT,
   boss: MOB_DEFAULT,
   // A cold blue, far from the grunt's untinted sprite and from the 0xffbb00

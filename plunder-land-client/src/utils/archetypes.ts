@@ -16,13 +16,12 @@
  * on the server.
  *
  * **Ids are append-only**, like field indices: never reuse or renumber one.
- * 0 means none was sent. Robots are 1-5 (2-5 are reserved for the robots that
- * don't exist yet) and mobs start at 6. A client that meets an id it doesn't
+ * 0 means none was sent. Robots are 1-5 and mobs start at 6. A client that meets an id it doesn't
  * know draws that object type's default sprite, so a newer server can't break
  * an older client.
  */
 
-export type ArchetypeKey = 'peep' | 'periscope' | 'magnet' | 'grunt' | 'boss' | 'gunner'
+export type ArchetypeKey = 'peep' | 'periscope' | 'magnet' | 'hopper' | 'waddle' | 'grunt' | 'boss' | 'gunner'
 
 /**
  * A robot's stats as the lobby shows them (robot-select, #42), and the server's
@@ -69,7 +68,8 @@ export interface ArchetypeInfo {
 }
 
 // Robot ids by the brief's order: peep 1, periscope 2, magnet 3, hopper 4,
-// waddle 5 (robot-select, #42). 4 and 5 stay reserved until their robots exist.
+// waddle 5 (robot-select, #42). Hopper and Waddle playable since 2026-10-01,
+// with #16's stats and #43's standard vision.
 export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Object.freeze({
   peep: Object.freeze({
     id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
@@ -83,13 +83,23 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
     id: 3, key: 'magnet', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 25, speed: 140, pickupReach: 3, damageScale: 1 })
   }),
+  // Its trait, passing through obstacle cells (#15), is flagged but not built.
+  hopper: Object.freeze({
+    id: 4, key: 'hopper', kind: 'robot', passesObstacles: true, vision: 6, rangedCells: 6,
+    stats: Object.freeze({ maxHp: 90, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
+  }),
+  // HP and armor paid for in speed (#16).
+  waddle: Object.freeze({
+    id: 5, key: 'waddle', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
+    stats: Object.freeze({ maxHp: 130, armor: 100, speed: 120, pickupReach: 1, damageScale: 1 })
+  }),
   grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null, stats: null }),
   boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null, stats: null }),
   gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', passesObstacles: false, vision: null, rangedCells: 6, stats: null })
 })
 
 /** The robots a player may pick at join, by key, in the lobby's order. */
-export const SELECTABLE_ROBOTS: readonly ArchetypeKey[] = Object.freeze(['peep', 'periscope', 'magnet'])
+export const SELECTABLE_ROBOTS: readonly ArchetypeKey[] = Object.freeze(['peep', 'periscope', 'magnet', 'hopper', 'waddle'])
 
 /** The entry with this wire id, or undefined for 0 and for any id this build doesn't know. */
 export function archetypeById (id: number | undefined): ArchetypeInfo | undefined {

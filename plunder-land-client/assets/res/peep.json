@@ -320,29 +320,9 @@
     "h": 15
    }
   },
-  "peep/blaster.png": {
-   "frame": {
-    "x": 146,
-    "y": 66,
-    "w": 21,
-    "h": 12
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 21,
-    "h": 12
-   },
-   "sourceSize": {
-    "w": 21,
-    "h": 12
-   }
-  },
   "peep/forearm_far/fixed.png": {
    "frame": {
-    "x": 169,
+    "x": 146,
     "y": 66,
     "w": 10,
     "h": 12
@@ -362,7 +342,7 @@
   },
   "peep/boot_far/camo.png": {
    "frame": {
-    "x": 181,
+    "x": 158,
     "y": 66,
     "w": 18,
     "h": 10
@@ -382,7 +362,7 @@
   },
   "peep/boot_far/checker.png": {
    "frame": {
-    "x": 201,
+    "x": 178,
     "y": 66,
     "w": 17,
     "h": 10
@@ -402,7 +382,7 @@
   },
   "peep/boot_far/shade.png": {
    "frame": {
-    "x": 220,
+    "x": 197,
     "y": 66,
     "w": 20,
     "h": 10
@@ -422,7 +402,7 @@
   },
   "peep/boot_far/zebra.png": {
    "frame": {
-    "x": 242,
+    "x": 219,
     "y": 66,
     "w": 20,
     "h": 10
@@ -442,7 +422,7 @@
   },
   "peep/boot_near/camo.png": {
    "frame": {
-    "x": 264,
+    "x": 241,
     "y": 66,
     "w": 22,
     "h": 10
@@ -462,7 +442,7 @@
   },
   "peep/boot_near/checker.png": {
    "frame": {
-    "x": 288,
+    "x": 265,
     "y": 66,
     "w": 18,
     "h": 10
@@ -482,7 +462,7 @@
   },
   "peep/boot_near/hi.png": {
    "frame": {
-    "x": 308,
+    "x": 285,
     "y": 66,
     "w": 20,
     "h": 10
@@ -502,7 +482,7 @@
   },
   "peep/boot_near/shade.png": {
    "frame": {
-    "x": 330,
+    "x": 307,
     "y": 66,
     "w": 22,
     "h": 10
@@ -522,7 +502,7 @@
   },
   "peep/boot_near/zebra.png": {
    "frame": {
-    "x": 354,
+    "x": 331,
     "y": 66,
     "w": 22,
     "h": 10
@@ -542,7 +522,7 @@
   },
   "peep/arm_near/shade.png": {
    "frame": {
-    "x": 378,
+    "x": 355,
     "y": 66,
     "w": 9,
     "h": 9
@@ -562,7 +542,7 @@
   },
   "peep/arm_near/zebra.png": {
    "frame": {
-    "x": 389,
+    "x": 366,
     "y": 66,
     "w": 9,
     "h": 9
@@ -582,7 +562,7 @@
   },
   "peep/boot_far/hi.png": {
    "frame": {
-    "x": 400,
+    "x": 377,
     "y": 66,
     "w": 17,
     "h": 9
@@ -602,7 +582,7 @@
   },
   "peep/forearm_far/camo.png": {
    "frame": {
-    "x": 419,
+    "x": 396,
     "y": 66,
     "w": 7,
     "h": 9
@@ -622,7 +602,7 @@
   },
   "peep/forearm_far/shade.png": {
    "frame": {
-    "x": 428,
+    "x": 405,
     "y": 66,
     "w": 9,
     "h": 9
@@ -642,7 +622,7 @@
   },
   "peep/forearm_far/zebra.png": {
    "frame": {
-    "x": 439,
+    "x": 416,
     "y": 66,
     "w": 9,
     "h": 9
@@ -662,7 +642,7 @@
   },
   "peep/shin.png": {
    "frame": {
-    "x": 450,
+    "x": 427,
     "y": 66,
     "w": 6,
     "h": 9
@@ -682,7 +662,7 @@
   },
   "peep/thigh.png": {
    "frame": {
-    "x": 458,
+    "x": 435,
     "y": 66,
     "w": 6,
     "h": 9
@@ -702,7 +682,7 @@
   },
   "peep/visor_reflection.png": {
    "frame": {
-    "x": 466,
+    "x": 443,
     "y": 66,
     "w": 9,
     "h": 9
@@ -722,7 +702,7 @@
   },
   "peep/arm_near/checker.png": {
    "frame": {
-    "x": 477,
+    "x": 454,
     "y": 66,
     "w": 8,
     "h": 8
@@ -742,7 +722,7 @@
   },
   "peep/eye_smile.png": {
    "frame": {
-    "x": 487,
+    "x": 464,
     "y": 66,
     "w": 13,
     "h": 8
@@ -762,7 +742,7 @@
   },
   "peep/forearm_far/checker.png": {
    "frame": {
-    "x": 502,
+    "x": 479,
     "y": 66,
     "w": 8,
     "h": 8
@@ -782,8 +762,8 @@
   },
   "peep/hand_far/fixed.png": {
    "frame": {
-    "x": 2,
-    "y": 89,
+    "x": 489,
+    "y": 66,
     "w": 7,
     "h": 7
    },
@@ -802,8 +782,8 @@
   },
   "peep/arm_near/hi.png": {
    "frame": {
-    "x": 11,
-    "y": 89,
+    "x": 498,
+    "y": 66,
     "w": 8,
     "h": 6
    },
@@ -822,7 +802,7 @@
   },
   "peep/forearm_far/hi.png": {
    "frame": {
-    "x": 21,
+    "x": 2,
     "y": 89,
     "w": 7,
     "h": 6
@@ -842,7 +822,7 @@
   },
   "peep/arm_near/camo.png": {
    "frame": {
-    "x": 30,
+    "x": 11,
     "y": 89,
     "w": 5,
     "h": 5
@@ -862,7 +842,7 @@
   },
   "peep/hand_far/camo.png": {
    "frame": {
-    "x": 37,
+    "x": 18,
     "y": 89,
     "w": 1,
     "h": 1
@@ -882,7 +862,7 @@
   },
   "peep/hand_far/shade.png": {
    "frame": {
-    "x": 40,
+    "x": 21,
     "y": 89,
     "w": 1,
     "h": 1
@@ -908,11 +888,11 @@
   "format": "RGBA8888",
   "size": {
    "w": 512,
-   "h": 98
+   "h": 97
   },
   "scale": "2",
   "texelsPerUnit": 0.3885947046843177,
-  "drop": "peep-animations-v15",
+  "drop": "peep-animations-v16",
   "finish": {
    "boot_far": {
     "group": "limbs",

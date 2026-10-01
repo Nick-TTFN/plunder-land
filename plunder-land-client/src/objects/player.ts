@@ -163,11 +163,11 @@ export default class Player extends Unit {
   }
 
   /**
-   * Your own robot's gun and eye follow the mouse (Nick, 2026-09-30): the
+   * Your own robot's head and eye follow the mouse (Nick, 2026-09-30): the
    * facing flips to the mouse's side, and the aim is the angle on screen,
    * clamped by the rig to +-60, so straight up and down are small dead zones.
    * `point` undefined (no mouse over the world, or touch) gives the facing
-   * back to movement and levels the gun. An action's own aim wins while it
+   * back to movement and levels the look. An action's own aim wins while it
    * plays. Other players' aim isn't on the wire; they aim only in actions.
    */
   aimAt (point: { x: number, y: number } | undefined): void {
@@ -184,12 +184,12 @@ export default class Player extends Unit {
   static readonly AIM_FLIP_DEADBAND = 6
 
   /**
-   * Facing and aim angle from the gun's shoulder to a world point, on screen:
+   * Facing and aim angle from the eye (the shot's origin) to a world point, on screen:
    * the tilt squashes y, and the robot stands up from its feet.
    */
   private aimToward (point: { x: number, y: number }, keep: 1 | -1 | undefined): { aim: number, facing: 1 | -1 | undefined } {
     const dx = point.x - this.x
-    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - (this.robot?.shoulderPx ?? 0))
+    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - (this.robot?.aimPx ?? 0))
     const facing = Math.abs(dx) < Player.AIM_FLIP_DEADBAND ? keep : dx < 0 ? -1 : 1
     const aim = Math.atan2(-dy, Math.max(Math.abs(dx), 1e-6)) * 180 / Math.PI
     return { aim, facing }
@@ -204,6 +204,11 @@ export default class Player extends Unit {
    */
   setLabel (text: string, own: boolean = false): void {
     this.panel.setName(text, own)
+  }
+
+  eyeGlobal (): Point | undefined {
+    // Gone 3 s after a death; a shot fired just before can still be waiting.
+    return this.robot !== undefined && !this.robot.destroyed ? this.robot.eyeGlobal() : undefined
   }
 
   onArmor (): void {

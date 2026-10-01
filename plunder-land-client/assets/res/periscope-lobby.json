@@ -140,7 +140,7 @@
     "h": 72
    }
   },
-  "periscope-lobby/sensor/shade.png": {
+  "periscope-lobby/sensor/camo.png": {
    "frame": {
     "x": 144,
     "y": 97,
@@ -160,10 +160,30 @@
     "h": 72
    }
   },
-  "periscope-lobby/sensor/zebra.png": {
+  "periscope-lobby/sensor/shade.png": {
    "frame": {
     "x": 283,
     "y": 97,
+    "w": 137,
+    "h": 71
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 0,
+    "w": 137,
+    "h": 71
+   },
+   "sourceSize": {
+    "w": 140,
+    "h": 72
+   }
+  },
+  "periscope-lobby/sensor/zebra.png": {
+   "frame": {
+    "x": 2,
+    "y": 171,
     "w": 135,
     "h": 71
    },
@@ -182,7 +202,7 @@
   },
   "periscope-lobby/sensor/checker.png": {
    "frame": {
-    "x": 2,
+    "x": 139,
     "y": 171,
     "w": 137,
     "h": 70
@@ -200,29 +220,9 @@
     "h": 72
    }
   },
-  "periscope-lobby/sensor/camo.png": {
-   "frame": {
-    "x": 141,
-    "y": 171,
-    "w": 128,
-    "h": 69
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 10,
-    "y": 2,
-    "w": 128,
-    "h": 69
-   },
-   "sourceSize": {
-    "w": 140,
-    "h": 72
-   }
-  },
   "periscope-lobby/sensor/hi.png": {
    "frame": {
-    "x": 271,
+    "x": 278,
     "y": 171,
     "w": 136,
     "h": 68
@@ -240,9 +240,29 @@
     "h": 72
    }
   },
+  "periscope-lobby/neck/camo.png": {
+   "frame": {
+    "x": 416,
+    "y": 171,
+    "w": 26,
+    "h": 63
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 26,
+    "h": 63
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 63
+   }
+  },
   "periscope-lobby/neck/fixed.png": {
    "frame": {
-    "x": 409,
+    "x": 444,
     "y": 171,
     "w": 28,
     "h": 63
@@ -262,7 +282,7 @@
   },
   "periscope-lobby/neck/shade.png": {
    "frame": {
-    "x": 439,
+    "x": 474,
     "y": 171,
     "w": 27,
     "h": 63
@@ -282,8 +302,8 @@
   },
   "periscope-lobby/neck/checker.png": {
    "frame": {
-    "x": 468,
-    "y": 171,
+    "x": 2,
+    "y": 244,
     "w": 26,
     "h": 62
    },
@@ -302,8 +322,8 @@
   },
   "periscope-lobby/neck/zebra.png": {
    "frame": {
-    "x": 2,
-    "y": 243,
+    "x": 30,
+    "y": 244,
     "w": 27,
     "h": 62
    },
@@ -322,8 +342,8 @@
   },
   "periscope-lobby/neck/hi.png": {
    "frame": {
-    "x": 31,
-    "y": 243,
+    "x": 59,
+    "y": 244,
     "w": 26,
     "h": 61
    },
@@ -342,8 +362,8 @@
   },
   "periscope-lobby/boot_near/fixed.png": {
    "frame": {
-    "x": 59,
-    "y": 243,
+    "x": 87,
+    "y": 244,
     "w": 65,
     "h": 51
    },
@@ -362,8 +382,8 @@
   },
   "periscope-lobby/boot_far/fixed.png": {
    "frame": {
-    "x": 126,
-    "y": 243,
+    "x": 154,
+    "y": 244,
     "w": 59,
     "h": 47
    },
@@ -380,30 +400,10 @@
     "h": 47
    }
   },
-  "periscope-lobby/neck/camo.png": {
-   "frame": {
-    "x": 187,
-    "y": 243,
-    "w": 27,
-    "h": 43
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 20,
-    "w": 27,
-    "h": 43
-   },
-   "sourceSize": {
-    "w": 28,
-    "h": 63
-   }
-  },
   "periscope-lobby/boot_near/checker.png": {
    "frame": {
-    "x": 216,
-    "y": 243,
+    "x": 215,
+    "y": 244,
     "w": 49,
     "h": 37
    },
@@ -422,8 +422,8 @@
   },
   "periscope-lobby/boot_near/shade.png": {
    "frame": {
-    "x": 267,
-    "y": 243,
+    "x": 266,
+    "y": 244,
     "w": 60,
     "h": 37
    },
@@ -442,8 +442,8 @@
   },
   "periscope-lobby/boot_near/zebra.png": {
    "frame": {
-    "x": 329,
-    "y": 243,
+    "x": 328,
+    "y": 244,
     "w": 58,
     "h": 36
    },
@@ -462,8 +462,8 @@
   },
   "periscope-lobby/boot_near/camo.png": {
    "frame": {
-    "x": 389,
-    "y": 243,
+    "x": 388,
+    "y": 244,
     "w": 60,
     "h": 35
    },
@@ -480,30 +480,10 @@
     "h": 51
    }
   },
-  "periscope-lobby/blaster.png": {
-   "frame": {
-    "x": 451,
-    "y": 243,
-    "w": 56,
-    "h": 31
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 56,
-    "h": 31
-   },
-   "sourceSize": {
-    "w": 56,
-    "h": 31
-   }
-  },
   "periscope-lobby/eye_open.png": {
    "frame": {
-    "x": 2,
-    "y": 307,
+    "x": 450,
+    "y": 244,
     "w": 16,
     "h": 27
    },
@@ -522,8 +502,8 @@
   },
   "periscope-lobby/boot_far/camo.png": {
    "frame": {
-    "x": 20,
-    "y": 307,
+    "x": 2,
+    "y": 308,
     "w": 48,
     "h": 26
    },
@@ -542,8 +522,8 @@
   },
   "periscope-lobby/boot_far/checker.png": {
    "frame": {
-    "x": 70,
-    "y": 307,
+    "x": 52,
+    "y": 308,
     "w": 48,
     "h": 26
    },
@@ -562,8 +542,8 @@
   },
   "periscope-lobby/boot_far/shade.png": {
    "frame": {
-    "x": 120,
-    "y": 307,
+    "x": 102,
+    "y": 308,
     "w": 55,
     "h": 26
    },
@@ -582,8 +562,8 @@
   },
   "periscope-lobby/boot_far/zebra.png": {
    "frame": {
-    "x": 177,
-    "y": 307,
+    "x": 159,
+    "y": 308,
     "w": 55,
     "h": 26
    },
@@ -602,8 +582,8 @@
   },
   "periscope-lobby/boot_near/hi.png": {
    "frame": {
-    "x": 234,
-    "y": 307,
+    "x": 216,
+    "y": 308,
     "w": 56,
     "h": 26
    },
@@ -622,8 +602,8 @@
   },
   "periscope-lobby/shin.png": {
    "frame": {
-    "x": 292,
-    "y": 307,
+    "x": 274,
+    "y": 308,
     "w": 16,
     "h": 25
    },
@@ -642,8 +622,8 @@
   },
   "periscope-lobby/thigh.png": {
    "frame": {
-    "x": 310,
-    "y": 307,
+    "x": 292,
+    "y": 308,
     "w": 17,
     "h": 25
    },
@@ -662,8 +642,8 @@
   },
   "periscope-lobby/boot_far/hi.png": {
    "frame": {
-    "x": 329,
-    "y": 307,
+    "x": 311,
+    "y": 308,
     "w": 47,
     "h": 24
    },
@@ -680,30 +660,10 @@
     "h": 47
    }
   },
-  "periscope-lobby/mount.png": {
-   "frame": {
-    "x": 378,
-    "y": 307,
-    "w": 24,
-    "h": 17
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 24,
-    "h": 17
-   },
-   "sourceSize": {
-    "w": 24,
-    "h": 17
-   }
-  },
   "periscope-lobby/eye_smile.png": {
    "frame": {
-    "x": 404,
-    "y": 307,
+    "x": 360,
+    "y": 308,
     "w": 13,
     "h": 9
    },
@@ -722,8 +682,8 @@
   },
   "periscope-lobby/reflection.png": {
    "frame": {
-    "x": 419,
-    "y": 307,
+    "x": 375,
+    "y": 308,
     "w": 5,
     "h": 6
    },
@@ -752,7 +712,7 @@
   },
   "scale": "2",
   "texelsPerUnit": 1.3307535641547863,
-  "drop": "periscope-animations-v1",
+  "drop": "periscope-animations-v3",
   "finish": {
    "boot_far": {
     "group": "limbs",

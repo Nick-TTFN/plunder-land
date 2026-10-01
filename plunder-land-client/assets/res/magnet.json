@@ -720,29 +720,9 @@
     "h": 20
    }
   },
-  "magnet/blaster.png": {
-   "frame": {
-    "x": 261,
-    "y": 114,
-    "w": 18,
-    "h": 10
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 18,
-    "h": 10
-   },
-   "sourceSize": {
-    "w": 18,
-    "h": 10
-   }
-  },
   "magnet/boot_far/hi.png": {
    "frame": {
-    "x": 281,
+    "x": 261,
     "y": 114,
     "w": 20,
     "h": 10
@@ -762,7 +742,7 @@
   },
   "magnet/forearm_far/camo.png": {
    "frame": {
-    "x": 303,
+    "x": 283,
     "y": 114,
     "w": 8,
     "h": 10
@@ -782,7 +762,7 @@
   },
   "magnet/forearm_far/shade.png": {
    "frame": {
-    "x": 313,
+    "x": 293,
     "y": 114,
     "w": 10,
     "h": 10
@@ -802,7 +782,7 @@
   },
   "magnet/forearm_far/zebra.png": {
    "frame": {
-    "x": 325,
+    "x": 305,
     "y": 114,
     "w": 9,
     "h": 10
@@ -822,7 +802,7 @@
   },
   "magnet/visor_reflection.png": {
    "frame": {
-    "x": 336,
+    "x": 316,
     "y": 114,
     "w": 8,
     "h": 10
@@ -842,7 +822,7 @@
   },
   "magnet/arm_near/checker.png": {
    "frame": {
-    "x": 346,
+    "x": 326,
     "y": 114,
     "w": 9,
     "h": 9
@@ -862,7 +842,7 @@
   },
   "magnet/eye_smile.png": {
    "frame": {
-    "x": 357,
+    "x": 337,
     "y": 114,
     "w": 16,
     "h": 9
@@ -882,7 +862,7 @@
   },
   "magnet/forearm_far/checker.png": {
    "frame": {
-    "x": 375,
+    "x": 355,
     "y": 114,
     "w": 9,
     "h": 9
@@ -902,7 +882,7 @@
   },
   "magnet/forearm_far/hi.png": {
    "frame": {
-    "x": 386,
+    "x": 366,
     "y": 114,
     "w": 9,
     "h": 7
@@ -922,7 +902,7 @@
   },
   "magnet/arm_near/hi.png": {
    "frame": {
-    "x": 397,
+    "x": 377,
     "y": 114,
     "w": 8,
     "h": 6
@@ -942,7 +922,7 @@
   },
   "magnet/arm_near/camo.png": {
    "frame": {
-    "x": 407,
+    "x": 387,
     "y": 114,
     "w": 6,
     "h": 5
@@ -972,7 +952,7 @@
   },
   "scale": "2",
   "texelsPerUnit": 0.4317718940936864,
-  "drop": "magnet-animations-v2",
+  "drop": "magnet-animations-v3",
   "finish": {
    "boot_far": {
     "group": "limbs",

@@ -400,29 +400,9 @@
     "h": 42
    }
   },
-  "peep-lobby/blaster.png": {
-   "frame": {
-    "x": 198,
-    "y": 333,
-    "w": 49,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 49,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 49,
-    "h": 27
-   }
-  },
   "peep-lobby/forearm_far/fixed.png": {
    "frame": {
-    "x": 249,
+    "x": 198,
     "y": 333,
     "w": 23,
     "h": 27
@@ -442,7 +422,7 @@
   },
   "peep-lobby/boot_far/camo.png": {
    "frame": {
-    "x": 274,
+    "x": 223,
     "y": 333,
     "w": 40,
     "h": 22
@@ -462,7 +442,7 @@
   },
   "peep-lobby/boot_far/checker.png": {
    "frame": {
-    "x": 316,
+    "x": 265,
     "y": 333,
     "w": 40,
     "h": 22
@@ -482,7 +462,7 @@
   },
   "peep-lobby/boot_far/shade.png": {
    "frame": {
-    "x": 358,
+    "x": 307,
     "y": 333,
     "w": 46,
     "h": 22
@@ -502,7 +482,7 @@
   },
   "peep-lobby/boot_far/zebra.png": {
    "frame": {
-    "x": 406,
+    "x": 355,
     "y": 333,
     "w": 45,
     "h": 22
@@ -522,7 +502,7 @@
   },
   "peep-lobby/boot_near/hi.png": {
    "frame": {
-    "x": 453,
+    "x": 402,
     "y": 333,
     "w": 46,
     "h": 22
@@ -542,8 +522,8 @@
   },
   "peep-lobby/arm_near/shade.png": {
    "frame": {
-    "x": 2,
-    "y": 365,
+    "x": 450,
+    "y": 333,
     "w": 20,
     "h": 21
    },
@@ -562,8 +542,8 @@
   },
   "peep-lobby/arm_near/zebra.png": {
    "frame": {
-    "x": 24,
-    "y": 365,
+    "x": 472,
+    "y": 333,
     "w": 20,
     "h": 21
    },
@@ -582,7 +562,7 @@
   },
   "peep-lobby/forearm_far/camo.png": {
    "frame": {
-    "x": 46,
+    "x": 2,
     "y": 365,
     "w": 17,
     "h": 21
@@ -602,7 +582,7 @@
   },
   "peep-lobby/forearm_far/shade.png": {
    "frame": {
-    "x": 65,
+    "x": 21,
     "y": 365,
     "w": 19,
     "h": 21
@@ -622,7 +602,7 @@
   },
   "peep-lobby/shin.png": {
    "frame": {
-    "x": 86,
+    "x": 42,
     "y": 365,
     "w": 13,
     "h": 21
@@ -642,7 +622,7 @@
   },
   "peep-lobby/boot_far/hi.png": {
    "frame": {
-    "x": 101,
+    "x": 57,
     "y": 365,
     "w": 41,
     "h": 20
@@ -662,7 +642,7 @@
   },
   "peep-lobby/thigh.png": {
    "frame": {
-    "x": 144,
+    "x": 100,
     "y": 365,
     "w": 14,
     "h": 20
@@ -682,7 +662,7 @@
   },
   "peep-lobby/eye_smile.png": {
    "frame": {
-    "x": 160,
+    "x": 116,
     "y": 365,
     "w": 31,
     "h": 19
@@ -702,7 +682,7 @@
   },
   "peep-lobby/forearm_far/zebra.png": {
    "frame": {
-    "x": 193,
+    "x": 149,
     "y": 365,
     "w": 18,
     "h": 19
@@ -722,7 +702,7 @@
   },
   "peep-lobby/forearm_far/checker.png": {
    "frame": {
-    "x": 213,
+    "x": 169,
     "y": 365,
     "w": 17,
     "h": 18
@@ -742,7 +722,7 @@
   },
   "peep-lobby/arm_near/checker.png": {
    "frame": {
-    "x": 232,
+    "x": 188,
     "y": 365,
     "w": 17,
     "h": 17
@@ -762,7 +742,7 @@
   },
   "peep-lobby/visor_reflection.png": {
    "frame": {
-    "x": 251,
+    "x": 207,
     "y": 365,
     "w": 14,
     "h": 15
@@ -782,7 +762,7 @@
   },
   "peep-lobby/hand_far/fixed.png": {
    "frame": {
-    "x": 267,
+    "x": 223,
     "y": 365,
     "w": 16,
     "h": 14
@@ -802,7 +782,7 @@
   },
   "peep-lobby/arm_near/hi.png": {
    "frame": {
-    "x": 285,
+    "x": 241,
     "y": 365,
     "w": 17,
     "h": 13
@@ -822,7 +802,7 @@
   },
   "peep-lobby/forearm_far/hi.png": {
    "frame": {
-    "x": 304,
+    "x": 260,
     "y": 365,
     "w": 18,
     "h": 13
@@ -842,7 +822,7 @@
   },
   "peep-lobby/arm_near/camo.png": {
    "frame": {
-    "x": 324,
+    "x": 280,
     "y": 365,
     "w": 11,
     "h": 9
@@ -862,7 +842,7 @@
   },
   "peep-lobby/hand_far/camo.png": {
    "frame": {
-    "x": 337,
+    "x": 293,
     "y": 365,
     "w": 1,
     "h": 1
@@ -882,7 +862,7 @@
   },
   "peep-lobby/hand_far/shade.png": {
    "frame": {
-    "x": 340,
+    "x": 296,
     "y": 365,
     "w": 1,
     "h": 1
@@ -912,7 +892,7 @@
   },
   "scale": "2",
   "texelsPerUnit": 0.8871690427698575,
-  "drop": "peep-animations-v15",
+  "drop": "peep-animations-v16",
   "finish": {
    "boot_far": {
     "group": "limbs",

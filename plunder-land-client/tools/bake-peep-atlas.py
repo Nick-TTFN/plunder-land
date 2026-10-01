@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 """
 Bake a robot's rig parts into `assets/res/<robot>.png` + `<robot>.json`
-(2026-09-30): Peep (`peep.json`) and Magnet (`magnet.json`, magnet-rig #42).
+(2026-09-30): Peep (`peep.json`), Magnet (`magnet.json`, magnet-rig #42),
+Periscope (#43), and since the eye-firing drops (2026-10-01, which took every
+gun away) Hopper and Waddle.
 
-The source is the v15 rig drop, which is not checked in (like the other art
-drops): its finish material maps, a few parts that carry no finish, and the
-eye sprites.
+The source is the robot's rig drop, which is not checked in (like the other
+art drops): its finish material maps, a few parts that carry no finish, and
+the eye sprites.
 
     <drop>/materials/neutral|masks|lighting/<art>.png   every finished part
     <drop>/materials/pattern-data/<pattern>/<art>.png    zebra, checker, camo
-    <drop>/composed/<art>.png         thigh, shin, blaster (no paint group)
-    <drop>/eye/open.png, smile.png    the eye, in the head art's pixels (144 x 198)
+    <drop>/composed/<art>.png         thigh, shin (no paint group)
+    <drop>/eye/open.png, smile.png    the eye (Peep's: in the head art's pixels, 144 x 198)
     <drop>/eye/visor-reflection.png   over the eye, the head art's size
 
     python3 tools/bake-peep-atlas.py [drop-dir]             # Peep
-    python3 tools/bake-peep-atlas.py magnet [drop-dir]      # Magnet
+    python3 tools/bake-peep-atlas.py magnet [drop-dir]      # or periscope, hopper, waddle
     python3 tools/bake-peep-atlas.py magnet --lobby         # magnet-lobby.json
+
+The eye shot (rings and dot) and Hopper's spring are drawn by the client, not
+baked.
 
 `--lobby` bakes the same parts at `LOBBY_DENSITY` times the density into
 `<robot>-lobby.png` / `.json`, frames `<robot>-lobby/...`: the lobby draws its
@@ -105,15 +110,13 @@ PEEP_ARTS = {
     'arm_near': ('composed/arm_near.png', (28, 39)),
     'head': ('composed/head.png', (178, 159)),
     'hand_far': ('composed/hand_far.png', (29, 35)),
-    'blaster': ('composed/blaster.png', (55, 30)),
     'eye_open': ('eye/open.png', (144 * 178 / 428, 198 * 159 / 388)),
     'eye_smile': ('eye/smile.png', (144 * 178 / 428, 198 * 159 / 388)),
     'visor_reflection': ('eye/visor-reflection.png', (178, 159)),
 }
 
 # `REGIONS` in src/magnet/rig.ts: the thighs are 16 and 17 wide, the shins 15
-# and 16, the blaster is drawn at 0.76. Magnet has no hand_far; its far arm
-# ends in the magnet.
+# and 16. Magnet has no hand_far; its far arm ends in the magnet.
 MAGNET_ARTS = {
     'thigh': ('composed/thigh.png', (17, 29)),
     'shin': ('composed/shin.png', (16, 30)),
@@ -124,7 +127,6 @@ MAGNET_ARTS = {
     'torso': ('composed/torso.png', (80, 77)),
     'arm_near': ('composed/arm_near.png', (28, 39)),
     'head': ('composed/head.png', (178, 159)),
-    'blaster': ('composed/blaster.png', (55 * 0.76, 30 * 0.76)),
     'eye_open': ('eye/open.png', (144 * 178 / 428, 198 * 159 / 388)),
     'eye_smile': ('eye/smile.png', (144 * 178 / 428, 198 * 159 / 388)),
     'visor_reflection': ('eye/visor-reflection.png', (178, 159)),
@@ -139,12 +141,32 @@ PERISCOPE_ARTS = {
     'boot_near': ('composed/boot_near.png', (50, 38.4)),
     'neck': ('composed/neck.png', (21, 47)),
     'chassis': ('composed/chassis.png', (64, 70)),
-    'mount': ('composed/mount.png', (18, 13)),
-    'blaster': ('composed/blaster.png', (42, 23)),
     'sensor': ('composed/sensor.png', (105, 54)),
     'eye_open': ('eye/open.png', (16, 29)),
     'eye_smile': ('eye/smile.png', (16, 29)),
     'reflection': ('eye/reflection.png', (3.7, 4.6)),
+}
+
+# `REGIONS` in src/hopper/rig.ts. The spring is stroked by the client, so its
+# art isn't baked; the eye goes into a 38 x 52 box in the head's space.
+HOPPER_ARTS = {
+    'boot_near': ('composed/boot_near.png', (70, 47)),
+    'head': ('composed/head.png', (112, 101)),
+    'eye_open': ('eye/open.png', (38, 52)),
+    'eye_smile': ('eye/smile.png', (38, 52)),
+}
+
+# `REGIONS` in src/waddle/rig.ts: one flipper art for both sides (the far one
+# mirrored), two eyes from one art, each a 22 x 36 box in the shell's space.
+WADDLE_ARTS = {
+    'thigh': ('composed/thigh.png', (17, 23)),
+    'shin': ('composed/shin.png', (16, 23)),
+    'boot_far': ('composed/boot_far.png', (60, 42)),
+    'boot_near': ('composed/boot_near.png', (66, 46)),
+    'flipper': ('composed/flipper.png', (66, 57)),
+    'shell': ('composed/shell.png', (144, 156)),
+    'eye_open': ('eye/open.png', (22, 36)),
+    'eye_smile': ('eye/smile.png', (22, 36)),
 }
 
 # Drawn bigger than Peep's px per rig unit by this much, so baked denser by it
@@ -152,9 +174,11 @@ PERISCOPE_ARTS = {
 DRAW_SCALE = {'periscope': 1.35, 'peep': 0.9}
 
 ROBOTS = {
-    'peep': ('peep-animations-v15', PEEP_ARTS),
-    'magnet': ('magnet-animations-v2', MAGNET_ARTS),
-    'periscope': ('periscope-animations-v1', PERISCOPE_ARTS),
+    'peep': ('peep-animations-v16', PEEP_ARTS),
+    'magnet': ('magnet-animations-v3', MAGNET_ARTS),
+    'periscope': ('periscope-animations-v3', PERISCOPE_ARTS),
+    'hopper': ('hopper-animations-v2', HOPPER_ARTS),
+    'waddle': ('waddle-animations-v2', WADDLE_ARTS),
 }
 
 PATTERNS = ('zebra', 'checker', 'camo')
@@ -195,8 +219,15 @@ def group_of(mask):
 
 def layers(source, art, size):
     """
-    A finished part's layers at `size`, each (rgb, alpha) in 0-1, in draw
-    order, plus its group; None if the part has no paint mask.
+    A finished part's layers at `size`, each (name, rgb, alpha) in 0-1, in
+    draw order, plus its group; None if the part has no paint mask.
+
+    A part painted in more than one group (Hopper's head and Waddle's shell
+    are body and head) gets a shade and patterns per group, named
+    `<group>-shade`, `<group>-<pattern>`, each over that group's pixels only,
+    and its group is 'mixed'; the fixed details and highlights stay one layer
+    each. The groups' paint meets only along antialiased seams, so stacking
+    one group's paint over the other's is the composite but for those seams.
 
     Resampled at full size the drop's composite is `fixed + paint`, premultiplied,
     where `fixed` covers F and paint covers W. Drawn over, the layers under
@@ -219,31 +250,35 @@ def layers(source, art, size):
     w = np.minimum(1, mask[..., 0] + mask[..., 1] + mask[..., 2])
     if not (w > 0).any():
         return None
-    groups = set(group_of(mask)[w > 0].tolist())
-    if len(groups) != 1:
-        sys.exit(f'{art}: painted in {sorted(groups)}; one sprite can take one tint')
-    group = groups.pop()
+    of = group_of(mask)
+    groups = sorted(set(of[w > 0].tolist()))
+    group = groups[0] if len(groups) == 1 else 'mixed'
 
     d = light[..., 0] * 2
     dc = np.minimum(d, 1)
     aw = a * w
     af = a * (1 - w)
-    W = shrink(aw, size)
     F = shrink(af, size)
-    under = np.where(W > EPS, np.clip(W / np.maximum(1 - F, 1e-3), 0, 1), 0)
-    avg = lambda q: shrink(q * aw, size) / np.maximum(W, EPS)
     grey = lambda v: np.repeat(v[..., None], 3, axis=2)
+    pats = {pattern: load(source, f'materials/pattern-data/{pattern}/{art}.png') for pattern in PATTERNS}
 
-    shade = avg(dc)
-    out = [('shade', grey(np.clip(shade, 0, 1)), under)]
-    for pattern in PATTERNS:
-        pat = load(source, f'materials/pattern-data/{pattern}/{art}.png')
-        p = pat[..., 3]
-        if not (p * aw > 0).any():
-            continue
-        alpha = np.clip(avg(dc * p) / np.maximum(shade, EPS), 0, 1)
-        colour = avg(np.clip(d * pat[..., 0], 0, 1) * p) / np.maximum(alpha, EPS)
-        out.append((pattern, grey(np.clip(colour, 0, 1)), alpha * under))
+    out = []
+    for g in groups:
+        prefix = '' if len(groups) == 1 else f'{g}-'
+        awg = aw * (of == g)
+        W = shrink(awg, size)
+        under = np.where(W > EPS, np.clip(W / np.maximum(1 - F, 1e-3), 0, 1), 0)
+        avg = lambda q: shrink(q * awg, size) / np.maximum(W, EPS)
+        shade = avg(dc)
+        out.append((prefix + 'shade', grey(np.clip(shade, 0, 1)), under))
+        for pattern in PATTERNS:
+            pat = pats[pattern]
+            p = pat[..., 3]
+            if not (p * awg > 0).any():
+                continue
+            alpha = np.clip(avg(dc * p) / np.maximum(shade, EPS), 0, 1)
+            colour = avg(np.clip(d * pat[..., 0], 0, 1) * p) / np.maximum(alpha, EPS)
+            out.append((prefix + pattern, grey(np.clip(colour, 0, 1)), alpha * under))
     if F.max() > 1 / 255:
         rgb = np.stack([shrink(neutral[..., c] * af, size) for c in range(3)], axis=2) / np.maximum(F, EPS)[..., None]
         out.append(('fixed', np.clip(rgb, 0, 1), F))
@@ -260,15 +295,20 @@ def compose_reference(source, art, size, finish, clamp_d):
     light = load(source, f'materials/lighting/{art}.png')
     a = neutral[..., 3]
     w = np.minimum(1, mask[..., 0] + mask[..., 1] + mask[..., 2])[..., None]
-    colour, pattern, opacity = finish[group_of(mask)[w[..., 0] > 0][0]]
+    of = group_of(mask)
     d = light[..., 0:1] * 2
     if clamp_d:
         d = np.minimum(d, 1)
-    unlit = np.array(colour, dtype=np.float64) / 255 * np.ones_like(neutral[..., :3])
-    if pattern is not None:
-        pat = load(source, f'materials/pattern-data/{pattern}/{art}.png')
-        pa = pat[..., 3:4] * opacity
-        unlit = unlit * (1 - pa) + pat[..., :3] * pa
+    # Each pixel in its own group's finish.
+    unlit = np.zeros_like(neutral[..., :3])
+    for g in set(of[w[..., 0] > 0].tolist()):
+        colour, pattern, opacity = finish[g]
+        mine = np.array(colour, dtype=np.float64) / 255 * np.ones_like(neutral[..., :3])
+        if pattern is not None:
+            pat = load(source, f'materials/pattern-data/{pattern}/{art}.png')
+            pa = pat[..., 3:4] * opacity
+            mine = mine * (1 - pa) + pat[..., :3] * pa
+        unlit = np.where((of == g)[..., None], mine, unlit)
     painted = np.clip(d * unlit + light[..., 1:2], 0, 1)
     rgb = neutral[..., :3] * (1 - w) + painted * w
     return np.stack([shrink(rgb[..., c] * a, size) for c in range(3)], axis=2), shrink(a, size)
@@ -276,14 +316,17 @@ def compose_reference(source, art, size, finish, clamp_d):
 
 def stack(parts, finish, group):
     """The layers drawn the way the client draws them, premultiplied."""
-    colour, pattern, opacity = finish[group]
     rgb = np.zeros(parts[0][1].shape)
     alpha = np.zeros(parts[0][2].shape)
     for name, layer_rgb, layer_a in parts:
-        if name == 'shade':
+        # A mixed part's paint layers name their group.
+        g, _, kind = name.rpartition('-')
+        if kind == 'shade' or kind in PATTERNS:
+            colour, pattern, opacity = finish[g or group]
+        if kind == 'shade':
             layer_rgb = layer_rgb * np.array(colour) / 255
-        elif name in PATTERNS:
-            if name != pattern:
+        elif kind in PATTERNS:
+            if kind != pattern:
                 continue
             layer_a = layer_a * opacity
         if name == 'hi':
@@ -318,7 +361,8 @@ def check(source, finished):
             got, _ = stack(parts, finish, group)
             want, want_a = compose_reference(source, art, size, finish, True)
             err = np.abs(got - want).max(axis=2) * 255
-            under = parts[0][2]
+            # Every shade's coverage: a mixed part's are one per group.
+            under = sum(layer_a for name, _, layer_a in parts if name.endswith('shade'))
             inner = (want_a > 0.99) & ((under > 0.98) | (under < 0.02))
             inner_err.append(err[inner])
             edge_err.append(err[(want_a > 0.01) & ~inner])

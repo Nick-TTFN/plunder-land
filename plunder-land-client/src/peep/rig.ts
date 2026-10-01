@@ -1,9 +1,13 @@
 import { HULLS } from './hulls'
+import { eyeShotPose, shotClips, type ShotEye } from '../robots/eyeshot'
 
 /**
- * Peep's skeletal rig and its seven clips: a TypeScript port of the v15 drop's
- * `tools/rig.mjs` and `tools/animations.mjs` (codex_output, 2026-09-30), with
- * the Canvas drawing left out. Pose in, bone matrices out; `RobotSprite` draws.
+ * Peep's skeletal rig and its seven clips: a TypeScript port of the v16 drop's
+ * `tools/rig.mjs` and `tools/legacy-motion.mjs` (codex_output, 2026-10-01),
+ * with the Canvas drawing left out, under the eye shot every robot shares
+ * (`src/robots/eyeshot.ts`, its `animations.mjs`). Pose in, bone matrices
+ * out; `RobotSprite` draws. v16 took the gun away: the far hand is bare, the
+ * shot comes from the eye, and aim turns the head, not the arm.
  *
  * **The drop is the authority.** Every number here is copied, not tuned: the
  * rig was validated there (head clearance, planted feet, wrists joined), and
@@ -34,9 +38,14 @@ export interface PoseOptions {
   aimAngle?: number
   /** Where the eye looks, degrees; follows the aim when absent. */
   lookAngle?: number
-  expression?: Expression
+  /** 'shoot' runs the eye shot on the clip's own clock (`eyeshot.ts`). */
+  expression?: Expression | 'shoot'
   /** 0-1 eyelid closure, on its own clock (`blinkClosure`). */
   blink?: number
+  /** Seconds since an eye shot started charging, laid over whatever clip plays (`eyeshot.ts`). */
+  eyeShootTime?: number | null
+  /** Magnet's magnet, apart from the aim; the others ignore it. */
+  magnetAngle?: number
 }
 
 export interface Debris { id: string, x: number, y: number, angle: number, grounded: boolean }
@@ -46,7 +55,7 @@ export interface AnimationInfo {
   time: number
   /** Jump height of the root, for the shadow. */
   height: number
-  /** Muzzle flash, 0-1. */
+  /** The eye shot's burst at the fire, 0-1 (`ShotEye.flash`). */
   flash: number
   eyeOpacity: number
   detached: boolean
@@ -57,6 +66,10 @@ export type RigState = Record<string, Bone> & {
   eye: EyeBone
   controls: Record<string, unknown>
   animation: AnimationInfo
+  /** The eye shot while it shows, else null (`eyeshot.ts`). */
+  shootEye?: ShotEye | null
+  /** Hopper's spring, rig units from the boot to the head. */
+  springLength?: number
 }
 
 export interface Pose { state: RigState, matrices: Record<string, Matrix> }
@@ -65,7 +78,8 @@ export type ClipName = 'idle' | 'run' | 'shoot' | 'hit' | 'swing' | 'jump' | 'fa
 
 export interface Clip { duration: number, loop: boolean, events: Array<{ time: number, name: string }> }
 
-export const CLIPS: Readonly<Record<ClipName | 'reference', Clip>> = {
+/** The body's clips (`legacy-motion.mjs`); its shoot is never played, `CLIPS` has the eye shot's. */
+const BODY_CLIPS: Readonly<Record<ClipName | 'reference', Clip>> = {
   idle: { duration: 2.4, loop: true, events: [] },
   run: { duration: 0.6, loop: true, events: [] },
   shoot: { duration: 0.5, loop: false, events: [{ time: 0.05, name: 'fire' }] },
@@ -145,10 +159,10 @@ function runState (p: number, reference: boolean): Record<string, Bone> {
     },
     arm_near: { x: -29, y: 28, r: reference ? 10 : 10 - 16 * Math.cos(TAU * p + 0.18) },
     arm_far: { x: 29, y: 29, r: reference ? 65 : 65 + 2.1 * Math.sin(TAU * p - 0.3) },
-    weapon: { x: 11.2, y: -20.3, r: 0 },
-    muzzle: { x: 48, y: 0, r: 0 }
+    grip: { x: 11.2, y: -20.3, r: 0 },
+    grip_tip: { x: 48, y: 0, r: 0 }
   }
-  result.weapon.r = reference ? -65 : -result.arm_far.r - body.r + 0.5 * Math.sin(2 * TAU * p - 0.5)
+  result.grip.r = reference ? -65 : -result.arm_far.r - body.r + 0.5 * Math.sin(2 * TAU * p - 0.5)
   for (const [side, shift, x, plane] of [['near', 0, -29, 0], ['far', 0.5, 27, 6]] as const) {
     const f = reference ? { x: 0, y: 0, r: 0, contact: true } : foot(p + shift)
     const ft = { x: x + f.x, y: plane + f.y, r: f.r, contact: f.contact }
@@ -172,7 +186,11 @@ const WRIST_FROM_GRIP = rotate(FOREARM.x - 11.2, FOREARM.y + 20.3, 65)
 const FOREARM_LENGTH = Math.hypot(FOREARM.x, FOREARM.y)
 const FOREARM_AXIS = Math.atan2(FOREARM.y, FOREARM.x) * DEG
 
-/** Each bone and its parent, in an order where a parent precedes its children. */
+/**
+ * Each bone and its parent, in an order where a parent precedes its children.
+ * The drop deletes `grip_tip` (the old muzzle) and adds `eye_muzzle` and
+ * `muzzle` on the head, which `eyeshot.ts` places itself.
+ */
 export const BONE_PARENTS: Readonly<Record<string, string | null>> = {
   root: null,
   body: 'root',
@@ -185,12 +203,13 @@ export const BONE_PARENTS: Readonly<Record<string, string | null>> = {
   arm_far: 'body',
   forearm_far: 'arm_far',
   hand_far: 'forearm_far',
-  weapon: 'hand_far',
-  muzzle: 'weapon',
+  grip: 'hand_far',
   thigh_near: 'root',
   shin_near: 'thigh_near',
   foot_near: 'root',
-  arm_near: 'body'
+  arm_near: 'body',
+  eye_muzzle: 'head',
+  muzzle: 'head'
 }
 
 export function clampAngle (a: number = 0): number {
@@ -219,7 +238,7 @@ function state (p: number, reference: boolean, options: PoseOptions): RigState {
   const oldArm = st.arm_far
   const aim = clampAngle(options.aimAngle)
   const look = clampAngle(options.lookAngle ?? aim)
-  const headTilt = headTiltForAim(aim)
+  const headTilt = headTiltForAim(look)
   const neck = HEAD.neckPivot
   st.neck = { x: neck.x, y: neck.y, r: headTilt }
   st.head = { ...st.head, x: st.head.x - neck.x, y: st.head.y - neck.y }
@@ -238,7 +257,7 @@ function state (p: number, reference: boolean, options: PoseOptions): RigState {
   st.arm_far = { x: oldArm.x, y: oldArm.y, r: shellR - body.r, sx: shellScale, sy: shellScale }
   st.forearm_far = { x: 0, y: 0, r: 0 }
   st.hand_far = { x: FOREARM.x, y: FOREARM.y, r: aim - shellR, sx: 1 / shellScale, sy: 1 / shellScale }
-  st.weapon = { x: -WRIST_FROM_GRIP.x, y: -WRIST_FROM_GRIP.y, r: 0 }
+  st.grip = { x: -WRIST_FROM_GRIP.x, y: -WRIST_FROM_GRIP.y, r: 0 }
   const t = look / 60
   const dxEye = 10 * t - 6 * t * t
   const dyEye = -30.5 * t + 5.5 * t * t
@@ -248,7 +267,7 @@ function state (p: number, reference: boolean, options: PoseOptions): RigState {
     r: 0,
     sx: 1 - 0.08 * Math.abs(t),
     sy: (1 - 0.20 * Math.abs(t)) * (1 - 0.93 * Math.max(0, Math.min(1, options.blink ?? 0))),
-    expression: options.expression ?? 'open'
+    expression: (options.expression as Expression | undefined) ?? 'open'
   }
   st.controls = { aimAngle: aim, lookAngle: look, headTilt, grip, wrist, shoulder, shellScale }
   return st
@@ -258,6 +277,7 @@ export function matrices (st: RigState): Record<string, Matrix> {
   const m: Record<string, Matrix> = {}
   for (const [name, parent] of Object.entries(BONE_PARENTS)) {
     const b = st[name]
+    if (b === undefined) continue
     const r = b.r / DEG
     const a = Math.cos(r) * (b.sx ?? 1)
     const c = -Math.sin(r) * (b.sy ?? 1)
@@ -292,7 +312,7 @@ export interface Region {
   r: number
   sx: number
   sy: number
-  kind?: 'eye'
+  kind?: 'eye' | 'spring'
 }
 
 function at (name: string, bone: string, art: string, w: number, h: number, px = 0.5, py = 0.5, extra: Partial<Region> = {}): Region {
@@ -313,8 +333,7 @@ export const REGIONS: readonly Region[] = [
   at('head', 'head', 'head', 178, 159, 0.5, 1, { x: 3, y: 68 }),
   at('eye', 'eye', 'eye_open', 144 / 428 * 178, 198 / 388 * 159, 0.5, 0.5, { kind: 'eye' }),
   at('visor_reflection', 'head', 'visor_reflection', 178, 159, 0.5, 0.5, { x: 3, y: 68 }),
-  at('hand_far', 'weapon', 'hand_far', 29, 35, 0.5, 0.5, { ...rotate(4.93 - 11.2, -10.5 + 20.3, 65), r: 65 }),
-  at('blaster', 'weapon', 'blaster', 55, 30, 0.12, 0.48)
+  at('hand_far', 'grip', 'hand_far', 29, 35, 0.5, 0.5, { ...rotate(4.93 - 11.2, -10.5 + 20.3, 65), r: 65 })
 ]
 
 /**
@@ -385,9 +404,9 @@ function motionKeys (t: number, keys: Array<[number, number]>): number {
   return keys[keys.length - 1][1]
 }
 
-/** A clip's local time: looping clips wrap, one-shots clamp to their end. */
-export function clipTime (name: ClipName | 'reference', seconds: number): number {
-  const clip = CLIPS[name]
+/** A body clip's local time: looping clips wrap, one-shots clamp to their end. */
+function bodyClipTime (name: ClipName | 'reference', seconds: number): number {
+  const clip = BODY_CLIPS[name]
   const t = Number.isFinite(seconds) ? seconds : 0
   return clip.loop ? ((t % clip.duration) + clip.duration) % clip.duration : motionClamp(t, 0, clip.duration)
 }
@@ -426,7 +445,7 @@ function poseArm (st: RigState, heading: number, arc: number = heading): void {
   const w = motionRotate(FOREARM.x, FOREARM.y, worldR)
   const shoulder = { x: a.x + st.body.x, y: a.y + st.body.y }
   const wrist = { x: shoulder.x + w.x, y: shoulder.y + w.y }
-  const o = motionRotate(st.weapon.x, st.weapon.y, heading)
+  const o = motionRotate(st.grip.x, st.grip.y, heading)
   st.controls = { ...st.controls, aimAngle: heading, shoulder, wrist, grip: { x: wrist.x + o.x, y: wrist.y + o.y }, shellScale: 1 }
 }
 
@@ -446,20 +465,6 @@ function standingPose (name: ClipName, t: number, options: PoseOptions): RigStat
     st.head.y += 0.35 * (Math.sin(p - 0.45) + Math.sin(0.45))
     st.head.r = -0.35 * Math.sin(p)
     st.arm_near.r += 1.8 * Math.sin(p - 0.2) + 1.8 * Math.sin(0.2)
-  }
-  if (name === 'shoot') {
-    const kick = motionKeys(t, [[0, 0], [0.045, 0], [0.09, 1], [0.125, 0.92], [0.20, 0.35], [0.29, -0.11], [0.36, 0.04], [0.5, 0]])
-    const lag = motionKeys(t, [[0, 0], [0.065, 0], [0.125, 1], [0.245, 0.25], [0.34, -0.05], [0.5, 0]])
-    const direction = motionRotate(1, 0, aim)
-    st.body.x -= 6.8 * direction.x * kick
-    st.body.y -= 2.6 * Math.max(0, kick)
-    st.body.r = 9 * direction.x * kick
-    st.head.r = 4 * lag
-    st.arm_near.r -= 18 * kick
-    // Aim stays within +-60; the post-shot kick may briefly lift the barrel higher.
-    heading = motionClamp(aim + 12 * kick, -60, 75)
-    armArc = aim - 20 * kick
-    flash = t >= 0.05 && t < 0.115 ? Math.pow(1 - (t - 0.05) / 0.065, 0.6) : 0
   }
   if (name === 'hit') {
     const flinch = motionKeys(t, [[0, 0], [0.055, 1], [0.115, 0.86], [0.245, -0.12], [0.36, 0.06], [0.6, 0]])
@@ -519,8 +524,17 @@ function standingPose (name: ClipName, t: number, options: PoseOptions): RigStat
   }
   poseLegs(st)
   poseArm(st, heading, armArc)
-  st.neck.r = headTiltForAim(heading)
-  if ((name === 'shoot' || name === 'swing') && heading > 60) st.neck.r += (heading - 60) * 0.5
+  st.neck.r = headTiltForAim(options.lookAngle ?? options.aimAngle)
+  if (name === 'shoot' || name === 'swing') {
+    // Continue the neck-led turn during the larger action arc, with a smooth
+    // clearance bias above +60. Counter forward torso lean when aiming high.
+    // Inert as of v16, as in the drop: `eyeshot.ts` sets Peep's neck from the
+    // look afterwards, and the body is posed at aim 0. Kept so a diff against
+    // the drop's `legacy-motion.mjs` stays clean.
+    const extra = Math.max(0, heading - 60)
+    st.neck.r += extra * 0.5 + 6 * motionSmooth(extra / 15)
+    st.neck.r += Math.max(0, -st.body.r) * motionSmooth((heading - 25) / 35)
+  }
   st.controls.headTilt = st.neck.r
   st.animation = { name, time: t, height, flash, eyeOpacity, detached: false }
   return st
@@ -533,7 +547,7 @@ export const DEBRIS_GROUPS: readonly DebrisGroup[] = [
   { id: 'torso', bones: ['body', 'neck'], vx: 42, vy: 42, spin: 125, bounce: 0.20, floor: 2 },
   { id: 'arm_near', bones: ['arm_near'], vx: -190, vy: 110, spin: -310, bounce: 0.28, floor: 0 },
   { id: 'forearm_far', bones: ['arm_far', 'forearm_far'], vx: 80, vy: 145, spin: 280, bounce: 0.25, floor: 5 },
-  { id: 'blaster', bones: ['weapon', 'hand_far', 'muzzle'], vx: 95, vy: 115, spin: 250, bounce: 0.18, floor: 1 },
+  { id: 'hand_far', bones: ['grip', 'hand_far'], vx: 95, vy: 115, spin: 250, bounce: 0.18, floor: 1 },
   { id: 'thigh_near', bones: ['thigh_near'], vx: -53, vy: 125, spin: -280, bounce: 0.24, floor: 0 },
   { id: 'shin_near', bones: ['shin_near'], vx: -78, vy: 85, spin: 310, bounce: 0.23, floor: 0 },
   { id: 'thigh_far', bones: ['thigh_far'], vx: 49, vy: 100, spin: 290, bounce: 0.22, floor: 5 },
@@ -613,9 +627,9 @@ function detachedPose (t: number, options: PoseOptions): Pose {
   return { state: st, matrices: m }
 }
 
-/** The pose of `name` at `seconds` into it. */
-export function animationPose (name: ClipName | 'reference', seconds: number, options: PoseOptions = {}): Pose {
-  const t = clipTime(name, seconds)
+/** The body's pose: `legacy-motion.mjs`'s `animationPose`. */
+function bodyPose (name: ClipName | 'reference', seconds: number, options: PoseOptions = {}): Pose {
+  const t = bodyClipTime(name, seconds)
   if (name === 'run' || name === 'reference') {
     const st = state(name === 'run' ? t / 0.6 : 0, name === 'reference', options)
     st.animation = { name, time: t, height: 0, flash: 0, eyeOpacity: 1, detached: false }
@@ -625,3 +639,21 @@ export function animationPose (name: ClipName | 'reference', seconds: number, op
   const st = standingPose(name, t, options)
   return { state: st, matrices: matrices(st) }
 }
+
+/** The clips as played: the body's, and the eye shot's `shoot`. */
+export const CLIPS = shotClips(BODY_CLIPS)
+
+/** The pose of `name` at `seconds` into it, eye shot and all. */
+export function animationPose (name: ClipName | 'reference', seconds: number, options: PoseOptions = {}): Pose {
+  return eyeShotPose(PEEP_BODY, CLIPS, name, seconds, options)
+}
+
+const PEEP_BODY = Object.freeze({
+  id: 'peep' as const,
+  clips: BODY_CLIPS,
+  pose: bodyPose,
+  matrices,
+  regions: REGIONS,
+  muzzleParent: 'head',
+  headTiltForAim
+})

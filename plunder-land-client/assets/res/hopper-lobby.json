@@ -1,0 +1,405 @@
+{
+ "frames": {
+  "hopper-lobby/head/fixed.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 108,
+    "h": 98
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 108,
+    "h": 98
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/head-camo.png": {
+   "frame": {
+    "x": 112,
+    "y": 2,
+    "w": 100,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 1,
+    "w": 100,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/head-checker.png": {
+   "frame": {
+    "x": 214,
+    "y": 2,
+    "w": 98,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 1,
+    "w": 98,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/head-shade.png": {
+   "frame": {
+    "x": 314,
+    "y": 2,
+    "w": 100,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 1,
+    "w": 100,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/head-zebra.png": {
+   "frame": {
+    "x": 2,
+    "y": 102,
+    "w": 98,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 1,
+    "w": 98,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/hi.png": {
+   "frame": {
+    "x": 102,
+    "y": 102,
+    "w": 94,
+    "h": 56
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 2,
+    "w": 94,
+    "h": 56
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/boot_near/fixed.png": {
+   "frame": {
+    "x": 198,
+    "y": 102,
+    "w": 67,
+    "h": 46
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 67,
+    "h": 46
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 46
+   }
+  },
+  "hopper-lobby/eye_open.png": {
+   "frame": {
+    "x": 267,
+    "y": 102,
+    "w": 28,
+    "h": 35
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 8,
+    "w": 28,
+    "h": 35
+   },
+   "sourceSize": {
+    "w": 37,
+    "h": 51
+   }
+  },
+  "hopper-lobby/head/body-camo.png": {
+   "frame": {
+    "x": 297,
+    "y": 102,
+    "w": 82,
+    "h": 27
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 18,
+    "y": 72,
+    "w": 82,
+    "h": 27
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/body-checker.png": {
+   "frame": {
+    "x": 381,
+    "y": 102,
+    "w": 83,
+    "h": 27
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 17,
+    "y": 72,
+    "w": 83,
+    "h": 27
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/body-shade.png": {
+   "frame": {
+    "x": 2,
+    "y": 178,
+    "w": 83,
+    "h": 27
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 17,
+    "y": 72,
+    "w": 83,
+    "h": 27
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/head/body-zebra.png": {
+   "frame": {
+    "x": 87,
+    "y": 178,
+    "w": 78,
+    "h": 27
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 21,
+    "y": 72,
+    "w": 78,
+    "h": 27
+   },
+   "sourceSize": {
+    "w": 110,
+    "h": 100
+   }
+  },
+  "hopper-lobby/boot_near/checker.png": {
+   "frame": {
+    "x": 167,
+    "y": 178,
+    "w": 51,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 12,
+    "w": 51,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 46
+   }
+  },
+  "hopper-lobby/boot_near/shade.png": {
+   "frame": {
+    "x": 220,
+    "y": 178,
+    "w": 62,
+    "h": 26
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 12,
+    "w": 62,
+    "h": 26
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 46
+   }
+  },
+  "hopper-lobby/boot_near/camo.png": {
+   "frame": {
+    "x": 284,
+    "y": 178,
+    "w": 62,
+    "h": 25
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 62,
+    "h": 25
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 46
+   }
+  },
+  "hopper-lobby/boot_near/zebra.png": {
+   "frame": {
+    "x": 348,
+    "y": 178,
+    "w": 59,
+    "h": 25
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 59,
+    "h": 25
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 46
+   }
+  },
+  "hopper-lobby/boot_near/hi.png": {
+   "frame": {
+    "x": 409,
+    "y": 178,
+    "w": 57,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 13,
+    "w": 57,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 69,
+    "h": 46
+   }
+  },
+  "hopper-lobby/eye_smile.png": {
+   "frame": {
+    "x": 468,
+    "y": 178,
+    "w": 21,
+    "h": 12
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 8,
+    "y": 21,
+    "w": 21,
+    "h": 12
+   },
+   "sourceSize": {
+    "w": 37,
+    "h": 51
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-peep-atlas.py",
+  "version": "1.0",
+  "image": "hopper-lobby.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 512,
+   "h": 207
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.9857433808553973,
+  "drop": "hopper-animations-v2",
+  "finish": {
+   "boot_near": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "head": {
+    "group": "mixed",
+    "layers": [
+     "body-shade",
+     "body-zebra",
+     "body-checker",
+     "body-camo",
+     "head-shade",
+     "head-zebra",
+     "head-checker",
+     "head-camo",
+     "fixed",
+     "hi"
+    ]
+   }
+  }
+ }
+}

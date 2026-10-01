@@ -1,32 +1,36 @@
 import { HULLS } from './hulls'
+import { eyeShotPose, shotClips } from '../robots/eyeshot'
 import {
   type AnimationInfo, type Bone, type ClipName, type Debris, type EyeBone, type Matrix, type Pose,
-  type PoseOptions, type Region, type RigState, blinkClosure, multiply, regionMatrix
+  type PoseOptions, type Region, type RigState, type Expression, blinkClosure, multiply, regionMatrix
 } from '../peep/rig'
 
 export { blinkClosure, regionMatrix }
 
 /**
- * Periscope's skeletal rig and its seven clips: a TypeScript port of the v1
- * drop's `tools/rig.mjs` and `tools/animations.mjs`
- * (`codex_output/periscope-animations-v1`, 2026-10-01), with the Canvas drawing
- * left out, like Peep's and Magnet's, whose types and region maths it shares.
+ * Periscope's skeletal rig and its seven clips: a TypeScript port of the v3
+ * drop's `tools/rig.mjs` and `tools/legacy-motion.mjs`
+ * (`codex_output/periscope-animations-v3`, 2026-10-01; its body is v1's with
+ * the gun taken out), with the Canvas drawing left out, like Peep's and
+ * Magnet's, whose types and region maths it shares, under the eye shot every
+ * robot shares (`src/robots/eyeshot.ts`).
  *
  * **The drop is the authority.** Every number is copied, not tuned;
- * `periscoperig.spec.ts` (server) checks this port against poses sampled from
+ * `robotrigs.spec.ts` (server) checks this port against poses sampled from
  * the drop's own modules (`tools/peep-rig-sync.mjs periscope`).
  *
  * Periscope differs in anatomy: a sensor head on a two-section neck that leans
- * back to look up, legs that bend at a short knee, and a gun on a side mount
- * (aim origin the mount, 64 up), which also makes the melee strike. Its eye
- * lives in the sensor's own space (`eyeMatrix`), a 16 x 29 image, not in Peep's
- * head-art pixels.
+ * back to look up, and legs that bend at a short knee. Its gun on a side mount
+ * went in v3; the swing is now the chassis's weight and the sensor's
+ * follow-through (`eyeshot.ts`). Its eye lives in the sensor's own space
+ * (`eyeMatrix`), a 16 x 29 image, not in Peep's head-art pixels.
  */
 
 const TAU = 2 * Math.PI
 const DEG = Math.PI / 180
 
-export const CLIPS: Readonly<Record<ClipName | 'reference', { duration: number, loop: boolean, events: Array<{ time: number, name: string }> }>> = {
+/** The body's clips (`legacy-motion.mjs`); its shoot is never played, `CLIPS` has the eye shot's. */
+const BODY_CLIPS: Readonly<Record<ClipName | 'reference', { duration: number, loop: boolean, events: Array<{ time: number, name: string }> }>> = {
   reference: { duration: 1, loop: false, events: [] },
   idle: { duration: 2.4, loop: true, events: [] },
   run: { duration: 38 / 60, loop: true, events: [] },
@@ -56,7 +60,7 @@ const LENS = { x: 67, y: 16.5 }
 const NECK_BASE = { x: -3, y: 26 }
 const MOUNT = { x: 25, y: -16 }
 const GRIP = { x: 6, y: 0 }
-const MUZZLE = { x: 38, y: 0 }
+const GRIP_TIP = { x: 38, y: 0 }
 
 /** Parent before child: `matrices` walks this in order. */
 export const BONE_PARENTS: Readonly<Record<string, string | null>> = {
@@ -72,9 +76,10 @@ export const BONE_PARENTS: Readonly<Record<string, string | null>> = {
   thigh_near: 'root',
   shin_near: 'thigh_near',
   foot_near: 'root',
-  mount: 'body',
-  weapon: 'mount',
-  muzzle: 'weapon'
+  // The drop deletes mount, grip and grip_tip (the gun) and adds these,
+  // which `eyeshot.ts` places itself.
+  eye_muzzle: 'sensor',
+  muzzle: 'sensor'
 }
 
 function hermite (a: number, b: number, va: number, vb: number, t: number): number {
@@ -131,11 +136,11 @@ function poseUpper (st: RigState, options: PoseOptions = {}, phase = 0, moving =
     r: 0,
     sx: 1 - 0.06 * Math.abs(look / 60),
     sy: (1 - 0.94 * Math.max(0, Math.min(1, options.blink ?? 0))),
-    expression: options.expression ?? 'open'
+    expression: (options.expression as Expression | undefined) ?? 'open'
   }
   st.mount = { ...MOUNT, r: aim - st.body.r }
-  st.weapon = { ...GRIP, r: 0 }
-  st.muzzle = { ...MUZZLE, r: 0 }
+  st.grip = { ...GRIP, r: 0 }
+  st.grip_tip = { ...GRIP_TIP, r: 0 }
   st.controls = { aimAngle: aim, lookAngle: look, sensorPitch: pitch, headTilt: pitch }
 }
 
@@ -173,8 +178,6 @@ export const REGIONS: readonly Region[] = [
   at('neck_lower', 'neck_lower', 'neck', 21, 47, 0.5, 0.91),
   at('neck_upper', 'neck_upper', 'neck', 21, 47, 0.5, 0.91),
   at('chassis', 'body', 'chassis', 64, 70),
-  at('mount', 'mount', 'mount', 18, 13, 0.5, 0.3, { r: -90 }),
-  at('blaster', 'weapon', 'blaster', 42, 23, 0.12, 0.48),
   at('sensor', 'sensor', 'sensor', 105, 54, 0.24, 0.88),
   at('eye', 'eye', 'eye_open', 16, 29, 0.5, 0.5, { kind: 'eye' }),
   at('reflection', 'sensor', 'reflection', 3.7, 4.6, 0.5, 0.5, { x: 70, y: 27 })
@@ -199,6 +202,7 @@ export function matrices (st: RigState): Record<string, Matrix> {
   for (const name in BONE_PARENTS) {
     const parent = BONE_PARENTS[name]
     const b = st[name]
+    if (b === undefined) continue
     const r = b.r * DEG
     const a = Math.cos(r) * (b.sx ?? 1)
     const c = -Math.sin(r) * (b.sy ?? 1)
@@ -237,8 +241,8 @@ function motionKeys (t: number, keys: Array<[number, number]>): number {
   return keys[keys.length - 1][1]
 }
 
-export function clipTime (name: ClipName | 'reference', t: number): number {
-  const c = CLIPS[name]
+function bodyClipTime (name: ClipName | 'reference', t: number): number {
+  const c = BODY_CLIPS[name]
   t = Number.isFinite(t) ? t : 0
   return c.loop ? ((t % c.duration) + c.duration) % c.duration : motionClamp(t, 0, c.duration)
 }
@@ -249,25 +253,14 @@ function standingPose (name: ClipName, t: number, options: PoseOptions): RigStat
   let head = 0
   let gun = 0
   let height = 0
-  let flash = 0
+  const flash = 0
   let squeeze = 0
   if (name === 'idle') {
-    const a = MTWO * t / CLIPS.idle.duration
+    const a = MTWO * t / BODY_CLIPS.idle.duration
     st.body.y += 0.45 * Math.sin(a)
     st.body.r = 0.3 * Math.sin(a)
     neck = 0.6 * (Math.sin(a - 0.3) + Math.sin(0.3))
     head = -0.25 * Math.sin(a)
-  }
-  if (name === 'shoot') {
-    const k = motionKeys(t, [[0, 0], [0.05, 0], [0.085, 1], [0.14, 0.7], [0.25, -0.12], [0.38, 0.035], [0.55, 0]])
-    const lag = motionKeys(t, [[0, 0], [0.075, 0], [0.16, 1], [0.29, -0.18], [0.42, 0.05], [0.55, 0]])
-    st.body.x = -3 * k
-    st.body.y -= 2 * Math.max(k, 0)
-    st.body.r = 4 * k
-    neck = 5 * lag
-    head = -3 * lag
-    gun = 12 * k
-    flash = t >= 0.05 && t < 0.115 ? (1 - (t - 0.05) / 0.065) ** 0.6 : 0
   }
   if (name === 'swing') {
     const wind = motionKeys(t, [[0, 0], [0.24, 1], [0.29, 1], [0.40, -1], [0.49, -0.85], [0.72, 0.12], [1, 0]])
@@ -326,8 +319,6 @@ export const DEBRIS_GROUPS: readonly DebrisGroup[] = [
   { id: 'chassis', bones: ['body'], vx: 22, vy: 36, spin: 90, bounce: 0.14, floor: 1 },
   { id: 'neck_lower', bones: ['neck_lower'], vx: -54, vy: 65, spin: -190, bounce: 0.20, floor: 1 },
   { id: 'neck_upper', bones: ['neck_upper'], vx: 60, vy: 48, spin: 170, bounce: 0.18, floor: 2 },
-  { id: 'mount', bones: ['mount'], vx: 95, vy: 75, spin: 230, bounce: 0.18, floor: 1 },
-  { id: 'blaster', bones: ['weapon', 'muzzle'], vx: 78, vy: 90, spin: 190, bounce: 0.16, floor: 1 },
   { id: 'thigh_near', bones: ['thigh_near'], vx: -80, vy: 95, spin: -230, bounce: 0.2, floor: 0 },
   { id: 'shin_near', bones: ['shin_near'], vx: -95, vy: 65, spin: 220, bounce: 0.2, floor: 0 },
   { id: 'thigh_far', bones: ['thigh_far'], vx: 65, vy: 90, spin: 230, bounce: 0.2, floor: 3 },
@@ -412,14 +403,31 @@ function detachedPose (t: number, options: PoseOptions): Pose {
 }
 
 /** The pose of `name` at `seconds` into it. */
-export function animationPose (name: ClipName | 'reference', seconds: number, options: PoseOptions = {}): Pose {
-  const t = clipTime(name, seconds)
+function bodyPose (name: ClipName | 'reference', seconds: number, options: PoseOptions = {}): Pose {
+  const t = bodyClipTime(name, seconds)
   if (name === 'run' || name === 'reference') {
-    const st = state(name === 'run' ? t / CLIPS.run.duration : 0, name === 'reference', options)
+    const st = state(name === 'run' ? t / BODY_CLIPS.run.duration : 0, name === 'reference', options)
     st.animation = { name, time: t, height: 0, flash: 0, eyeOpacity: 1, detached: false }
     return { state: st, matrices: matrices(st) }
   }
   if (name === 'fall_apart' && t > 0.16) return detachedPose(t, options)
   const st = standingPose(name, t, options)
   return { state: st, matrices: matrices(st) }
+}
+
+/** The clips as played: the body's, and the eye shot's `shoot`. */
+export const CLIPS = shotClips(BODY_CLIPS)
+
+const PERISCOPE_BODY = Object.freeze({
+  id: 'periscope' as const,
+  clips: BODY_CLIPS,
+  pose: bodyPose,
+  matrices,
+  regions: REGIONS,
+  muzzleParent: 'sensor'
+})
+
+/** The pose of `name` at `seconds` into it, eye shot and all. */
+export function animationPose (name: ClipName | 'reference', seconds: number, options: PoseOptions = {}): Pose {
+  return eyeShotPose(PERISCOPE_BODY, CLIPS, name, seconds, options)
 }

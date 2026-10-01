@@ -1,5 +1,5 @@
 import TWEEN from '@tweenjs/tween.js'
-import { Graphics } from 'pixi.js'
+import { type Container, Graphics } from 'pixi.js'
 import { Game } from '../game'
 import { type GameObject } from '../objects/gameobject'
 import { Vector } from '../utils/vector'
@@ -9,6 +9,7 @@ import { RANGED_RANGE_CELLS, firstOnLine, rangedRangeCells, type Body, type Cell
 import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
 import { onGround, TILT } from '../objects/tilt'
 import AnimationClip from '../animation/animationclip'
+import { SHOT } from '../robots/eyeshot'
 
 /**
  * A beam from the caster to where the shot stops: the first unit on its hex
@@ -26,6 +27,18 @@ import AnimationClip from '../animation/animationclip'
  * lag the server by the interpolation delay, so a beam at a unit crossing a
  * cell edge can stop on a different unit than the one the server hit, and a
  * client that places the caster one cell off draws a line one cell off.
+ *
+ * A rigged robot shoots from its eye, which charges for `SHOT.fire` (0.36 s)
+ * before it fires, so its beam waits that long after the effect arrives
+ * (Nick, 2026-10-01: "hold the beam"). The server has already dealt the
+ * damage by then, so a hit can show before its beam does. The line and the
+ * unit it stops on are worked out on arrival, as the server's were; the beam
+ * runs from where the caster and that unit are when it fires, and leaves
+ * the robot's eye (Nick, 2026-10-01): the bright line starts at the eye
+ * (`Unit.eyeGlobal`) and ends at the target's ground point raised by the same
+ * height, so it runs about level; its dark shadow line and the lit cells stay
+ * on the ground, where the server's line ran. The two don't line up exactly,
+ * which was accepted ("it wouldn't be super aligned, but let's try").
  */
 export class RangedAttackEffect {
   constructor (owner: GameObject, aimCell?: Vector) {
@@ -54,18 +67,37 @@ export class RangedAttackEffect {
 
     let end: Vector
     let crossed: Cell[]
+    let struck: Cell | undefined
     if (hit >= 0) {
       // Stop on the struck unit.
       const b = bodies[hit]
       end = new Vector(b.x, b.y)
       const at = line.findIndex((c) => c.x === b.cell.x && c.y === b.cell.y)
       crossed = line.slice(1, at)
-      CellHighlight.flash(owner.tag, [b.cell], 0x88ffff, 300)
+      struck = b.cell
     } else {
       const last = line[line.length - 1]
       end = Hex.toPosition(new Vector(last.x, last.y))
       crossed = line.slice(1)
     }
+
+    // A rigged robot turns, aims and charges its eye (`RobotSprite`).
+    const rigged = owner instanceof Unit && owner.playAction('shoot', end)
+    if (!rigged) {
+      RangedAttackEffect.fire(owner, layer, from, end, struck, crossed, false)
+      return
+    }
+    const target = hit >= 0 ? candidates[hit] : undefined
+    new TWEEN.Tween({}).to({}, SHOT.fire * 1000).onComplete(() => {
+      const now = new Vector(owner.x, owner.y)
+      const to = target !== undefined && !target.killed ? new Vector(target.x, target.y) : end
+      RangedAttackEffect.fire(owner, layer, now, to, struck, crossed, true)
+    }).start()
+  }
+
+  /** The beam, the cells it lit, and (for a sprite without a rig) a muzzle flash. */
+  private static fire (owner: GameObject, layer: Container, from: Vector, end: Vector, struck: Cell | undefined, crossed: Cell[], rigged: boolean): void {
+    if (struck !== undefined) CellHighlight.flash(owner.tag, [struck], 0x88ffff, 300)
     // Dimmer than the struck cell: the path, not the hit.
     if (crossed.length > 0) CellHighlight.flash(owner.tag, crossed, 0x2f6f7a, 300)
     const length = Math.hypot(end.x - from.x, end.y - from.y)
@@ -76,6 +108,18 @@ export class RangedAttackEffect {
     beam.eventMode = 'none'
     beam.zIndex = Math.max(from.y, end.y) + 1
     const state = { head: 0, tail: 0 }
+    layer.addChild(beam)
+
+    // The bright line from the eye, lifted off the ground line: in the beam's
+    // own (ground) coordinates, an upright height on screen is height / TILT.
+    let eyeX = from.x
+    let lift = 0
+    const eye = rigged && owner instanceof Unit ? owner.eyeGlobal() : undefined
+    if (eye !== undefined) {
+      const local = beam.toLocal(eye)
+      eyeX = local.x
+      lift = from.y - local.y
+    }
     const redraw = (): void => {
       beam.clear()
       const hx = from.x + (end.x - from.x) * state.head
@@ -83,12 +127,9 @@ export class RangedAttackEffect {
       const tx = from.x + (end.x - from.x) * state.tail
       const ty = from.y + (end.y - from.y) * state.tail
       beam.lineStyle(6, 0x1a3a44, 0.35).moveTo(tx, ty + 2).lineTo(hx, hy + 2)
-      beam.lineStyle(3, 0x88ffff, 0.95).moveTo(tx, ty).lineTo(hx, hy)
+      const lx = (x: number, k: number): number => x + (eyeX - from.x) * (1 - k)
+      beam.lineStyle(3, 0x88ffff, 0.95).moveTo(lx(tx, state.tail), ty - lift).lineTo(lx(hx, state.head), hy - lift)
     }
-    layer.addChild(beam)
-
-    // A rigged robot turns, aims and fires, flash and all (`RobotSprite`).
-    const rigged = owner instanceof Unit && owner.playAction('shoot', end)
 
     // A flash at the muzzle, a little way out along the shot, pointed along it
     // on screen (the camera squashes y by TILT; the clip stands up).

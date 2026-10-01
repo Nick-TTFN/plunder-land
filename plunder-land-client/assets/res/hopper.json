@@ -1,0 +1,405 @@
+{
+ "frames": {
+  "hopper/head/fixed.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 48,
+    "h": 44
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 48,
+    "h": 44
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/head-camo.png": {
+   "frame": {
+    "x": 52,
+    "y": 2,
+    "w": 44,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 0,
+    "w": 44,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/head-checker.png": {
+   "frame": {
+    "x": 98,
+    "y": 2,
+    "w": 43,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 0,
+    "w": 43,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/head-shade.png": {
+   "frame": {
+    "x": 143,
+    "y": 2,
+    "w": 44,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 0,
+    "w": 44,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/head-zebra.png": {
+   "frame": {
+    "x": 189,
+    "y": 2,
+    "w": 43,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 0,
+    "w": 43,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/hi.png": {
+   "frame": {
+    "x": 234,
+    "y": 2,
+    "w": 40,
+    "h": 25
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 1,
+    "w": 40,
+    "h": 25
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/boot_near/fixed.png": {
+   "frame": {
+    "x": 276,
+    "y": 2,
+    "w": 30,
+    "h": 20
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 30,
+    "h": 20
+   },
+   "sourceSize": {
+    "w": 30,
+    "h": 20
+   }
+  },
+  "hopper/eye_open.png": {
+   "frame": {
+    "x": 308,
+    "y": 2,
+    "w": 12,
+    "h": 15
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 4,
+    "w": 12,
+    "h": 15
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 22
+   }
+  },
+  "hopper/head/body-camo.png": {
+   "frame": {
+    "x": 322,
+    "y": 2,
+    "w": 37,
+    "h": 13
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 31,
+    "w": 37,
+    "h": 13
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/body-checker.png": {
+   "frame": {
+    "x": 361,
+    "y": 2,
+    "w": 37,
+    "h": 13
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 31,
+    "w": 37,
+    "h": 13
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/body-shade.png": {
+   "frame": {
+    "x": 400,
+    "y": 2,
+    "w": 37,
+    "h": 13
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 31,
+    "w": 37,
+    "h": 13
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/head/body-zebra.png": {
+   "frame": {
+    "x": 439,
+    "y": 2,
+    "w": 35,
+    "h": 13
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 31,
+    "w": 35,
+    "h": 13
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 44
+   }
+  },
+  "hopper/boot_near/checker.png": {
+   "frame": {
+    "x": 476,
+    "y": 2,
+    "w": 22,
+    "h": 12
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 5,
+    "w": 22,
+    "h": 12
+   },
+   "sourceSize": {
+    "w": 30,
+    "h": 20
+   }
+  },
+  "hopper/boot_near/shade.png": {
+   "frame": {
+    "x": 2,
+    "y": 48,
+    "w": 27,
+    "h": 12
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 5,
+    "w": 27,
+    "h": 12
+   },
+   "sourceSize": {
+    "w": 30,
+    "h": 20
+   }
+  },
+  "hopper/boot_near/zebra.png": {
+   "frame": {
+    "x": 31,
+    "y": 48,
+    "w": 26,
+    "h": 12
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 5,
+    "w": 26,
+    "h": 12
+   },
+   "sourceSize": {
+    "w": 30,
+    "h": 20
+   }
+  },
+  "hopper/boot_near/camo.png": {
+   "frame": {
+    "x": 59,
+    "y": 48,
+    "w": 27,
+    "h": 11
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 6,
+    "w": 27,
+    "h": 11
+   },
+   "sourceSize": {
+    "w": 30,
+    "h": 20
+   }
+  },
+  "hopper/boot_near/hi.png": {
+   "frame": {
+    "x": 88,
+    "y": 48,
+    "w": 25,
+    "h": 11
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 6,
+    "w": 25,
+    "h": 11
+   },
+   "sourceSize": {
+    "w": 30,
+    "h": 20
+   }
+  },
+  "hopper/eye_smile.png": {
+   "frame": {
+    "x": 115,
+    "y": 48,
+    "w": 10,
+    "h": 8
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 7,
+    "w": 10,
+    "h": 8
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 22
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-peep-atlas.py",
+  "version": "1.0",
+  "image": "hopper.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 512,
+   "h": 62
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.4317718940936864,
+  "drop": "hopper-animations-v2",
+  "finish": {
+   "boot_near": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "head": {
+    "group": "mixed",
+    "layers": [
+     "body-shade",
+     "body-zebra",
+     "body-checker",
+     "body-camo",
+     "head-shade",
+     "head-zebra",
+     "head-checker",
+     "head-camo",
+     "fixed",
+     "hi"
+    ]
+   }
+  }
+ }
+}

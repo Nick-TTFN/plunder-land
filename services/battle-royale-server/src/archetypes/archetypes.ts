@@ -241,6 +241,8 @@ function robot (info: ArchetypeInfo): Archetype {
 const peep: Archetype = robot(ARCHETYPE_INFO.peep)
 const periscope: Archetype = robot(ARCHETYPE_INFO.periscope)
 const magnet: Archetype = robot(ARCHETYPE_INFO.magnet)
+const hopper: Archetype = robot(ARCHETYPE_INFO.hopper)
+const waddle: Archetype = robot(ARCHETYPE_INFO.waddle)
 
 const grunt: Archetype = {
   ...ARCHETYPE_INFO.grunt,
@@ -321,7 +323,7 @@ const gunner: Archetype = {
   ]
 }
 
-export const ARCHETYPES = Object.freeze({ peep, periscope, magnet, grunt, boss, gunner })
+export const ARCHETYPES = Object.freeze({ peep, periscope, magnet, hopper, waddle, grunt, boss, gunner })
 
 /**
  * What using an item does. **One case per behaviour, not per item**: a new item

@@ -1,26 +1,28 @@
 import { HULLS } from './hulls'
+import { eyeShotPose, shotClips } from '../robots/eyeshot'
 import {
   type AnimationInfo, type Bone, type ClipName, type Debris, type Matrix, type Pose,
-  type PoseOptions, type Region, type RigState, blinkClosure, regionMatrix, eyeMatrix
+  type PoseOptions, type Region, type RigState, type Expression, blinkClosure, regionMatrix, eyeMatrix
 } from '../peep/rig'
 
 export { blinkClosure, regionMatrix, eyeMatrix }
 
 /**
- * Magnet's skeletal rig and its seven clips: a TypeScript port of the v2 drop's
- * `tools/rig.mjs` and `tools/animations.mjs` (`codex_output/magnet-animations-v2`,
- * 2026-09-30), with the Canvas drawing left out, like Peep's (`src/peep/rig.ts`,
+ * Magnet's skeletal rig and its seven clips: a TypeScript port of the v3 drop's
+ * `tools/rig.mjs` and `tools/legacy-motion.mjs` (`codex_output/magnet-animations-v3`,
+ * 2026-10-01), with the Canvas drawing left out, like Peep's (`src/peep/rig.ts`,
  * whose types, region and eye maths it shares: the drop keeps Peep's head art
- * and conventions).
+ * and conventions), under the eye shot every robot shares (`src/robots/eyeshot.ts`).
  *
  * **The drop is the authority.** Every number is copied, not tuned;
  * `magnetrig.spec.ts` (server) checks this port against poses sampled from the
  * drop's own modules (`tools/peep-rig-sync.mjs magnet`).
  *
- * Magnet differs from Peep in anatomy: the gun is on the near arm (aim origin
- * the near shoulder, 95 up), the far arm carries the magnet, which follows 30%
- * of the aim unless given its own (`magnetAngle`), and swings for melee. Its
- * head is Peep's at 0.72 on a lower neck.
+ * Magnet differs from Peep in anatomy: the far arm carries the magnet, which
+ * follows 30% of the aim unless given its own (`magnetAngle`), and swings for
+ * melee; the near arm held the gun until v3 took it away. Its head is Peep's
+ * at 0.72 on a lower neck. Under the eye shot the body is posed at aim 0, so
+ * the magnet follows the aim only when given its own angle.
  */
 
 const TAU = Math.PI * 2
@@ -32,7 +34,8 @@ export interface MagnetPoseOptions extends PoseOptions {
   magnetAngle?: number
 }
 
-export const CLIPS: Readonly<Record<ClipName | 'reference', { duration: number, loop: boolean, events: Array<{ time: number, name: string }> }>> = {
+/** The body's clips (`legacy-motion.mjs`); its shoot is never played, `CLIPS` has the eye shot's. */
+const BODY_CLIPS: Readonly<Record<ClipName | 'reference', { duration: number, loop: boolean, events: Array<{ time: number, name: string }> }>> = {
   idle: { duration: 2.4, loop: true, events: [] },
   run: { duration: 0.7, loop: true, events: [] },
   shoot: { duration: 0.5, loop: false, events: [{ time: 0.05, name: 'fire' }] },
@@ -105,8 +108,10 @@ export const BONE_PARENTS: Readonly<Record<string, string | null>> = {
   arm_near: 'body',
   forearm_near: 'arm_near',
   hand_near: 'forearm_near',
-  weapon: 'hand_near',
-  muzzle: 'weapon'
+  // The drop deletes grip and grip_tip (the gun) and adds these, which
+  // `eyeshot.ts` places itself.
+  eye_muzzle: 'head',
+  muzzle: 'head'
 }
 
 export function headTiltForAim (a: number = 0): number {
@@ -144,13 +149,13 @@ function poseAttachments (st: RigState, heading: number, magnetHeading: number, 
   st.arm_near = { ...NEAR.socket, r: nr, sx: NEAR.scale, sy: NEAR.scale }
   st.forearm_near = { x: 0, y: 0, r: 0 }
   st.hand_near = { x: (0.66 - 0.32) * 28, y: (0.19 - 0.82) * 39, r: heading - st.body.r - nr, sx: 1 / NEAR.scale, sy: 1 / NEAR.scale }
-  st.weapon = { x: 4, y: 0, r: 0 }
-  st.muzzle = { x: 48 * GUN_SCALE, y: 0, r: 0 }
+  st.grip = { x: 4, y: 0, r: 0 }
+  st.grip_tip = { x: 48 * GUN_SCALE, y: 0, r: 0 }
   st.arm_far = { ...FAR.socket, r: fr, sx: FAR.scale, sy: FAR.scale }
   st.forearm_far = { x: 0, y: 0, r: 0 }
   st.magnet = { x: FOREARM.x, y: FOREARM.y, r: magnetHeading - st.body.r - fr, sx: 1 / FAR.scale, sy: 1 / FAR.scale }
   st.magnet_tip = { x: 92, y: 0, r: 0 }
-  const headAim = headTiltForAim(heading)
+  const headAim = headTiltForAim((st.controls?.lookAngle as number | undefined) ?? heading)
   const clearanceNeed = (-10 + 0.7 * magnetHeading) - headAim
   // The raised magnet must also clear a head looking down at an independent gun target.
   const clearance = Math.max(0, clearanceNeed) * smooth(clearanceNeed / 6)
@@ -184,7 +189,7 @@ function state (p: number, reference: boolean, options: MagnetPoseOptions): RigS
     r: 0,
     sx: 1 - 0.08 * Math.abs(t),
     sy: (1 - 0.20 * Math.abs(t)) * (1 - 0.93 * Math.max(0, Math.min(1, options.blink ?? 0))),
-    expression: options.expression ?? 'open'
+    expression: (options.expression as Expression | undefined) ?? 'open'
   }
   for (const [side, shift, x, plane] of [['near', 0, -31, 0], ['far', 0.5, 30, 6]] as const) {
     const f = reference ? { x: 0, y: 0, r: 0, contact: true } : foot(p + shift)
@@ -213,7 +218,6 @@ export const REGIONS: readonly Region[] = [
   at('boot_near', 'foot_near', 'boot_near', 62, 47, 0.5, 1),
   at('torso', 'body', 'torso', 80, 77, 0.5, 0.5, { y: 21 }),
   at('arm_near', 'forearm_near', 'arm_near', 28, 39, 0.32, 0.19),
-  at('blaster', 'weapon', 'blaster', 55 * GUN_SCALE, 30 * GUN_SCALE, 0.12, 0.48),
   at('head', 'head', 'head', 178, 159, 0.5, 1, { x: 3, y: 68 }),
   at('eye', 'eye', 'eye_open', 144 / 428 * 178, 198 / 388 * 159, 0.5, 0.5, { kind: 'eye' }),
   at('visor_reflection', 'head', 'visor_reflection', 178, 159, 0.5, 0.5, { x: 3, y: 68 })
@@ -224,6 +228,7 @@ export function matrices (st: RigState): Record<string, Matrix> {
   for (const name in BONE_PARENTS) {
     const parent = BONE_PARENTS[name]
     const b = st[name]
+    if (b === undefined) continue
     const r = b.r / DEG
     const a = Math.cos(r) * (b.sx ?? 1)
     const c = -Math.sin(r) * (b.sy ?? 1)
@@ -260,8 +265,8 @@ function motionKeys (t: number, keys: Array<[number, number]>): number {
   return keys[keys.length - 1][1]
 }
 
-export function clipTime (name: ClipName | 'reference', seconds: number): number {
-  const clip = CLIPS[name]
+function bodyClipTime (name: ClipName | 'reference', seconds: number): number {
+  const clip = BODY_CLIPS[name]
   const t = Number.isFinite(seconds) ? seconds : 0
   return clip.loop ? ((t % clip.duration) + clip.duration) % clip.duration : motionClamp(t, 0, clip.duration)
 }
@@ -274,11 +279,11 @@ function standingPose (name: ClipName, t: number, options: MagnetPoseOptions): R
   let magHeading = magAim
   let nearOffset = 0
   let farOffset = 0
-  let flash = 0
+  const flash = 0
   let height = 0
   let eyeOpacity = 1
   if (name === 'idle') {
-    const p = TAU * t / CLIPS.idle.duration
+    const p = TAU * t / BODY_CLIPS.idle.duration
     st.body.x = 0.65 * Math.sin(p)
     st.body.y += 0.8 * Math.sin(p) + 0.12 * Math.sin(2 * p)
     st.body.r = 0.7 * Math.sin(p)
@@ -286,20 +291,6 @@ function standingPose (name: ClipName, t: number, options: MagnetPoseOptions): R
     st.head.r = -0.6 * (Math.sin(p - 0.2) + Math.sin(0.2))
     nearOffset = 2.1 * Math.sin(p)
     magHeading += 1.8 * (Math.sin(p - 0.6) + Math.sin(0.6))
-  }
-  if (name === 'shoot') {
-    // Fast recoil, then a delayed response from the head and heavy attachment.
-    const kick = motionKeys(t, [[0, 0], [0.05, 0], [0.087, 1], [0.125, 0.84], [0.205, 0.24], [0.29, -0.12], [0.38, 0.035], [0.5, 0]])
-    const lag = motionKeys(t, [[0, 0], [0.07, 0], [0.145, 1], [0.24, 0.42], [0.34, -0.10], [0.43, 0.025], [0.5, 0]])
-    st.body.x = -6.8 * Math.cos(aim * MRAD) * kick
-    st.body.y -= 2.2 * Math.max(0, kick)
-    st.body.r = 9 * Math.cos(aim * MRAD) * kick
-    st.head.r = 4 * lag
-    heading = motionClamp(aim + 8 * kick, -60, 68)
-    nearOffset = -14 * kick
-    magHeading -= 5.2 * lag
-    farOffset = -2.5 * kick
-    flash = t >= 0.05 && t < 0.115 ? Math.pow(1 - (t - 0.05) / 0.065, 0.6) : 0
   }
   if (name === 'hit') {
     const flinch = motionKeys(t, [[0, 0], [0.05, 1], [0.105, 0.88], [0.21, 0.25], [0.31, -0.12], [0.44, 0.035], [0.65, 0]])
@@ -368,7 +359,6 @@ export const DEBRIS_GROUPS: readonly DebrisGroup[] = [
   { id: 'arm_near', bones: ['arm_near', 'forearm_near', 'hand_near'], vx: -150, vy: 110, spin: -260, bounce: 0.22, floor: 0 },
   { id: 'forearm_far', bones: ['arm_far', 'forearm_far'], vx: 80, vy: 125, spin: 250, bounce: 0.22, floor: 5 },
   { id: 'magnet', bones: ['magnet', 'magnet_tip'], vx: 83, vy: 50, spin: -135, bounce: 0.08, floor: 2, gravity: 820 },
-  { id: 'blaster', bones: ['weapon', 'muzzle'], vx: -75, vy: 115, spin: 240, bounce: 0.16, floor: 1 },
   { id: 'thigh_near', bones: ['thigh_near'], vx: -50, vy: 120, spin: -260, bounce: 0.22, floor: 0 },
   { id: 'shin_near', bones: ['shin_near'], vx: -70, vy: 80, spin: 270, bounce: 0.21, floor: 0 },
   { id: 'thigh_far', bones: ['thigh_far'], vx: 47, vy: 98, spin: 260, bounce: 0.22, floor: 5 },
@@ -454,14 +444,32 @@ function detachedPose (t: number, options: MagnetPoseOptions): Pose {
 }
 
 /** The pose of `name` at `seconds` into it. */
-export function animationPose (name: ClipName | 'reference', seconds: number, options: MagnetPoseOptions = {}): Pose {
-  const t = clipTime(name, seconds)
+function bodyPose (name: ClipName | 'reference', seconds: number, options: MagnetPoseOptions = {}): Pose {
+  const t = bodyClipTime(name, seconds)
   if (name === 'run' || name === 'reference') {
-    const st = state(name === 'run' ? t / CLIPS.run.duration : 0, name === 'reference', options)
+    const st = state(name === 'run' ? t / BODY_CLIPS.run.duration : 0, name === 'reference', options)
     st.animation = { name, time: t, height: 0, flash: 0, eyeOpacity: 1, detached: false }
     return { state: st, matrices: matrices(st) }
   }
   if (name === 'fall_apart' && t > 0.16) return detachedPose(t, options)
   const st = standingPose(name, t, options)
   return { state: st, matrices: matrices(st) }
+}
+
+/** The clips as played: the body's, and the eye shot's `shoot`. */
+export const CLIPS = shotClips(BODY_CLIPS)
+
+const MAGNET_BODY = Object.freeze({
+  id: 'magnet' as const,
+  clips: BODY_CLIPS,
+  pose: bodyPose,
+  matrices,
+  regions: REGIONS,
+  muzzleParent: 'head',
+  headTiltForAim
+})
+
+/** The pose of `name` at `seconds` into it, eye shot and all. */
+export function animationPose (name: ClipName | 'reference', seconds: number, options: MagnetPoseOptions = {}): Pose {
+  return eyeShotPose(MAGNET_BODY, CLIPS, name, seconds, options)
 }

@@ -489,13 +489,13 @@ export default class Lobby extends Container {
     this.backdrop.position.set(-w / 2, -h / 2)
   }
 
-  /** The big robot aims its gun and eye at the pointer, as your robot does in play. */
+  /** The big robot looks at the pointer, as your robot does in play. */
   private lookAt (x: number, y: number): void {
     const robot = this.robot
     if (robot === undefined) return
     const at = robot.getGlobalPosition()
     const dx = x - at.x
-    const dy = y - (at.y - robot.shoulderPx * robot.scale.y)
+    const dy = y - (at.y - robot.aimPx * robot.scale.y)
     if (Math.abs(dx) < 6) return
     robot.setAim(Math.atan2(-dy, Math.abs(dx)) * 180 / Math.PI, dx < 0 ? -1 : 1)
   }

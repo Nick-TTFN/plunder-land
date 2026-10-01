@@ -1013,7 +1013,9 @@ export class Game extends Container {
       if (player === Game.PLAYER) {
         player.visible = true
         player.applyPosition(Game.LOCAL.renderX, Game.LOCAL.renderY, now, Game.LOCAL.moveX, Game.LOCAL.moveY)
-        player.aimAt(Aim.world())
+        // A dash runs the way it goes: with the mouse behind a standing dash the
+        // robot faced the mouse and ran backwards (Nick, 2026-10-01).
+        player.aimAt(Game.LOCAL.dashLeft > 0 ? undefined : Aim.world())
         continue
       }
       if (this.stillPresent(player, staleBefore)) {

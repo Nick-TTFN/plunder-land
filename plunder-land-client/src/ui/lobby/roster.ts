@@ -4,8 +4,8 @@ import { ARCHETYPE_INFO, SELECTABLE_ROBOTS, type RobotStats } from '../../utils/
  * The five robots the lobby shows (lobby-rework, decision #42), in the brief's
  * order. Lobby copy only: what a robot *does* is the mirrored archetype table,
  * whose `stats` the stat bars read, so the lobby can't show a number the
- * server doesn't play. Periscope, Hopper and Waddle have no art and no
- * archetype yet, so they are shown locked (Nick, 2026-09-30).
+ * server doesn't play. All five are playable since 2026-10-01 (Hopper and
+ * Waddle last; until then they were shown locked).
  *
  * The class lines and taglines other than Peep's (the mockup's) are Claude's
  * placeholder copy, 2026-10-01; Nick may replace them.
@@ -17,15 +17,15 @@ export interface RosterEntry {
   readonly kind: string
   readonly tagline: string
   /** The archetype key when it can be picked; undefined while locked. */
-  readonly robot: 'peep' | 'periscope' | 'magnet' | undefined
+  readonly robot: 'peep' | 'periscope' | 'magnet' | 'hopper' | 'waddle' | undefined
 }
 
 export const ROSTER: readonly RosterEntry[] = Object.freeze([
   { key: 'peep', name: 'PEEP', kind: 'BALANCED', tagline: 'A little bot. A lot of possibility.', robot: 'peep' },
   { key: 'periscope', name: 'PERISCOPE', kind: 'SCOUT', tagline: 'Sees the trouble first.', robot: 'periscope' },
   { key: 'magnet', name: 'MAGNET', kind: 'COLLECTOR', tagline: 'Loot comes to it.', robot: 'magnet' },
-  { key: 'hopper', name: 'HOPPER', kind: 'JUMPER', tagline: 'Over walls, not around them.', robot: undefined },
-  { key: 'waddle', name: 'WADDLE', kind: 'TANK', tagline: 'Slow to arrive. Slower to leave.', robot: undefined }
+  { key: 'hopper', name: 'HOPPER', kind: 'JUMPER', tagline: 'Over walls, not around them.', robot: 'hopper' },
+  { key: 'waddle', name: 'WADDLE', kind: 'TANK', tagline: 'Slow to arrive. Slower to leave.', robot: 'waddle' }
 ] as RosterEntry[])
 
 /** The entries a player can pick, in roster order. */
