@@ -24,7 +24,7 @@ export class IceBreath extends Skill {
     // Aimed: snapped to one of six once, and held for the breath (decision #21).
     const aimed = SectorArea.aimIndex(this.owner, aimCell)
     const area = new SectorArea(this.owner, IceBreath.RINGS, aimed)
-    area.setEffect(this.byLevel(IceBreath.Damage), true)
+    area.setEffect(this.dealt(this.byLevel(IceBreath.Damage)), true)
     World.AREA_EFFECT.push(area)
     const lifetime = 1000
     Multiplayer.Instance.effect(1, this.owner, lifetime, aimed !== undefined ? area.tipCell() : undefined)

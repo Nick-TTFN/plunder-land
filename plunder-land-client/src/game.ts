@@ -284,7 +284,10 @@ export class Game extends Container {
     // by it), the name and the robot's finish only what others see. The server
     // sanitises and caps the name, gives an empty one a callsign made from the
     // id, and replaces anything unreadable in the finish with the default.
-    Game.socket.emit('start_requested', { id: playerId, name, finish })
+    // `robot` is the key of the robot picked (robot-select); the server plays
+    // peep for anything it doesn't offer. Until the lobby, `?robot=magnet`.
+    const robot = new URLSearchParams(window.location.search).get('robot') ?? 'peep'
+    Game.socket.emit('start_requested', { id: playerId, name, finish, robot })
 
     Game.hud.setupGameUI()
   }

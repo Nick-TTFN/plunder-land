@@ -41,6 +41,8 @@ export const MOB_DEFAULT: SpriteLook = Object.freeze({ run: 'mob/mob' })
  */
 const LOOKS: Readonly<Record<ArchetypeKey, SpriteLook>> = Object.freeze({
   peep: Object.freeze({ ...ROBOT_DEFAULT, rig: 'peep' as const }),
+  // Drawn with Peep's rig until its own is ported (magnet-rig).
+  magnet: Object.freeze({ ...ROBOT_DEFAULT, rig: 'peep' as const }),
   grunt: MOB_DEFAULT,
   boss: MOB_DEFAULT,
   // A cold blue, far from the grunt's untinted sprite and from the 0xffbb00

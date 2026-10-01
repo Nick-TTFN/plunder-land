@@ -59,7 +59,7 @@ export class Throwicicle extends Skill {
         // slow has to halve that, not the idle speed it was walking at.
         GuardPosition.provoke(collidee, this.owner)
         collidee.addBuff(new Slowdown(collidee, 2000))
-        if (collidee.hit(damage)) this.owner.onKill(collidee)
+        if (collidee.hit(this.dealt(damage))) this.owner.onKill(collidee)
       }
     }
     // No removal here; see ThrowFireball.explode.

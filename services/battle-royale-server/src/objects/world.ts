@@ -9,6 +9,7 @@ import Portal from './portal'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob from './mob'
 import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item } from '../archetypes/archetypes'
+import { SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -669,14 +670,27 @@ export default class World {
   }
 
   /**
-   * Joins on the top layer (#26), at a cell centre `spawnCell` picks. `name`
-   * and `finish` are what the client sent, raw; Player's constructor cleans them.
+   * Joins on the top layer (#26), at a cell centre `spawnCell` picks. `name`,
+   * `finish` and `robot` are what the client sent, raw; Player's constructor
+   * cleans the first two, `robotFor` the last.
    */
-  static createPlayer (playerId: string, name?: unknown, finish?: unknown): Player {
+  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown): Player {
     const pos = Hex.toPosition(World.spawnCell(World.LAYERS[0].tag).cell)
-    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, undefined, name, finish)
+    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, World.robotFor(robot), name, finish)
     World.addUnit(World.PLAYERS as unknown as Unit[], player)
     return player
+  }
+
+  /**
+   * The robot a join asked for (robot-select, #42): the archetype of that key
+   * if it is one a player may pick (`SELECTABLE_ROBOTS`), else Peep. A locked
+   * robot, a mob, or anything else never refuses the join.
+   */
+  static robotFor (robot: unknown): Archetype {
+    if (typeof robot === 'string' && (SELECTABLE_ROBOTS as readonly string[]).includes(robot)) {
+      return ARCHETYPES[robot as keyof typeof ARCHETYPES]
+    }
+    return ARCHETYPES.peep
   }
 
   /**

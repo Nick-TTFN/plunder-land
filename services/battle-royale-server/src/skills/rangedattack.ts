@@ -54,7 +54,7 @@ export class RangedAttack extends Skill {
     )
 
     if (first !== undefined) {
-      if (first.hit(this.damage ?? World.config.ranged)) this.owner.onKill(first)
+      if (first.hit(this.dealt(this.damage ?? World.config.ranged))) this.owner.onKill(first)
       else GuardPosition.provoke(first, this.owner)
     }
 

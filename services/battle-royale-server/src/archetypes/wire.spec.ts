@@ -52,7 +52,8 @@ test('archetype ids are the ones already on the wire (append-only)', () => {
   // client built before the change. Add new ids; never move one.
   assert.deepEqual(
     Object.fromEntries(KEYS.map((key) => [key, ARCHETYPE_INFO[key].id])),
-    { peep: 1, grunt: 6, boss: 7, gunner: 8 }
+    // robot-select (#42), deliberate: magnet appended at 3.
+    { peep: 1, magnet: 3, grunt: 6, boss: 7, gunner: 8 }
   )
 })
 

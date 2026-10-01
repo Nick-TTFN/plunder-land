@@ -39,6 +39,15 @@ export class Skill {
     return this.damage ?? table[this.owner.level]
   }
 
+  /**
+   * Damage this skill deals, times the owner's archetype `damageScale`
+   * (robot-select, #42: one multiplier on all of a robot's skill damage).
+   * Every skill that hits goes through here. Not floored: `hit` floors.
+   */
+  protected dealt (base: number): number {
+    return base * (this.owner.archetype?.damageScale ?? 1)
+  }
+
   /** True when `aimCell` names a cell other than the one the caster stands on. */
   static isAimed (owner: Unit, aimCell?: Vector): aimCell is Vector {
     if (aimCell === undefined) return false

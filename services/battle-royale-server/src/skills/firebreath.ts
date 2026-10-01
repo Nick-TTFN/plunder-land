@@ -23,7 +23,7 @@ export class FireBreath extends Skill {
     // Aimed: snapped to one of six once, and held for the breath (decision #21).
     const aimed = SectorArea.aimIndex(this.owner, aimCell)
     const area = new SectorArea(this.owner, FireBreath.RINGS, aimed)
-    area.setEffect(this.damage ?? World.config.fire, true)
+    area.setEffect(this.dealt(this.damage ?? World.config.fire), true)
     World.AREA_EFFECT.push(area)
     const lifetime = 1000
     Multiplayer.Instance.effect(0, this.owner, lifetime, aimed !== undefined ? area.tipCell() : undefined)

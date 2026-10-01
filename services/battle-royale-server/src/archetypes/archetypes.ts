@@ -110,6 +110,11 @@ export interface Archetype extends ArchetypeInfo {
    */
   speed: number
   /**
+   * One multiplier on all the damage its skills deal (`Skill.dealt`;
+   * robot-select, #42). Robots take it from the mirror; mobs are 1.
+   */
+  damageScale: number
+  /**
    * How big the unit is drawn: the wire's `radius` field. An integer up to
    * 127, since it goes on the wire as one byte. No gameplay rule reads it
    * since hex-cells P1-P3 (decision #31): every rule reads cells. It was the
@@ -201,30 +206,44 @@ function rangedCellsOf (info: ArchetypeInfo): number {
   return info.rangedCells
 }
 
-const peep: Archetype = {
-  ...ARCHETYPE_INFO.peep,
-  maxHp: 100,
-  // balance-pass §1 (#16): 50, refilling 12/s after 4 s without damage.
-  armor: Object.freeze({ max: 50, refillPerSec: 12, delayMs: 4000 }),
-  speed: 140,
-  // Pinned rather than derived from HP (it was 2 * sqrt(maxHP)). Drawing
-  // only since hex-cells P1-P3; it used to size pickup reach, the fireball's
-  // spawn point and the ranged hit.
-  body: 14,
-  level: 1,
-  // pickup-reach (#42): every robot takes loot and items within a ring.
-  pickupReach: 1,
-  loot: 0,
-  // A player touches nothing: no routine chases with it and nothing calls
-  // `Mob.touch` on a player.
-  contact: { damage: 0, cooldownMs: 0, rings: 0 },
-  killStats: [],
-  skills: PLAYER_SKILLS as SkillSpec[],
-  routines: []
+/**
+ * A robot's row. What the lobby shows comes from the mirror (`stats`,
+ * robot-select #42), so it is written down once; the rest every robot shares.
+ */
+function robot (info: ArchetypeInfo): Archetype {
+  const stats = info.stats
+  if (stats === null) throw new Error(`${info.key}: a robot needs stats in utils/archetypes.ts`)
+  return {
+    ...info,
+    maxHp: stats.maxHp,
+    // balance-pass §1 (#16): refilling 12/s after 4 s without damage.
+    armor: Object.freeze({ max: stats.armor, refillPerSec: 12, delayMs: 4000 }),
+    speed: stats.speed,
+    damageScale: stats.damageScale,
+    // Pinned rather than derived from HP (it was 2 * sqrt(maxHP)). Drawing
+    // only since hex-cells P1-P3; it used to size pickup reach, the fireball's
+    // spawn point and the ranged hit.
+    body: 14,
+    level: 1,
+    // pickup-reach (#42): every robot takes loot and items within a ring,
+    // Magnet within 3.
+    pickupReach: stats.pickupReach,
+    loot: 0,
+    // A player touches nothing: no routine chases with it and nothing calls
+    // `Mob.touch` on a player.
+    contact: { damage: 0, cooldownMs: 0, rings: 0 },
+    killStats: [],
+    skills: PLAYER_SKILLS as SkillSpec[],
+    routines: []
+  }
 }
+
+const peep: Archetype = robot(ARCHETYPE_INFO.peep)
+const magnet: Archetype = robot(ARCHETYPE_INFO.magnet)
 
 const grunt: Archetype = {
   ...ARCHETYPE_INFO.grunt,
+  damageScale: 1,
   maxHp: 50,
   armor: NO_ARMOR,
   speed: 100,
@@ -239,6 +258,7 @@ const grunt: Archetype = {
 
 const boss: Archetype = {
   ...ARCHETYPE_INFO.boss,
+  damageScale: 1,
   maxHp: 300,
   armor: NO_ARMOR,
   speed: 100,
@@ -262,6 +282,7 @@ const boss: Archetype = {
  */
 const gunner: Archetype = {
   ...ARCHETYPE_INFO.gunner,
+  damageScale: 1,
   maxHp: 40,
   armor: NO_ARMOR,
   // Dead, like grunt and boss's 100 (the guard sets 30 or 80 before the first
@@ -299,7 +320,7 @@ const gunner: Archetype = {
   ]
 }
 
-export const ARCHETYPES = Object.freeze({ peep, grunt, boss, gunner })
+export const ARCHETYPES = Object.freeze({ peep, magnet, grunt, boss, gunner })
 
 /**
  * What using an item does. **One case per behaviour, not per item**: a new item

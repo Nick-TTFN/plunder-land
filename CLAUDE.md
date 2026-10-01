@@ -88,7 +88,13 @@ number open). It reads each world's own lists: with `World.strict` on, a static 
 outside `World.run` throws, which is the point, so anything added to the probe must do the
 same.
 
-**Unit stats live in one table**, `src/archetypes/archetypes.ts` (peep, grunt, boss, gunner):
+**Unit stats live in one table**, `src/archetypes/archetypes.ts` (peep, magnet, grunt, boss, gunner).
+**A robot's shown stats (HP, armor, speed, pickup reach, `damageScale`) are in the mirrored
+`utils/archetypes.ts` `stats`** and its row takes them from there (`robot()`, robot-select #42), so
+the lobby and the server read one table; `damageScale` multiplies every skill's damage through
+`Skill.dealt` (`robotselect.spec.ts` fails on a hit that skips it). A join picks the robot by
+`start_requested.robot` (a key), only from `SELECTABLE_ROBOTS` (peep, magnet), else peep
+(`World.robotFor`). The rest of a row:
 body, HP, speed, loot, contact damage with its cooldown and range in rings (`contact.rings`,
 1 for every mob), kill-stat keys, skills with per-archetype overrides, and AI routines with
 their parameters. `body` is the wire's `radius` and is drawing only: since hex-cells P1-P3
@@ -499,7 +505,9 @@ flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hel
 `layers` (a server from before three layers) means `[0, -1]`. **Ship the client first**:
 an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
 
-**Client → server `start_requested` is `{ id, name, finish }`** (`Multiplayer.parseStart`;
+**Client → server `start_requested` is `{ id, name, finish, robot }`** (`robot` the picked
+robot's key; anything not selectable plays Peep; until the lobby, the client sends `?robot=` or
+`peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
 the default, never a refused join; a client from before finishes sends none). A bare
 string, the id alone, is still accepted for one release; drop it after that. The id is the
@@ -548,7 +556,7 @@ field on `Unit` or any subclass**: it would shadow `GameObject`'s accessor, and 
 would silently never be sent. The server typecheck (TS2610) catches it; swc alone does not.
 
 **`archetype` (16)** is a uint8 id, sent in every unit's create and never as a delta: peep 1,
-grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
+magnet 3 (periscope 2, hopper 4, waddle 5 reserved), grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
 indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
 flag, vision and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
 id: players 8, mobs 6). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
