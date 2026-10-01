@@ -15,6 +15,14 @@ eye sprites.
 
     python3 tools/bake-peep-atlas.py [drop-dir]             # Peep
     python3 tools/bake-peep-atlas.py magnet [drop-dir]      # Magnet
+    python3 tools/bake-peep-atlas.py magnet --lobby         # magnet-lobby.json
+
+`--lobby` bakes the same parts at `LOBBY_DENSITY` times the density into
+`<robot>-lobby.png` / `.json`, frames `<robot>-lobby/...`: the lobby draws its
+robots up to 5.5x the in-game size, and the game sheet stretched that far is
+soft. 2.75x (Nick, 2026-10-01) leaves a texel about two device pixels at the
+lobby's largest on a 2x screen, at about 100 KB for both robots; 5.5x, fully
+crisp, was about 260 KB. The game keeps its own sheet, drawn texel for pixel.
 
 Every robot is baked at Peep's texels per rig unit, so robots keep their
 drawn sizes relative to each other (Magnet's reference pose is 227.9 units
@@ -77,6 +85,7 @@ PADDING = 2
 DISPLAY_HEIGHT = 44
 REFERENCE_UNITS = 245.5
 TEXELS_PER_UNIT = 2 * DISPLAY_HEIGHT / REFERENCE_UNITS
+LOBBY_DENSITY = 2.75
 
 # art -> (file in the drop, box in rig units). The box is the largest any
 # region draws that art at (`REGIONS` in src/peep/rig.ts: the thighs are 15
@@ -307,7 +316,11 @@ def to_image(rgb, alpha):
 
 def bake():
     args = sys.argv[1:]
+    lobby = '--lobby' in args
+    args = [a for a in args if a != '--lobby']
     robot = args.pop(0) if args and args[0] in ROBOTS else 'peep'
+    density = TEXELS_PER_UNIT * (LOBBY_DENSITY if lobby else 1)
+    out_name = f'{robot}-lobby' if lobby else robot
     drop, arts = ROBOTS[robot]
     source = args[0] if args else os.path.join(DROPS, drop)
     tiles = {}
@@ -318,17 +331,17 @@ def bake():
         tiles[name] = (small.crop(box), size, box)
 
     for art, (file, (w, h)) in arts.items():
-        size = (max(1, round(w * TEXELS_PER_UNIT)), max(1, round(h * TEXELS_PER_UNIT)))
+        size = (max(1, round(w * density)), max(1, round(h * density)))
         painted = layers(source, art, size) if file.startswith('composed/') else None
         if painted is not None:
             group, parts = painted
             finished[art] = (group, size, parts)
             for name, rgb, alpha in parts:
-                add(f'{robot}/{art}/{name}.png', to_image(rgb, alpha), size)
+                add(f'{out_name}/{art}/{name}.png', to_image(rgb, alpha), size)
             continue
         image_full = Image.open(os.path.join(source, file)).convert('RGBA')
         # Premultiplied, so transparent pixels' colour doesn't bleed into edges.
-        add(f'{robot}/{art}.png', image_full.convert('RGBa').resize(size, Image.LANCZOS).convert('RGBA'), size)
+        add(f'{out_name}/{art}.png', image_full.convert('RGBa').resize(size, Image.LANCZOS).convert('RGBA'), size)
 
     check(source, finished)
 
@@ -341,27 +354,27 @@ def bake():
         f['spriteSourceSize'] = {'x': box[0], 'y': box[1], 'w': image.size[0], 'h': image.size[1]}
         f['sourceSize'] = {'w': size[0], 'h': size[1]}
 
-    png = os.path.join(OUT, f'{robot}.png')
+    png = os.path.join(OUT, f'{out_name}.png')
     sheet.save(png)
     optimise(png)
-    with open(os.path.join(OUT, f'{robot}.json'), 'w') as out:
+    with open(os.path.join(OUT, f'{out_name}.json'), 'w') as out:
         json.dump({
             'frames': frames,
             'meta': {
                 'app': 'tools/bake-peep-atlas.py',
                 'version': '1.0',
-                'image': f'{robot}.png',
+                'image': f'{out_name}.png',
                 'format': 'RGBA8888',
                 'size': {'w': sw, 'h': sh},
                 'scale': '2',
-                'texelsPerUnit': TEXELS_PER_UNIT,
+                'texelsPerUnit': density,
                 'drop': os.path.basename(os.path.normpath(source)),
                 # Finished part -> its paint group and layers, in draw order.
                 'finish': {art: {'group': g, 'layers': [n for n, _, _ in parts]}
                            for art, (g, _, parts) in finished.items()},
             },
         }, out, indent=1)
-    print(f'{robot}.png {sw}x{sh}, {len(frames)} frames, {os.path.getsize(png) // 1024} KB')
+    print(f'{out_name}.png {sw}x{sh}, {len(frames)} frames, {os.path.getsize(png) // 1024} KB')
 
 
 def optimise(png):

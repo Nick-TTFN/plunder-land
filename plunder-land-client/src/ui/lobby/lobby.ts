@@ -409,7 +409,8 @@ export default class Lobby extends Container {
     const make = (entry: RosterEntry): RobotSprite | undefined => {
       const rig = entry.robot !== undefined ? ROBOT_RIGS[entry.robot] : undefined
       if (rig === undefined || !RobotSprite.ready(rig)) return undefined
-      const sprite = new RobotSprite(this, rig)
+      // Drawn several times its in-game size: the lobby sheet when it's there.
+      const sprite = new RobotSprite(this, rig, RobotSprite.ready(rig, true))
       sprite.setFinish(this.finish)
       return sprite
     }
@@ -505,7 +506,7 @@ export default class Lobby extends Container {
         continue
       }
       const host = new Container()
-      const sprite = new RobotSprite(host, rig)
+      const sprite = new RobotSprite(host, rig, RobotSprite.ready(rig, true))
       sprite.setFinish(this.finish)
       sprite.scale.set(2)
       sprite.update(0)

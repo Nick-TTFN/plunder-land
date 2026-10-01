@@ -1,0 +1,1056 @@
+{
+ "frames": {
+  "magnet-lobby/head/camo.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 160,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 160,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/head/fixed.png": {
+   "frame": {
+    "x": 164,
+    "y": 2,
+    "w": 172,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 2,
+    "w": 172,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/head/shade.png": {
+   "frame": {
+    "x": 338,
+    "y": 2,
+    "w": 162,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 162,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/head/checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 158,
+    "w": 156,
+    "h": 153
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 156,
+    "h": 153
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/head/zebra.png": {
+   "frame": {
+    "x": 160,
+    "y": 158,
+    "w": 160,
+    "h": 153
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 160,
+    "h": 153
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/magnet/fixed.png": {
+   "frame": {
+    "x": 322,
+    "y": 158,
+    "w": 106,
+    "h": 95
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 106,
+    "h": 95
+   },
+   "sourceSize": {
+    "w": 106,
+    "h": 95
+   }
+  },
+  "magnet-lobby/magnet/checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 313,
+    "w": 87,
+    "h": 89
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 87,
+    "h": 89
+   },
+   "sourceSize": {
+    "w": 106,
+    "h": 95
+   }
+  },
+  "magnet-lobby/magnet/shade.png": {
+   "frame": {
+    "x": 91,
+    "y": 313,
+    "w": 92,
+    "h": 89
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 92,
+    "h": 89
+   },
+   "sourceSize": {
+    "w": 106,
+    "h": 95
+   }
+  },
+  "magnet-lobby/head/hi.png": {
+   "frame": {
+    "x": 185,
+    "y": 313,
+    "w": 150,
+    "h": 88
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 11,
+    "y": 3,
+    "w": 150,
+    "h": 88
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/magnet/camo.png": {
+   "frame": {
+    "x": 337,
+    "y": 313,
+    "w": 76,
+    "h": 87
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 17,
+    "y": 3,
+    "w": 76,
+    "h": 87
+   },
+   "sourceSize": {
+    "w": 106,
+    "h": 95
+   }
+  },
+  "magnet-lobby/magnet/hi.png": {
+   "frame": {
+    "x": 415,
+    "y": 313,
+    "w": 90,
+    "h": 85
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 2,
+    "w": 90,
+    "h": 85
+   },
+   "sourceSize": {
+    "w": 106,
+    "h": 95
+   }
+  },
+  "magnet-lobby/magnet/zebra.png": {
+   "frame": {
+    "x": 2,
+    "y": 404,
+    "w": 91,
+    "h": 85
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 2,
+    "w": 91,
+    "h": 85
+   },
+   "sourceSize": {
+    "w": 106,
+    "h": 95
+   }
+  },
+  "magnet-lobby/torso/fixed.png": {
+   "frame": {
+    "x": 95,
+    "y": 404,
+    "w": 77,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 77,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 79,
+    "h": 76
+   }
+  },
+  "magnet-lobby/torso/camo.png": {
+   "frame": {
+    "x": 174,
+    "y": 404,
+    "w": 69,
+    "h": 62
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 9,
+    "w": 69,
+    "h": 62
+   },
+   "sourceSize": {
+    "w": 79,
+    "h": 76
+   }
+  },
+  "magnet-lobby/torso/checker.png": {
+   "frame": {
+    "x": 245,
+    "y": 404,
+    "w": 69,
+    "h": 62
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 9,
+    "w": 69,
+    "h": 62
+   },
+   "sourceSize": {
+    "w": 79,
+    "h": 76
+   }
+  },
+  "magnet-lobby/torso/shade.png": {
+   "frame": {
+    "x": 316,
+    "y": 404,
+    "w": 69,
+    "h": 62
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 9,
+    "w": 69,
+    "h": 62
+   },
+   "sourceSize": {
+    "w": 79,
+    "h": 76
+   }
+  },
+  "magnet-lobby/torso/zebra.png": {
+   "frame": {
+    "x": 387,
+    "y": 404,
+    "w": 69,
+    "h": 61
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 9,
+    "w": 69,
+    "h": 61
+   },
+   "sourceSize": {
+    "w": 79,
+    "h": 76
+   }
+  },
+  "magnet-lobby/torso/hi.png": {
+   "frame": {
+    "x": 2,
+    "y": 491,
+    "w": 57,
+    "h": 57
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 15,
+    "y": 11,
+    "w": 57,
+    "h": 57
+   },
+   "sourceSize": {
+    "w": 79,
+    "h": 76
+   }
+  },
+  "magnet-lobby/eye_open.png": {
+   "frame": {
+    "x": 61,
+    "y": 491,
+    "w": 45,
+    "h": 54
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 10,
+    "y": 13,
+    "w": 45,
+    "h": 54
+   },
+   "sourceSize": {
+    "w": 59,
+    "h": 80
+   }
+  },
+  "magnet-lobby/boot_near/fixed.png": {
+   "frame": {
+    "x": 108,
+    "y": 491,
+    "w": 60,
+    "h": 46
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 60,
+    "h": 46
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "magnet-lobby/boot_far/fixed.png": {
+   "frame": {
+    "x": 170,
+    "y": 491,
+    "w": 54,
+    "h": 43
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 54,
+    "h": 43
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "magnet-lobby/arm_near/fixed.png": {
+   "frame": {
+    "x": 226,
+    "y": 491,
+    "w": 28,
+    "h": 38
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 28,
+    "h": 38
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "magnet-lobby/boot_near/checker.png": {
+   "frame": {
+    "x": 256,
+    "y": 491,
+    "w": 45,
+    "h": 33
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 12,
+    "w": 45,
+    "h": 33
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "magnet-lobby/boot_near/shade.png": {
+   "frame": {
+    "x": 303,
+    "y": 491,
+    "w": 56,
+    "h": 33
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 12,
+    "w": 56,
+    "h": 33
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "magnet-lobby/boot_near/camo.png": {
+   "frame": {
+    "x": 361,
+    "y": 491,
+    "w": 55,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 55,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "magnet-lobby/boot_near/zebra.png": {
+   "frame": {
+    "x": 418,
+    "y": 491,
+    "w": 52,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 52,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "magnet-lobby/forearm_far/fixed.png": {
+   "frame": {
+    "x": 472,
+    "y": 491,
+    "w": 26,
+    "h": 30
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 26,
+    "h": 30
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "magnet-lobby/shin.png": {
+   "frame": {
+    "x": 2,
+    "y": 550,
+    "w": 16,
+    "h": 30
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 30
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 30
+   }
+  },
+  "magnet-lobby/thigh.png": {
+   "frame": {
+    "x": 20,
+    "y": 550,
+    "w": 17,
+    "h": 29
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 17,
+    "h": 29
+   },
+   "sourceSize": {
+    "w": 17,
+    "h": 29
+   }
+  },
+  "magnet-lobby/boot_far/camo.png": {
+   "frame": {
+    "x": 39,
+    "y": 550,
+    "w": 43,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 12,
+    "w": 43,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "magnet-lobby/boot_far/checker.png": {
+   "frame": {
+    "x": 84,
+    "y": 550,
+    "w": 44,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 12,
+    "w": 44,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "magnet-lobby/boot_far/shade.png": {
+   "frame": {
+    "x": 130,
+    "y": 550,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 12,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "magnet-lobby/boot_far/zebra.png": {
+   "frame": {
+    "x": 182,
+    "y": 550,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 12,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "magnet-lobby/boot_near/hi.png": {
+   "frame": {
+    "x": 234,
+    "y": 550,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 13,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "magnet-lobby/forearm_far/shade.png": {
+   "frame": {
+    "x": 286,
+    "y": 550,
+    "w": 21,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 4,
+    "w": 21,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "magnet-lobby/forearm_far/camo.png": {
+   "frame": {
+    "x": 309,
+    "y": 550,
+    "w": 19,
+    "h": 23
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 5,
+    "w": 19,
+    "h": 23
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "magnet-lobby/arm_near/shade.png": {
+   "frame": {
+    "x": 330,
+    "y": 550,
+    "w": 22,
+    "h": 22
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 22,
+    "h": 22
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "magnet-lobby/arm_near/zebra.png": {
+   "frame": {
+    "x": 354,
+    "y": 550,
+    "w": 21,
+    "h": 22
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 21,
+    "h": 22
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "magnet-lobby/blaster.png": {
+   "frame": {
+    "x": 377,
+    "y": 550,
+    "w": 41,
+    "h": 22
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 41,
+    "h": 22
+   },
+   "sourceSize": {
+    "w": 41,
+    "h": 22
+   }
+  },
+  "magnet-lobby/boot_far/hi.png": {
+   "frame": {
+    "x": 420,
+    "y": 550,
+    "w": 44,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 14,
+    "w": 44,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "magnet-lobby/eye_smile.png": {
+   "frame": {
+    "x": 466,
+    "y": 550,
+    "w": 35,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 12,
+    "y": 32,
+    "w": 35,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 59,
+    "h": 80
+   }
+  },
+  "magnet-lobby/forearm_far/checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 582,
+    "w": 19,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 4,
+    "w": 19,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "magnet-lobby/forearm_far/zebra.png": {
+   "frame": {
+    "x": 23,
+    "y": 582,
+    "w": 21,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 5,
+    "w": 21,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "magnet-lobby/arm_near/checker.png": {
+   "frame": {
+    "x": 46,
+    "y": 582,
+    "w": 19,
+    "h": 18
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 19,
+    "h": 18
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "magnet-lobby/forearm_far/hi.png": {
+   "frame": {
+    "x": 67,
+    "y": 582,
+    "w": 19,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 5,
+    "w": 19,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "magnet-lobby/visor_reflection.png": {
+   "frame": {
+    "x": 88,
+    "y": 582,
+    "w": 15,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 146,
+    "y": 47,
+    "w": 15,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "magnet-lobby/arm_near/hi.png": {
+   "frame": {
+    "x": 105,
+    "y": 582,
+    "w": 18,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 7,
+    "w": 18,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "magnet-lobby/arm_near/camo.png": {
+   "frame": {
+    "x": 125,
+    "y": 582,
+    "w": 13,
+    "h": 9
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 13,
+    "y": 14,
+    "w": 13,
+    "h": 9
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-peep-atlas.py",
+  "version": "1.0",
+  "image": "magnet-lobby.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 512,
+   "h": 605
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.985743380855397,
+  "drop": "magnet-animations-v2",
+  "finish": {
+   "boot_far": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "boot_near": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "forearm_far": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "magnet": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "torso": {
+    "group": "body",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "arm_near": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "head": {
+    "group": "head",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   }
+  }
+ }
+}

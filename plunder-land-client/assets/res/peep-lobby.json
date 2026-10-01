@@ -1,0 +1,993 @@
+{
+ "frames": {
+  "peep-lobby/head/camo.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 160,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 160,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/head/fixed.png": {
+   "frame": {
+    "x": 164,
+    "y": 2,
+    "w": 172,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 2,
+    "w": 172,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/head/shade.png": {
+   "frame": {
+    "x": 338,
+    "y": 2,
+    "w": 162,
+    "h": 154
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 162,
+    "h": 154
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/head/checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 158,
+    "w": 156,
+    "h": 153
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 156,
+    "h": 153
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/head/zebra.png": {
+   "frame": {
+    "x": 160,
+    "y": 158,
+    "w": 160,
+    "h": 153
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 160,
+    "h": 153
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/head/hi.png": {
+   "frame": {
+    "x": 322,
+    "y": 158,
+    "w": 150,
+    "h": 88
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 11,
+    "y": 3,
+    "w": 150,
+    "h": 88
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/torso/fixed.png": {
+   "frame": {
+    "x": 2,
+    "y": 313,
+    "w": 73,
+    "h": 67
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 73,
+    "h": 67
+   },
+   "sourceSize": {
+    "w": 75,
+    "h": 67
+   }
+  },
+  "peep-lobby/torso/shade.png": {
+   "frame": {
+    "x": 77,
+    "y": 313,
+    "w": 66,
+    "h": 55
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 8,
+    "w": 66,
+    "h": 55
+   },
+   "sourceSize": {
+    "w": 75,
+    "h": 67
+   }
+  },
+  "peep-lobby/eye_open.png": {
+   "frame": {
+    "x": 145,
+    "y": 313,
+    "w": 45,
+    "h": 54
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 10,
+    "y": 13,
+    "w": 45,
+    "h": 54
+   },
+   "sourceSize": {
+    "w": 59,
+    "h": 80
+   }
+  },
+  "peep-lobby/torso/camo.png": {
+   "frame": {
+    "x": 192,
+    "y": 313,
+    "w": 66,
+    "h": 54
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 8,
+    "w": 66,
+    "h": 54
+   },
+   "sourceSize": {
+    "w": 75,
+    "h": 67
+   }
+  },
+  "peep-lobby/torso/checker.png": {
+   "frame": {
+    "x": 260,
+    "y": 313,
+    "w": 66,
+    "h": 54
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 8,
+    "w": 66,
+    "h": 54
+   },
+   "sourceSize": {
+    "w": 75,
+    "h": 67
+   }
+  },
+  "peep-lobby/torso/zebra.png": {
+   "frame": {
+    "x": 328,
+    "y": 313,
+    "w": 65,
+    "h": 54
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 8,
+    "w": 65,
+    "h": 54
+   },
+   "sourceSize": {
+    "w": 75,
+    "h": 67
+   }
+  },
+  "peep-lobby/torso/hi.png": {
+   "frame": {
+    "x": 395,
+    "y": 313,
+    "w": 54,
+    "h": 51
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 14,
+    "y": 9,
+    "w": 54,
+    "h": 51
+   },
+   "sourceSize": {
+    "w": 75,
+    "h": 67
+   }
+  },
+  "peep-lobby/boot_near/fixed.png": {
+   "frame": {
+    "x": 2,
+    "y": 382,
+    "w": 60,
+    "h": 46
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 60,
+    "h": 46
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "peep-lobby/boot_far/fixed.png": {
+   "frame": {
+    "x": 64,
+    "y": 382,
+    "w": 54,
+    "h": 43
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 54,
+    "h": 43
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "peep-lobby/arm_near/fixed.png": {
+   "frame": {
+    "x": 120,
+    "y": 382,
+    "w": 28,
+    "h": 38
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 28,
+    "h": 38
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "peep-lobby/boot_near/checker.png": {
+   "frame": {
+    "x": 150,
+    "y": 382,
+    "w": 45,
+    "h": 33
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 12,
+    "w": 45,
+    "h": 33
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "peep-lobby/boot_near/shade.png": {
+   "frame": {
+    "x": 197,
+    "y": 382,
+    "w": 56,
+    "h": 33
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 12,
+    "w": 56,
+    "h": 33
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "peep-lobby/boot_near/camo.png": {
+   "frame": {
+    "x": 255,
+    "y": 382,
+    "w": 55,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 55,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "peep-lobby/boot_near/zebra.png": {
+   "frame": {
+    "x": 312,
+    "y": 382,
+    "w": 52,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 13,
+    "w": 52,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "peep-lobby/blaster.png": {
+   "frame": {
+    "x": 366,
+    "y": 382,
+    "w": 54,
+    "h": 30
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 54,
+    "h": 30
+   },
+   "sourceSize": {
+    "w": 54,
+    "h": 30
+   }
+  },
+  "peep-lobby/forearm_far/fixed.png": {
+   "frame": {
+    "x": 422,
+    "y": 382,
+    "w": 26,
+    "h": 30
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 26,
+    "h": 30
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/boot_far/camo.png": {
+   "frame": {
+    "x": 450,
+    "y": 382,
+    "w": 43,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 12,
+    "w": 43,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "peep-lobby/boot_far/checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 430,
+    "w": 44,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 12,
+    "w": 44,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "peep-lobby/boot_far/shade.png": {
+   "frame": {
+    "x": 48,
+    "y": 430,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 12,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "peep-lobby/boot_far/zebra.png": {
+   "frame": {
+    "x": 100,
+    "y": 430,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 12,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "peep-lobby/boot_near/hi.png": {
+   "frame": {
+    "x": 152,
+    "y": 430,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 13,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 61,
+    "h": 46
+   }
+  },
+  "peep-lobby/forearm_far/shade.png": {
+   "frame": {
+    "x": 204,
+    "y": 430,
+    "w": 21,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 4,
+    "w": 21,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/shin.png": {
+   "frame": {
+    "x": 227,
+    "y": 430,
+    "w": 15,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 15,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 15,
+    "h": 24
+   }
+  },
+  "peep-lobby/forearm_far/camo.png": {
+   "frame": {
+    "x": 244,
+    "y": 430,
+    "w": 19,
+    "h": 23
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 5,
+    "w": 19,
+    "h": 23
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/thigh.png": {
+   "frame": {
+    "x": 265,
+    "y": 430,
+    "w": 16,
+    "h": 23
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 23
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 23
+   }
+  },
+  "peep-lobby/arm_near/shade.png": {
+   "frame": {
+    "x": 283,
+    "y": 430,
+    "w": 22,
+    "h": 22
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 22,
+    "h": 22
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "peep-lobby/arm_near/zebra.png": {
+   "frame": {
+    "x": 307,
+    "y": 430,
+    "w": 21,
+    "h": 22
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 21,
+    "h": 22
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "peep-lobby/boot_far/hi.png": {
+   "frame": {
+    "x": 330,
+    "y": 430,
+    "w": 44,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 14,
+    "w": 44,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 56,
+    "h": 43
+   }
+  },
+  "peep-lobby/eye_smile.png": {
+   "frame": {
+    "x": 376,
+    "y": 430,
+    "w": 35,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 12,
+    "y": 32,
+    "w": 35,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 59,
+    "h": 80
+   }
+  },
+  "peep-lobby/forearm_far/checker.png": {
+   "frame": {
+    "x": 413,
+    "y": 430,
+    "w": 19,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 4,
+    "w": 19,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/forearm_far/zebra.png": {
+   "frame": {
+    "x": 434,
+    "y": 430,
+    "w": 21,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 5,
+    "w": 21,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/arm_near/checker.png": {
+   "frame": {
+    "x": 457,
+    "y": 430,
+    "w": 19,
+    "h": 18
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 6,
+    "w": 19,
+    "h": 18
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "peep-lobby/forearm_far/hi.png": {
+   "frame": {
+    "x": 478,
+    "y": 430,
+    "w": 19,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 5,
+    "w": 19,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/hand_far/fixed.png": {
+   "frame": {
+    "x": 2,
+    "y": 456,
+    "w": 18,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 11,
+    "y": 19,
+    "w": 18,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/visor_reflection.png": {
+   "frame": {
+    "x": 22,
+    "y": 456,
+    "w": 15,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 146,
+    "y": 47,
+    "w": 15,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 175,
+    "h": 157
+   }
+  },
+  "peep-lobby/arm_near/hi.png": {
+   "frame": {
+    "x": 39,
+    "y": 456,
+    "w": 18,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 7,
+    "w": 18,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "peep-lobby/arm_near/camo.png": {
+   "frame": {
+    "x": 59,
+    "y": 456,
+    "w": 13,
+    "h": 9
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 13,
+    "y": 14,
+    "w": 13,
+    "h": 9
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 38
+   }
+  },
+  "peep-lobby/hand_far/camo.png": {
+   "frame": {
+    "x": 74,
+    "y": 456,
+    "w": 1,
+    "h": 1
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 1,
+    "h": 1
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  },
+  "peep-lobby/hand_far/shade.png": {
+   "frame": {
+    "x": 77,
+    "y": 456,
+    "w": 1,
+    "h": 1
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 1,
+    "h": 1
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 35
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-peep-atlas.py",
+  "version": "1.0",
+  "image": "peep-lobby.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 512,
+   "h": 474
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.985743380855397,
+  "drop": "peep-animations-v15",
+  "finish": {
+   "boot_far": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "boot_near": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "forearm_far": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "torso": {
+    "group": "body",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "arm_near": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "head": {
+    "group": "head",
+    "layers": [
+     "shade",
+     "zebra",
+     "checker",
+     "camo",
+     "fixed",
+     "hi"
+    ]
+   },
+   "hand_far": {
+    "group": "limbs",
+    "layers": [
+     "shade",
+     "camo",
+     "fixed"
+    ]
+   }
+  }
+ }
+}

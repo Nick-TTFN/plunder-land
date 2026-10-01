@@ -91,14 +91,24 @@ export class RobotSprite extends Container {
   /** fall_apart is throttled to this step: each pose runs a physics loop from the detach. */
   static readonly DEBRIS_STEP_S = 1 / 30
 
-  /** True once this robot's sheet is loaded; `Player` falls back to the old sprite otherwise. */
-  static ready (rig: RobotRig = PEEP_RIG): boolean {
-    return Assets.cache.has(`${rig.sheet}/eye_open.png`)
+  /**
+   * The frames to draw with: the game sheet, or with `lobby` the lobby's
+   * 2.75x sheet (`<sheet>-lobby.json`, `bake-peep-atlas.py --lobby`), for
+   * robots drawn several times their in-game size. Same parts and layers, more
+   * texels; the fit to each region's box doesn't care which.
+   */
+  static sheetFor (rig: RobotRig, lobby = false): string {
+    return lobby ? `${rig.sheet}-lobby` : rig.sheet
+  }
+
+  /** True once that sheet is loaded; `Player` falls back to the old sprite otherwise. */
+  static ready (rig: RobotRig = PEEP_RIG, lobby = false): boolean {
+    return Assets.cache.has(`${RobotSprite.sheetFor(rig, lobby)}/eye_open.png`)
   }
 
   /** The sheet's `meta.finish`; empty for a sheet from before finishes, whose parts are flat. */
-  private static finishMeta (rig: RobotRig): FinishMeta {
-    return Assets.cache.get(`./res/${rig.sheet}.json`)?.data?.meta?.finish ?? {}
+  private static finishMeta (sheet: string): FinishMeta {
+    return Assets.cache.get(`./res/${sheet}.json`)?.data?.meta?.finish ?? {}
   }
 
   /**
@@ -139,17 +149,17 @@ export class RobotSprite extends Container {
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
   private ticking = false
 
-  constructor (private readonly host: Container, private readonly character: RobotRig = PEEP_RIG) {
+  constructor (private readonly host: Container, private readonly character: RobotRig = PEEP_RIG, lobby = false) {
     super()
     this.standHeight = character.referenceUnits * RobotSprite.SCALE
     this.shoulderPx = character.shoulderY * RobotSprite.SCALE
-    const sheet = character.sheet
+    const sheet = RobotSprite.sheetFor(character, lobby)
     this.eyeTextures = { open: Texture.from(`${sheet}/eye_open.png`), smile: Texture.from(`${sheet}/eye_smile.png`) }
 
     const shadow = character.shadow
     this.shadow.beginFill(0x000000).drawEllipse(shadow.x, -2, shadow.rx, shadow.ry).endFill()
     this.rig.addChild(this.shadow)
-    const finishes = RobotSprite.finishMeta(character)
+    const finishes = RobotSprite.finishMeta(sheet)
     for (const r of character.regions) {
       const finished = r.kind === 'eye' ? undefined : finishes[r.art]
       const part = finished !== undefined

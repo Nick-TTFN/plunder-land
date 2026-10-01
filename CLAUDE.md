@@ -320,7 +320,10 @@ One sprite class draws both: `src/robots/robotsprite.ts` (`RobotSprite`, was `Pe
 `RobotRig` (`src/robots/robotrig.ts`: sheet, regions, clips, pose, reference height, aim shoulder,
 shadow and flash sizes). Every robot is drawn at Peep's pixels per rig unit, so Magnet (227.9 units)
 stands about 41 px to Peep's 44. Its sheet is `magnet.json` (`tools/bake-peep-atlas.py magnet`,
-15 KB). **Known: the Peep port predates a v15 revision of shoot and swing** (the drop's
+15 KB). **The lobby draws robots from 2.75x sheets** (`peep-lobby.json` 45 KB, `magnet-lobby.json`
+58 KB; `bake-peep-atlas.py <robot> --lobby`; `RobotSprite(host, rig, lobby)`), because it shows them up
+to 5.5x the in-game size and the game sheet was visibly soft there (Nick, 2026-10-01: 2.75x, not
+5.5x at ~260 KB). The game sheets stay texel for pixel. **Known: the Peep port predates a v15 revision of shoot and swing** (the drop's
 `animations.mjs` was rewritten at 17:15 on 2026-09-30, two minutes after `43ee8e2`, adding head/gun
 clearance); `peeprig.fixtures.json` still holds the earlier poses, and re-running the sync tool
 for Peep shows 3 poses differ (head, eye, visor). Not yet ported.
