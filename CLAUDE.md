@@ -296,7 +296,7 @@ bone matrices out, pixi-free); `peeprig.spec.ts` (server) checks it, and the dra
 every part, against poses sampled from the drop's own modules. A new drop: re-run
 `tools/peep-rig-sync.mjs <drop>` (hulls + fixtures), fix the port until the spec passes, and
 `tools/bake-peep-atlas.py <drop>` (`peep.png`, 12 KB). The rig never reads an image's size, so
-the bake resamples each part to its box in rig units at `RobotSprite.PEEP_HEIGHT` (44 CSS px, Nick:
+the bake resamples each part to its box in rig units at `RobotSprite.PEEP_HEIGHT` (53 CSS px since 2026-10-01, Nick: "all chars ~20% bigger in game"; 44 before, Nick:
 a third of the 128 first tried) x 2; change the height in both. `RobotSprite` places 14 regions a frame (about 35 sprites with finish layers); no visor mask (Nick's
 call). Clips: idle/run by movement (run at `RUN_RATE` 2x the drop's speed, Nick 2026-09-30, scaled
 by ground speed over `STRIDE_SPEED` 140, clamped 0.5-3x, so a dash runs the legs 2.5x faster again;
@@ -319,9 +319,10 @@ checked by `magnetrig.spec.ts` against 220 poses from the drop (`tools/peep-rig-
 One sprite class draws both: `src/robots/robotsprite.ts` (`RobotSprite`, was `PeepSprite`) over a
 `RobotRig` (`src/robots/robotrig.ts`: sheet, regions, clips, pose, reference height, aim shoulder,
 shadow and flash sizes). Every robot is drawn at Peep's pixels per rig unit, so Magnet (227.9 units)
-stands about 41 px to Peep's 44. Its sheet is `magnet.json` (`tools/bake-peep-atlas.py magnet`,
+stands about 49 px to Peep's 53. Its sheet is `magnet.json` (`tools/bake-peep-atlas.py magnet`,
 15 KB). **The lobby draws robots from 2.75x sheets** (`peep-lobby.json` 45 KB, `magnet-lobby.json`
-58 KB; `bake-peep-atlas.py <robot> --lobby`; `RobotSprite(host, rig, lobby)`), because it shows them up
+58 KB; `bake-peep-atlas.py <robot> --lobby`; `RobotSprite(host, rig, lobby)`; `LOBBY_DENSITY` is 2.75 x 44/53
+since robots grew in game, which kept the lobby sheets byte-identical), because it shows them up
 to 5.5x the in-game size and the game sheet was visibly soft there (Nick, 2026-10-01: 2.75x, not
 5.5x at ~260 KB). The game sheets stay texel for pixel. **Known: the Peep port predates a v15 revision of shoot and swing** (the drop's
 `animations.mjs` was rewritten at 17:15 on 2026-09-30, two minutes after `43ee8e2`, adding head/gun

@@ -36,8 +36,8 @@ from the full-size art, to its box at `TEXELS_PER_UNIT`, and the client fits
 whatever texture it gets into the box. A mismatch here costs sharpness, not
 position.
 
-`TEXELS_PER_UNIT` is `PeepSprite`'s display scale times 2: Peep is drawn
-`PeepSprite.HEIGHT` (44) CSS px tall for the reference pose's 245.5 units, and
+`TEXELS_PER_UNIT` is `RobotSprite`'s display scale times 2: Peep is drawn
+`RobotSprite.PEEP_HEIGHT` (53) CSS px tall for the reference pose's 245.5 units, and
 the sheet is at **scale 2** like the arena sheets, so a 2x screen gets a texel
 per pixel. Change the height there and re-bake here.
 
@@ -81,11 +81,14 @@ DROPS = os.path.join(os.path.dirname(__file__), '..', 'codex_output')
 OUT = os.path.join(os.path.dirname(__file__), '..', 'assets', 'res')
 PADDING = 2
 
-# Keep in step with PeepSprite.HEIGHT / PeepSprite.REFERENCE_UNITS.
-DISPLAY_HEIGHT = 44
+# Keep in step with RobotSprite.PEEP_HEIGHT and PEEP_RIG.referenceUnits.
+DISPLAY_HEIGHT = 53
 REFERENCE_UNITS = 245.5
 TEXELS_PER_UNIT = 2 * DISPLAY_HEIGHT / REFERENCE_UNITS
-LOBBY_DENSITY = 2.75
+# The lobby sheet's density was chosen as 2.75x the game sheet's when Peep
+# was 44 px; the game sheet grew with Peep (53) and the lobby's on-screen size
+# didn't, so the factor shrinks to keep the lobby sheets as they were.
+LOBBY_DENSITY = 2.75 * 44 / 53
 
 # art -> (file in the drop, box in rig units). The box is the largest any
 # region draws that art at (`REGIONS` in src/peep/rig.ts: the thighs are 15

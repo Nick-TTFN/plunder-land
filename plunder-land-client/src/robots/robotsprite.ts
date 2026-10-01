@@ -65,8 +65,13 @@ interface Action {
  * and `Game.clear` end in.
  */
 export class RobotSprite extends Container {
-  /** Peep's CSS px from the feet to the top of the head in the reference pose. Nick, 2026-09-30: a third of the 128 first tried. */
-  static readonly PEEP_HEIGHT = 44
+  /**
+   * Peep's CSS px from the feet to the top of the head in the reference pose,
+   * in game; every robot's size follows it. Nick: 44 on 2026-09-30 (a third
+   * of the 128 first tried), then 20% bigger on 2026-10-01. The bake reads the
+   * same number (`DISPLAY_HEIGHT` in `bake-peep-atlas.py`): change both.
+   */
+  static readonly PEEP_HEIGHT = 53
   /** CSS px per rig unit, for every robot: Peep's height over Peep's reference pose. */
   static readonly SCALE = RobotSprite.PEEP_HEIGHT / PEEP_RIG.referenceUnits
 
