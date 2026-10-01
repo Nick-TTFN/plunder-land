@@ -21,8 +21,9 @@ export interface RobotRig {
   /** The eye image's size in the units `eyeMatrix` maps. */
   readonly eyeSize: { readonly w: number, readonly h: number }
   /**
-   * How much bigger than Peep's pixels per rig unit it is drawn: 1, except
-   * Periscope at 1.35 (Nick, 2026-10-01: "30-40% bigger, he's slim but tall").
+   * How much bigger than the base pixels per rig unit (`RobotSprite.SCALE`)
+   * it is drawn: Magnet 1, Periscope 1.35 ("30-40% bigger, he's slim but
+   * tall") and Peep 0.9 ("relatively cute"), Nick, 2026-10-01.
    * Its sheets are baked at the same factor (`bake-peep-atlas.py`
    * `DRAW_SCALE`), so it still draws texel for pixel. Change both together.
    */
@@ -47,7 +48,8 @@ export const PEEP_RIG: RobotRig = Object.freeze({
   eyeMatrix: (m: Record<string, Matrix>, eye: EyeBone) => peep.eyeMatrix(m.head, eye),
   // In the head art's pixels (`eye/open.png` is 144 x 198 of the 428 x 388 head).
   eyeSize: Object.freeze({ w: 144, h: 198 }),
-  drawScale: 1,
+  // A little smaller than the rest: "he's relatively cute" (Nick, 2026-10-01).
+  drawScale: 0.9,
   // Measured from the drop's reference pose.
   referenceUnits: 245.5,
   shoulderY: 79,
