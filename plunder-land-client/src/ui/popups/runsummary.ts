@@ -66,8 +66,13 @@ export class RunSummaryCard extends Container {
   private readonly _onKey: (e: KeyboardEvent) => void
   private readonly _onResize: () => void
   private _done = false
+  private _watch: Container | undefined
 
-  constructor (outcome: RunOutcome, run: RunRecord, private readonly _again: () => void) {
+  /**
+   * `onWatch`, on a death: a WATCH button that puts the card away to spectate
+   * (decision #47), shown once there is someone to watch (`setWatchable`).
+   */
+  constructor (outcome: RunOutcome, run: RunRecord, private readonly _again: () => void, onWatch?: () => void) {
     super()
     const extracted = outcome === 'extracted'
     const panel = this._panel = new Panel(extracted ? 'EXTRACTED' : 'DESTROYED', 'RUN SUMMARY')
@@ -90,10 +95,18 @@ export class RunSummaryCard extends Container {
       panel.body.addChild(l, v)
     })
 
-    const button = this.button('PLAY AGAIN', inner)
+    const button = this.button('PLAY AGAIN', inner, () => { this.again() })
     button.y = rows.length * ROW + 12
     panel.body.addChild(button)
+    if (onWatch !== undefined) {
+      const watch = this._watch = this.button('WATCH', inner, onWatch, true)
+      watch.y = button.y + 48
+      panel.body.addChild(watch)
+    }
+    // Fitted with WATCH in place (pixi leaves invisible children out of the
+    // bounds), so the panel has its room when it appears.
     panel.fit(WIDTH)
+    if (this._watch !== undefined) this._watch.visible = false
 
     panel.setTitleColour(extracted ? THEME.accent : THEME.danger)
 
@@ -112,27 +125,32 @@ export class RunSummaryCard extends Container {
     })
   }
 
-  private button (label: string, width: number): Container {
+  /** Show WATCH once the server says whom this player spectates; hide it when nobody is left. */
+  setWatchable (watchable: boolean): void {
+    if (this._watch !== undefined) this._watch.visible = watchable
+  }
+
+  private button (label: string, width: number, onTap: () => void, quiet = false): Container {
     const button = new Container()
     const height = 40
     const bg = new Graphics()
-      .beginFill(0x0F3340, 1)
-      .lineStyle(2, THEME.accent, 1)
+      .beginFill(quiet ? 0x0B1A22 : 0x0F3340, 1)
+      .lineStyle(quiet ? 1 : 2, quiet ? THEME.muted : THEME.accent, 1)
       .drawRoundedRect(0, 0, width, height, 6)
       .endFill()
-    const text = Panel.text(label, THEME.bodySize, THEME.accent)
+    const text = Panel.text(label, THEME.bodySize, quiet ? THEME.text : THEME.accent)
     text.anchor.set(0.5, 0.5)
     text.x = width / 2
     text.y = height / 2
     button.addChild(bg, text)
     button.eventMode = 'static'
     button.cursor = 'pointer'
-    button.on('pointertap', () => { this.again() })
+    button.on('pointertap', onTap)
     return button
   }
 
-  /** Once: a click and a key can both land. */
-  private again (): void {
+  /** PLAY AGAIN, from the card or the spectate bar. Once: a click and a key can both land. */
+  again (): void {
     if (this._done) return
     this._done = true
     this.parent?.removeChild(this)

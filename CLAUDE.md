@@ -1051,6 +1051,21 @@ provisional), loot what it sees, else wander and sometimes descend. Measured 202
 about 0.013 ms of tick per bot. Natural loot refills every tick, so a bot carried 400-1200 loot
 within 20-100 s: run length is decided by time, not loot.
 
+## Spectate
+
+**A dead player watches its killer, then whoever is nearest** (decision #47). The server keeps
+the dead player's connection: `Connection.spectating` is the watched player,
+`Player.spectators` its watchers, and **`Multiplayer.viewpoint`** (the watched player, else the
+connection's own) stands in for `connection.player` wherever a view is tested (`inView`,
+`sendVisible`, `switchLayer`, the holders loop). The interest loops serve a candidate's
+spectators beside its own connection (`viewersOf`, static scratch arrays). Death re-centres the
+view as a layer change does; when the watched run ends, on to the nearest live player (same
+layer first, bots included), or stop (`spectate` `{ id: null }`). The client is told whom it
+follows with a plain `spectate` `{ id, name }` event, text, which framed clients still decode;
+its camera, fog and shown plane follow that unit (`Game.SPECTATE_ID`). The run card gets WATCH,
+and a SPECTATING bar (RUN CARD, PLAY AGAIN) sits above the popups. No spectate after an
+extraction. `forget` ends any spectating (a new run, a move to another world, a disconnect).
+
 ## Skills
 
 All eight are equipped: Dash, MeleeAttack, RangedAttack, Defend, StoneWall, ThrowFireball,

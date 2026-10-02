@@ -50,6 +50,7 @@ import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
+import { SpectateBar } from './ui/popups/spectatebar'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 
 /** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
@@ -87,6 +88,15 @@ export class Game extends Container {
   static FOG = new Fog()
   /** This run's facts for the end-of-run card (run-summary-card, M2). */
   static RUN = new RunRecord()
+  /**
+   * The object id a dead player watches (spectate, decision #47), from the
+   * server's `spectate` event; undefined when not spectating.
+   */
+  static SPECTATE_ID: number | undefined
+  private spectateBar: SpectateBar | undefined
+  private runCard: RunSummaryCard | undefined
+  /** The layer whose plane is shown, so following a spectated player fades only on a change. */
+  private shownTag: number | undefined
   static Instance: Game
   static simulate: boolean
   static loader: any
@@ -243,6 +253,8 @@ export class Game extends Container {
 
   start (): void {
     this.clear()
+    this.endSpectate()
+    this.runCard = undefined
 
     // todo remove static accessors
     Game.OBSTACLES = []
@@ -290,6 +302,7 @@ export class Game extends Container {
     Game.socket.off('update')
     Game.socket.off('destroy')
     Game.socket.off('standings')
+    Game.socket.off('spectate')
     Leaderboard.Instance?.setStandings([], undefined)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
@@ -303,6 +316,7 @@ export class Game extends Container {
     Game.socket.on('update', this.onObjectsUpdated.bind(this))
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
     Game.socket.on('standings', this.onStandings.bind(this))
+    Game.socket.on('spectate', this.onSpectate.bind(this))
     // `{ id, name, finish }`: the id is the player's identity (stats are keyed
     // by it), the name and the robot's finish only what others see. The server
     // sanitises and caps the name, gives an empty one a callsign made from the
@@ -670,6 +684,7 @@ export class Game extends Container {
    */
   updateLayerVisibility (tag: number): void {
     if ((this.layers == null) || (this.tags == null)) return
+    this.shownTag = tag
 
     const shown = this.layerOf(tag)
     for (const layer of this.layers) {
@@ -909,7 +924,10 @@ export class Game extends Container {
         // restart: the next run starts when the player asks for it. A destroy
         // with hp 0 is a death; without hp, an extraction.
         Game.RUN.finish((obj as Unit).loot ?? 0)
-        Game.popups.show(new RunSummaryCard(data.hp === 0 ? 'dead' : 'extracted', Game.RUN, this.start.bind(this)))
+        const dead = data.hp === 0
+        const card = this.runCard = new RunSummaryCard(dead ? 'dead' : 'extracted', Game.RUN, this.start.bind(this),
+          dead ? () => { card.visible = false } : undefined)
+        Game.popups.show(card)
         Game.PLAYER = undefined
         Game.PLAYER_ID = undefined
         Game.hud.clearGameUI()
@@ -1036,12 +1054,19 @@ export class Game extends Container {
     // The local player moves on input, not on the network.
     Game.LOCAL.predict(dt)
 
-    // Fog follows the predicted position, like the camera.
+    // Fog follows the predicted position, like the camera; while spectating,
+    // the watched player (#47), whose plane is the one shown.
     let fogMoved = false
+    const watched = this.spectated()
     if (Game.PLAYER !== undefined) {
       const cell = Hex.toCell(new Vector(Game.LOCAL.x, Game.LOCAL.y))
       fogMoved = Game.FOG.update(cell.x, cell.y, Game.LOCAL.tag)
+    } else if (watched !== undefined) {
+      const cell = Hex.toCell(new Vector(watched.x, watched.y))
+      fogMoved = Game.FOG.update(cell.x, cell.y, watched.tag)
+      if (watched.tag !== undefined && watched.tag !== this.shownTag) this.updateLayerVisibility(watched.tag)
     }
+    this.spectateBar?.layout(Game.RENDERER.screen.height)
     this.applyFog()
 
     this.updatePathMarker()
@@ -1079,12 +1104,13 @@ export class Game extends Container {
 
     const layers = this.layers
 
-    if (Game.PLAYER != null && layers != null) {
+    const focus = Game.PLAYER ?? watched
+    if (focus != null && layers != null) {
       // Snapped to device pixels, so the ground (laid out on whole device
       // pixels, see HexTerrain) stays on them as the camera moves.
       const res = Game.RENDERER.resolution
-      Game.CONTAINER.x = -Math.round(Game.PLAYER.x * res) / res
-      Game.CONTAINER.y = -Math.round(Game.PLAYER.y * TILT * res) / res
+      Game.CONTAINER.x = -Math.round(focus.x * res) / res
+      Game.CONTAINER.y = -Math.round(focus.y * TILT * res) / res
 
       const screen = Game.RENDERER.screen
 
@@ -1105,7 +1131,7 @@ export class Game extends Container {
         // Every layer is drawn at scale 1 now. The parallax offset and the
         // screen-over-scale slice here existed for the half-size ground seen
         // from the airborne plane, which is gone.
-        this.terrains[i]?.update(Game.PLAYER.x, Game.PLAYER.y, screen.width, screen.height)
+        this.terrains[i]?.update(focus.x, focus.y, screen.width, screen.height)
         if (fogMoved) this.terrains[i]?.retint()
         // Every frame, not only when the fog moves: the fog's radius arrives
         // with the own create, after the hello that placed the walls, and a
@@ -1124,11 +1150,49 @@ export class Game extends Container {
    * `visible` (a unit that left the interest box, a stale one), and the two
    * must not undo each other. Cosmetic only (decision #36).
    */
+  /** The unit being spectated, once this client holds it. */
+  spectated (): Unit | undefined {
+    if (Game.SPECTATE_ID === undefined) return undefined
+    const obj = this.LOOKUP[Game.SPECTATE_ID]
+    return obj instanceof Unit ? obj : undefined
+  }
+
+  /**
+   * `spectate` (decision #47): whom this dead player now watches, `id: null`
+   * when nobody is left. The server sends the world around them from then on;
+   * the camera, the fog and the shown plane follow them (`update`).
+   */
+  onSpectate (data: { id: number | null, name?: string }): void {
+    if (data?.id === null || typeof data?.id !== 'number') {
+      this.endSpectate()
+      if (this.runCard !== undefined) this.runCard.visible = true
+      return
+    }
+    Game.SPECTATE_ID = data.id
+    this.runCard?.setWatchable(true)
+    if (this.spectateBar === undefined) {
+      this.spectateBar = new SpectateBar(
+        () => { if (this.runCard !== undefined) this.runCard.visible = true },
+        () => { if (this.runCard !== undefined) this.runCard.again(); else this.start() })
+      Game.popups.addChild(this.spectateBar)
+    }
+    this.spectateBar.setTarget(typeof data.name === 'string' ? data.name : '')
+  }
+
+  private endSpectate (): void {
+    Game.SPECTATE_ID = undefined
+    this.runCard?.setWatchable(false)
+    this.spectateBar?.parent?.removeChild(this.spectateBar)
+    this.spectateBar?.destroy({ children: true })
+    this.spectateBar = undefined
+  }
+
   applyFog (): void {
     const fog = Game.FOG
     for (const id in this.LOOKUP) {
       const obj = this.LOOKUP[id]
-      if (obj === Game.PLAYER || obj instanceof Portal || obj instanceof Exit || fog.radius === null) {
+      // Ids are LOOKUP's keys: client objects don't carry theirs.
+      if (obj === Game.PLAYER || Number(id) === Game.SPECTATE_ID || obj instanceof Portal || obj instanceof Exit || fog.radius === null) {
         obj.renderable = true
         continue
       }
