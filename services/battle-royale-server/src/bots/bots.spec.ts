@@ -9,6 +9,7 @@ import Worlds from '../network/worlds'
 import World from '../objects/world'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
+import { Hex } from '../utils/hex'
 import { LEAVE_GRACE_MS } from './fill'
 
 /**
@@ -150,6 +151,31 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
     delete process.env.GA_MEASUREMENT_ID
     delete process.env.GA_API_SECRET
   }
+})
+
+test('bots leave a human alone for the first 10 s of the run', (t) => {
+  const tick = clock(t)
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 2, now: () => Date.now() })
+  const world = worlds.worlds[0]
+  const a = human(worlds, 'a')
+  a.start()
+  worlds.tickAll(250)
+  const me = a.connection.player
+  const bot = world.PLAYERS.find((p) => p.bot !== undefined)
+  assert.ok(me !== undefined && bot !== undefined)
+  World.run(world, () => {
+    // Nothing else around, and the bot right beside the human.
+    world.MOBS.length = 0
+    for (const p of world.PLAYERS) if (p !== me && p !== bot) p.exit()
+    bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0))
+  })
+  const full = me.hp + me.armor
+  for (let i = 0; i < 36; i++) { tick(250); worlds.tickAll(250); World.run(world, () => { world.MOBS.length = 0 }) }
+  assert.equal(me.hp + me.armor, full, 'untouched at 9 s')
+  // It wandered off to loot meanwhile: beside the human again as the grace ends.
+  World.run(world, () => { bot.stop(); bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0)) })
+  for (let i = 0; i < 24; i++) { tick(250); worlds.tickAll(250); World.run(world, () => { world.MOBS.length = 0 }) }
+  assert.ok(me.hp + me.armor < full, 'attacked after the grace')
 })
 
 test('ten simulated minutes: bots loot, fight, extract, without one error', (t) => {

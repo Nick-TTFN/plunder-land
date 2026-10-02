@@ -34,6 +34,11 @@ const FIREBALL = 5
 const ICICLE = 6
 const MEDKIT = 0
 
+/**
+ * A human's first seconds of a run, during which bots leave them alone (Nick,
+ * 2026-10-02): a bot was on a fresh player 20 s in, armor already gone.
+ */
+export const SPAWN_GRACE_MS = 10_000
 /** How close another bot (or a mob) has to be before a bot fights it. */
 const BOT_SCUFFLE_RINGS = 2
 const LOOT_SIGHT = 7
@@ -128,7 +133,9 @@ export default class BotBrain implements IAIRoutine {
   private enemy (cell: Vector, rings: number): Unit | undefined {
     const me = this.owner
     const live = (u: Unit): boolean => u !== me && !u.destroyed && !(u as Player).exited
-    const human = World.NEAREST_IN_CELLS(cell, rings, me.tag, ObjectType.Player, (u) => live(u) && (u as Player).bot === undefined)
+    const now = Date.now()
+    const human = World.NEAREST_IN_CELLS(cell, rings, me.tag, ObjectType.Player,
+      (u) => live(u) && (u as Player).bot === undefined && now - (u as Player).createdAt >= SPAWN_GRACE_MS)
     if (human !== undefined) return human
     return World.NEAREST_IN_CELLS(cell, BOT_SCUFFLE_RINGS, me.tag, ObjectType.Player | ObjectType.Mob, live)
   }

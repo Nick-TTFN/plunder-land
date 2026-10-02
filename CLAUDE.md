@@ -1036,8 +1036,8 @@ counts them** (`Worlds.activePlayers`: world choice and cap, idle closing, drain
 Redis stats and send no analytics (both guarded on `player.bot`); a human's kill on a bot counts.
 They show as players with a BOT tag on the leaderboard (standings flags). The brain thinks once
 per its layer's `reactionMs` (`BOT_SKILL`: 650/450/300 ms, aim missing by a cell 45/25/12% of the
-time): heal when hurt, fight the nearest human in reach (another bot or a mob only within 2
-cells), head out once loaded or late (`lootGoal` 1500-4000, `deadline` 3-8 min, both
+time): heal when hurt, fight the nearest human in reach (but not in the first 10 s of the
+human's run, `SPAWN_GRACE_MS`) and another bot or a mob only within 2 cells, head out once loaded or late (`lootGoal` 1500-4000, `deadline` 3-8 min, both
 provisional), loot what it sees, else wander and sometimes descend. Measured 2026-10-02 in
 `bots.spec.ts`'s ten simulated minutes: runs of about 2 min median, most deaths on layers 02-03;
 about 0.013 ms of tick per bot. Natural loot refills every tick, so a bot carried 400-1200 loot
