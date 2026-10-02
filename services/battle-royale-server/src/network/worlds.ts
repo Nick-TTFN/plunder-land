@@ -105,8 +105,20 @@ export default class Worlds {
     return n
   }
 
-  /** Where the next run goes: the fullest world under the cap, ties to the oldest; else a new one. */
-  choose (): World {
+  /**
+   * Where the next run goes. With a party code (an invite, decision #47): the
+   * world of a human in a run with the same code, if it is under the cap.
+   * Otherwise the fullest world under the cap, ties to the oldest; else a new one.
+   */
+  choose (party?: string): World {
+    if (party !== undefined) {
+      for (const world of this.worlds) {
+        if (Worlds.activePlayers(world) >= this.cap) continue
+        for (const player of world.PLAYERS) {
+          if (player.bot === undefined && !player.destroyed && !player.exited && player.connection?.party === party) return world
+        }
+      }
+    }
     let best: World | undefined
     let bestCount = -1
     for (const world of this.worlds) {
@@ -168,13 +180,15 @@ export default class Worlds {
    * leaving its old one first if that is another, and the run starts there.
    */
   start (connection: Connection, data: unknown): void {
-    if (connection.started || Multiplayer.parseStart(data) === undefined) return
+    const start = connection.started ? undefined : Multiplayer.parseStart(data)
+    if (start === undefined) return
     if (this.draining) {
       // To the next server: the client reconnects and lands in the lobby.
       Worlds.redirect(connection)
       return
     }
-    const target = this.choose()
+    connection.party = start.party
+    const target = this.choose(start.party)
     const from = this.worldOf.get(connection)
     if (from !== target) {
       if (from !== undefined) World.run(from, () => { from.multiplayer?.release(connection) })

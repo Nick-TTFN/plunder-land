@@ -295,7 +295,7 @@ export class Game extends Container {
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (playerId: string, name: string, finish: number[], robot: string): Promise<void> {
+  async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string): Promise<void> {
     Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
@@ -309,7 +309,8 @@ export class Game extends Container {
     // id, and replaces anything unreadable in the finish with the default.
     // `robot` is the key of the robot picked in the lobby (robot-select); the
     // server plays peep for anything it doesn't offer.
-    Game.socket.emit('start_requested', { id: playerId, name, finish, robot })
+    // `party`: the invite code (decision #47); a server from before it ignores it.
+    Game.socket.emit('start_requested', { id: playerId, name, finish, robot, party })
 
     Game.hud.setupGameUI()
   }

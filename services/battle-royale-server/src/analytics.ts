@@ -13,7 +13,9 @@ import type Redis from 'ioredis'
  * - `run_start`: `robot`, `run_number` (this player's runs so far, this one
  *   included), `days_since_first` (since this player's first run; 0 on the
  *   first day), `world_players` (active humans in its world, it included),
- *   `world_bots` (bots in it, decision #47; added the day bots came).
+ *   `world_bots` (bots in it, decision #47; added the day bots came),
+ *   `party_size` (humans already in it with the same party code: friends
+ *   from an invite link, #47; added the same day).
  * - `first_loot`: `seconds` from the start to the first loot picked up.
  * - `run_end`: `outcome` (`extracted`, `died`, `left`), `seconds`, `loot`
  *   (carried at the end: banked on an extraction, lost otherwise), `kills`,
@@ -89,7 +91,7 @@ export default class Analytics {
    * moment late; its timestamp is the start's. `redis` is passed in: after an
    * await no world is current (worlds-per-process).
    */
-  static runStart (run: RunInfo, redis: Redis, robot: string, worldPlayers: number, worldBots: number = 0): void {
+  static runStart (run: RunInfo, redis: Redis, robot: string, worldPlayers: number, worldBots: number = 0, partySize: number = 0): void {
     if (Analytics.url === undefined) return
     const at = Date.now()
     const today = Math.floor(at / DAY_MS)
@@ -104,10 +106,11 @@ export default class Analytics {
         run_number: Number(games ?? 0) + 1,
         days_since_first: Math.max(0, today - Number(firstDay ?? today)),
         world_players: worldPlayers,
-        world_bots: worldBots
+        world_bots: worldBots,
+        party_size: partySize
       }, at)
     }
     // Redis down: still count the run, without its history.
-    history().catch(() => { Analytics.send(run, 'run_start', { robot, world_players: worldPlayers, world_bots: worldBots }, at) })
+    history().catch(() => { Analytics.send(run, 'run_start', { robot, world_players: worldPlayers, world_bots: worldBots, party_size: partySize }, at) })
   }
 }

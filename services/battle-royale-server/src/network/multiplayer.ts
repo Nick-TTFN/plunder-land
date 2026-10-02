@@ -19,6 +19,12 @@ export class Connection {
   socket: Socket
   player: Player | undefined
   started: boolean = false
+  /**
+   * The party code of this connection's last start (decision #47): a friend's
+   * invite link carries the inviter's, so both runs go to the same world
+   * (`Worlds.choose`). Random per browser, never the player id.
+   */
+  party: string | undefined
   // Last input sequence number consumed by the simulation, and how much
   // simulated time it has been applied for. The client needs both: the sequence
   // alone leaves it unable to tell how far into that input the server has got,
@@ -388,12 +394,16 @@ export default class Multiplayer {
       this.admit(connection, player)
       let humans = 0
       let bots = 0
+      let party = 0
       for (const p of World.PLAYERS) {
         if (p.destroyed || p.exited) continue
-        if (p.bot === undefined) humans++
-        else bots++
+        if (p.bot !== undefined) bots++
+        else {
+          humans++
+          if (p !== player && connection.party !== undefined && p.connection?.party === connection.party) party++
+        }
       }
-      Analytics.runStart({ playerId, startedAt: player.createdAt }, this.redis, player.archetype.key, humans, bots)
+      Analytics.runStart({ playerId, startedAt: player.createdAt }, this.redis, player.archetype.key, humans, bots, party)
     } catch (e) {
       connection.started = false
       connection.player = undefined // before destroy, so no stats are written for it
@@ -634,16 +644,21 @@ export default class Multiplayer {
    * 2026-09-25); remove it after that. Anything without an id of the shape
    * below is ignored and leaves the connection free to ask again.
    */
-  static parseStart (data: unknown): { id: string, name?: unknown, finish?: unknown, robot?: unknown } | undefined {
+  static parseStart (data: unknown): { id: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } | undefined {
     if (typeof data === 'string') return Multiplayer.ID_SHAPE.test(data) ? { id: data } : undefined
     if (data === null || typeof data !== 'object') return undefined
-    const { id, name, finish, robot } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown }
+    const { id, name, finish, robot, party } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, party?: unknown }
     if (typeof id !== 'string' || !Multiplayer.ID_SHAPE.test(id)) return undefined
-    const start: { id: string, name?: unknown, finish?: unknown, robot?: unknown } = { id, name }
+    const start: { id: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } = { id, name }
     if (finish !== undefined) start.finish = finish
     if (robot !== undefined) start.robot = robot
+    // Only a well-formed code; anything else plays as if there were none.
+    if (typeof party === 'string' && Multiplayer.PARTY_SHAPE.test(party)) start.party = party
     return start
   }
+
+  /** A party code (decision #47): lowercase letters and digits, as the client makes them. */
+  static readonly PARTY_SHAPE = /^[0-9a-z]{6,12}$/
 
   /**
    * The shape of a player id. It becomes the Redis key `stats-${id}`, so it is

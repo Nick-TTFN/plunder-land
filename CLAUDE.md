@@ -646,6 +646,14 @@ flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hel
 `layers` (a server from before three layers) means `[0, -1]`. **Ship the client first**:
 an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
 
+**Invites** (decision #47): `start_requested` may carry `party`, a 6-12 character code of
+`[0-9a-z]` (`Multiplayer.PARTY_SHAPE`; anything else is dropped). The server puts that run in the
+world of a human in a run with the same code, if it is under the cap, else fill-first
+(`Worlds.choose`). Every browser has its own random code (`plunderland_party`, never the player
+id); the lobby's INVITE copies `?join=<code>&from=<name>`, and a tab opened from it sends the
+inviter's code (sessionStorage `plunderland_join`; `ui/lobby/party.ts`, pixi-free and run by
+`party.spec.ts`). Free-for-all all the same. Additive: an old server ignores it.
+
 **Client → server `start_requested` is `{ id, name, finish, robot }`** (`robot` the picked
 robot's key; anything not selectable plays Peep; until the lobby, the client sends `?robot=` or
 `peep`) (`Multiplayer.parseStart`;

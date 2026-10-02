@@ -1,4 +1,5 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js'
+import { inviteUrl, type Invite, JOIN_KEY, makeCode, parseStoredInvite, PARTY_KEY, readInvite, withoutInvite } from './party'
 import { RobotSprite } from '../../robots/robotsprite'
 import { ROBOT_RIGS } from '../../robots/robotrig'
 import { Game } from '../../game'
@@ -34,13 +35,31 @@ function writeStorage (key: string, value: string): void {
   }
 }
 
+/** sessionStorage, as `readStorage`/`writeStorage`: a failure means "not remembered". */
+function readSession (key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch (e) {
+    return null
+  }
+}
+
+function writeSession (key: string, value: string | null): void {
+  try {
+    if (value === null) sessionStorage.removeItem(key)
+    else sessionStorage.setItem(key, value)
+  } catch (e) {
+    // Not remembered past this page.
+  }
+}
+
 /** The id when storage is unavailable, kept for the page so a reconnect keeps the callsign. */
 let _pageId: string | undefined
 
 const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
 /** `finish` as its wire bytes, `robot` an archetype key. */
-export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string) => Promise<void>
+export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string) => Promise<void>
 
 /** A group's finish as one swatch: colour and pattern. */
 interface Swatch { colour: number, pattern: number }
@@ -116,6 +135,11 @@ export default class Lobby extends Container {
   private finish: Finish
   private mixMode = false
   private started = false
+  /** This browser's party code, and the invite this tab was opened with (party.ts). */
+  private readonly ownParty: string
+  private invite: Invite | undefined
+  private readonly inviteButton: HTMLButtonElement
+  private readonly joinBanner: HTMLDivElement
 
   private readonly backdrop = new Sprite()
   private readonly platform = new Graphics()
@@ -148,6 +172,8 @@ export default class Lobby extends Container {
     this.finish = finishFromBytes(Lobby.loadJson(FINISH_KEY))
     const remembered = readStorage(ROBOT_KEY)
     this.index = Math.max(0, PICKABLE.findIndex((r) => r.key === remembered))
+    this.ownParty = Lobby.loadParty()
+    this.invite = Lobby.loadInvite()
 
     this.addChild(this.backdrop, this.platform, this.stage)
 
@@ -169,6 +195,15 @@ export default class Lobby extends Container {
     this.nameInput.value = readStorage(NAME_KEY) ?? ''
     pill.append(this.nameInput, el('span', 'lb-pencil', '\u270E'))
     this.root.append(pill)
+
+    // Invites (decision #47): the link puts a friend in this player's world.
+    this.inviteButton = el('button', 'lb-invite', 'INVITE')
+    this.inviteButton.title = 'Copy a link that puts a friend in your world'
+    this.inviteButton.onclick = () => { this.copyInvite() }
+    this.root.querySelector('.lb-top')?.append(this.inviteButton)
+    this.joinBanner = el('div', 'lb-join')
+    this.root.append(this.joinBanner)
+    this.renderJoin()
 
     this.prev = el('button', 'lb-arrow lb-prev', '\u2039')
     this.next = el('button', 'lb-arrow lb-next', '\u203A')
@@ -280,6 +315,68 @@ export default class Lobby extends Container {
     return id
   }
 
+  private static loadParty (): string {
+    const stored = readStorage(PARTY_KEY)
+    if (stored !== null && /^[0-9a-z]{6,12}$/.test(stored)) return stored
+    const code = makeCode()
+    writeStorage(PARTY_KEY, code)
+    return code
+  }
+
+  /**
+   * The invite in the address, which then leaves it (so a reload or a shared
+   * screenshot doesn't carry it) and stays for the tab; else the tab's last.
+   */
+  private static loadInvite (): Invite | undefined {
+    const fromUrl = readInvite(window.location.search)
+    if (fromUrl !== undefined) {
+      writeSession(JOIN_KEY, JSON.stringify(fromUrl))
+      try {
+        window.history.replaceState(null, '', window.location.pathname + withoutInvite(window.location.search))
+      } catch (e) {
+        // The address keeps it; harmless.
+      }
+      return fromUrl
+    }
+    return parseStoredInvite(readSession(JOIN_KEY))
+  }
+
+  /** The code this player's runs carry: the inviter's, else its own. */
+  private get party (): string {
+    return this.invite?.code ?? this.ownParty
+  }
+
+  private renderJoin (): void {
+    this.joinBanner.replaceChildren()
+    this.joinBanner.style.display = this.invite === undefined ? 'none' : ''
+    if (this.invite === undefined) return
+    const who = this.invite.from === '' ? 'A FRIEND' : this.invite.from
+    // textContent: the name came from a link.
+    this.joinBanner.append(el('span', 'lb-join-text', `JOINING ${who.toUpperCase()}'S WORLD`))
+    const cancel = el('button', 'lb-join-x', '\u2715')
+    cancel.title = 'Play in any world instead'
+    cancel.onclick = () => {
+      this.invite = undefined
+      writeSession(JOIN_KEY, null)
+      this.renderJoin()
+    }
+    this.joinBanner.append(cancel)
+  }
+
+  private copyInvite (): void {
+    const url = inviteUrl(window.location.origin, window.location.pathname, window.location.search, this.party, this.nameInput.value.trim())
+    const done = (label: string): void => {
+      this.inviteButton.textContent = label
+      setTimeout(() => { this.inviteButton.textContent = 'INVITE' }, 2000)
+    }
+    const fallback = (): void => { window.prompt('Send this link to a friend:', url) }
+    if (navigator.clipboard?.writeText === undefined) {
+      fallback()
+      return
+    }
+    navigator.clipboard.writeText(url).then(() => { done('LINK COPIED') }, fallback)
+  }
+
   private static loadJson (key: string): unknown {
     try {
       const raw = readStorage(key)
@@ -336,7 +433,7 @@ export default class Lobby extends Container {
     writeStorage(NAME_KEY, name)
     writeStorage(FINISH_KEY, JSON.stringify(finishToBytes(this.finish)))
     writeStorage(ROBOT_KEY, this.entry.key)
-    void this.start(this.playerId, name, finishToBytes(this.finish), this.entry.robot ?? 'peep')
+    void this.start(this.playerId, name, finishToBytes(this.finish), this.entry.robot ?? 'peep', this.party)
     this.parent?.removeChild(this)
   }
 

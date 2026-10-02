@@ -86,10 +86,18 @@ export const LOBBY_CSS = `
 .lb-keys { position: absolute; left: 44px; bottom: 50px; font-size: 13px; letter-spacing: .1em; color: #a9bccd; }
 .lb-privacy { position: absolute; left: 52px; bottom: 18px; font-size: 11px; letter-spacing: .12em; color: #7f95a8; text-decoration: none; pointer-events: auto; }
 .lb-privacy:hover { color: #5fe0cf; }
+.lb-invite { position: absolute; right: 44px; top: 50%; transform: translateY(-50%); padding: 8px 18px; font-size: 14px; letter-spacing: .14em;
+  color: #5fe0cf; background: rgba(61,224,208,.08); border: 1px solid #3a6e7e; border-radius: 6px; cursor: pointer; }
+.lb-invite:hover { background: rgba(61,224,208,.16); }
+.lb-join { position: absolute; top: calc(14% + 64px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px 6px 14px; font-size: 13px; letter-spacing: .12em; color: #0b1622; background: #5fe0cf; border-radius: 6px;
+  pointer-events: auto; white-space: nowrap; z-index: 1; }
+.lb-join-x { border: 0; background: transparent; color: #0b1622; font-size: 14px; cursor: pointer; padding: 0 4px; }
 .lb-keys kbd { display: inline-block; min-width: 18px; padding: 3px 6px; margin: 0 4px 0 8px; border: 1px solid #3a5266; border-radius: 4px;
   font-family: inherit; color: #E6EEF5; text-align: center; }
 @media (max-width: 1300px) {
   .lb-pill { top: 168px; }
+  .lb-join { top: 232px; }
 }
 @media (max-height: 850px) {
   .lb-cards { bottom: 92px; }
@@ -111,7 +119,9 @@ export const LOBBY_CSS = `
   .lb-brand { font-size: 15px; letter-spacing: .2em; }
   .lb-tabs { display: none; }
   .lb-heading, .lb-arrow, .lb-keys { display: none; }
-  .lb-privacy { left: auto; bottom: auto; right: 16px; top: 19px; }
+  .lb-privacy { left: auto; bottom: auto; right: 104px; top: 19px; }
+  .lb-invite { right: 16px; padding: 6px 10px; font-size: 12px; }
+  .lb-join { top: 116px; font-size: 11px; }
   .lb-pill { top: 64px; }
   .lb-plate { width: 100%; }
   .lb-robot { font-size: 34px; }
