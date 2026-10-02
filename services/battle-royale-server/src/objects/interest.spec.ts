@@ -30,7 +30,11 @@ import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparse
  *   change. A connection that holds one is sent a destroy once it is beyond
  *   `vision` + 2 rings, or off the layer. Peep: 7 and 8; Periscope: 12 and 13.
  * - Updates and destroys go to exactly the connections that hold the object.
- * - Effects still go by the 500 box (#48 kept them).
+ * - Effects drawn on their originator (types 0-4) go to exactly the
+ *   connections that hold it; blasts and bombs (5-8), drawn on a cell, to the
+ *   connections on its layer that see the cell: the 500 box around their
+ *   viewpoint, or their leave radius where that reaches further (fog
+ *   follow-ups, #48).
  *
  * Each client here is a `Mirror`: it applies every event in the order the
  * server emits them, as the real client does (`create`, `create_own`,
@@ -125,6 +129,8 @@ class Mirror {
   problems: string[] = []
   /** Every record by event, since the last `clear`. */
   seen: Record<string, number[]> = { create: [], create_own: [], destroy: [], update: [], effect: [] }
+  /** Each effect record's type, in step with `seen.effect` (its originator ids). */
+  effectTypes: number[] = []
   /** Each destroy record's length in bytes, by id, since the last `clear`: 3 is `id` alone. */
   destroyBytes = new Map<number, number>()
   /** Destroyed since the last `update` event: an update for one of these is harmless (the client ignores it). */
@@ -137,7 +143,13 @@ class Mirror {
       let at = 0
       while (at + 2 <= buffer.length) {
         const length = buffer.readUInt16BE(at)
-        this.seen.effect.push(buffer.readUInt16BE(at + 3))
+        const type = buffer.readInt8(at + 2)
+        const id = buffer.readUInt16BE(at + 3)
+        this.seen.effect.push(id)
+        this.effectTypes.push(type)
+        // Types 0-4 are drawn on their originator (`Game.onEffect`): one the
+        // client doesn't hold is a wasted record (fog follow-ups, #48).
+        if (type <= 4 && !this.held.has(id)) this.problems.push(`effect ${type} for ${id}, not held`)
         at += 2 + length
       }
       return
@@ -164,6 +176,7 @@ class Mirror {
 
   clear (): void {
     for (const key of Object.keys(this.seen)) this.seen[key] = []
+    this.effectTypes = []
     this.destroyBytes.clear()
   }
 }
@@ -1017,25 +1030,127 @@ test('a StoneWall stone reaches only the clients with it in range, and leaves th
 
 // --- effects -----------------------------------------------------------------------------
 
-test('an effect reaches exactly the players on its originator\'s layer inside the box around it', () => {
+test('a unit effect (types 0-4) reaches exactly the connections that hold its originator', () => {
   const multiplayer = new Multiplayer(250, okRedis())
   const random = lcg(7)
   const clients: Client[] = []
-  for (let i = 0; i < 16; i++) clients.push(join(multiplayer, `e${i.toString(16).padStart(5, '0')}`, new Vector(random() * 2000, random() * 2000)))
+  // Peep and Periscope viewers mixed, over 2000 units: most pairs are inside
+  // the old 500 box, many of those beyond a Peep's sight.
+  for (let i = 0; i < 16; i++) {
+    clients.push(join(multiplayer, `e${i.toString(16).padStart(5, '0')}`, new Vector(random() * 2000, random() * 2000), i % 3 === 0 ? 'periscope' : 'peep'))
+  }
   for (const client of clients) if (random() < 0.3) client.player.changeLayer(MIDDLE)
+  const mobs: Mob[] = []
+  for (let i = 0; i < 10; i++) mobs.push(idleMob(random() * 2000, random() * 2000, random() < 0.3 ? MIDDLE : TOP))
   tick(multiplayer, 0)
 
-  for (const origin of clients) {
+  let sent = 0
+  let withheld = 0
+  const origins: Array<Player | Mob> = [...clients.map((c) => c.player), ...mobs]
+  for (const [i, origin] of origins.entries()) {
+    const type = i % 5
     for (const client of clients) client.mirror.clear()
-    multiplayer.effect(3, origin.player, 500)
+    multiplayer.effect(type, origin, 500, i % 2 === 0 ? Hex.toCell(origin.position) : undefined)
     multiplayer.flushAll(1, 250)
     for (const client of clients) {
-      const got = client.mirror.seen.effect.filter((id) => id === origin.player.id).length
-      const want = client.player.tag === origin.player.tag &&
-        client.player.position.withinBounds(origin.player.position.x, origin.player.position.y, R) ? 1 : 0
-      assert.equal(got, want, `effect of ${origin.id} to ${client.id}`)
+      const got = client.mirror.seen.effect.filter((id) => id === origin.id).length
+      const want = client.mirror.held.has(origin.id) ? 1 : 0
+      assert.equal(got, want, `effect ${type} of ${origin.id} to ${client.id}`)
+      if (want === 1) sent++
+      else if (client.player.tag === origin.tag && client.player.position.withinBounds(origin.position.x, origin.position.y, R)) withheld++
     }
   }
+  // Both cases occur, or the test proves nothing.
+  assert.ok(sent > 0, 'no effect reached a holder')
+  assert.ok(withheld > 0, 'no viewer was inside the old box without holding the originator')
+  assertClean(clients, 'unit effects')
+})
+
+test('a unit effect skips a viewer in the old box that does not hold it, and reaches a holder and its spectator', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  // A Peep 9 rings west of the originator: 405 units, inside the old box,
+  // beyond its 7-ring enter radius.
+  const far = join(multiplayer, 'b00010', at, 'peep')
+  const origin = idleMob(offCell(at, 9).x, offCell(at, 9).y, TOP)
+  const holder = join(multiplayer, 'b00011', offCell(at, 12), 'peep')
+  // Next to the holder, so it is the one the dead player watches.
+  const watcher = join(multiplayer, 'b00012', offCell(at, 13), 'peep')
+  tick(multiplayer, 0)
+  watcher.player.hit(9999)
+  tick(multiplayer, 1)
+  tick(multiplayer, 2)
+  assert.equal(connectionOf(multiplayer, watcher).spectating, holder.player, 'not watching the holder')
+  assert.ok(!far.mirror.held.has(origin.id) && holder.mirror.held.has(origin.id) && watcher.mirror.held.has(origin.id))
+  assert.ok(far.player.position.withinBounds(origin.position.x, origin.position.y, R), 'the far viewer is not inside the old box')
+
+  for (const type of [0, 1, 2, 3, 4]) {
+    for (const client of [far, holder, watcher]) client.mirror.clear()
+    multiplayer.effect(type, origin, 500)
+    multiplayer.flushAll(3, 250)
+    assert.deepEqual(far.mirror.seen.effect, [], `effect ${type} sent to a viewer that does not hold its originator`)
+    assert.deepEqual(holder.mirror.seen.effect, [origin.id], `effect ${type} not sent to the holder`)
+    assert.deepEqual(watcher.mirror.seen.effect, [origin.id], `effect ${type} not sent to the holder's spectator`)
+  }
+  assertClean([far, holder, watcher], 'unit effect recipients')
+})
+
+test('a unit effect in the tick its holder dies is not sent to the dead holder', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const a = join(multiplayer, 'b00013', at, 'peep')
+  const origin = idleMob(offCell(at, 2).x, offCell(at, 2).y, TOP)
+  tick(multiplayer, 0)
+  assert.ok(a.mirror.held.has(origin.id))
+  a.mirror.clear()
+  a.player.hit(9999)
+  multiplayer.effect(2, origin, 1)
+  tick(multiplayer, 1)
+  assert.ok(a.mirror.seen.destroy.includes(a.player.id), 'not told of its own death')
+  assert.deepEqual(a.mirror.seen.effect, [], 'an effect reached a client whose player has just died')
+})
+
+test('a fireball or icicle blast and a bomb reach the viewers of their cell, held thrower or not', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const thrower = join(multiplayer, 'b00014', at, 'peep')
+  const cell = Hex.toCell(offCell(at, 10))
+  const centre = Hex.toPosition(cell)
+  // 4 rings east of the cell, 14 from the thrower (630 units: neither held
+  // nor in the old box around it).
+  const near = join(multiplayer, 'b00015', offCell(centre, 4), 'peep')
+  // Holds the thrower (6 rings west of it), 16 rings from the cell.
+  const behind = join(multiplayer, 'b00016', offCell(at, -6), 'peep')
+  // 12 rings due east of the cell: 540 units, beyond the old box, inside a
+  // Periscope's 12-ring enter radius.
+  const scope = join(multiplayer, 'b00017', offCell(centre, 12), 'periscope')
+  // Another Peep beside the Periscope, which does not see the cell.
+  const blind = join(multiplayer, 'b00018', offCell(centre, 12, -1), 'peep')
+  // On the layer below, right on the cell.
+  const below = join(multiplayer, 'b00019', centre, 'peep')
+  below.player.changeLayer(MIDDLE)
+  tick(multiplayer, 0)
+  const clients = [thrower, near, behind, scope, blind, below]
+  assert.ok(!near.mirror.held.has(thrower.player.id) && behind.mirror.held.has(thrower.player.id))
+  assert.ok(!scope.mirror.held.has(thrower.player.id))
+
+  const sends: Array<[string, () => void, number]> = [
+    ['fireball blast', () => multiplayer.effect(5, thrower.player, 500, cell), 5],
+    ['icicle blast', () => multiplayer.effect(6, thrower.player, 500, cell), 6],
+    ['bomb fuse', () => multiplayer.effectAt(7, thrower.player.id, 2000, cell, TOP), 7],
+    ['bomb blast', () => multiplayer.effectAt(8, thrower.player.id, 500, cell, TOP), 8]
+  ]
+  for (const [label, send, type] of sends) {
+    for (const client of clients) client.mirror.clear()
+    send()
+    multiplayer.flushAll(1, 250)
+    assert.deepEqual(near.mirror.effectTypes, [type], `${label}: the cell's viewer that does not hold the thrower`)
+    assert.deepEqual(scope.mirror.effectTypes, [type], `${label}: a Periscope 12 rings east of the cell`)
+    assert.deepEqual(blind.mirror.effectTypes, [], `${label}: a Peep that does not see the cell`)
+    assert.deepEqual(behind.mirror.effectTypes, [], `${label}: a holder of the thrower far from the cell`)
+    assert.deepEqual(below.mirror.effectTypes, [], `${label}: another layer`)
+  }
+  assertClean(clients, 'cell effects')
 })
 
 // --- a real world ------------------------------------------------------------------------
@@ -1076,6 +1191,9 @@ test('a real world with walking players and portals never sends a client a recor
   }
   assert.ok(clients.some((c) => c.mirror.seen.create.length > 0))
   t.diagnostic(`${hops} layer changes`)
+  // Every one of these was checked against what its client held (`Mirror`).
+  const unitEffects = clients.reduce((sum, c) => sum + c.mirror.effectTypes.filter((type) => type <= 4).length, 0)
+  t.diagnostic(`${unitEffects} unit effects received`)
 })
 
 test('the world\'s own tick tells a player who comes up to a pickup that it is there', (t: TestContext) => {

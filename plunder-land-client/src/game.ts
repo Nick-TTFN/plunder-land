@@ -750,8 +750,10 @@ export class Game extends Container {
     }
 
     if (target === undefined) {
-      // An originator in the fog: the server sends effects in its 500 box but
-      // units only in sight (#48). Counted, not warned.
+      // An originator this client doesn't hold. The server sends these types
+      // only to holders of the originator (#48 follow-ups), so this should
+      // stay near 0; a server from before that sends them in its 500 box.
+      // Counted, not warned.
       Game.EFFECTS_UNHELD++
       return
     }

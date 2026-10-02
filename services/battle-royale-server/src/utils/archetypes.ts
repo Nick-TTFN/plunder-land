@@ -49,10 +49,11 @@ export interface ArchetypeInfo {
   /**
    * Fog radius in cells (`Hex.distance`), robots only: the client hides units
    * and pickups further than this from its own cell (`fog-of-war`, M2; the
-   * client's `src/objects/fog.ts`). Cosmetic (decision #36): the server still
-   * sends everything in the interest box. null = no fog. Robots 6, Periscope 11
-   * (#43; 8 before). Keep it inside the interest box (`Multiplayer.INTEREST_RADIUS`,
-   * 500 units, 11 rings east-west), or the edge of sight shows nothing.
+   * client's `src/objects/fog.ts`). Enforced by the server since #48: it sends
+   * units, pickups, projectiles and StoneWall stones only within vision + 1
+   * ring (`Multiplayer.viewOf`), and its interest buckets grow with the
+   * largest vision here (`World.INTEREST_BUCKET`). null = no fog, and the
+   * server's 500-unit box. Robots 6, Periscope 11 (#43; 8 before).
    */
   readonly vision: number | null
   /**

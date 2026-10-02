@@ -465,8 +465,10 @@ export default class Multiplayer {
 
   /**
    * The join snapshot (decision #35): the terrain of the player's own layer,
-   * all of it, and the units, pickups and projectiles inside the interest box
-   * around the player. It was every object on every layer.
+   * all of it, and the units, pickups, projectiles and StoneWall stones within
+   * the player's enter radius (vision + 1 ring, `sendVisible`; server fog,
+   * #48). It was every object on every layer, then everything inside the
+   * 500-unit interest box (#35).
    */
   private admit (connection: Connection, player: Player): void {
     this.attach(connection, player)
@@ -897,8 +899,8 @@ export default class Multiplayer {
   /**
    * True if `connection`'s client is on layer `tag` (its `layer`) and (x, y)
    * is strictly inside the box of half-width `reach` around its viewpoint.
-   * Effects only (`effect`, `effectAt`): #48 kept their recipients on the
-   * 500 box rather than the fogged view.
+   * Effects drawn on a cell only (`sendAt`): #48 kept them on the 500 box,
+   * widened to the fogged view where that reaches further.
    */
   static inBox (connection: Connection, x: number, y: number, tag: number, reach: number): boolean {
     const player = Multiplayer.viewpoint(connection)
@@ -1325,14 +1327,21 @@ export default class Multiplayer {
    * is: 4 bytes means unaimed, 8 means aimed. Appended rather than inserted, so
    * a client that reads only the first four bytes still works.
    *
-   * Sent to connections on the originator's layer with it inside the interest
-   * box. It went to every layer until interest-filtered-broadcasts (#35).
-   * Still the 500 box under server fog: #48 rejected hiding effects. So a
-   * client is sent effects of originators it does not hold (beyond its
-   * vision + 1 ring and inside the box); for types 0-4 (breaths, melee,
-   * ranged, defend) the client looks the originator up, finds nothing and
-   * draws nothing (`Game.onEffect`, counted in `Game.EFFECTS_UNHELD`). Whether
-   * to stop sending those is open. Blasts and bombs (5-8) draw on their cell.
+   * Who gets it depends on what the client draws it on (fog follow-ups,
+   * #48, Nick 2026-10-03):
+   *
+   * - **Types 0-4** (breaths, melee, ranged, defend) are drawn on their
+   *   originator, which the client looks up by id (`Game.onEffect`), so they
+   *   go to exactly the connections that hold it (`knownBy`): its own, those
+   *   in whose sight it is, and their spectators, who hold what their
+   *   viewpoint sees. Under server fog the 500 box also reached clients that
+   *   did not hold the originator, which dropped the record unread (about
+   *   half of these effects; `Game.EFFECTS_UNHELD`). A connection whose own
+   *   player has died and that is not yet spectating is skipped, as before.
+   * - **Types 5 and 6** (fireball and icicle blasts) are drawn on their
+   *   cell, which can be 11 cells from the thrower, and the thrower may be
+   *   dead or out of sight by the burst: they go by the cell (`sendAt`, as
+   *   `effectAt` does), on the originator's layer.
    */
   effect (type: number, originator: Unit, lifetime: number, aimCell?: Vector): void {
     Multiplayer.checkWorld(this, 'Multiplayer.effect')
@@ -1345,19 +1354,31 @@ export default class Multiplayer {
       data.writeInt16BE(aimCell.y, 6)
     }
 
-    for (const player of World.interestCandidates(originator.position.x, originator.position.y, originator.tag)) {
-      // `viewersOf` skips a player killed this tick, as `connectionOf` didn't:
-      // its client has its own destroy already and is showing its run card.
-      for (const connection of this.viewersOf(player, Multiplayer._viewersEffect)) {
-        if (Multiplayer.inBox(connection, originator.position.x, originator.position.y, originator.tag, Multiplayer.INTEREST_RADIUS)) this.outbox(connection).effect.push(data)
-      }
+    if (Multiplayer.CELL_EFFECTS.has(type) && aimCell !== undefined) {
+      this.sendAt(data, aimCell, originator.tag)
+      return
+    }
+
+    for (const connection of originator.knownBy) {
+      // A player killed this tick still holds what it held until it is
+      // re-centred; its client has its own destroy already and is showing
+      // its run card.
+      const viewpoint = Multiplayer.viewpoint(connection)
+      if (viewpoint === undefined || Multiplayer.gone(viewpoint)) continue
+      this.outbox(connection).effect.push(data)
     }
   }
 
   /**
+   * `effect` types drawn on their aimed cell, not on their originator: the
+   * fireball's (5) and the icicle's (6) blast. Sent by the cell (`sendAt`).
+   */
+  static readonly CELL_EFFECTS: ReadonlySet<number> = new Set([5, 6])
+
+  /**
    * An aimed effect that belongs to a cell rather than to its originator: the
    * same record as `effect`, but sent to connections whose player is on `tag`
-   * and within the interest radius of the cell's centre. A bomb lands up to 6
+   * and see the cell (`sendAt`). A bomb lands up to 6
    * cells from its thrower and the fuse outlives them, so the thrower's
    * position says nothing about who can see it. `originatorId` is carried but
    * the client does not look it up for these types: by the blast it may be
@@ -1372,10 +1393,28 @@ export default class Multiplayer {
     data.writeInt16BE(cell.x, 4)
     data.writeInt16BE(cell.y, 6)
 
+    this.sendAt(data, cell, tag)
+  }
+
+  /**
+   * Sends an effect record drawn on `cell` to every connection on layer `tag`
+   * that sees the cell: its centre inside the 500 box around the viewpoint
+   * (#48 kept effects off the fog), or within the viewpoint's leave radius
+   * (`viewOf`), which reaches further east-west than the box for Periscope
+   * (12 rings to enter, 540 units). `interestCandidates` covers both: its
+   * buckets are sized for the largest view (`World.INTEREST_BUCKET`).
+   */
+  private sendAt (data: Buffer, cell: Vector, tag: number): void {
     const centre = Hex.toPosition(cell)
     for (const player of World.interestCandidates(centre.x, centre.y, tag)) {
+      // `viewersOf` skips a player killed this tick: its client has its own
+      // destroy already and is showing its run card. Every connection it
+      // returns sees from `player`.
       for (const connection of this.viewersOf(player, Multiplayer._viewersEffect)) {
-        if (Multiplayer.inBox(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS)) this.outbox(connection).effect.push(data)
+        if (Multiplayer.inBox(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS) ||
+          (connection.layer === tag && Multiplayer.viewOf(player, centre.x, centre.y, cell) >= Multiplayer.VIEW_EDGE)) {
+          this.outbox(connection).effect.push(data)
+        }
       }
     }
   }

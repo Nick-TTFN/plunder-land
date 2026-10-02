@@ -8,11 +8,18 @@ services:
       - ./saved/redis:/data
 
   # Guest accounts (decision #48). Local only: no published port, reached
-  # from the server as postgres:5432. Match the major version to Railway's.
-  # The server's .env needs
+  # from the server as postgres:5432. Keep the major version on Railway's:
+  # 18 (`ghcr.io/railwayapp-templates/postgres-ssl:18`, provisioned
+  # 2026-10-03). The server's .env needs
   # DATABASE_URL=postgres://postgres:plunderland@postgres:5432/plunderland
+  #
+  # From 18 the image keeps its data in /var/lib/postgresql/18/docker and
+  # wants the volume on /var/lib/postgresql; it refuses to start with one on
+  # the old /var/lib/postgresql/data. Hence a new directory: 17's
+  # saved/postgres can't be read by 18 (pg_upgrade or a dump and restore), and
+  # local accounts are disposable, so it can be deleted.
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     restart: always
     environment:
       POSTGRES_PASSWORD: plunderland
@@ -20,7 +27,7 @@ services:
     networks:
       - backend
     volumes:
-      - ./saved/postgres:/var/lib/postgresql/data
+      - ./saved/postgres18:/var/lib/postgresql
 
   battle-royale-server:
     image: node:24-alpine
