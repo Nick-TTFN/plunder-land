@@ -486,9 +486,9 @@ row, appended, when it is not among them (decision #30). The board is ranked onc
 the same buffer and appends the own row, found by player object, for the rest. The board is
 every player plus the recently finished, ranked on the server by carried loot, ties by id;
 finished rows rank by their loot and can hold top-10 places. A record is
-`[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank]`, rank 1-based on the whole
+`[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank][uint8 flags]`, rank 1-based on the whole
 board (ties get distinct ranks in id order), because the appended own row is not at its rank's
-position. Status is 0 ACTIVE, 1 EXTRACTED, 2 DEAD (a disconnect counts as DEAD). The enum is
+position. Flags (decision #47): bit 0 a bot; a client from before it ignores the byte. Status is 0 ACTIVE, 1 EXTRACTED, 2 DEAD (a disconnect counts as DEAD). The enum is
 `Standing` in `world.ts`, copied by hand on the client in `src/ui/components/standings.ts`
 (pixi-free, with the decoder and `pickShown`; `standings.spec.ts` runs them against the
 server's bytes), and append-only. Finished players linger 10 s in `World.FINISHED`, capped at
@@ -1022,6 +1022,26 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
   `void` promise is an unhandled rejection, which ends the process, and no try/catch around
   the tick can see it. With Redis down, every disconnect used to kill the server that way.
   Failures log at most one line a minute (`ThrottledLog`).
+
+## Bots
+
+**Bots fill worlds** (decision #47, `src/bots/`). A bot is an ordinary `Player` from
+`World.createPlayer` with no connection and a `BotBrain` as an AI routine (`player.bot`), playing
+through the entry points a human's input reaches: `setWaypoints`, `tryExecuteSkill`, `tryUseItem`.
+`BotFill` (one per world, run by `Worlds.tickAll` before the world's update) tops humans + bots up
+to `BOT_TARGET` (default 8; 0 turns bots off; specs and the load harness pass none), only while
+the world has a human; one bot joins per 2 s; a human over the target makes the least-loaded bot
+leave by extracting, or exit where it stands after 90 s. **Bots are not humans anywhere a world
+counts them** (`Worlds.activePlayers`: world choice and cap, idle closing, draining), write no
+Redis stats and send no analytics (both guarded on `player.bot`); a human's kill on a bot counts.
+They show as players with a BOT tag on the leaderboard (standings flags). The brain thinks once
+per its layer's `reactionMs` (`BOT_SKILL`: 650/450/300 ms, aim missing by a cell 45/25/12% of the
+time): heal when hurt, fight the nearest human in reach (another bot or a mob only within 2
+cells), head out once loaded or late (`lootGoal` 1500-4000, `deadline` 3-8 min, both
+provisional), loot what it sees, else wander and sometimes descend. Measured 2026-10-02 in
+`bots.spec.ts`'s ten simulated minutes: runs of about 2 min median, most deaths on layers 02-03;
+about 0.013 ms of tick per bot. Natural loot refills every tick, so a bot carried 400-1200 loot
+within 20-100 s: run length is decided by time, not loot.
 
 ## Skills
 
