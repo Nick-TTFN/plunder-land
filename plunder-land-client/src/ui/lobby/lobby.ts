@@ -305,6 +305,12 @@ export default class Lobby extends Container {
 
   // --------------------------------------------------------------- state
 
+  /**
+   * The id this browser made for itself before guest accounts (decision #48).
+   * The server no longer plays under it (the account's id is used); it is
+   * still sent for one release, because an older server refuses a start
+   * without one. Remove it, and `genRanHex`, in the release after.
+   */
   private static loadId (): string {
     let id = readStorage(ID_KEY)
     if (id === null || id === '') {

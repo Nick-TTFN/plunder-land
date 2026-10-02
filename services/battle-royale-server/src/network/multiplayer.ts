@@ -9,6 +9,7 @@ import Redis from 'ioredis'
 import { Stats } from '../objects/player'
 import { captureError } from '../errors'
 import Analytics from '../analytics'
+import type { Account } from '../db/accounts'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -19,6 +20,24 @@ export class Connection {
   socket: Socket
   player: Player | undefined
   started: boolean = false
+  /**
+   * This connection's guest account (decision #48): its `publicId` is the
+   * player id of every run on it. Set by `Worlds` from the handshake's token,
+   * or created on first play, or made up offline when the store failed
+   * (`persisted: false`). The token itself is never kept here, logged or
+   * reported; only what it resolved to.
+   */
+  account: Account | undefined
+  /**
+   * The handshake token's lookup, started on connect (`Worlds.onConnection`).
+   * Never rejects: the account, `null` for no or an unknown token, or an
+   * offline account when the store failed.
+   */
+  accountReady: Promise<Account | null> | undefined
+  /** A start is waiting on the account (`Worlds.start`): another one meanwhile is ignored. */
+  starting: boolean = false
+  /** The socket disconnected: a start still waiting on the account is dropped. */
+  closed: boolean = false
   /**
    * The party code of this connection's last start (decision #47): a friend's
    * invite link carries the inviter's, so both runs go to the same world
@@ -324,16 +343,27 @@ export default class Multiplayer {
   }
 
   /**
-   * `start_requested`: `{ id, name }` (`parseStart`). Ignored while a run is
-   * in progress on the connection. Throws what `onStart` throws.
+   * `start_requested` (`parseStart`). Ignored while a run is in progress on
+   * the connection. Throws what `onStart` throws.
+   *
+   * The player id is the connection's account's (decision #48), never the
+   * start's `id`. `Worlds.start`, the only production path, always sets an
+   * account first. Without one the start's `id` is used **only while
+   * `World.strict` is off**, which is single-world specs joining through
+   * `onConnect`; the server and every `Worlds` spec run strict, so there a
+   * start without an account is ignored (fail closed).
    */
   startRequested (connection: Connection, data: unknown): void {
     if (connection.started) return
     Multiplayer.checkWorld(this, 'Multiplayer.startRequested')
     const start = Multiplayer.parseStart(data)
     if (start === undefined) return
+    const playerId = connection.account !== undefined
+      ? connection.account.publicId
+      : (!World.strict ? start.id : undefined)
+    if (playerId === undefined) return
     connection.started = true
-    this.onStart(connection, start.id, start.name, start.finish, start.robot)
+    this.onStart(connection, playerId, start.name, start.finish, start.robot)
   }
 
   onConnect (socket: Socket): void {
@@ -410,7 +440,7 @@ export default class Multiplayer {
           if (p !== player && connection.party !== undefined && p.connection?.party === connection.party) party++
         }
       }
-      Analytics.runStart({ playerId, startedAt: player.createdAt }, this.redis, player.archetype.key, humans, bots, party)
+      Analytics.runStart({ playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player) }, this.redis, player.archetype.key, humans, bots, party)
     } catch (e) {
       connection.started = false
       connection.player = undefined // before destroy, so no stats are written for it
@@ -646,7 +676,12 @@ export default class Multiplayer {
   }
 
   /**
-   * `start_requested` is `{ id, name, finish }`: the client's persistent id,
+   * `start_requested` is `{ id, name, finish, robot, party }`: `id` is the
+   * id an older client made for itself, which this server no longer plays
+   * under (the account's is used, decision #48; `startRequested`). It is kept
+   * in the result only when it has `ID_SHAPE`, for the spec-only fallback, and
+   * a start is never refused for it: the client still sends it for one
+   * release because an older server refuses a start without one. Then
    * the name it typed, which may be missing or empty, and the robot's finish
    * (robot-finishes, #41), `[colour, pattern]` for head, body and limbs, which
    * a client from before finishes doesn't send, and `robot`, the key of the
@@ -656,17 +691,15 @@ export default class Multiplayer {
    * type and content are not checked here. `finish` and `robot` are only in
    * the result when they were sent.
    *
-   * A bare string is the old form, the id alone, and is still accepted so a
-   * client from before names keeps working for one release (player-names,
-   * 2026-09-25); remove it after that. Anything without an id of the shape
-   * below is ignored and leaves the connection free to ask again.
+   * Anything but an object is ignored and leaves the connection free to ask
+   * again. The bare-string form (the id alone, player-names 2026-09-25) is
+   * gone: the id was all it carried.
    */
-  static parseStart (data: unknown): { id: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } | undefined {
-    if (typeof data === 'string') return Multiplayer.ID_SHAPE.test(data) ? { id: data } : undefined
-    if (data === null || typeof data !== 'object') return undefined
+  static parseStart (data: unknown): { id?: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } | undefined {
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined
     const { id, name, finish, robot, party } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, party?: unknown }
-    if (typeof id !== 'string' || !Multiplayer.ID_SHAPE.test(id)) return undefined
-    const start: { id: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } = { id, name }
+    const start: { id?: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } = { name }
+    if (typeof id === 'string' && Multiplayer.ID_SHAPE.test(id)) start.id = id
     if (finish !== undefined) start.finish = finish
     if (robot !== undefined) start.robot = robot
     // Only a well-formed code; anything else plays as if there were none.
@@ -680,6 +713,12 @@ export default class Multiplayer {
   /**
    * The shape of a player id. It becomes the Redis key `stats-${id}`, so it is
    * bounded here rather than trusted (bound-player-id, 2026-09-25).
+   *
+   * Since guest accounts (decision #48) the id is the account's `publicId`, 16
+   * lowercase hex digits issued by the server, which this still accepts;
+   * `Worlds` checks every issued id against it before playing under it, so
+   * it stays the guard on Redis keys. The client's own id, described below,
+   * is still sent for one release and ignored. History:
    *
    * Every shipped client makes it the same way, `genRanHex(6)` in the client's
    * lobby (`ui/lobby/lobby.ts`; `GameEnterPopup` before #42): six lowercase hex digits, one `Math.floor(random * 16)`
@@ -1250,13 +1289,23 @@ export default class Multiplayer {
       deepest_layer: World.TAGS.indexOf(Math.min(player.deepestTag, player.tag)) + 1,
       robot: player.archetype.key
     }
-    const run = { playerId: player.playerId, startedAt: player.createdAt }
+    const run = { playerId: player.playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player) }
     queueMicrotask(() => {
       Analytics.send(run, 'run_end', outcome === 'died' ? { ...params, killed_by: player.killedBy ?? 'other' } : params, at)
     })
   }
 
+  /**
+   * The player's run is on an offline account (the account store failed,
+   * decision #48): it writes no Redis stats, which would be keys nobody can
+   * ever come back to, and its analytics carry `offline: 1`.
+   */
+  static isOffline (player: Player): boolean {
+    return player.connection?.account?.persisted === false
+  }
+
   async updateStats (player: Player): Promise<void> {
+    if (Multiplayer.isOffline(player)) return
     const stats = new Stats()
 
     stats.lifeTime = Math.ceil((Date.now() - player.createdAt) / 1000)

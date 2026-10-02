@@ -348,7 +348,7 @@ export default class Player extends Unit {
     this.loot += value
     if (this.firstLootAt === undefined && value > 0 && this.bot === undefined) {
       this.firstLootAt = Date.now()
-      Analytics.send({ playerId: this.playerId, startedAt: this.createdAt }, 'first_loot', {
+      Analytics.send({ playerId: this.playerId, startedAt: this.createdAt, offline: Multiplayer.isOffline(this) }, 'first_loot', {
         seconds: Math.round((this.firstLootAt - this.createdAt) / 100) / 10
       }, this.firstLootAt)
     }
@@ -476,8 +476,9 @@ export default class Player extends Unit {
     this.kills++
 
     // Never `void`: see Multiplayer.STATS_LOG. A rejected stats write is an
-    // unhandled rejection, and that ends the process.
-    if (this.bot === undefined) this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
+    // unhandled rejection, and that ends the process. An offline account
+    // (decision #48) writes no stats, like a bot.
+    if (this.bot === undefined && !Multiplayer.isOffline(this)) this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
   }
 
   async updateKillStats (value: GameObject): Promise<void> {

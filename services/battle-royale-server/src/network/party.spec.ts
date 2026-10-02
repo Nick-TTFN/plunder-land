@@ -22,7 +22,12 @@ function redisStub (): Redis {
   }) as unknown as Redis
 }
 
-function client (worlds: Worlds, name: string): { connection: Connection, start: (party?: unknown) => void } {
+/** Let the account lookup and creation (memory store, decision #48) finish. */
+async function settle (): Promise<void> {
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
+}
+
+function client (worlds: Worlds, name: string): { connection: Connection, start: (party?: unknown) => Promise<void> } {
   const handlers: Record<string, (data?: unknown) => void> = {}
   const socket = {
     id: name,
@@ -32,19 +37,19 @@ function client (worlds: Worlds, name: string): { connection: Connection, start:
     conn: { write: () => {}, close: () => { handlers.disconnect?.() } }
   } as unknown as Socket
   const connection = worlds.onConnection(socket)
-  return { connection, start: (party) => { handlers.start_requested({ id: 'abc123', name, party }) } }
+  return { connection, start: async (party) => { handlers.start_requested({ id: 'abc123', name, party }); await settle() } }
 }
 
 /**
  * Two worlds of one human each, the inviter (party `cccccc`) in the newer one,
  * so fill-first alone would send anyone else to the older one.
  */
-function setup (): { worlds: Worlds, older: World, inviters: World } {
+async function setup (): Promise<{ worlds: Worlds, older: World, inviters: World }> {
   const worlds = new Worlds({ tickLengthMs: 250, cap: 2, idleMs: 300_000, redis: redisStub() })
   const a = client(worlds, 'a')
-  a.start()
-  client(worlds, 'b').start()
-  client(worlds, 'c').start('cccccc')
+  await a.start()
+  await client(worlds, 'b').start()
+  await client(worlds, 'c').start('cccccc')
   const older = worlds.worldFor(a.connection) as World
   const inviters = worlds.worlds[1]
   const player = a.connection.player
@@ -54,26 +59,26 @@ function setup (): { worlds: Worlds, older: World, inviters: World } {
   return { worlds, older, inviters }
 }
 
-test('a friend with the inviter\'s code joins the inviter\'s world, over fill-first', () => {
-  const { worlds, older, inviters } = setup()
+test('a friend with the inviter\'s code joins the inviter\'s world, over fill-first', async () => {
+  const { worlds, older, inviters } = await setup()
   const friend = client(worlds, 'friend')
-  friend.start('cccccc')
+  await friend.start('cccccc')
   assert.equal(worlds.worldFor(friend.connection), inviters)
   const stranger = client(worlds, 'stranger')
-  stranger.start()
+  await stranger.start()
   assert.equal(worlds.worldFor(stranger.connection), older, 'no code: fill-first, as before')
 })
 
-test('a full world, an unknown code, or a malformed one: fill-first', () => {
-  const { worlds, older, inviters } = setup()
-  client(worlds, 'friend').start('cccccc')
+test('a full world, an unknown code, or a malformed one: fill-first', async () => {
+  const { worlds, older, inviters } = await setup()
+  await client(worlds, 'friend').start('cccccc')
   assert.equal(Worlds.activePlayers(inviters), 2, 'test setup: the inviter\'s world is full')
   const late = client(worlds, 'late')
-  late.start('cccccc')
+  await late.start('cccccc')
   assert.equal(worlds.worldFor(late.connection), older, 'full: elsewhere')
   for (const party of ['zzzzzz', 'CCCCCC', 'c!', 42, 'x'.repeat(40)]) {
     const other = client(worlds, 'other')
-    other.start(party)
+    await other.start(party)
     assert.ok(worlds.worldFor(other.connection) !== undefined, `still starts with ${String(party)}`)
   }
   assert.equal(Multiplayer.parseStart({ id: 'abc123', party: 'CCCCCC' })?.party, undefined, 'only lowercase codes')
@@ -87,11 +92,11 @@ test('run_start counts the friends already there (party_size)', async () => {
   process.env.GA_MEASUREMENT_ID = 'G-TEST'
   process.env.GA_API_SECRET = 'secret'
   try {
-    const { worlds } = setup()
+    const { worlds } = await setup()
     // The setup's own events go out after async Redis reads: let them land first.
     for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve))
     sent.length = 0
-    client(worlds, 'friend').start('cccccc')
+    await client(worlds, 'friend').start('cccccc')
     for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve))
     assert.equal(sent.length, 1)
     assert.equal(sent[0].party_size, 1)

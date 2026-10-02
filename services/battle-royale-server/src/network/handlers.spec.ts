@@ -112,7 +112,7 @@ function setup (): { multiplayer: Multiplayer, world: World, redis: ReturnType<t
 function join (multiplayer: Multiplayer, id: string): FakeSocket & { player: Player } {
   const fake = fakeSocket(id)
   multiplayer.onConnect(fake.socket)
-  fake.fire('start_requested', id)
+  fake.fire('start_requested', { id })
   const player = World.PLAYERS[World.PLAYERS.length - 1] as Player
   assert.equal(player.playerId, id)
   // Players spawn at random; a route a few cells east of one near the edge
@@ -219,7 +219,7 @@ test('a start that throws while building the snapshot leaves no half-joined play
   const joiner = fakeSocket('joiner')
   multiplayer.onConnect(joiner.socket)
   try {
-    assert.doesNotThrow(() => { joiner.fire('start_requested', 'cccccc') })
+    assert.doesNotThrow(() => { joiner.fire('start_requested', { id: 'cccccc' }) })
   } finally {
     World.spawnCell = savedSpawnCell
   }
@@ -243,7 +243,7 @@ test('a start that throws while building the snapshot leaves no half-joined play
 
   // Once the cause is gone, the same connection can join.
   World.CONSUMABLES.length = 0
-  joiner.fire('start_requested', 'cccccc')
+  joiner.fire('start_requested', { id: 'cccccc' })
   assert.deepEqual(World.PLAYERS.map((p) => p.playerId).sort(), ['cccccc', 'eeeeee'])
   assert.ok(joiner.emitted.includes('hello'))
 })
@@ -254,7 +254,7 @@ test('a start that throws creating the player is contained', async () => {
 
   const joiner = fakeSocket('joiner')
   multiplayer.onConnect(joiner.socket)
-  assert.doesNotThrow(() => { joiner.fire('start_requested', 'cccccc') })
+  assert.doesNotThrow(() => { joiner.fire('start_requested', { id: 'cccccc' }) })
   await settle()
 
   assert.deepEqual(unhandled, [])

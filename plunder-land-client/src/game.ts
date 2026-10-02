@@ -317,8 +317,11 @@ export class Game extends Container {
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
     Game.socket.on('standings', this.onStandings.bind(this))
     Game.socket.on('spectate', this.onSpectate.bind(this))
-    // `{ id, name, finish }`: the id is the player's identity (stats are keyed
-    // by it), the name and the robot's finish only what others see. The server
+    // `{ id, name, finish }`: the server plays under this connection's guest
+    // account (decision #48, net/account.ts) and ignores `id`, which is sent
+    // for one more release only because an older server refuses a start
+    // without one; remove it in the release after. The name and the robot's
+    // finish are only what others see. The server
     // sanitises and caps the name, gives an empty one a callsign made from the
     // id, and replaces anything unreadable in the finish with the default.
     // `robot` is the key of the robot picked in the lobby (robot-select); the

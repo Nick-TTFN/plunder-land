@@ -109,7 +109,9 @@ test('a run sends run_start, first_loot and run_end, to the EU endpoint, as one 
   assert.equal(end.params.killed_by, undefined, 'only on a death')
   for (const s of sent) {
     assert.ok(s.url.startsWith('https://region1.google-analytics.com/mp/collect?measurement_id=G-TEST&api_secret=secret'))
-    assert.equal(s.body.client_id, 'abc123')
+    // The account's id (decision #48), never the start's 'abc123'.
+    assert.equal(s.body.client_id, a.connection.account?.publicId)
+    assert.notEqual(s.body.client_id, 'abc123')
   }
   const sessions = new Set(events().map((e) => e.params.session_id))
   assert.equal(sessions.size, 1, 'one session per run')
@@ -160,6 +162,13 @@ test('the payload carries the session and some engagement time', () => {
   const body = payload({ playerId: 'abc123', startedAt: 10_000 }, 'run_end', { outcome: 'left' }, 12_500) as Sent['body'] & { timestamp_micros: number }
   assert.equal(body.timestamp_micros, 12_500_000)
   assert.deepEqual(body.events[0].params, { outcome: 'left', session_id: '10', engagement_time_msec: 2500 })
+})
+
+test('an offline run\'s events carry offline: 1, and only an offline run\'s', () => {
+  const offline = payload({ playerId: 'abc123', startedAt: 10_000, offline: true }, 'run_end', { outcome: 'left' }, 12_500) as Sent['body']
+  assert.deepEqual(offline.events[0].params, { outcome: 'left', offline: 1, session_id: '10', engagement_time_msec: 2500 })
+  const online = payload({ playerId: 'abc123', startedAt: 10_000, offline: false }, 'run_end', { outcome: 'left' }, 12_500) as Sent['body']
+  assert.equal(online.events[0].params.offline, undefined)
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).

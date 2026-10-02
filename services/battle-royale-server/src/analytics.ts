@@ -21,6 +21,11 @@ import type Redis from 'ioredis'
  *   (carried at the end: banked on an extraction, lost otherwise), `kills`,
  *   `deepest_layer` (1-3), `robot`, and `killed_by` (`robot`, `mob`, `other`)
  *   on a death.
+ * - Every event of a run on an offline account (the account store failed,
+ *   decision #48) also carries `offline: 1`; it is absent otherwise. Such a
+ *   run's `run_start` has no `run_number` or `days_since_first`: its id is
+ *   made up for one connection and has no history, and nothing is written
+ *   to Redis for it. Added with guest accounts.
  *
  * `client_id` is the player's persistent per-browser id; each run is its own
  * GA session (`session_id`, the run's start in seconds). GA's own "new" and
@@ -41,6 +46,8 @@ export interface RunInfo {
   playerId: string
   /** The run's start, ms since the epoch: its session. */
   startedAt: number
+  /** On an offline account: every event gets `offline: 1`. */
+  offline?: boolean
 }
 
 /** The Measurement Protocol body for one event. Exported for the spec. */
@@ -52,6 +59,7 @@ export function payload (run: RunInfo, name: string, params: Params, at: number)
       name,
       params: {
         ...params,
+        ...(run.offline === true ? { offline: 1 } : {}),
         session_id: String(Math.floor(run.startedAt / 1000)),
         // GA counts a user as engaged only with some engagement time.
         engagement_time_msec: Math.max(1, at - run.startedAt)
@@ -94,6 +102,11 @@ export default class Analytics {
   static runStart (run: RunInfo, redis: Redis, robot: string, worldPlayers: number, worldBots: number = 0, partySize: number = 0): void {
     if (Analytics.url === undefined) return
     const at = Date.now()
+    if (run.offline === true) {
+      // No history to read, and no `player-<id>` key to leave behind.
+      Analytics.send(run, 'run_start', { robot, world_players: worldPlayers, world_bots: worldBots, party_size: partySize }, at)
+      return
+    }
     const today = Math.floor(at / DAY_MS)
     const history = async (): Promise<void> => {
       await redis.hsetnx(`player-${run.playerId}`, 'firstDay', today)

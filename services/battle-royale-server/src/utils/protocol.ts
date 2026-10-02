@@ -13,4 +13,4 @@
  * no bump. The client still ships first; this catches the tabs left open
  * across a release, which "client first" can't.
  */
-export const PROTOCOL = 1
+export const PROTOCOL = 2

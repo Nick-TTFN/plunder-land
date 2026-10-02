@@ -13,6 +13,7 @@ import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
+import { ACCOUNT, handshakeAuth, localTokenStorage, onAccount } from './net/account'
 
 initErrorReporting()
 
@@ -102,12 +103,20 @@ function setup (): void {
   // websocket only: the default starts on HTTP long-polling and merely tries to
   // upgrade, which adds latency to every early message of a run.
   // `frames=1` asks for one binary message per tick; see net/framedparser.ts.
-  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' } })
+  // `auth` is a function so socket.io reads the stored token again on every
+  // reconnect: a token issued during the first run is used from the next
+  // connection on (guest accounts, decision #48; net/account.ts).
+  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage) })
 
   Game.socket.on('connect', () => {
     onConnect()
   })
   Game.socket.on('welcome', onWelcome)
+  // Here, not per run: it can arrive on connect, before any start.
+  Game.socket.on('account', (data: unknown) => {
+    const info = onAccount(data, localTokenStorage())
+    if (info !== undefined) ACCOUNT.info = info
+  })
 }
 
 /**

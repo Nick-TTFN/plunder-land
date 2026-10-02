@@ -31,7 +31,7 @@ function redisStub (writes: string[] = []): Redis {
   }) as unknown as Redis
 }
 
-function human (worlds: Worlds, id: string): { connection: Connection, start: () => void } {
+function human (worlds: Worlds, id: string): { connection: Connection, start: () => Promise<void> } {
   const handlers: Record<string, (data?: unknown) => void> = {}
   const socket = {
     id,
@@ -43,8 +43,10 @@ function human (worlds: Worlds, id: string): { connection: Connection, start: ()
   const connection = worlds.onConnection(socket)
   return {
     connection,
-    start: () => {
+    start: async () => {
       handlers.start_requested({ id: 'abc123', name: id })
+      // The account (decision #48): looked up and created before the run starts.
+      for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
       // Can't be killed in a spec's lifetime (a mob or a bot would otherwise
       // end the run and change the human count): within hp's uint16 on the wire.
       const player = connection.player
@@ -62,7 +64,7 @@ function clock (t: TestContext): (ms: number) => void {
   return (ms) => { t.mock.timers.tick(ms) }
 }
 
-test('a world with a human fills to the target, one bot every 2 s; none without a human', (t) => {
+test('a world with a human fills to the target, one bot every 2 s; none without a human', async (t) => {
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now() })
   const world = worlds.worlds[0]
@@ -70,7 +72,7 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
   assert.equal(bots(world), 0, 'no human, no bots')
 
   const a = human(worlds, 'a')
-  a.start()
+  await a.start()
   worlds.tickAll(250)
   assert.equal(bots(world), 1, 'the first at once')
   for (let i = 0; i < 4; i++) { tick(250); worlds.tickAll(250) }
@@ -81,15 +83,15 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
   assert.equal(worlds.drained, false)
 })
 
-test('a human over the target displaces a bot, which heads out and is gone within the grace', (t) => {
+test('a human over the target displaces a bot, which heads out and is gone within the grace', async (t) => {
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now() })
   const world = worlds.worlds[0]
-  human(worlds, 'a').start()
+  await human(worlds, 'a').start()
   for (let i = 0; i < 40; i++) { worlds.tickAll(250); tick(250) }
   assert.equal(bots(world), 2)
 
-  human(worlds, 'b').start()
+  await human(worlds, 'b').start()
   worlds.tickAll(250)
   assert.equal(bots(world), 1, 'one bot is leaving')
   const leaving = world.PLAYERS.find((p) => p.bot?.leaving === true)
@@ -99,15 +101,15 @@ test('a human over the target displaces a bot, which heads out and is gone withi
   assert.equal(bots(world), 1, 'and not replaced while the humans fill the rest')
 })
 
-test('bots never count as humans: world choice, idle and drain ignore them', (t) => {
+test('bots never count as humans: world choice, idle and drain ignore them', async (t) => {
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now() })
   const a = human(worlds, 'a')
-  a.start()
+  await a.start()
   for (let i = 0; i < 40; i++) { worlds.tickAll(250); tick(250) }
   assert.ok(bots(worlds.worlds[0]) >= 5)
   // cap 1 counts humans only: the second human opens a second world, bots or not.
-  human(worlds, 'b').start()
+  await human(worlds, 'b').start()
   assert.equal(worlds.worlds.length, 2)
   worlds.drain()
   const player = a.connection.player
@@ -118,7 +120,7 @@ test('bots never count as humans: world choice, idle and drain ignore them', (t)
   assert.equal(worlds.drained, true, 'bots alive, drained all the same')
 })
 
-test('a bot writes no stats and sends no analytics, and a kill on a bot counts for the human', (t) => {
+test('a bot writes no stats and sends no analytics, and a kill on a bot counts for the human', async (t) => {
   clock(t)
   const writes: string[] = []
   const sent: string[] = []
@@ -129,7 +131,7 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
   try {
     const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), bots: 2, now: () => Date.now() })
     const a = human(worlds, 'a')
-    a.start()
+    await a.start()
     worlds.tickAll(250)
     const world = worlds.worlds[0]
     const bot = world.PLAYERS.find((p) => p.bot !== undefined)
@@ -143,8 +145,11 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
       if (bot.hit(99999)) me.onKill(bot) // the human's kill on a bot: counted
     })
     assert.deepEqual(sent, [], 'no first_loot for a bot')
-    assert.ok(writes.every((w) => w.startsWith('stats-abc123')), `only the human's stats, got ${JSON.stringify(writes)}`)
-    assert.ok(writes.some((w) => w === 'stats-abc123 kills'))
+    // The human's account id (decision #48), not the start's 'abc123'.
+    const id = a.connection.account?.publicId as string
+    assert.match(id, /^[0-9a-f]{16}$/)
+    assert.ok(writes.every((w) => w.startsWith(`stats-${id} `)), `only the human's stats, got ${JSON.stringify(writes)}`)
+    assert.ok(writes.some((w) => w === `stats-${id} kills`))
     assert.equal(me.kills, 1)
   } finally {
     Analytics.post = realPost
@@ -153,12 +158,12 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
   }
 })
 
-test('bots leave a human alone for the first 10 s of the run', (t) => {
+test('bots leave a human alone for the first 10 s of the run', async (t) => {
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 2, now: () => Date.now() })
   const world = worlds.worlds[0]
   const a = human(worlds, 'a')
-  a.start()
+  await a.start()
   worlds.tickAll(250)
   const me = a.connection.player
   const bot = world.PLAYERS.find((p) => p.bot !== undefined)
@@ -186,7 +191,7 @@ test('bots leave a human alone for the first 10 s of the run', (t) => {
   assert.ok(me.hp + me.armor < full, 'attacked after the grace')
 })
 
-test('ten simulated minutes: bots loot, fight, extract, without one error', (t) => {
+test('ten simulated minutes: bots loot, fight, extract, without one error', async (t) => {
   const tick = clock(t)
   const errors: unknown[] = []
   const realError = console.error
@@ -195,7 +200,7 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', (t) 
     const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 7, now: () => Date.now() })
     const world = worlds.worlds[0]
     const a = human(worlds, 'a')
-    a.start()
+    await a.start()
     // A human who stands still and can't be killed, so the world keeps its bots.
     // Every bot that ever played, by object: FINISHED forgets after 10 s.
     const all = new Set<Player>()

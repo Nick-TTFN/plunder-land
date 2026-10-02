@@ -94,7 +94,7 @@ function join (multiplayer: Multiplayer, id: string, cell: Vector = MID): FakeSo
   multiplayer.onConnect(fake.socket)
   // Player ids must look like the client's (`Multiplayer.ID_SHAPE`, hex); the
   // readable label becomes its hex bytes, so each label stays a distinct id.
-  fake.fire('start_requested', Buffer.from(id).toString('hex').padEnd(6, '0').slice(0, 32))
+  fake.fire('start_requested', { id: Buffer.from(id).toString('hex').padEnd(6, '0').slice(0, 32) })
   const player = World.PLAYERS[World.PLAYERS.length - 1] as Player
   player.position = Hex.toPosition(cell)
   return { ...fake, player }

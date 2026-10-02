@@ -1,10 +1,12 @@
 import { type Socket } from 'socket.io'
 import type Redis from 'ioredis'
-import Multiplayer, { type Connection } from './multiplayer'
+import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
 import World from '../objects/world'
 import { PROTOCOL } from '../utils/protocol'
-import { reportError } from '../errors'
+import { captureError, reportError } from '../errors'
 import BotFill from '../bots/fill'
+import { type Account, type AccountStore, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
+import { NotReadyError } from '../db/pgstore'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -20,6 +22,10 @@ export interface WorldsOptions {
   bots?: number
   /** The clock for idle closing. Specs pass their own. */
   now?: () => number
+  /** Guest accounts (decision #48). Absent: a `MemoryAccountStore`. */
+  accounts?: AccountStore
+  /** How long a lookup or creation may take before the connection plays offline. */
+  accountTimeoutMs?: number
 }
 
 /**
@@ -39,6 +45,15 @@ export interface WorldsOptions {
  * **Worlds open on demand and close when idle.** There is always at least one.
  * One with no active players for `idleMs` is closed and dropped (`closeIdle`,
  * once a tick), newest first, never the last one open.
+ *
+ * **The player id is the connection's guest account's** (decision #48). The
+ * handshake's `auth.token` is looked up on connect (`accountReady`), so READY
+ * doesn't wait on the database; a connection with no or an unknown token gets
+ * a new account on its first `start_requested` and is sent `account { id,
+ * token }` before that run's `hello`. A store that fails or takes longer than
+ * `accountTimeoutMs` gives an offline account instead (fail open, no grants):
+ * the run plays, no stats are written and no token is sent, so a returning
+ * player's stored token survives the outage.
  *
  * **Everything runs inside `World.run`** for the world it belongs to: each
  * world's tick and flush, and every socket handler, inside `guarded`. The
@@ -71,6 +86,11 @@ export default class Worlds {
   private readonly emptySince = new Map<World, number>()
   /** Every open connection, in a world or not: `drain` reaches the lobby ones too. */
   private readonly connections = new Set<Connection>()
+  readonly accounts: AccountStore
+  private readonly accountTimeoutMs: number
+
+  /** Account store failures, throttled; the store is a side channel, like Redis. */
+  static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
 
   constructor (options: WorldsOptions) {
     this.tickLengthMs = options.tickLengthMs
@@ -82,6 +102,8 @@ export default class Worlds {
     this.mapSize = options.mapSize ?? 4000
     this.now = options.now ?? (() => Date.now())
     this.botTarget = options.bots ?? 0
+    this.accounts = options.accounts ?? new MemoryAccountStore()
+    this.accountTimeoutMs = options.accountTimeoutMs ?? 3000
     World.strict = true
     this.open()
   }
@@ -143,6 +165,8 @@ export default class Worlds {
     // The protocol before anything else, so a stale client reloads at the
     // lobby (utils/protocol.ts).
     socket.emit('welcome', { protocol: PROTOCOL })
+    // At once, while the player is still in the lobby: READY doesn't wait on it.
+    connection.accountReady = this.lookup(connection, tokenOf(socket.handshake?.auth))
     if (this.draining) Worlds.redirect(connection)
     socket.on('start_requested', (data) => {
       Multiplayer.guarded(() => { this.start(connection, data) })
@@ -158,6 +182,7 @@ export default class Worlds {
       this.inWorld(connection, (mp) => { mp.onUseItem(connection, data) })
     })
     socket.on('disconnect', () => {
+      connection.closed = true
       this.inWorld(connection, (mp) => { mp.release(connection) })
       this.worldOf.delete(connection)
       this.connections.delete(connection)
@@ -175,18 +200,128 @@ export default class Worlds {
   }
 
   /**
-   * `start_requested`. A malformed one, or one while a run is in progress,
-   * moves nothing. Otherwise the connection goes to `choose()`'s world,
-   * leaving its old one first if that is another, and the run starts there.
+   * The account for `token`, or null for none or an unknown one, or an
+   * offline account if the store failed. Never rejects. A found (or offline)
+   * account is set on the connection and its client told (`account { id }`).
+   */
+  private async lookup (connection: Connection, token: string | undefined): Promise<Account | null> {
+    if (token === undefined) return null
+    try {
+      const account = await this.bounded(this.accounts.resolve(token))
+      if (account !== null) this.setAccount(connection, account)
+      return account
+    } catch (e) {
+      Worlds.accountFailure(e)
+      const account = offlineAccount()
+      this.setAccount(connection, account)
+      return account
+    }
+  }
+
+  /** `promise`, or a rejection after `accountTimeoutMs`. */
+  private async bounded<T>(promise: Promise<T>): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((resolve, reject) => {
+      timer = setTimeout(() => { reject(new Error(`accounts: no answer in ${this.accountTimeoutMs} ms`)) }, this.accountTimeoutMs)
+    })
+    try {
+      return await Promise.race([promise, timeout])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * Play under `account` from now on, and tell the client its id (plus the
+   * token, for a new account; `offline` for an offline one). An id that
+   * isn't `ID_SHAPE` (it becomes a Redis key) is never played under: the
+   * connection gets an offline account instead.
+   */
+  private setAccount (connection: Connection, account: Account, token?: string): void {
+    if (!Multiplayer.ID_SHAPE.test(account.publicId)) {
+      Worlds.accountFailure(new Error('accounts: an issued id has the wrong shape'))
+      account = offlineAccount()
+      token = undefined
+    }
+    connection.account = account
+    const message: { id: string, token?: string, offline?: boolean } = { id: account.publicId }
+    if (!account.persisted) message.offline = true
+    else if (token !== undefined) message.token = token
+    connection.socket.emit('account', message)
+  }
+
+  /** Never the token: errors from the store carry none, and nothing here adds it. */
+  private static accountFailure (e: unknown): void {
+    Worlds.ACCOUNTS_LOG.report(e)
+    // Not migrated yet is a state the store reports itself (open.ts), once.
+    if (!(e instanceof NotReadyError)) captureError('accounts', e)
+  }
+
+  /**
+   * The connection's account once the handshake's lookup is done, creating
+   * one if it found none (creation is on first play, decision #48, so lobby
+   * bounces and crawlers make no rows). At most one creation per connection:
+   * after this the account is set, and `starting` keeps a second start out
+   * meanwhile. Never rejects; leaves the account unset only for a connection
+   * that closed or a server that started draining while it waited.
+   */
+  private async accountFor (connection: Connection): Promise<void> {
+    await connection.accountReady
+    if (connection.account !== undefined || connection.closed || this.draining) return
+    let created: { account: Account, token: string }
+    try {
+      created = await this.bounded(this.accounts.create())
+    } catch (e) {
+      Worlds.accountFailure(e)
+      this.setAccount(connection, offlineAccount())
+      return
+    }
+    this.setAccount(connection, created.account, created.token)
+  }
+
+  /**
+   * `start_requested`. A malformed one, or one while a run is in progress or
+   * waiting on the account, moves nothing. Otherwise, once the connection has
+   * an account (`accountFor`; at once on its later runs), it goes to
+   * `choose()`'s world, leaving its old one first if that is another, and
+   * the run starts there.
+   *
+   * Asynchronous around the account. After the wait no world is current, so
+   * the rest runs in `guarded` and `World.run` as on arrival, and checks again
+   * that the socket is still open and the server isn't draining.
    */
   start (connection: Connection, data: unknown): void {
-    const start = connection.started ? undefined : Multiplayer.parseStart(data)
+    if (connection.started || connection.starting) return
+    const start = Multiplayer.parseStart(data)
     if (start === undefined) return
     if (this.draining) {
       // To the next server: the client reconnects and lands in the lobby.
       Worlds.redirect(connection)
       return
     }
+    if (connection.account !== undefined) {
+      this.begin(connection, start, data)
+      return
+    }
+    connection.starting = true
+    this.accountFor(connection).then(() => {
+      Multiplayer.guarded(() => {
+        connection.starting = false
+        if (connection.closed) return
+        if (this.draining) {
+          Worlds.redirect(connection)
+          return
+        }
+        this.begin(connection, start, data)
+      })
+    }).catch((e) => {
+      connection.starting = false
+      reportError('accounts', e)
+    })
+  }
+
+  /** The run itself: `start` once the connection has its account. */
+  private begin (connection: Connection, start: { party?: string }, data: unknown): void {
     connection.party = start.party
     const target = this.choose(start.party)
     const from = this.worldOf.get(connection)

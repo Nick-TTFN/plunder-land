@@ -68,12 +68,13 @@ class HeadlessClient {
     } as unknown as Socket
   }
 
-  /** `Game.start`, then `start_requested`. */
-  play (name: string): void {
+  /** `Game.start`, then `start_requested`, then the wait for the account (decision #48). */
+  async play (name: string): Promise<void> {
     resetForRun(this.map, this.fog)
     this.held.clear()
     this.ownId = undefined
     this.handlers.start_requested({ id: 'abcdef', name })
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
   }
 
   private onHello (data: Data): void {
@@ -145,12 +146,12 @@ function kill (worlds: Worlds, client: Connected): void {
   worlds.tickAll(250)
 }
 
-test('a client that plays in world A, dies and plays again in world B keeps nothing of A', () => {
+test('a client that plays in world A, dies and plays again in world B keeps nothing of A', async () => {
   const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: okRedis() })
   const [x, y, z] = ['x', 'y', 'z'].map((id) => connect(worlds, id) as Connected)
 
   // X plays in A, next to a StoneWall stone, and walks a little.
-  x.play('X')
+  await x.play('X')
   const a = x.world as World
   const xa = x.player as Player
   const stoneCell = Hex.toCell(xa.position).add(new Vector(0, 2))
@@ -172,15 +173,15 @@ test('a client that plays in world A, dies and plays again in world B keeps noth
 
   // The cap is 1. Y's run opens B while X plays; X dies; Z's run takes A;
   // Y dies. When X plays again A is full and B is empty.
-  y.play('Y')
+  await y.play('Y')
   const b = y.world as World
   assert.notEqual(b, a)
   kill(worlds, x)
-  z.play('Z')
+  await z.play('Z')
   assert.equal(z.world, a)
   kill(worlds, y)
 
-  x.play('X AGAIN')
+  await x.play('X AGAIN')
   assert.equal(x.world, b, 'the second run did not land in world B')
   for (let i = 0; i < 4; i++) worlds.tickAll(250)
   const xb = x.player as Player

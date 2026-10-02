@@ -7,6 +7,21 @@ services:
     volumes:
       - ./saved/redis:/data
 
+  # Guest accounts (decision #48). Local only: no published port, reached
+  # from the server as postgres:5432. Match the major version to Railway's.
+  # The server's .env needs
+  # DATABASE_URL=postgres://postgres:plunderland@postgres:5432/plunderland
+  postgres:
+    image: postgres:17-alpine
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: plunderland
+      POSTGRES_DB: plunderland
+    networks:
+      - backend
+    volumes:
+      - ./saved/postgres:/var/lib/postgresql/data
+
   battle-royale-server:
     image: node:24-alpine
     volumes:

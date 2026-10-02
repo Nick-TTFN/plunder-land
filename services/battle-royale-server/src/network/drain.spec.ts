@@ -56,13 +56,20 @@ class Client {
     } as unknown as Socket
   }
 
-  start (): void {
+  /** A start, then the wait for the account (guest accounts, decision #48). */
+  async start (): Promise<void> {
     this.handlers.start_requested({ id: 'abcdef', name: this.id })
+    await settle()
   }
 
   get hellos (): number {
     return this.emitted.filter(([event]) => event === 'hello').length
   }
+}
+
+/** Let the account lookup and creation (memory store) finish. */
+async function settle (): Promise<void> {
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
 function connect (worlds: Worlds, id: string): Client {
@@ -75,21 +82,21 @@ function makeWorlds (writes?: string[]): Worlds {
   return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => 0 })
 }
 
-test('every connection is welcomed with the protocol number, before anything else', () => {
+test('every connection is welcomed with the protocol number, before anything else', async () => {
   const worlds = makeWorlds()
   const a = connect(worlds, 'a')
   assert.deepEqual(a.emitted[0], ['welcome', { protocol: PROTOCOL }])
-  a.start()
+  await a.start()
   assert.equal(a.hellos, 1, 'the run starts as before')
 })
 
-test('draining sends lobby connections on, keeps live runs and run cards, and starts no new run', () => {
+test('draining sends lobby connections on, keeps live runs and run cards, and starts no new run', async () => {
   const worlds = makeWorlds()
   const lobby = connect(worlds, 'lobby')
   const live = connect(worlds, 'live')
   const card = connect(worlds, 'card')
-  live.start()
-  card.start()
+  await live.start()
+  await card.start()
   // card's run ends: it is on its run card, between runs, still in its world.
   const world = worlds.worldFor(card.connection)
   assert.ok(world !== undefined && card.connection.player !== undefined)
@@ -108,7 +115,7 @@ test('draining sends lobby connections on, keeps live runs and run cards, and st
   worlds.tickAll(250)
   assert.ok(live.writes > before, 'the live run is still ticked and sent')
 
-  card.start()
+  await card.start()
   assert.equal(card.closed, true, 'asking for the next run sends it on')
   assert.equal(card.hellos, 1, 'and starts no run here')
 
@@ -124,18 +131,21 @@ test('draining sends lobby connections on, keeps live runs and run cards, and st
   assert.equal(Worlds.activeRuns(worlds), 0)
 })
 
-test('closeAll ends live runs as disconnects, so their stats are written', () => {
+test('closeAll ends live runs as disconnects, so their stats are written', async () => {
   const writes: string[] = []
   const worlds = makeWorlds(writes)
   const a = connect(worlds, 'a')
   const b = connect(worlds, 'b')
-  a.start()
+  await a.start()
   worlds.drain()
   assert.equal(b.closed, true)
   writes.length = 0
   worlds.closeAll()
   assert.equal(a.closed, true)
-  assert.ok(writes.some((w) => w.startsWith('stats-abcdef')), `a disconnect's stats write, got ${JSON.stringify(writes)}`)
+  // Under the account's id, not the start's (decision #48).
+  const id = a.connection.account?.publicId
+  assert.match(id ?? '', /^[0-9a-f]{16}$/)
+  assert.ok(writes.some((w) => w.startsWith(`stats-${id} `)), `a disconnect's stats write, got ${JSON.stringify(writes)}`)
   assert.equal(worlds.drained, true)
 })
 

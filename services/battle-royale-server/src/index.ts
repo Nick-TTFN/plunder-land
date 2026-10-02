@@ -3,6 +3,7 @@ import { Server } from 'socket.io'
 import http from 'http'
 import Multiplayer from './network/multiplayer'
 import Worlds from './network/worlds'
+import { openAccountStore } from './db/open'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
@@ -17,6 +18,10 @@ function startGame (): void {
   // One Redis client for every world: stats only.
   const redis = Multiplayer.connectRedis()
 
+  // Guest accounts (decision #48): Postgres when DATABASE_URL is set, migrated
+  // in the background (boot never waits for it), else in memory.
+  const accounts = openAccountStore()
+
   // Several worlds in this one process (worlds-per-process, decision #39): a
   // run goes to the fullest world with fewer than WORLD_CAP active players,
   // and a world with none for WORLD_IDLE_MS closes (one always stays open).
@@ -26,7 +31,8 @@ function startGame (): void {
     idleMs: parseInt(process.env.WORLD_IDLE_MS ?? '300000'),
     // Bots top each world with a human up to this many players (decision #47).
     bots: parseInt(process.env.BOT_TARGET ?? '8'),
-    redis
+    redis,
+    accounts
   })
 
   // A deploy (decision #46): the host starts the new server, routes new
@@ -60,8 +66,8 @@ function startGame (): void {
         setTimeout(quitWhenClosed, 50)
         return
       }
-      // Sentry's queue too, inside the same 5 s.
-      Promise.allSettled([redis.quit(), flushErrors(2000)]).finally(() => process.exit(0))
+      // The account pool and Sentry's queue too, inside the same 5 s.
+      Promise.allSettled([redis.quit(), accounts.close(), flushErrors(2000)]).finally(() => process.exit(0))
     }
     quitWhenClosed()
   }

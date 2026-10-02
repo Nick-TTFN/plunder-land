@@ -72,8 +72,10 @@ class Client {
     this.handlers[event](data)
   }
 
-  start (name: string): void {
+  /** A start, then the wait for the account (guest accounts, decision #48). */
+  async start (name: string): Promise<void> {
     this.fire('start_requested', { id: 'abcdef', name })
+    await settle()
   }
 
   get player (): Player | undefined {
@@ -85,6 +87,11 @@ class Client {
     this.events = []
     return out
   }
+}
+
+/** Let the account lookup and creation (memory store) finish. */
+async function settle (): Promise<void> {
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
 function connect (worlds: Worlds, id: string): Client {
@@ -189,7 +196,7 @@ function mockClock (t: TestContext): void {
 
 // --- assignment ---------------------------------------------------------------
 
-test('runs fill the fullest world under the cap, open a new one when all are full, and tie to the oldest', () => {
+test('runs fill the fullest world under the cap, open a new one when all are full, and tie to the oldest', async () => {
   const worlds = makeWorlds(2)
   assert.equal(worlds.worlds.length, 1, 'one world at the start')
   const [a1, a2, b1, x, y] = ['a1', 'a2', 'b1', 'x', 'y'].map((id) => connect(worlds, id))
@@ -197,14 +204,14 @@ test('runs fill the fullest world under the cap, open a new one when all are ful
   // Connecting joins nothing: a world is picked per run.
   assert.equal(worlds.worldFor(a1.connection), undefined)
 
-  a1.start('A1')
-  a2.start('A2')
+  await a1.start('A1')
+  await a2.start('A2')
   const [first] = worlds.worlds
   assert.equal(worlds.worldFor(a1.connection), first)
   assert.equal(worlds.worldFor(a2.connection), first, 'fill-first: the second run joined the first world')
   assert.equal(Worlds.activePlayers(first), 2)
 
-  b1.start('B1')
+  await b1.start('B1')
   assert.equal(worlds.worlds.length, 2, 'every world was full: a second one opened')
   const second = worlds.worlds[1]
   assert.equal(worlds.worldFor(b1.connection), second)
@@ -212,30 +219,30 @@ test('runs fill the fullest world under the cap, open a new one when all are ful
   // One each: a tie, which goes to the oldest.
   kill(worlds, a1)
   assert.equal(Worlds.activePlayers(first), 1)
-  x.start('X')
+  await x.start('X')
   assert.equal(worlds.worldFor(x.connection), first, 'a tie went to the oldest world')
 
   // 2 and 1: the fullest under the cap is the second.
   kill(worlds, a2)
   kill(worlds, x)
-  a2.start('A2 again')
+  await a2.start('A2 again')
   assert.equal(worlds.worldFor(a2.connection), second, 'not the fullest world under the cap')
-  y.start('Y')
+  await y.start('Y')
   // Second is full now (B1, A2), first has none.
   assert.equal(worlds.worldFor(y.connection), first)
   assert.equal(worlds.worlds.length, 2)
 })
 
-test('a run that moves to another world leaves the old one completely', () => {
+test('a run that moves to another world leaves the old one completely', async () => {
   const worlds = makeWorlds(1)
   const mover = connect(worlds, 'mover')
   const stayer = connect(worlds, 'stayer')
 
-  mover.start('MOVER')
+  await mover.start('MOVER')
   const [a] = worlds.worlds
   for (let i = 0; i < 4; i++) worlds.tickAll(250)
   kill(worlds, mover)
-  stayer.start('STAYER')
+  await stayer.start('STAYER')
   assert.equal(worlds.worldFor(stayer.connection), a)
 
   // B is opened first, so its ids can be told from A's (`WorldIds`). A is
@@ -244,7 +251,7 @@ test('a run that moves to another world leaves the old one completely', () => {
   const bIds = new WorldIds(b, 20_000, 40_000)
   // What the first run was sent, in A, is not checked.
   mover.take()
-  mover.start('MOVER AGAIN')
+  await mover.start('MOVER AGAIN')
   assert.equal(worlds.worldFor(mover.connection), b, 'the run did not go to the other world')
   assert.equal(a.multiplayer?.connectionCount, 1, 'the old Multiplayer kept the connection')
   for (const obj of objectsOf(a).values()) {
@@ -266,7 +273,7 @@ test('a run that moves to another world leaves the old one completely', () => {
 
 // --- isolation ----------------------------------------------------------------
 
-test('two worlds ticked together share no object, id, timer, standings row, create, update, destroy or effect', (t) => {
+test('two worlds ticked together share no object, id, timer, standings row, create, update, destroy or effect', async (t) => {
   mockClock(t)
   const worlds = makeWorlds(3)
   const clients = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'].map((id) => connect(worlds, id))
@@ -280,7 +287,7 @@ test('two worlds ticked together share no object, id, timer, standings row, crea
   }
 
   // A and B's players, all close together, so each sees the others' work.
-  for (const client of clients) client.start(client.id.toUpperCase())
+  for (const client of clients) await client.start(client.id.toUpperCase())
   for (const client of clients) assert.equal(worlds.worldFor(client.connection), worldOf(client))
   const centre = new Vector(40, 40)
   for (const world of [a, b]) {
@@ -357,8 +364,8 @@ test('a world with no active players closes after WORLD_IDLE_MS, the last one ne
   const worlds = makeWorlds(1, 1000, () => now)
   const one = connect(worlds, 'one')
   const two = connect(worlds, 'two')
-  one.start('ONE')
-  two.start('TWO')
+  await one.start('ONE')
+  await two.start('TWO')
   assert.equal(worlds.worlds.length, 2)
   let second: World | undefined = worlds.worlds[1]
   const ref = new WeakRef(second)
@@ -380,7 +387,7 @@ test('a world with no active players closes after WORLD_IDLE_MS, the last one ne
   assert.equal(worlds.worlds.length, 1, 'the last world closed')
 
   // Its connection plays on elsewhere.
-  two.start('TWO AGAIN')
+  await two.start('TWO AGAIN')
   assert.equal(worlds.worldFor(two.connection), worlds.worlds[0])
 
   // Nothing keeps the closed world alive: no timer, listener or index.
@@ -416,12 +423,12 @@ test('with no world current, reaching for world state throws and is counted', ()
   assert.equal(World.run(worlds.worlds[0], () => World.PLAYERS.length), 0)
 })
 
-test('a world, or its Multiplayer, used while another world is current throws a WrongWorldError', () => {
+test('a world, or its Multiplayer, used while another world is current throws a WrongWorldError', async () => {
   const worlds = makeWorlds(1)
   const one = connect(worlds, 'one')
   const two = connect(worlds, 'two')
-  one.start('ONE')
-  two.start('TWO')
+  await one.start('ONE')
+  await two.start('TWO')
   const [a, b] = worlds.worlds
   const before = World.wrongWorld
 
@@ -449,12 +456,15 @@ test('a stats write finishes after its world is no longer current', async (t) =>
   const logged = t.mock.method(Multiplayer.STATS_LOG, 'report', () => {})
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 1000, redis: redisStub(writes) })
   const one = connect(worlds, 'one')
-  one.start('ONE')
+  await one.start('ONE')
   t.mock.timers.tick(5000)
   kill(worlds, one)
   // Every await in updateStats runs with no world current (strict mode).
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve))
   // Two awaits: the second write runs after the first has resolved.
-  assert.deepEqual(writes.sort(), ['stats-abcdef games', 'stats-abcdef lifeTime'])
+  // Under the account's id, not the start's 'abcdef' (decision #48).
+  const id = one.connection.account?.publicId as string
+  assert.match(id, /^[0-9a-f]{16}$/)
+  assert.deepEqual(writes.sort(), [`stats-${id} games`, `stats-${id} lifeTime`])
   assert.equal(logged.mock.callCount(), 0, 'a stats write failed')
 })

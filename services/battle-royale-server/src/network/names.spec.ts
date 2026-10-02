@@ -205,13 +205,19 @@ test('parseStart: the object form', () => {
   assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 7 }), { id: 'abc123', name: 7 })
 })
 
-test('parseStart: a bare string is the old form, the id alone (kept for one release)', () => {
-  assert.deepEqual(Multiplayer.parseStart('abc123'), { id: 'abc123' })
+test('parseStart: the bare-string form is gone (decision #48), and so is any non-object', () => {
+  for (const bad of [undefined, null, '', 'abc123', 42, true, [], ['abc123']]) {
+    assert.equal(Multiplayer.parseStart(bad), undefined, JSON.stringify(bad))
+  }
 })
 
-test('parseStart: anything without a non-empty string id is ignored', () => {
-  for (const bad of [undefined, null, '', 42, true, [], ['abc123'], {}, { name: 'NOVA' }, { id: 5 }, { id: '' }, { id: { toString: () => 'x' } }]) {
-    assert.equal(Multiplayer.parseStart(bad), undefined, JSON.stringify(bad))
+test('parseStart: an id is kept only with ID_SHAPE, and a start is never refused for it', () => {
+  // The server plays under the account's id; `id` is only for the spec-only
+  // fallback (Multiplayer.startRequested), so a bad or missing one is dropped.
+  for (const start of [{}, { name: 'NOVA' }, { id: 5 }, { id: '' }, { id: 'NOT-HEX' }, { id: { toString: () => 'x' } }]) {
+    const parsed = Multiplayer.parseStart(start)
+    assert.ok(parsed !== undefined, JSON.stringify(start))
+    assert.equal(parsed.id, undefined, JSON.stringify(start))
   }
 })
 
@@ -346,10 +352,12 @@ test('a join with a name: the player carries the sanitised name, keyed by its id
   assert.equal(player.name, 'iNOVA/i')
 })
 
-test('a join in the old bare-string form still works, and gets the id\'s callsign', () => {
+test('a join in the old bare-string form is ignored; one without a name gets the id\'s callsign', () => {
   const multiplayer = setup()
   const a = connect(multiplayer, 's1')
   a.fire('start_requested', 'abc123')
+  assert.equal(World.PLAYERS.length, 0)
+  a.fire('start_requested', { id: 'abc123' })
   assert.equal(World.PLAYERS.length, 1)
   assert.equal(lastPlayer().playerId, 'abc123')
   assert.equal(lastPlayer().name, Player.callsign('abc123'))
@@ -420,7 +428,7 @@ test('a player without a name is sent as its callsign, not its id', () => {
   multiplayer.flushAll(1)
 
   const b = connect(multiplayer, 's2')
-  b.fire('start_requested', 'bbbbbb')
+  b.fire('start_requested', { id: 'bbbbbb' })
   const newcomer = lastPlayer()
   multiplayer.flushAll(2)
 

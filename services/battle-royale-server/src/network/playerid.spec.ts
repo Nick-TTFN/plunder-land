@@ -1,84 +1,58 @@
-import test, { beforeEach } from 'node:test'
+import test, { afterEach, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { EventEmitter } from 'node:events'
 import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
-import Multiplayer from './multiplayer'
+import Multiplayer, { type Connection } from './multiplayer'
+import Worlds from './worlds'
 import World from '../objects/world'
 import Timers from '../objects/timers'
 import { GameObject } from '../objects/gameobject'
 import Player from '../objects/player'
+import { MemoryAccountStore, offlineAccount, PUBLIC_ID_SHAPE } from '../db/accounts'
 
 /**
- * bound-player-id: the id in `start_requested` becomes the Redis key
- * `stats-${id}`, so the server accepts only the shape the client makes
- * (`Multiplayer.ID_SHAPE`), and a raw name is cut to `Player.NAME_RAW_MAX`
- * UTF-16 units before sanitising, so its size costs nothing.
+ * The player id, which becomes the Redis key `stats-${id}`.
+ *
+ * Since guest accounts (decision #48) it is the connection's account's
+ * `publicId`, issued by the server, never anything the client sends: the
+ * start's `id` is ignored, and `Multiplayer.ID_SHAPE` stays the guard every
+ * issued id is checked against (bound-player-id, 2026-09-25). A raw name is
+ * cut to `Player.NAME_RAW_MAX` UTF-16 units before sanitising, so its size
+ * costs nothing.
  */
 
-// The lobby since lobby-rework (#42); the enter popup before.
-const CLIENT_POPUP = join(__dirname, '../../../../plunder-land-client/src/ui/lobby/lobby.ts')
-
-/**
- * The client's generator (`genRanHex` in the lobby), run from its own source.
- * The lobby imports pixi, so the module can't be loaded here; the expression
- * after the arrow is plain JavaScript, so it is lifted out and evaluated. The
- * whole line is pinned too, so a change to it fails here, not silently.
- */
-const CLIENT_SOURCE = readFileSync(CLIENT_POPUP, 'utf8')
-const CLIENT_GENERATOR_LINE = "genRanHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')"
-const GENERATOR_BODY = /^\s*(?:const )?genRanHex = \(size: number\): string => (.+)$/m.exec(CLIENT_SOURCE)?.[1]
-// eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-const genRanHex = new Function('size', `return ${GENERATOR_BODY ?? 'undefined'}`) as (size: number) => string
-
-// ---------------------------------------------------------------- the client's ids
-
-test('the client makes its id with genRanHex(6), and genRanHex is unchanged', () => {
-  assert.ok(CLIENT_SOURCE.includes(CLIENT_GENERATOR_LINE), 'the client generator changed: check ID_SHAPE against it')
-  assert.ok(GENERATOR_BODY !== undefined)
-  // The one place an id is made, and the only length it is made at.
-  assert.deepEqual(CLIENT_SOURCE.match(/genRanHex\(\d+\)/g), ['genRanHex(6)'])
-  assert.match(genRanHex(6), /^[0-9a-f]{6}$/)
+afterEach(() => {
+  World.strict = false
 })
 
-test('every id the client can generate is accepted, in both payload forms', () => {
+// ---------------------------------------------------------------- issued ids
+
+test('every issued id, persisted or offline, is 16 lowercase hex and passes ID_SHAPE', async () => {
+  const store = new MemoryAccountStore()
   for (let i = 0; i < 5000; i++) {
-    const id = genRanHex(6)
-    assert.deepEqual(Multiplayer.parseStart({ id, name: 'NOVA' }), { id, name: 'NOVA' }, id)
-    assert.deepEqual(Multiplayer.parseStart(id), { id }, id)
+    const { account } = await store.create()
+    assert.match(account.publicId, PUBLIC_ID_SHAPE)
+    assert.ok(Multiplayer.ID_SHAPE.test(account.publicId), account.publicId)
+    const offline = offlineAccount()
+    assert.match(offline.publicId, PUBLIC_ID_SHAPE)
+    assert.ok(Multiplayer.ID_SHAPE.test(offline.publicId), offline.publicId)
+    assert.equal(offline.persisted, false)
   }
-})
-
-test('the generator\'s extremes are accepted: random() at 0 and just under 1', () => {
-  const random = Math.random
-  try {
-    Math.random = () => 0
-    assert.equal(genRanHex(6), '000000')
-    assert.ok(Multiplayer.parseStart(genRanHex(6)) !== undefined)
-    Math.random = () => 1 - Number.EPSILON
-    assert.equal(genRanHex(6), 'ffffff')
-    assert.ok(Multiplayer.parseStart(genRanHex(6)) !== undefined)
-  } finally {
-    Math.random = random
-  }
+  assert.equal(store.size, 5000)
 })
 
 // ---------------------------------------------------------------- refused ids
 
-test('ids of 6 to 32 lowercase hex digits are accepted; one either side is not', () => {
-  assert.ok(Multiplayer.parseStart('a'.repeat(6)) !== undefined)
-  assert.ok(Multiplayer.parseStart('0123456789abcdef0123456789abcdef') !== undefined)
-  assert.equal(Multiplayer.parseStart('a'.repeat(5)), undefined)
-  assert.equal(Multiplayer.parseStart('a'.repeat(33)), undefined)
-})
-
-test('empty, oversized and odd-charset ids are refused, in both payload forms', () => {
+test('a start\'s id is kept only with ID_SHAPE: empty, oversized and odd-charset ids are dropped', () => {
+  assert.equal(Multiplayer.parseStart({ id: 'a'.repeat(6) })?.id, 'a'.repeat(6))
+  assert.equal(Multiplayer.parseStart({ id: '0123456789abcdef0123456789abcdef' })?.id, '0123456789abcdef0123456789abcdef')
   const bad = [
     '',
+    'a'.repeat(5),
     'a'.repeat(33),
     'a'.repeat(1 << 20), // socket.io's default buffer cap is 1 MB
-    'ABCDEF', // the client only makes lowercase
+    'ABCDEF',
     '0x' + 'aB'.repeat(20), // a 2023 wallet address, deliberately not accepted
     'abc-12',
     'abc 12',
@@ -92,28 +66,41 @@ test('empty, oversized and odd-charset ids are refused, in both payload forms', 
     'abcde' + String.fromCodePoint(0x0301) + 'f'
   ]
   for (const id of bad) {
-    assert.equal(Multiplayer.parseStart(id), undefined, JSON.stringify(id.slice(0, 40)))
-    assert.equal(Multiplayer.parseStart({ id, name: 'NOVA' }), undefined, JSON.stringify(id.slice(0, 40)))
+    const start = Multiplayer.parseStart({ id, name: 'NOVA' })
+    assert.ok(start !== undefined, 'a start is never refused for its id')
+    assert.equal(start.id, undefined, JSON.stringify(id.slice(0, 40)))
+    assert.equal(Multiplayer.parseStart(id), undefined, 'the bare-string form is gone')
   }
 })
 
 // ---------------------------------------------------------------- the join
 
-function okRedis (keys: string[]): Redis {
-  return { on: function () { return this }, hincrby: async (key: string) => { keys.push(key); return 1 } } as unknown as Redis
+function redisStub (keys: string[]): Redis {
+  return Object.assign(new EventEmitter(), {
+    hincrby: async (key: string) => { keys.push(key); return 1 },
+    keys: async () => [],
+    hgetall: async () => ({})
+  }) as unknown as Redis
 }
 
 function fakeSocket (id: string): { socket: Socket, fire: (event: string, data?: unknown) => void } {
   const handlers: Record<string, (data: unknown) => void> = {}
   const socket = {
     id,
+    handshake: { query: {} },
     on: (event: string, cb: (data: unknown) => void) => { handlers[event] = cb },
-    emit: () => true
+    emit: () => true,
+    conn: { write: () => {}, close: () => { handlers.disconnect?.(undefined) } }
   } as unknown as Socket
   return { socket, fire: (event, data) => { handlers[event](data) } }
 }
 
+async function settle (): Promise<void> {
+  for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
+}
+
 beforeEach(() => {
+  World.strict = false
   World.BLOCKED.clear()
   World.OBSTACLES.length = 0
   World.PROJECTILES.length = 0
@@ -125,32 +112,48 @@ beforeEach(() => {
   GameObject.FreedIDs.length = 0
 })
 
-test('a refused id joins nobody and leaves the connection free; a client id then joins, keyed stats-<id>', async () => {
+test('through Worlds, the player id is the account\'s, whatever id the start carried, and stats are keyed by it', async () => {
   const keys: string[] = []
-  const multiplayer = new Multiplayer(250, okRedis(keys))
-  // eslint-disable-next-line no-new
-  new World(4000)
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(keys) })
+  for (const sent of ['abcdef', 'x'.repeat(1 << 20), undefined]) {
+    const a = fakeSocket(`s-${String(sent).slice(0, 6)}`)
+    const connection: Connection = worlds.onConnection(a.socket)
+    a.fire('start_requested', { id: sent, name: 'NOVA' })
+    await settle()
+    const id = connection.account?.publicId as string
+    assert.match(id, PUBLIC_ID_SHAPE)
+    const player = connection.player as Player
+    assert.ok(player !== undefined, 'the start was refused')
+    assert.equal(player.playerId, id)
+    assert.notEqual(player.playerId, sent)
+
+    keys.length = 0
+    const world = worlds.worldFor(connection) as World
+    const multiplayer = world.multiplayer as Multiplayer
+    await World.run(world, async () => { await multiplayer.updateStats(player) })
+    assert.ok(keys.length > 0)
+    for (const key of keys) assert.equal(key, `stats-${id}`)
+  }
+})
+
+test('with World.strict on, a start with an id and no account is ignored (fail closed)', () => {
+  const multiplayer = new Multiplayer(250, redisStub([]))
+  const world = new World(4000)
   World.OBSTACLES.length = 0
-  World.CONSUMABLES.length = 0
   World.MOBS.length = 0
   World.BLOCKED.clear()
-
   const a = fakeSocket('s1')
   multiplayer.onConnect(a.socket)
-  a.fire('start_requested', { id: 'x'.repeat(1 << 20), name: 'NOVA' })
-  a.fire('start_requested', 'NOT-HEX')
-  a.fire('start_requested', { id: '' })
-  assert.equal(World.PLAYERS.length, 0)
 
-  const id = genRanHex(6)
-  a.fire('start_requested', { id, name: 'NOVA' })
+  World.strict = true
+  World.run(world, () => { a.fire('start_requested', { id: 'abcdef', name: 'NOVA' }) })
+  assert.equal(World.run(world, () => World.PLAYERS.length), 0, 'a client-chosen id was played under in strict mode')
+
+  // The spec-only fallback: off strict, the start's id joins.
+  World.strict = false
+  a.fire('start_requested', { id: 'abcdef', name: 'NOVA' })
   assert.equal(World.PLAYERS.length, 1)
-  const player = World.PLAYERS[0] as Player
-  assert.equal(player.playerId, id)
-
-  await multiplayer.updateStats(player)
-  assert.ok(keys.length > 0)
-  for (const key of keys) assert.equal(key, `stats-${id}`)
+  assert.equal((World.PLAYERS[0] as Player).playerId, 'abcdef')
 })
 
 // ---------------------------------------------------------------- the raw name cut

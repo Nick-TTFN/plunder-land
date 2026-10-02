@@ -97,7 +97,9 @@ trap 'exit 130' INT TERM
 PROF=()
 [ "$CPU_PROF" = 1 ] && PROF=(--cpu-prof --cpu-prof-dir "$OUT")
 # cwd is $OUT so dotenv finds no .env: the environment below is the whole config.
-(cd "$OUT" && exec env PORT="$PORT" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" \
+# DATABASE_URL is unset (decision #48): the environment passes through, and a
+# load run must never write accounts to a real database. Memory store instead.
+(cd "$OUT" && exec env -u DATABASE_URL PORT="$PORT" REDIS_HOST=127.0.0.1 REDIS_PORT="$REDIS_PORT" \
   PROBE_DIST="$SERVER/dist" PROBE_OUT="$OUT/server.jsonl" PROBE_DETAIL="$DETAIL" \
   node -r "$HERE/probe.cjs" ${PROF[@]+"${PROF[@]}"} "$SERVER/dist/index.js") > "$OUT/server.log" 2>&1 &
 SERVER_PID=$!
