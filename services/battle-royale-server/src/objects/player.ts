@@ -13,6 +13,7 @@ import { type Item } from '../archetypes/archetypes'
 import { itemForSlot, useItem } from '../items/use'
 import type Consumable from './consumable'
 import type ItemPickup from './itempickup'
+import Analytics from '../analytics'
 
 export class Stats {
   kills?: number
@@ -30,6 +31,16 @@ export default class Player extends Unit {
   createdAt: number
   exited: boolean
   playerId: string
+  /** When the run first picked up loot (analytics `first_loot`, #46). */
+  firstLootAt: number | undefined
+  /** The deepest layer's tag this run (the lowest), for analytics `run_end`. */
+  deepestTag: number
+  /**
+   * Set by `exit` before it destroys: `exited` is only set after
+   * `Multiplayer.destroy`, which is where `run_end` is sent, and moving it
+   * would change what `Multiplayer.gone` lets through. Analytics only.
+   */
+  extracted = false
 
   /**
    * The robot's colours and patterns (robot-finishes, #41), fixed for the run.
@@ -82,6 +93,7 @@ export default class Player extends Unit {
     this.skills = buildSkills(this, archetype)
 
     this.createdAt = Date.now()
+    this.deepestTag = tag
 
     // The owner's own record only. Its create for everyone else stays as it was.
     this.allFieldsOwn.add('inventory')
@@ -147,6 +159,7 @@ export default class Player extends Unit {
   }
 
   update (dt: number): void {
+    if (this.tag < this.deepestTag) this.deepestTag = this.tag
     // Before moving, so the channel is judged on the position every client was
     // last sent, and its progress goes out in this tick's update rather than
     // the next one's. An extraction ends the update: the player is gone.
@@ -323,6 +336,12 @@ export default class Player extends Unit {
 
   addLoot (value: number): void {
     this.loot += value
+    if (this.firstLootAt === undefined && value > 0) {
+      this.firstLootAt = Date.now()
+      Analytics.send({ playerId: this.playerId, startedAt: this.createdAt }, 'first_loot', {
+        seconds: Math.round((this.firstLootAt - this.createdAt) / 100) / 10
+      }, this.firstLootAt)
+    }
   }
 
   // Items ========
@@ -477,6 +496,7 @@ export default class Player extends Unit {
 
   exit (): void {
     this.dirtyFields = new Set(['id'])  // not new Set('id'), which yields {'i','d'}
+    this.extracted = true
     Multiplayer.Instance.destroy(this)
     this.exited = true
 

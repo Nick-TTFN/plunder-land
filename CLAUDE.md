@@ -208,6 +208,18 @@ per 10 min (server) and 20 per page load (client). The server SDK costs about 25
 Source maps are not uploaded: Sentry fetches the public `.map` of the deployed build, so a
 stack from an older deploy can't be mapped once a newer one replaces it.
 
+**Game events go to GA4 from the server** (decision #46; `src/analytics.ts`, EU endpoint),
+only when `GA_MEASUREMENT_ID` and `GA_API_SECRET` are set (Railway; never locally or in the load
+harness): `run_start`, `first_loot`, `run_end`, one GA session per run, `client_id` the player's
+id. Their names and params are listed in that file and are **append-only** (the reports are built
+on them). Return is read from `run_start`'s `run_number` and `days_since_first`, because GA's own
+new/returning counts need events only its web tag sends; the first day is in Redis
+`player-<id>`, outside the public `stats-*` hashes. Two traps it hit: `Player.exit` sets
+`exited` only after `Multiplayer.destroy`, so extraction is read from `extracted`; and a killing
+hit destroys its victim before the attacker's `onKill` runs, so `run_end` goes a microtask later
+to carry `killed_by`. Smoke tests against production send real events: give them a recognisable
+id.
+
 **The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
 It was `firebase/app` + `firebase/analytics`, about 96 KB parsed with its `tslib` and `idb`;
 the whole `firebase` import once cost 832 KB. Also gone in that cleanup: `axios` (unused),

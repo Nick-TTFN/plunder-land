@@ -8,6 +8,7 @@ import { Hex } from '../utils/hex'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
 import { captureError } from '../errors'
+import Analytics from '../analytics'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -385,6 +386,9 @@ export default class Multiplayer {
     try {
       player = World.createPlayer(playerId, name, finish, robot)
       this.admit(connection, player)
+      let active = 0
+      for (const p of World.PLAYERS) if (!p.destroyed && !p.exited) active++
+      Analytics.runStart({ playerId, startedAt: player.createdAt }, this.redis, player.archetype.key, active)
     } catch (e) {
       connection.started = false
       connection.player = undefined // before destroy, so no stats are written for it
@@ -1142,10 +1146,36 @@ export default class Multiplayer {
 
     if (obj.type === ObjectType.Player) {
       const own = this.connectionOf(obj as Player)
-      if (own !== undefined) this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure)
+      if (own !== undefined) {
+        this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure)
+        Multiplayer.sendRunEnd(obj as Player)
+      }
     }
 
     obj.dirtyFields.clear()
+  }
+
+  /**
+   * Analytics `run_end` (#46; the event's params are listed in analytics.ts).
+   * Sent a microtask later: a killing hit destroys its victim inside
+   * `target.hit()`, before the attacker's `onKill` records itself as the
+   * killer (`Unit.killedBy`). Everything else is read now.
+   */
+  static sendRunEnd (player: Player): void {
+    const outcome = player.extracted ? 'extracted' : player.hp <= 0 ? 'died' : 'left'
+    const at = Date.now()
+    const params = {
+      outcome,
+      seconds: Math.round((at - player.createdAt) / 1000),
+      loot: Math.floor(player.loot),
+      kills: player.kills,
+      deepest_layer: World.TAGS.indexOf(Math.min(player.deepestTag, player.tag)) + 1,
+      robot: player.archetype.key
+    }
+    const run = { playerId: player.playerId, startedAt: player.createdAt }
+    queueMicrotask(() => {
+      Analytics.send(run, 'run_end', outcome === 'died' ? { ...params, killed_by: player.killedBy ?? 'other' } : params, at)
+    })
   }
 
   async updateStats (player: Player): Promise<void> {
