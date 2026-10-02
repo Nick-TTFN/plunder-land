@@ -144,7 +144,7 @@ literally: an id pattern given as "for example" would have locked out every real
   Worker). **`SERVER_URL` is a build variable** of the Worker's build settings, not a runtime
   variable: webpack bakes it in. Node 22 (`.node-version`, and `NODE_VERSION` in the build
   variables). Firebase Hosting was removed
-  on 2026-09-28 (Firebase *Analytics* in the client is separate and stays). The repo is
+  on 2026-09-28 (Firebase Analytics left the client on 2026-10-02, #46). The repo is
   `github.com/Nick-TTFN/plunder-land` (moved from LTcolombo 2026-10-02; push over SSH as
   Nick-TTFN). `main` was first pushed 2026-10-02 (`fdbe8c7`). Every push to `main` is a
   release: push only when Nick says so, for that push.

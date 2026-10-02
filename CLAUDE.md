@@ -168,7 +168,8 @@ and the world keeps running. Stats are simply lost, so that log line is the symp
 for. (The `MISCONF` path is covered by the same catch but wasn't run; a dead Redis port was.)
 
 The stats.js performance overlay (fps, socket bytes) shows only with `?stats=1` since
-`hud-rebuild`: it sat on top of the HUD's status panel for every player.
+`hud-rebuild`: it sat on top of the HUD's status panel for every player. Since the SDK
+cleanup (2026-10-02) it is a separate chunk loaded only then.
 
 The client's server address is baked in at build time from **`SERVER_URL`**
 (`webpack.config.js` → `src/config.ts`). A production build **fails without it**, so a deploy
@@ -190,14 +191,19 @@ numbers in `LAYERS`) are checked by the world specs, not by a join.
 
 ## Bundle size
 
-Production build, 2026-09-08: **699 KB** JS + 327 KB atlas + 30 KB atlas.json + 48 KB hex.png
-+ 10 KB hex.json + 15 KB font = **~1.13 MB** total. Measure with `npm run build` and read
-`dist/main.*.js`; the build also writes `dist/report.html` (webpack-bundle-analyzer) for a
-breakdown.
+Main JS, 2026-10-02 after the SDK cleanup: **758 KB** parsed, 225 KB gzipped (889 / 259 before;
+it was 699 on 2026-09-08, before the arena, ground, rigs and lobby). Measure with
+`npm run build` and read `dist/main.*.js`; `ANALYZE=1 npm run build` also writes
+`dist/report.html` (webpack-bundle-analyzer) for a breakdown. It is no longer written by
+default, because the site published it.
 
-`import firebase from 'firebase'` pulls the entire Firebase SDK and cost **832 KB** on its
-own — more than the rest of the game combined. It is now `firebase/app` + `firebase/analytics`.
-Never widen that import back. Only `analytics` is used.
+**The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
+It was `firebase/app` + `firebase/analytics`, about 96 KB parsed with its `tslib` and `idb`;
+the whole `firebase` import once cost 832 KB. Also gone in that cleanup: `axios` (unused),
+`fontfaceobserver` (`document.fonts.load`), Babel's `transform-runtime` + `@babel/runtime`
+(Babel targets modern browsers through `browserslist` in `package.json`, so it no longer
+compiles to ES5), and the client's eslint setup (eslint 8, unused, past end of life). Only the
+five runtime packages are `dependencies`; the build chain is `devDependencies`.
 
 ## The hex sheet is generated, and its sources are not in the repo
 

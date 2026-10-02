@@ -26,7 +26,9 @@ module.exports = (env, options) => {
     },
     plugins: [
       new DefinePlugin({ __SERVER_URL__: JSON.stringify(serverUrl) }),
-      new BundleAnalyzerPlugin({ analyzerMode: 'static', openAnalyzer: false }),
+      // dist/report.html only when asked for (ANALYZE=1 npm run build): built
+      // every time, it was published with the site.
+      ...(process.env.ANALYZE === '1' ? [new BundleAnalyzerPlugin({ analyzerMode: 'static', openAnalyzer: false })] : []),
       new CopyWebpackPlugin({
         patterns: [
           {

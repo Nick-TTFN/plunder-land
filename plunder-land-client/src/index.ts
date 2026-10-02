@@ -1,39 +1,29 @@
 import TWEEN from '@tweenjs/tween.js'
 import * as io from 'socket.io-client'
 import { framedParser } from './net/framedparser'
-import Stats from 'stats.js'
+import type Stats from 'stats.js'
 import { PopupManager } from './ui/popups/popupmanager'
 import { Game } from './game'
 import { HUD } from './ui/components/hud'
 import { Application, Assets, Point, Rectangle, type Renderer, SCALE_MODES, settings } from 'pixi.js'
-import FontFaceObserver from 'fontfaceobserver'
 import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 
-import firebase from 'firebase/app'
-import 'firebase/analytics'
-
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: 'AIzaSyAour2Kj7Ndc1QDamwRCHQ1h1vIQBiFRF4',
-  authDomain: 'plunderland.firebaseapp.com',
-  projectId: 'plunderland',
-  storageBucket: 'plunderland.appspot.com',
-  messagingSenderId: '98543229635',
-  appId: '1:98543229635:web:bd34f12c66d8b0b88c2076',
-  measurementId: 'G-LYBPE5YNNW'
+// The stats.js developer overlay (fps, socket bytes), only with ?stats=1. It
+// sat on top of the HUD's status panel for every player (hud-rebuild, M2), so
+// it is now loaded on demand and is not in the main bundle.
+let stats: Stats | undefined
+let socketPanel: Stats.Panel | undefined
+if (new URLSearchParams(window.location.search).get('stats') === '1') {
+  void import('stats.js').then(({ default: StatsJs }) => {
+    stats = new StatsJs()
+    socketPanel = stats.addPanel(new StatsJs.Panel('b/s', '#ff8', '#221'))
+    stats.showPanel(3) // 0: fps, 1: ms, 2: mb, 3+: custom
+    document.body.appendChild(stats.dom)
+  })
 }
-
-// Initialize Firebase
-firebase.analytics(firebase.initializeApp(firebaseConfig))
-
-const stats = new Stats()
 /**
  * The screen's device pixels per CSS pixel, capped at 2: a 3x phone would
  * otherwise fill 9x the pixels of a 1x screen for little visible gain.
@@ -49,33 +39,30 @@ function density (): number {
 // stay in CSS pixels; only the backing store grows. Text follows the
 // renderer's resolution on its own.
 const app = new Application({ resolution: density(), autoDensity: true })
-const socketPanel = stats.addPanel(new Stats.Panel('b/s', '#ff8', '#221'))
 
 settings.ROUND_PIXELS = true
-
-const font = new FontFaceObserver('Lilliput Steps')
 
 /** True for the one press that should extend the route rather than replace it. */
 let _appendNext = false
 
-// JetBrains Mono is the HUD's face (THEME.font). pixi draws text into a
-// canvas once, so a face that arrives after the first Text is never used by
-// it; wait for it too, but start without it if it fails (a system monospace
-// is in THEME.font's stack behind it). Lilliput is still required, as before.
-const hudFont = new FontFaceObserver('JetBrains Mono').load().catch(() => {
-  console.warn('JetBrains Mono did not load; the HUD uses a system monospace')
-})
+// pixi draws text into a canvas once, so a face that arrives after the first
+// Text is never used by it: wait for both faces (declared in index.html), but
+// start without one that fails. JetBrains Mono is the HUD's (THEME.font, a
+// system monospace behind it); Lilliput Steps the older labels'. Until
+// 2026-10-02 a failed Lilliput (fontfaceobserver's 3 s timeout) never started
+// the game at all.
+function loadFont (family: string): Promise<unknown> {
+  return document.fonts.load(`16px "${family}"`).catch(() => {
+    console.warn(`${family} did not load; text falls back to the next face`)
+  })
+}
 
-void Promise.all([font.load(), hudFont]).then(function () {
+void Promise.all([loadFont('Lilliput Steps'), loadFont('JetBrains Mono')]).then(function () {
   start()
 })
 
 function start (): void {
   Game.socketBytes = 0
-  stats.showPanel(3) // 0: fps, 1: ms, 2: mb, 3+: custom
-  // A developer overlay: only with ?stats=1. It sat on top of the HUD's
-  // status panel for every player (hud-rebuild, M2). It still measures either way.
-  if (new URLSearchParams(window.location.search).get('stats') === '1') document.body.appendChild(stats.dom)
 
   document.body.appendChild(app.view as any)
 
@@ -233,7 +220,7 @@ let _socketDump = 0
 let maxSocketBytes = 1
 
 function frame (): void {
-  stats.begin()
+  stats?.begin()
   const now = Date.now()
 
   // One input per server tick, four bytes, instead of one JSON object per
@@ -250,11 +237,11 @@ function frame (): void {
   }
   _prevTime = now
   TWEEN.update()
-  stats.end()
+  stats?.end()
 
   if (now > _socketDump + 1000) {
     maxSocketBytes = Math.max(Game.socketBytes, maxSocketBytes)
-    socketPanel.update(Game.socketBytes, maxSocketBytes)
+    socketPanel?.update(Game.socketBytes, maxSocketBytes)
     Game.socketBytes = 0
     _socketDump = now
   }
