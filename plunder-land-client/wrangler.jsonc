@@ -1,0 +1,11 @@
+// The client as an assets-only Cloudflare Worker, built by Workers Builds from
+// this directory (decision #40, Worker instead of Pages since 2026-10-02).
+// `name` must match the Worker in the dashboard. SERVER_URL is a *build*
+// variable there: webpack bakes it in, a runtime variable never reaches it.
+{
+  "name": "plunder-land",
+  "compatibility_date": "2026-10-02",
+  "assets": {
+    "directory": "./dist"
+  }
+}

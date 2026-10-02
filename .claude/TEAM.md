@@ -137,17 +137,29 @@ literally: an id pattern given as "for example" would have locked out every real
 
 ## Deploy
 
-- **The client deploys to Cloudflare Pages on any push to `main`** (decision #40), built by
-  Cloudflare's own Git integration: root `plunder-land-client`, `npm ci && npm run build`,
-  output `dist`, Node from `plunder-land-client/.node-version`, and **`SERVER_URL`** set in the
-  Pages project's build variables. Other branches get preview URLs. Firebase Hosting was removed
-  on 2026-09-28 (Firebase *Analytics* in the client is separate and stays). Local `main` is well
-  ahead of `origin/main` (check with `git rev-list --count origin/main..main`) and has never been
-  pushed, so **the first push is a release.** Push only when Nick says so, for that push.
-- The server is not deployed anywhere. There is no server deploy sequence yet.
+- **The client deploys to Cloudflare as an assets-only Worker, `plunder-land`, on any push to
+  `main`** (decision #40; a Worker with Workers Builds instead of Pages since 2026-10-02):
+  root `plunder-land-client`, build `npm ci && npm run build`, deploy `npx wrangler deploy`,
+  which serves `dist` per `plunder-land-client/wrangler.jsonc` (its `name` must match the
+  Worker). **`SERVER_URL` is a build variable** of the Worker's build settings, not a runtime
+  variable: webpack bakes it in. Node 22 (`.node-version`, and `NODE_VERSION` in the build
+  variables). Firebase Hosting was removed
+  on 2026-09-28 (Firebase *Analytics* in the client is separate and stays). The repo is
+  `github.com/Nick-TTFN/plunder-land` (moved from LTcolombo 2026-10-02; push over SSH as
+  Nick-TTFN). `main` was first pushed 2026-10-02 (`fdbe8c7`). Every push to `main` is a
+  release: push only when Nick says so, for that push.
+- **The server deploys to Railway** (project `plunderland`, region EU West Amsterdam, since
+  2026-10-02), built by Railway's GitHub integration from `main`: root
+  `services/battle-royale-server`, `npm run build` / `npm start`, healthcheck `/healthcheck`,
+  sleep off, with a Railway Redis (`REDIS_URL`). It redeploys only on a push that touches
+  `services/battle-royale-server/**` (watch paths), and **a redeploy wipes every live run**
+  until drain-then-restart exists (launch plan L0), so the client still ships first and a
+  server push is a release. Public URL: `https://server-production-e1da2.up.railway.app`,
+  which is the client Worker's `SERVER_URL` build variable. Check a deploy with
+  `railway logs --service server` and a socket.io join (`hello`, then `create`/`update`).
 - There is no config endpoint to poll, so a client deploy can only be reported as pushed.
-  Report the Pages deployment's result if it can be read (`wrangler pages deployment list`, or the
-  API with the account token, [[reference-deploy-credentials]] in memory); otherwise say it is unverified.
+  Report the Worker deployment's result if it can be read (the account token reads
+  `workers/scripts/plunder-land/deployments` but not Workers Builds logs, [[reference-deploy-credentials]] in memory); otherwise say it is unverified.
 
 ## Dez
 

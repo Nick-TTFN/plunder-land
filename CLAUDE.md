@@ -172,7 +172,7 @@ The stats.js performance overlay (fps, socket bytes) shows only with `?stats=1` 
 
 The client's server address is baked in at build time from **`SERVER_URL`**
 (`webpack.config.js` → `src/config.ts`). A production build **fails without it**, so a deploy
-can't ship a dead default; Cloudflare Pages' build settings hold the Railway URL (decision #40).
+can't ship a dead default; the client Worker's build variables on Cloudflare hold the Railway URL (decision #40; `plunder-land-client/wrangler.jsonc`).
 A development build (`npm start`) defaults to `http://localhost:8000`. A query param overrides
 either at run time — no source edit needed:
 
