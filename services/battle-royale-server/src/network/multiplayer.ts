@@ -757,10 +757,21 @@ export default class Multiplayer {
       const outer = inner + Multiplayer.EXIT_MARGIN
       return dx < outer && dx > -outer && dy < outer && dy > -outer ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_OUT
     }
-    const rings = Hex.distance(Hex.toCell(viewer.position), cell)
     const enter = vision + Multiplayer.VIEW_MARGIN_RINGS
+    const leave = enter + Multiplayer.VIEW_EXIT_RINGS
+    // Out at once when it is plainly beyond the leave radius, before the cell
+    // arithmetic: most candidates from the 3 x 3 buckets are (the buckets
+    // are sized for Periscope). Exact, not a guess: `leave` rings is at most
+    // leave x 45 units east-west and leave x 39 north-south, and each end is
+    // at most half a cell (22.5, or 26 to a corner) off its cell's centre, so
+    // anything further than (leave + 1) x `Hex.SIZE` on either axis is out.
+    const reach = (leave + 1) * Hex.SIZE
+    const dx = viewer.position.x - x
+    const dy = viewer.position.y - y
+    if (dx > reach || dx < -reach || dy > reach || dy < -reach) return Multiplayer.VIEW_OUT
+    const rings = Hex.distance(Hex.toCell(viewer.position), cell)
     if (rings <= enter) return Multiplayer.VIEW_IN
-    return rings <= enter + Multiplayer.VIEW_EXIT_RINGS ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_OUT
+    return rings <= leave ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_OUT
   }
 
   /**
