@@ -43,6 +43,8 @@ export interface FinishedPlayer {
   status: Standing
   /** `Date.now()` when they were recorded. */
   at: number
+  /** A bot (decision #47): its standings row is flagged. */
+  bot?: boolean
 }
 
 /** How a world is built (`new World(size, options)`). */
@@ -951,7 +953,7 @@ export default class World {
    * what they carried at the end: banked on an exit, dropped on a death.
    */
   static finish (player: Player, status: Standing, now: number = Date.now()): void {
-    World.FINISHED.push({ id: player.id, name: player.name, loot: player.loot, status, at: now })
+    World.FINISHED.push({ id: player.id, name: player.name, loot: player.loot, status, at: now, bot: player.bot !== undefined })
     if (World.FINISHED.length > World.FINISHED_MAX) {
       World.FINISHED.splice(0, World.FINISHED.length - World.FINISHED_MAX)
     }

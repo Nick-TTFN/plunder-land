@@ -4,6 +4,7 @@ import Multiplayer, { type Connection } from './multiplayer'
 import World from '../objects/world'
 import { PROTOCOL } from '../utils/protocol'
 import { reportError } from '../errors'
+import BotFill from '../bots/fill'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -15,6 +16,8 @@ export interface WorldsOptions {
   /** Shared by every world: stats only (`Multiplayer.connectRedis`). */
   redis: Redis
   mapSize?: number
+  /** Humans + bots each world is topped up to (decision #47, `BOT_TARGET`). 0 or absent: no bots. */
+  bots?: number
   /** The clock for idle closing. Specs pass their own. */
   now?: () => number
 }
@@ -59,6 +62,9 @@ export default class Worlds {
   private readonly redis: Redis
   private readonly mapSize: number
   private readonly now: () => number
+  private readonly botTarget: number
+  /** Each open world's bot fill, when bots are on. */
+  private readonly fills = new Map<World, BotFill>()
   /** Each connection's current world: the one whose Multiplayer holds it. */
   private readonly worldOf = new Map<Connection, World>()
   /** When each open world was last seen with no active players. */
@@ -75,6 +81,7 @@ export default class Worlds {
     this.redis = Multiplayer.shareRedis(options.redis)
     this.mapSize = options.mapSize ?? 4000
     this.now = options.now ?? (() => Date.now())
+    this.botTarget = options.bots ?? 0
     World.strict = true
     this.open()
   }
@@ -87,10 +94,14 @@ export default class Worlds {
     return world
   }
 
-  /** Players in `world` whose run is in progress: not dead, not extracted. */
+  /**
+   * Humans in `world` whose run is in progress: not dead, not extracted, not a
+   * bot. Bots (decision #47) count nowhere this does: world choice and its cap,
+   * idle closing, draining.
+   */
   static activePlayers (world: World): number {
     let n = 0
-    for (const player of world.PLAYERS) if (!player.destroyed && !player.exited) n++
+    for (const player of world.PLAYERS) if (!player.destroyed && !player.exited && player.bot === undefined) n++
     return n
   }
 
@@ -184,6 +195,7 @@ export default class Worlds {
     for (const world of this.worlds) {
       World.run(world, () => {
         try {
+          if (this.botTarget > 0) this.fillOf(world).update(this.draining ? 0 : Worlds.activePlayers(world))
           world.update(dt)
           world.multiplayer?.flushAll(this.tick, dtMs)
         } catch (e) {
@@ -225,6 +237,7 @@ export default class Worlds {
     }
     world.close()
     this.emptySince.delete(world)
+    this.fills.delete(world)
     const i = this.worlds.indexOf(world)
     if (i >= 0) this.worlds.splice(i, 1)
   }
@@ -246,6 +259,15 @@ export default class Worlds {
   /** Open connections, in a world or not. */
   get connectionCount (): number {
     return this.connections.size
+  }
+
+  private fillOf (world: World): BotFill {
+    let fill = this.fills.get(world)
+    if (fill === undefined) {
+      fill = new BotFill(this.botTarget)
+      this.fills.set(world, fill)
+    }
+    return fill
   }
 
   /** Runs in progress across every world. */

@@ -199,7 +199,7 @@ test('rows are ranked by loot, most first, ties by id', () => {
   assert.ok(rows.every((r) => r.status === Standing.ACTIVE))
 })
 
-test('byte layout: [uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank], length-prefixed', () => {
+test('byte layout: [uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank][uint8 flags], length-prefixed', () => {
   setup()
   World.FINISHED.push({ id: 0x1234, name: 'Zoë', loot: 0x01020304, status: Standing.EXTRACTED, at: Date.now() })
 
@@ -208,8 +208,16 @@ test('byte layout: [uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 
   assert.equal(name.length, 4)
   assert.deepEqual(
     [...buf],
-    [0x00, 14, 0x12, 0x34, 0x01, 0x01, 0x02, 0x03, 0x04, ...name, 0x00, 0x00, 0x01]
+    [0x00, 15, 0x12, 0x34, 0x01, 0x01, 0x02, 0x03, 0x04, ...name, 0x00, 0x00, 0x01, 0x00]
   )
+})
+
+test('a bot\'s row carries flag bit 0, and the client reads it (decision #47)', () => {
+  setup()
+  World.FINISHED.push({ id: 9, name: 'Zed', loot: 5, status: Standing.DEAD, at: Date.now(), bot: true })
+  World.FINISHED.push({ id: 8, name: 'ANNA', loot: 4, status: Standing.DEAD, at: Date.now() })
+  const rows = unpack(Multiplayer.buildStandings()).map((r) => decodeStanding(r) as StandingRow)
+  assert.deepEqual(rows.map((r) => [r.name, r.bot]), [['Zed', true], ['ANNA', false]])
 })
 
 test('an old client reads the new records unchanged: it stops at the NUL', () => {
@@ -221,7 +229,7 @@ test('an old client reads the new records unchanged: it stops at the NUL', () =>
   let end = 7
   while (end < record.length && record[end] !== 0) end++
   assert.equal(record.subarray(7, end).toString('utf8'), 'ANNA')
-  assert.equal(record.length, end + 1 + 2, 'exactly the rank follows the NUL')
+  assert.equal(record.length, end + 1 + 2 + 1, 'the rank and the flags follow the NUL')
 })
 
 test('the client ranks an old server\'s records (no rank) by position', () => {

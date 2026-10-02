@@ -109,7 +109,8 @@ export class Leaderboard extends Panel {
       const colour = STATUS_COLOUR[entry.row.status] ?? THEME.muted
       texts.rank.text = two(entry.rank)
       texts.rank.style.fill = entry.rank === 1 ? THEME.loot : THEME.text
-      texts.name.text = entry.row.name
+      // Bots look like players but are marked here (decision #47).
+      texts.name.text = entry.row.bot ? `${entry.row.name} · BOT` : entry.row.name
       texts.name.style.fill = isOwn ? THEME.accent : THEME.text
       texts.name.alpha = finished ? 0.6 : 1
       texts.loot.text = entry.row.loot.toLocaleString('en-US')

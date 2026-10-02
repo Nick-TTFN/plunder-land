@@ -386,9 +386,14 @@ export default class Multiplayer {
     try {
       player = World.createPlayer(playerId, name, finish, robot)
       this.admit(connection, player)
-      let active = 0
-      for (const p of World.PLAYERS) if (!p.destroyed && !p.exited) active++
-      Analytics.runStart({ playerId, startedAt: player.createdAt }, this.redis, player.archetype.key, active)
+      let humans = 0
+      let bots = 0
+      for (const p of World.PLAYERS) {
+        if (p.destroyed || p.exited) continue
+        if (p.bot === undefined) humans++
+        else bots++
+      }
+      Analytics.runStart({ playerId, startedAt: player.createdAt }, this.redis, player.archetype.key, humans, bots)
     } catch (e) {
       connection.started = false
       connection.player = undefined // before destroy, so no stats are written for it
@@ -1380,7 +1385,7 @@ export default class Multiplayer {
     const rows: StandingsRow[] = []
     for (const player of World.PLAYERS) {
       const status = player.destroyed ? Standing.DEAD : player.exited ? Standing.EXTRACTED : Standing.ACTIVE
-      rows.push({ id: player.id, status, loot: player.loot ?? 0, name: player.name ?? '', player })
+      rows.push({ id: player.id, status, loot: player.loot ?? 0, name: player.name ?? '', player, bot: player.bot !== undefined })
     }
     for (const finished of World.FINISHED) rows.push(finished)
 
@@ -1423,6 +1428,8 @@ interface StandingsRow {
   name: string
   /** The live player the row is for; absent on a finished row. */
   player?: Player
+  /** A bot's row (decision #47). */
+  bot?: boolean
 }
 
 /**
@@ -1459,16 +1466,21 @@ export class StandingsBoard {
     return Buffer.concat([this.top, length, record], this.top.length + 2 + record.length)
   }
 
-  /** `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank]`, big-endian. */
+  /**
+   * `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank][uint8 flags]`,
+   * big-endian. Flags (decision #47): bit 0 a bot. Appended after the rank,
+   * which a client from before it ignores. Append-only, like the rest.
+   */
   static encode (row: StandingsRow, rank: number): Buffer {
     const name = Buffer.from(row.name, 'utf8')
-    const record = Buffer.alloc(7 + name.length + 1 + 2)
+    const record = Buffer.alloc(7 + name.length + 1 + 2 + 1)
     record.writeUInt16BE(row.id)
     record.writeUInt8(row.status, 2)
     record.writeUInt32BE(Math.max(0, Math.min(0xFFFFFFFF, Math.floor(row.loot))), 3)
     name.copy(record, 7)
     // The NUL after the name is already 0: Buffer.alloc zero-fills.
     record.writeUInt16BE(Math.min(0xFFFF, rank), 7 + name.length + 1)
+    record.writeUInt8(row.bot === true ? 1 : 0, 7 + name.length + 3)
     return record
   }
 }

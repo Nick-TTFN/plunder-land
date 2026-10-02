@@ -14,6 +14,7 @@ import { itemForSlot, useItem } from '../items/use'
 import type Consumable from './consumable'
 import type ItemPickup from './itempickup'
 import Analytics from '../analytics'
+import type BotBrain from '../bots/brain'
 import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'obscenity'
 
 export class Stats {
@@ -42,6 +43,12 @@ export default class Player extends Unit {
    * would change what `Multiplayer.gone` lets through. Analytics only.
    */
   extracted = false
+  /**
+   * A bot's brain (decision #47), undefined for a human. A bot has no
+   * connection, writes no stats and sends no analytics; it counts nowhere a
+   * world counts its humans (`Worlds.activePlayers`).
+   */
+  bot: BotBrain | undefined
 
   /**
    * The robot's colours and patterns (robot-finishes, #41), fixed for the run.
@@ -337,7 +344,7 @@ export default class Player extends Unit {
 
   addLoot (value: number): void {
     this.loot += value
-    if (this.firstLootAt === undefined && value > 0) {
+    if (this.firstLootAt === undefined && value > 0 && this.bot === undefined) {
       this.firstLootAt = Date.now()
       Analytics.send({ playerId: this.playerId, startedAt: this.createdAt }, 'first_loot', {
         seconds: Math.round((this.firstLootAt - this.createdAt) / 100) / 10
@@ -468,7 +475,7 @@ export default class Player extends Unit {
 
     // Never `void`: see Multiplayer.STATS_LOG. A rejected stats write is an
     // unhandled rejection, and that ends the process.
-    this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
+    if (this.bot === undefined) this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
   }
 
   async updateKillStats (value: GameObject): Promise<void> {

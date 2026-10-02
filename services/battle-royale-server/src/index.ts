@@ -24,6 +24,8 @@ function startGame (): void {
     tickLengthMs,
     cap: parseInt(process.env.WORLD_CAP ?? '200'),
     idleMs: parseInt(process.env.WORLD_IDLE_MS ?? '300000'),
+    // Bots top each world with a human up to this many players (decision #47).
+    bots: parseInt(process.env.BOT_TARGET ?? '8'),
     redis
   })
 

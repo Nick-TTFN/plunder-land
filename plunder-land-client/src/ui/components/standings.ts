@@ -20,14 +20,16 @@ export interface StandingRow {
    * row's position instead.
    */
   rank?: number
+  /** A bot's row (decision #47): bit 0 of the flags byte after the rank. False from a server without it. */
+  bot: boolean
 }
 
 /**
- * One `standings` record: `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank]`,
+ * One `standings` record: `[uint16 id][uint8 status][uint32 loot][UTF-8 name][0][uint16 rank][uint8 flags]`,
  * big-endian (server `Multiplayer.rankStandings`). The rank is missing from a
- * server that predates it (it sent the whole board, ranked by position). Anything
- * after the rank is a field added later and is ignored. A record too short for
- * its fixed part is dropped.
+ * server that predates it (it sent the whole board, ranked by position), the
+ * flags from one before bots (#47). Anything after the flags is a field added
+ * later and is ignored. A record too short for its fixed part is dropped.
  */
 export function decodeStanding (record: Uint8Array): StandingRow | undefined {
   if (record.length < 7) return undefined
@@ -39,7 +41,8 @@ export function decodeStanding (record: Uint8Array): StandingRow | undefined {
     status: record[2],
     loot: ((record[3] << 24) >>> 0) + (record[4] << 16) + (record[5] << 8) + record[6],
     name: new TextDecoder().decode(record.subarray(7, end)),
-    rank: rankAt + 2 <= record.length ? (record[rankAt] << 8) | record[rankAt + 1] : undefined
+    rank: rankAt + 2 <= record.length ? (record[rankAt] << 8) | record[rankAt + 1] : undefined,
+    bot: rankAt + 3 <= record.length && (record[rankAt + 2] & 1) === 1
   }
 }
 
