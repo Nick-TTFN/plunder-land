@@ -920,6 +920,58 @@ export default class Multiplayer {
     obj.knownBy.delete(connection)
   }
 
+  /**
+   * The destroys each outbox (one flush's worth) has been given for objects
+   * leaving its client's view, by object, so `enter` can take one back. Weak
+   * on the outbox, which is replaced at every flush, so it empties itself.
+   * Static: a spec's `Object.create(Multiplayer.prototype)` runs no field
+   * initialisers.
+   */
+  private static readonly _leaving = new WeakMap<Outbox, Map<GameObject, Buffer>>()
+
+  /** `obj` leaves `connection`'s view: queue `record` (its id-only destroy) and let go of it. */
+  private leave (connection: Connection, obj: GameObject, record: Buffer): void {
+    const out = this.outbox(connection)
+    out.destroy.push(record)
+    let leaving = Multiplayer._leaving.get(out)
+    if (leaving === undefined) {
+      leaving = new Map()
+      Multiplayer._leaving.set(out, leaving)
+    }
+    leaving.set(obj, record)
+    this.unknow(connection, obj)
+  }
+
+  /**
+   * `obj` comes into the view of `connection`, whose client does not hold
+   * it: `record` (its whole record, or null for nothing to send) goes out as
+   * a create, into `into` (the outbox's creates unless given), and it is
+   * held from then on. **Unless it left the same view earlier in this
+   * flush**: then the client still holds it, and the destroy and a create
+   * for one id in one flush would be applied create first (the client takes
+   * creates before destroys), leaving a second sprite. So the destroy is
+   * taken back and the whole record goes as an update instead, as
+   * `switchLayer` does for what it keeps. It happens when a view is
+   * re-centred between flushes (a spectator's `watch`, a layer change) and
+   * the object walks back into the new view before the next flush: with
+   * server fog (#48) a Periscope's dead robot re-centred on a Peep made it
+   * reachable at walking pace.
+   */
+  private enter (connection: Connection, obj: GameObject, record: Buffer | null, into?: Buffer[]): void {
+    const out = this.outbox(connection)
+    const leaving = Multiplayer._leaving.get(out)
+    const pending = leaving?.get(obj)
+    if (pending !== undefined) {
+      leaving?.delete(obj)
+      const at = out.destroy.lastIndexOf(pending)
+      if (at >= 0) out.destroy.splice(at, 1)
+      if (record !== null) out.update.push(record)
+    } else if (record !== null) {
+      (into ?? out.create).push(record)
+    }
+    this.know(connection, obj)
+  }
+
   /** Put the connection's client on `tag` in the bookkeeping. Sends nothing. */
   private setLayer (connection: Connection, tag: number | undefined): void {
     if (connection.layer !== undefined) this.layers.get(connection.layer)?.delete(connection)
@@ -1009,8 +1061,7 @@ export default class Multiplayer {
     const visit = (obj: GameObject): void => {
       if (obj.tag !== tag || obj.knownBy.has(connection) || Multiplayer.gone(obj)) return
       if (!Multiplayer.sees(connection, obj)) return
-      into.push(obj.serialiseBinary(obj.allFields))
-      this.know(connection, obj)
+      this.enter(connection, obj, obj.serialiseBinary(obj.allFields), into)
     }
     for (const obj of World.PROJECTILES) visit(obj)
     // StoneWall stones: the obstacles that are not terrain.
@@ -1066,8 +1117,7 @@ export default class Multiplayer {
         if (whole !== null) out.update.push(whole)
         continue
       }
-      out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
-      this.unknow(connection, obj)
+      this.leave(connection, obj, obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer)
     }
     this.sendVisible(connection, out.create)
   }
@@ -1090,8 +1140,7 @@ export default class Multiplayer {
             // Its own player's object goes out once, as create_own (`admit`).
             if (connection.player === obj) continue
             if (obj.knownBy.has(connection) || !Multiplayer.sees(connection, obj)) continue
-            this.outbox(connection).create.push(data)
-            this.know(connection, obj)
+            this.enter(connection, obj, data)
           }
         }
       }
@@ -1186,8 +1235,7 @@ export default class Multiplayer {
           }
         } else {
           if (fullData === undefined) fullData = obj.serialiseBinary(obj.allFields)
-          if (fullData !== null) this.outbox(connection).create.push(fullData)
-          this.know(connection, obj)
+          this.enter(connection, obj, fullData)
         }
       }
     }
@@ -1222,8 +1270,7 @@ export default class Multiplayer {
           continue
         }
         if (gone === undefined) gone = obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
-        this.outbox(connection).destroy.push(gone)
-        this.unknow(connection, obj)
+        this.leave(connection, obj, gone)
       }
     }
 

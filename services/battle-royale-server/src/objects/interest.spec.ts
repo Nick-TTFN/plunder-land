@@ -603,6 +603,32 @@ test('a spectator sees by the watched player\'s vision, not its own dead robot\'
   }
 })
 
+test('a unit that leaves a view and comes back into it within one flush is kept, never destroyed and created together', () => {
+  // A dead Periscope re-centred on a Peep (`watch`, at the flush that sends
+  // its death) is queued a destroy for what the Peep can't see; if one of
+  // those walks back into the Peep's sight before the next flush, a create
+  // in the same flush would be applied first, for an id the client still
+  // holds (found by the real-world test, about 1 suite run in 10).
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const a = join(multiplayer, 'b0000a', at, 'periscope')
+  const b = join(multiplayer, 'b0000b', offCell(at, 0, 1), 'peep')
+  const from = b.player.position
+  const mob = idleMob(offCell(from, 10).x, offCell(from, 10).y, TOP)
+  tick(multiplayer, 0)
+  assert.ok(a.mirror.held.has(mob.id) && !b.mirror.held.has(mob.id))
+  a.player.hit(9999)
+  tick(multiplayer, 1) // sends the death, then re-centres on b: the mob's destroy waits for the next flush
+  a.mirror.clear()
+  mob.position = offCell(from, 7)
+  tick(multiplayer, 2)
+  assertClean([a, b], 'back within one flush')
+  assert.ok(a.mirror.held.has(mob.id), 'lost')
+  assert.ok(!a.mirror.seen.destroy.includes(mob.id) && !a.mirror.seen.create.includes(mob.id), 'destroyed and re-created')
+  assert.ok(a.mirror.seen.update.includes(mob.id), 'not re-sent whole')
+  assert.ok(mob.knownBy.has(connectionOf(multiplayer, a)))
+})
+
 test('a pickup and a StoneWall stone come into and go out of sight by the same radii through the world\'s own tick', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   const multiplayer = new Multiplayer(250, okRedis())
