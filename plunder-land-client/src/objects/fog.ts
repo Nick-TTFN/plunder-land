@@ -29,11 +29,14 @@ export const LAYER_TINT: readonly number[] = [0xFFFFFF, 0xD2DAEC, 0xAEBAD8]
  * ground and its terrain drawn dim, no units or pickups); the rest are
  * unknown. Per layer, per run (`reset` at each own create).
  *
- * **Cosmetic** (decision #36): the server still sends every unit in its
- * interest box, and this only decides what is drawn. The radius is the
- * robot's `vision` (utils/archetypes.ts, mirrored), so Periscope's larger one
- * needs no change here. With no radius (an archetype without fog), everything
- * reads visible, as before fog existed.
+ * **The server enforces it too** since server fog (decision #48): it sends
+ * units, pickups, projectiles and stones only within `vision` + 1 rings (and
+ * keeps them to + 2), so this decides what is drawn of what arrives, and
+ * nothing beyond the radius is there to draw. The radius is the robot's
+ * `vision` (utils/archetypes.ts, mirrored); while spectating it is the
+ * watched robot's (`setRadius`), since the server sends what that robot sees.
+ * With no radius (an archetype without fog), everything reads visible, as
+ * before fog existed.
  *
  * Recomputed only when the player's cell or layer changes (`update` returns
  * true then, and `version` moves), which at walking pace is about three times
@@ -58,6 +61,19 @@ export class Fog {
     this._q = NaN
     this._r = NaN
     this.version++
+  }
+
+  /**
+   * See `radius` rings from now on, keeping what has been explored: the
+   * spectator's fog follows the watched robot's vision (#47, #48). The next
+   * `update` recomputes whatever the cell. The next run's `reset` restores
+   * the player's own.
+   */
+  setRadius (radius: number | null): void {
+    if (radius === this.radius) return
+    this.radius = radius
+    this._q = NaN
+    this._r = NaN
   }
 
   /** The player is on cell (q, r) of layer `tag`. True if what is visible changed. */

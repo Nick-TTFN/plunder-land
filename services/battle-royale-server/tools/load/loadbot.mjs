@@ -9,6 +9,9 @@
 // shows up as `connectFails`, not as bots that silently never play.
 // Writes one JSON line of traffic stats per 5 s window to outFile.
 // LOADBOT_FRAMES=0 connects as a client from before one-frame-per-tick.
+// LOADBOT_ROBOT=<key> joins as that robot (`start_requested.robot`, e.g.
+// periscope, whose vision is 11 against everyone else's 6, so it is sent more
+// under server fog, #48); unset joins as Peep, as before.
 //
 // Dependencies, resolved from this file's location, never from the cwd:
 // - socket.io-client from the client package (`plunder-land-client`, which
@@ -85,6 +88,7 @@ if (outFile === undefined || !(Number(countArg) > 0)) {
 }
 const COUNT = Number(countArg)
 const SPREAD = Number(spreadArg ?? 5000)
+const ROBOT_OPT = process.env.LOADBOT_ROBOT ? { robot: process.env.LOADBOT_ROBOT } : {}
 const WINDOW_MS = 5000
 
 // Only what we need to find our own position: id (0), position (2).
@@ -140,7 +144,7 @@ class Bot {
       stats.msgs[ev] = (stats.msgs[ev] ?? 0) + 1
       if (!this.joinDone) this.joinBytes += n
     }
-    s.on('connect', () => { this.failedConnects = 0; stats.joins++; s.emit('start_requested', { id: hex(8), name: `${prefix}${this.i}` }) })
+    s.on('connect', () => { this.failedConnects = 0; stats.joins++; s.emit('start_requested', { id: hex(8), name: `${prefix}${this.i}`, ...ROBOT_OPT }) })
     // With `reconnection: false` a failed connect is final for that socket, and
     // nothing else fires: without this the bot was simply gone for the run.
     s.on('connect_error', () => {

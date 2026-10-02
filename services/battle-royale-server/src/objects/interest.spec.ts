@@ -6,7 +6,7 @@ import type { Socket } from 'socket.io'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import World from './world'
 import Timers from './timers'
-import type Player from './player'
+import Player from './player'
 import Mob from './mob'
 import Consumable from './consumable'
 import ItemPickup from './itempickup'
@@ -23,12 +23,14 @@ import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparse
  *
  * - Terrain (everything in `World.OBSTACLES`) goes to every connection on its
  *   layer, whatever the distance.
- * - Units, pickups and projectiles go only to connections on their layer with
- *   them strictly inside the interest box (half-width `INTEREST_RADIUS`), and
- *   are created there when they come into it, whichever of the two moved, even
- *   if they never change. A connection that holds one is sent a destroy once it
- *   is beyond `INTEREST_RADIUS + EXIT_MARGIN`, or off the layer.
+ * - Units, pickups, projectiles and StoneWall stones go only to connections on
+ *   their layer with them in sight (server fog, decision #48): within the
+ *   viewpoint robot's `vision` + 1 rings, cell to cell, and are created there
+ *   when they come into it, whichever of the two moved, even if they never
+ *   change. A connection that holds one is sent a destroy once it is beyond
+ *   `vision` + 2 rings, or off the layer. Peep: 7 and 8; Periscope: 12 and 13.
  * - Updates and destroys go to exactly the connections that hold the object.
+ * - Effects still go by the 500 box (#48 kept them).
  *
  * Each client here is a `Mirror`: it applies every event in the order the
  * server emits them, as the real client does (`create`, `create_own`,
@@ -42,8 +44,37 @@ import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparse
 const FRAMED = process.env.INTEREST_SPEC_FRAMED === '1'
 
 const [TOP, MIDDLE, BOTTOM] = LAYERS.map((layer) => layer.tag)
+/** The effect box (effects kept it under #48). */
 const R = Multiplayer.INTEREST_RADIUS
-const OUTER = R + Multiplayer.EXIT_MARGIN
+
+/**
+ * The view, written out here rather than read from `Multiplayer`, so the spec
+ * pins #48's policy: a viewer holds what is within `vision` + 1 rings of its
+ * cell (enter) and keeps it to `vision` + 2 (leave). Literals on purpose: a
+ * change to `VIEW_MARGIN_RINGS` or `VIEW_EXIT_RINGS` should fail here.
+ */
+const ENTER_MARGIN = 1
+const EXIT_RINGS = 1
+
+function ringsBetween (a: Vector, b: Vector): number {
+  return Hex.distance(Hex.toCell(a), Hex.toCell(b))
+}
+
+function enterRings (viewer: Player): number {
+  const vision = viewer.archetype.vision
+  assert.ok(vision !== null, 'every robot has a vision')
+  return vision + ENTER_MARGIN
+}
+
+function leaveRings (viewer: Player): number {
+  return enterRings(viewer) + EXIT_RINGS
+}
+
+/** A cell's centre `dq`, `dr` from `from`'s cell. */
+function offCell (from: Vector, dq: number, dr: number = 0): Vector {
+  const cell = Hex.toCell(from)
+  return Hex.toPosition(new Vector(cell.x + dq, cell.y + dr))
+}
 
 function okRedis (): Redis {
   return { on: function () { return this }, hincrby: async () => 1 } as unknown as Redis
@@ -73,7 +104,7 @@ function lcg (seed: number): () => number {
 }
 
 /** The ids of a packed batch's records, after `skip` header bytes. Every record opens with `[0][uint16 id]`. */
-function ids (buffer: Buffer, skip = 0): number[] {
+function ids (buffer: Buffer, skip = 0, lengths?: number[]): number[] {
   const out: number[] = []
   let at = skip
   while (at + 2 <= buffer.length) {
@@ -81,6 +112,7 @@ function ids (buffer: Buffer, skip = 0): number[] {
     const record = buffer.subarray(at + 2, at + 2 + length)
     assert.equal(record[0], 0, 'a record that does not open with its id')
     out.push(record.readUInt16BE(1))
+    lengths?.push(length)
     at += 2 + length
   }
   return out
@@ -93,6 +125,8 @@ class Mirror {
   problems: string[] = []
   /** Every record by event, since the last `clear`. */
   seen: Record<string, number[]> = { create: [], create_own: [], destroy: [], update: [], effect: [] }
+  /** Each destroy record's length in bytes, by id, since the last `clear`: 3 is `id` alone. */
+  destroyBytes = new Map<number, number>()
   /** Destroyed since the last `update` event: an update for one of these is harmless (the client ignores it). */
   private goneThisFlush = new Set<number>()
 
@@ -108,9 +142,11 @@ class Mirror {
       }
       return
     }
-    const list = ids(buffer, event === 'update' ? 8 : 0)
-    for (const id of list) {
+    const lengths: number[] = []
+    const list = ids(buffer, event === 'update' ? 8 : 0, lengths)
+    for (const [i, id] of list.entries()) {
       this.seen[event].push(id)
+      if (event === 'destroy') this.destroyBytes.set(id, lengths[i])
       if (event === 'create' || event === 'create_own') {
         if (this.held.has(id)) this.problems.push(`${event} for ${id}, already held`)
         this.held.add(id)
@@ -128,6 +164,7 @@ class Mirror {
 
   clear (): void {
     for (const key of Object.keys(this.seen)) this.seen[key] = []
+    this.destroyBytes.clear()
   }
 }
 
@@ -155,18 +192,22 @@ function connect (multiplayer: Multiplayer, id: string): Omit<Client, 'player'> 
   return { id, mirror, fire: (event, data) => { handlers[event](data) } }
 }
 
-/** Join, on `at`'s cell if given (else wherever `spawnCell` picks), and flush the snapshot. */
-function join (multiplayer: Multiplayer, id: string, at?: Vector): Client {
+/**
+ * Join as `robot` (Peep if not given), on `at`'s cell if given (else wherever
+ * `spawnCell` picks), and flush the snapshot.
+ */
+function join (multiplayer: Multiplayer, id: string, at?: Vector, robot?: string): Client {
   const client = connect(multiplayer, id)
   const saved = World.spawnCell
   if (at !== undefined) World.spawnCell = () => ({ cell: Hex.toCell(at), fallback: false })
   try {
-    client.fire('start_requested', { id, name: id })
+    client.fire('start_requested', { id, name: id, robot })
   } finally {
     World.spawnCell = saved
   }
   const player = World.PLAYERS[World.PLAYERS.length - 1]
   assert.equal(player.playerId, id)
+  assert.equal(player.archetype.key, robot ?? 'peep')
   return { ...client, player }
 }
 
@@ -201,24 +242,38 @@ function tick (multiplayer: Multiplayer, n: number): void {
 
 /**
  * After a full `tick`, exactly: the client holds its own player, all of its
- * layer's terrain, every live unit, pickup and projectile on its layer inside
- * the interest box, and nothing on another layer or beyond the exit margin.
- * The server's `known` agrees with what the client holds.
+ * layer's terrain, every live unit, pickup, projectile and stone on its layer
+ * within its enter radius, and nothing on another layer or beyond its leave
+ * radius. The server's `known` agrees with what the client holds.
+ *
+ * `from`, for a real world's tick: where the player stood when the tick
+ * began. Within a tick an object's update can run before or after its
+ * viewer's own move, so it is then judged from either: it must be held if it
+ * is within the enter radius of both, and must not be if it is beyond the
+ * leave radius of both. `hopped`: the players who came through a portal
+ * this tick. A player hops after its own update (`Player.hopPortal`), so its
+ * viewers are told at its next: either way is right for them here.
  */
-function assertHolds (multiplayer: Multiplayer, client: Client, label: string): void {
+function assertHolds (multiplayer: Multiplayer, client: Client, label: string, from?: Vector, hopped?: Set<number>): void {
   const player = client.player
   if (gone(player)) return
   const tag = player.tag
   const terrain = new Set(World.OBSTACLES.filter((o) => o.tag === tag && !o.destroyed && Multiplayer.isTerrain(o)).map((o) => o.id))
-  const live = dynamics().filter((o) => !gone(o) && o.tag === tag)
-  const inner = live.filter((o) => player.position.withinBounds(o.position.x, o.position.y, R)).map((o) => o.id)
-  const outer = new Set(live.filter((o) => player.position.withinBounds(o.position.x, o.position.y, OUTER)).map((o) => o.id))
+  const live = dynamics().filter((o) => !gone(o) && o.tag === tag && hopped?.has(o.id) !== true)
+  const spots = from === undefined ? [player.position] : [player.position, from]
+  const enter = enterRings(player)
+  const leave = leaveRings(player)
+  const inner = live.filter((o) => spots.every((at) => ringsBetween(at, o.position) <= enter)).map((o) => o.id)
+  const outer = new Set(live.filter((o) => spots.some((at) => ringsBetween(at, o.position) <= leave)).map((o) => o.id))
   const held = client.mirror.held
   for (const id of terrain) assert.ok(held.has(id), `${label}: ${client.id} lacks terrain ${id}`)
   for (const id of inner) assert.ok(held.has(id), `${label}: ${client.id} lacks ${id}, in range`)
   assert.ok(held.has(player.id), `${label}: ${client.id} lost its own player`)
   for (const id of held) {
-    assert.ok(terrain.has(id) || outer.has(id), `${label}: ${client.id} holds ${id}, which it cannot see`)
+    if (terrain.has(id) || outer.has(id) || hopped?.has(id) === true) continue
+    const info = dynamics().filter((o) => o.id === id)
+      .map((o) => `${o.constructor.name} on ${o.tag} at ${spots.map((s) => ringsBetween(s, o.position)).join('/')} rings`).join('; ')
+    assert.fail(`${label}: ${client.id} (${player.archetype.key} on ${tag}) holds ${id}, which it cannot see: ${info}`)
   }
   const connection = connectionOf(multiplayer, client)
   assert.equal(connection.layer, tag, `${label}: ${client.id}'s client is on the wrong layer`)
@@ -265,7 +320,8 @@ test('over thousands of random changes every client holds exactly what it can se
     rock(at.x, at.y, layer())
   }
   const clients: Client[] = []
-  for (let i = 0; i < 10; i++) clients.push(join(multiplayer, `c${i.toString(16).padStart(5, '0')}`, spot()))
+  // Peep and Periscope viewers mixed (vision 6 and 11).
+  for (let i = 0; i < 10; i++) clients.push(join(multiplayer, `c${i.toString(16).padStart(5, '0')}`, spot(), i % 2 === 0 ? 'peep' : 'periscope'))
   for (let i = 0; i < 20; i++) { const at = spot(); idleMob(at.x, at.y, layer()) }
   for (let i = 0; i < 25; i++) { const at = spot(); loot(at.x, at.y, layer()) }
   for (let i = 0; i < 5; i++) {
@@ -368,29 +424,32 @@ test('walking up to a pickup and an idle mob that never change creates both; wal
   assert.deepEqual(held(), [false, false], 'held before in range')
   assert.ok(walker.mirror.held.has(far.id), 'far terrain not in the join snapshot')
 
-  // Walk east one cell a tick. Neither object ever changes.
+  // Walk east one cell a tick (the rings to each only ever fall). Neither
+  // object ever changes.
   const x = (): number => walker.player.position.x
-  let createdAt: number | undefined
+  const rings = (): number[] => [pickup, mob].map((o) => ringsBetween(walker.player.position, o.position))
+  let created = 0
   for (let n = 1; x() < 2300; n++) {
     walker.player.position = new Vector(x() + 45, 2000)
     tick(multiplayer, n)
-    const gap = 2400 - x()
-    if (gap < R && createdAt === undefined) createdAt = gap
-    assert.deepEqual(held(), gap < R ? [true, true] : [false, false], `at ${gap} units`)
+    const now = rings()
+    if (now.some((r) => r === 7)) created++
+    assert.deepEqual(held(), now.map((r) => r <= 7), `at ${now.join('/')} rings`)
   }
-  assert.ok(createdAt !== undefined)
+  assert.ok(created > 0, 'never stood 7 rings from either')
   assert.equal(pickup.dirtyFields.size + mob.dirtyFields.size, 0, 'they changed, so this proved nothing')
 
-  // Walk back west: held through the margin, destroyed beyond it.
+  // Walk back west (the rings only ever grow): held through the exit ring,
+  // destroyed beyond it.
   for (let n = 100; x() > 1000; n++) {
     walker.player.position = new Vector(x() - 45, 2000)
     tick(multiplayer, n)
-    const gap = 2400 - x()
-    assert.deepEqual(held(), gap < OUTER ? [true, true] : [false, false], `back at ${gap} units`)
+    const now = rings()
+    assert.deepEqual(held(), now.map((r) => r <= 8), `back at ${now.join('/')} rings`)
   }
 
-  // And in again.
-  for (let n = 200; x() < 2000; n++) {
+  // And in again, to 4 or 5 rings.
+  for (let n = 200; x() < 2200; n++) {
     walker.player.position = new Vector(x() + 45, 2000)
     tick(multiplayer, n)
   }
@@ -399,24 +458,319 @@ test('walking up to a pickup and an idle mob that never change creates both; wal
   assertClean([walker], 'walk')
 })
 
-test('a mob walking into a standing player\'s range is created, and destroyed once it is past the margin', () => {
+test('a mob walking into a standing player\'s sight is created, and destroyed once it is past the exit ring', () => {
+  for (const robot of ['peep', 'periscope']) {
+    World.PLAYERS.length = 0
+    World.MOBS.length = 0
+    const multiplayer = new Multiplayer(250, okRedis())
+    const viewer = join(multiplayer, 'a00002', new Vector(2000, 2000), robot)
+    const enter = enterRings(viewer.player)
+    const mob = idleMob(1000, 2000, TOP)
+    tick(multiplayer, 0)
+    assert.equal(viewer.mirror.held.has(mob.id), false)
+    const rings = (): number => ringsBetween(viewer.player.position, mob.position)
+    for (let n = 1; mob.position.x < 1900; n++) {
+      mob.position = new Vector(mob.position.x + 45, 2000)
+      tick(multiplayer, n)
+      assert.equal(viewer.mirror.held.has(mob.id), rings() <= enter, `${robot} at ${rings()} rings`)
+    }
+    for (let n = 100; mob.position.x > 1000; n++) {
+      mob.position = new Vector(mob.position.x - 45, 2000)
+      tick(multiplayer, n)
+      assert.equal(viewer.mirror.held.has(mob.id), rings() <= enter + 1, `${robot} back at ${rings()} rings`)
+    }
+    assertClean([viewer], `${robot} mob walk`)
+  }
+})
+
+// --- server fog: the radii (#48) ---------------------------------------------------
+
+test('a Peep holds a unit at ring 7 and is not sent one that appears at ring 8', () => {
   const multiplayer = new Multiplayer(250, okRedis())
-  const viewer = join(multiplayer, 'a00002', new Vector(2000, 2000))
-  const mob = idleMob(1000, 2000, TOP)
+  const at = Hex.toPosition(new Vector(30, 40))
+  const viewer = join(multiplayer, 'b00001', at)
   tick(multiplayer, 0)
-  assert.equal(viewer.mirror.held.has(mob.id), false)
-  const gap = (): number => viewer.player.position.x - mob.position.x
-  for (let n = 1; mob.position.x < 1600; n++) {
-    mob.position = new Vector(mob.position.x + 45, 2000)
-    tick(multiplayer, n)
-    assert.equal(viewer.mirror.held.has(mob.id), gap() < R, `at ${gap()}`)
+  viewer.mirror.clear()
+  // Made after the join, so each goes through `Multiplayer.create` first.
+  const seven = idleMob(offCell(at, 7).x, offCell(at, 7).y, TOP)
+  const eight = idleMob(offCell(at, -8).x, offCell(at, -8).y, TOP)
+  const eightSw = idleMob(offCell(at, -4, 8).x, offCell(at, -4, 8).y, TOP)
+  assert.equal(ringsBetween(at, eightSw.position), 8)
+  tick(multiplayer, 1)
+  assert.ok(viewer.mirror.held.has(seven.id), 'ring 7 not held')
+  for (const mob of [eight, eightSw]) {
+    assert.ok(!viewer.mirror.held.has(mob.id), 'ring 8 held')
+    assert.ok(!viewer.mirror.seen.create.includes(mob.id), 'ring 8 was sent a create')
   }
-  for (let n = 100; mob.position.x > 1000; n++) {
-    mob.position = new Vector(mob.position.x - 45, 2000)
+  // Walking in from 9 to 8 creates nothing; at 7 it does.
+  const walker = idleMob(offCell(at, 0, 9).x, offCell(at, 0, 9).y, TOP)
+  for (const [n, ring] of [[2, 9], [3, 8], [4, 7]]) {
+    walker.position = offCell(at, 0, ring)
     tick(multiplayer, n)
-    assert.equal(viewer.mirror.held.has(mob.id), gap() < OUTER, `back at ${gap()}`)
+    assert.equal(viewer.mirror.held.has(walker.id), ring <= 7, `walker at ring ${ring}`)
   }
-  assertClean([viewer], 'mob walk')
+  assertClean([viewer], 'peep radii')
+})
+
+test('a unit a Peep holds stays held with its changes at ring 8, and is destroyed by id alone at ring 9', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const viewer = join(multiplayer, 'b00002', at)
+  const mob = idleMob(offCell(at, 7).x, offCell(at, 7).y, TOP)
+  tick(multiplayer, 0)
+  assert.ok(viewer.mirror.held.has(mob.id))
+
+  viewer.mirror.clear()
+  mob.position = offCell(at, 8)
+  mob.hp = mob.hp - 1
+  tick(multiplayer, 1)
+  assert.ok(viewer.mirror.held.has(mob.id), 'dropped at ring 8')
+  assert.ok(viewer.mirror.seen.update.includes(mob.id), 'no changes at ring 8')
+  viewer.mirror.clear()
+  mob.hp = mob.hp - 1
+  tick(multiplayer, 2)
+  assert.ok(viewer.mirror.seen.update.includes(mob.id), 'no changes while standing at ring 8')
+
+  viewer.mirror.clear()
+  mob.position = offCell(at, 9)
+  tick(multiplayer, 3)
+  assert.ok(!viewer.mirror.held.has(mob.id), 'still held at ring 9')
+  assert.equal(viewer.mirror.destroyBytes.get(mob.id), 3, 'the destroy carried more than its id')
+  assert.ok(!mob.knownBy.has(connectionOf(multiplayer, viewer)))
+  assertClean([viewer], 'peep exit ring')
+})
+
+test('a Periscope is sent a unit 12 rings due east, 540 units, beyond the old 500 box, and not one at 13', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  // x 990 on a 500 bucket grid is bucket 1, and 12 rings east (x 1530) is
+  // bucket 3: with buckets of the old box's size the candidate query misses it.
+  const at = Hex.toPosition(new Vector(2, 40))
+  assert.equal(at.x, 990)
+  const viewer = join(multiplayer, 'b00003', at, 'periscope')
+  tick(multiplayer, 0)
+  const twelve = idleMob(offCell(at, 12).x, offCell(at, 12).y, TOP)
+  const thirteen = idleMob(offCell(at, 13).x, offCell(at, 13).y, TOP)
+  assert.equal(twelve.position.x - at.x, 540)
+  tick(multiplayer, 1)
+  assert.ok(viewer.mirror.held.has(twelve.id), 'ring 12 not sent')
+  assert.ok(!viewer.mirror.held.has(thirteen.id), 'ring 13 sent')
+  // And the same from the other side: the viewer walks into range of a standing one.
+  const later = idleMob(offCell(at, 20).x, offCell(at, 20).y, TOP)
+  tick(multiplayer, 2)
+  assert.ok(!viewer.mirror.held.has(later.id))
+  viewer.player.position = offCell(at, 8)
+  tick(multiplayer, 3)
+  assert.ok(viewer.mirror.held.has(later.id), 'walked to 12 rings: not sent')
+  assertClean([viewer], 'periscope radii')
+})
+
+test('a spectator sees by the watched player\'s vision, not its own dead robot\'s', () => {
+  for (const [dead, watched] of [['periscope', 'peep'], ['peep', 'periscope']]) {
+    World.PLAYERS.length = 0
+    World.MOBS.length = 0
+    const multiplayer = new Multiplayer(250, okRedis())
+    const at = Hex.toPosition(new Vector(30, 40))
+    const a = join(multiplayer, 'b00004', at, dead)
+    const b = join(multiplayer, 'b00005', offCell(at, 0, 1), watched)
+    const from = b.player.position
+    // Rings from the watched player, east (away from the dead one's cell too).
+    const mobs = [7, 8, 11, 12, 13].map((ring) => idleMob(offCell(from, ring).x, offCell(from, ring).y, TOP))
+    tick(multiplayer, 0)
+    a.player.hit(9999)
+    // The flush that sends its death re-centres it (`watch`); what that
+    // changes goes out with the next.
+    tick(multiplayer, 1)
+    tick(multiplayer, 2)
+    const connection = connectionOf(multiplayer, a)
+    assert.equal(connection.spectating, b.player, 'not watching')
+    // Held within the watched player's enter radius, never beyond its leave
+    // radius; in between it depends on what the dead one held before.
+    const check = (label: string): void => {
+      const enter = enterRings(b.player)
+      for (const mob of mobs) {
+        const ring = ringsBetween(b.player.position, mob.position)
+        if (ring <= enter) assert.ok(a.mirror.held.has(mob.id), `${dead} watching ${watched} ${label}: ring ${ring} not held`)
+        if (ring > enter + 1) assert.ok(!a.mirror.held.has(mob.id), `${dead} watching ${watched} ${label}: ring ${ring} held`)
+        assert.equal(a.mirror.held.has(mob.id), mob.knownBy.has(connection), `${label}: known disagrees with the client`)
+      }
+    }
+    check('on death')
+    // And it follows as the watched player walks.
+    b.player.position = offCell(from, 4)
+    tick(multiplayer, 3)
+    check('after a walk')
+    assertClean([a, b], `${dead} watching ${watched}`)
+  }
+})
+
+test('a unit that leaves a view and comes back into it within one flush is kept, never destroyed and created together', () => {
+  // A dead Periscope re-centred on a Peep (`watch`, at the flush that sends
+  // its death) is queued a destroy for what the Peep can't see; if one of
+  // those walks back into the Peep's sight before the next flush, a create
+  // in the same flush would be applied first, for an id the client still
+  // holds (found by the real-world test, about 1 suite run in 10).
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const a = join(multiplayer, 'b0000a', at, 'periscope')
+  const b = join(multiplayer, 'b0000b', offCell(at, 0, 1), 'peep')
+  const from = b.player.position
+  const mob = idleMob(offCell(from, 10).x, offCell(from, 10).y, TOP)
+  tick(multiplayer, 0)
+  assert.ok(a.mirror.held.has(mob.id) && !b.mirror.held.has(mob.id))
+  a.player.hit(9999)
+  tick(multiplayer, 1) // sends the death, then re-centres on b: the mob's destroy waits for the next flush
+  a.mirror.clear()
+  mob.position = offCell(from, 7)
+  tick(multiplayer, 2)
+  assertClean([a, b], 'back within one flush')
+  assert.ok(a.mirror.held.has(mob.id), 'lost')
+  assert.ok(!a.mirror.seen.destroy.includes(mob.id) && !a.mirror.seen.create.includes(mob.id), 'destroyed and re-created')
+  assert.ok(a.mirror.seen.update.includes(mob.id), 'not re-sent whole')
+  assert.ok(mob.knownBy.has(connectionOf(multiplayer, a)))
+})
+
+test('a pickup and a StoneWall stone come into and go out of sight by the same radii through the world\'s own tick', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  const multiplayer = new Multiplayer(250, okRedis())
+  // A wide map, so this runs far east (x 6480-7020), where a pass keyed on
+  // the old 500-unit buckets (pickup at 500-bucket 14) and the moves keyed on
+  // the 630 ones (the player in bucket 10, watching 8-12) part company.
+  const world = new World(8000)
+  World.OBSTACLES.length = 0
+  World.BLOCKED.clear()
+  World.MOBS.length = 0
+  World.CONSUMABLES.length = 0
+  World.ITEMS.length = 0
+  const start = Hex.toPosition(new Vector(124, 40))
+  assert.equal(start.x, 6480)
+  const client = join(multiplayer, 'b00006', start)
+  // Out of reach of anything the refill brings: it is only walked by hand.
+  client.player.hp = 60000
+  const pickup = loot(offCell(start, 12).x, offCell(start, 12).y, TOP)
+  const stone = new Obstacle(offCell(start, 12, -1).x, offCell(start, 12, -1).y, TOP, 600_000)
+  World.addObstacle(stone)
+  const objects = [pickup, stone]
+  const step = (n: number, cell: Vector): void => {
+    client.player.position = Hex.toPosition(cell)
+    t.mock.timers.tick(250)
+    world.update(0.25)
+    multiplayer.flushAll(n, 250)
+  }
+  const home = Hex.toCell(start)
+  // In, one cell a tick: created at 7 rings, not before.
+  let n = 1
+  for (let dq = 0; dq <= 5; dq++, n++) {
+    step(n, new Vector(home.x + dq, home.y))
+    for (const obj of objects) {
+      const ring = ringsBetween(client.player.position, obj.position)
+      assert.equal(client.mirror.held.has(obj.id), ring <= 7, `${obj.constructor.name} in at ring ${ring}`)
+    }
+  }
+  // Out: kept to 8, gone at 9.
+  for (let dq = 5; dq >= 0; dq--, n++) {
+    step(n, new Vector(home.x + dq, home.y))
+    for (const obj of objects) {
+      const ring = ringsBetween(client.player.position, obj.position)
+      assert.equal(client.mirror.held.has(obj.id), ring <= 8, `${obj.constructor.name} out at ring ${ring}`)
+    }
+  }
+  assert.ok(!client.mirror.held.has(pickup.id) && !client.mirror.held.has(stone.id), 'never left')
+  assertClean([client], 'world pickups and stones')
+})
+
+test('a layer change keeps exactly what is within the leave radius on the new layer', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const hopper = join(multiplayer, 'b00007', at)
+  const seven = join(multiplayer, 'b00008', offCell(at, 7))
+  const eight = join(multiplayer, 'b00009', offCell(at, 7, -1))
+  tick(multiplayer, 0)
+  assert.ok(hopper.mirror.held.has(seven.player.id) && hopper.mirror.held.has(eight.player.id))
+  // One steps out to ring 8: still held.
+  eight.player.position = offCell(at, 8, -1)
+  assert.equal(ringsBetween(at, eight.player.position), 8)
+  tick(multiplayer, 1)
+  assert.ok(hopper.mirror.held.has(eight.player.id))
+  // On the layer below: one waiting at ring 8 (not held), one at ring 7.
+  const below8 = idleMob(offCell(at, -8).x, offCell(at, -8).y, MIDDLE)
+  const below7 = idleMob(offCell(at, -7).x, offCell(at, -7).y, MIDDLE)
+  tick(multiplayer, 2)
+  const clients = [hopper, seven, eight]
+  for (const client of clients) client.mirror.clear()
+
+  for (const client of clients) client.player.changeLayer(MIDDLE)
+  tick(multiplayer, 3)
+  const seen = hopper.mirror.seen
+  for (const kept of [seven, eight]) {
+    assert.ok(hopper.mirror.held.has(kept.player.id), `ring ${ringsBetween(at, kept.player.position)} not kept`)
+    assert.ok(!seen.destroy.includes(kept.player.id) && !seen.create.includes(kept.player.id), 'kept, but destroyed or re-created')
+    assert.ok(seen.update.includes(kept.player.id), 'kept, but not re-sent whole')
+  }
+  assert.ok(hopper.mirror.held.has(below7.id), 'ring 7 below not created')
+  assert.ok(!hopper.mirror.held.has(below8.id), 'ring 8 below created on arrival')
+  assertClean(clients, 'layer change')
+  for (const client of clients) assertHolds(multiplayer, client, 'after the layer change')
+})
+
+test('the interest buckets hold every viewer whose sight reaches an object, from random off-centre positions', () => {
+  World.mapSize = 8000
+  const random = lcg(48)
+  const bucket = World.INTEREST_BUCKET
+  let maxVision = 0
+  for (const archetype of Object.values(ARCHETYPES)) if (archetype.vision !== null) maxVision = Math.max(maxVision, archetype.vision)
+  assert.equal(bucket, Math.max(R, (maxVision + 3) * Hex.SIZE), 'the bucket is not derived from the largest vision')
+  assert.equal(bucket, 630, 'Periscope sees 11: the bucket should be 630')
+
+  // A point somewhere inside `cell` (rejection-sampled on toCell).
+  const inside = (cell: Vector): Vector => {
+    const centre = Hex.toPosition(cell)
+    for (;;) {
+      const p = new Vector(centre.x + (random() - 0.5) * 52, centre.y + (random() - 0.5) * 52)
+      const c = Hex.toCell(p)
+      if (c.x === cell.x && c.y === cell.y) return p
+    }
+  }
+  new Multiplayer(250, okRedis()) // eslint-disable-line no-new
+  // One viewer per robot, moved about (the position setter refiles it).
+  const viewers = (['peep', 'periscope', 'magnet', 'hopper', 'waddle'] as const).map((key, i) => {
+    const player = new Player(100, 100, TOP, `abcdef0${i}`, ARCHETYPES[key])
+    World.addUnit(World.PLAYERS, player)
+    return player
+  })
+  let reachX = 0
+  let reachY = 0
+  let checked = 0
+  for (let i = 0; i < 4000; i++) {
+    const player = viewers[i % viewers.length]
+    const archetype = player.archetype
+    const viewerCell = new Vector(40 + Math.floor(random() * 60), 20 + Math.floor(random() * 120))
+    player.position = inside(viewerCell)
+    const leave = (archetype.vision as number) + ENTER_MARGIN + EXIT_RINGS
+    for (let k = 0; k < 10; k++) {
+      // A cell up to a ring past the leave radius, and a point anywhere in it.
+      const dq = Math.floor(random() * (2 * leave + 3)) - leave - 1
+      const dr = Math.floor(random() * (2 * leave + 3)) - leave - 1
+      const obj = inside(new Vector(viewerCell.x + dq, viewerCell.y + dr))
+      const ring = ringsBetween(player.position, obj)
+      const view = Multiplayer.viewOf(player, obj.x, obj.y, Hex.toCell(obj))
+      const want = ring <= leave - EXIT_RINGS ? Multiplayer.VIEW_IN : ring <= leave ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_OUT
+      assert.equal(view, want, `viewOf disagrees at ${ring} rings for ${archetype.key}`)
+      if (ring > leave) continue
+      checked++
+      reachX = Math.max(reachX, Math.abs(obj.x - player.position.x))
+      reachY = Math.max(reachY, Math.abs(obj.y - player.position.y))
+      assert.ok(World.interestCandidates(obj.x, obj.y, TOP).includes(player),
+        `${archetype.key} at (${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}) sees (${obj.x.toFixed(1)}, ${obj.y.toFixed(1)}) at ${ring} rings and is not a candidate`)
+    }
+  }
+  assert.ok(checked > 10000, `only ${checked} pairs in sight`)
+  // The longest reach on either axis fits one bucket, and with a tick's
+  // longest move (a dash: 140 u/s x 2.5 x 0.25 s, under 100) inside the
+  // pickup pass's watch (`World.PICKUP_WATCH_BUCKETS` buckets).
+  const longest = Math.max(reachX, reachY)
+  assert.ok(longest <= bucket, `a view reaches ${longest} units, past the ${bucket} bucket`)
+  assert.ok((maxVision + 3) * Hex.SIZE + 100 < World.PICKUP_WATCH_BUCKETS * bucket, 'the pickup pass watches too few buckets')
+  assert.ok(longest > 600, `only reached ${longest}: Periscope's far cells were never sampled`)
 })
 
 test('no client is sent an update for an object it does not hold', () => {
@@ -692,14 +1046,21 @@ test('a real world with walking players and portals never sends a client a recor
   const world = new World(4000)
   const random = lcg(99)
   const clients: Client[] = []
-  for (let i = 0; i < 8; i++) clients.push(join(multiplayer, `f${i.toString(16).padStart(5, '0')}`))
+  // Peep and Periscope viewers mixed (vision 6 and 11).
+  for (let i = 0; i < 8; i++) clients.push(join(multiplayer, `f${i.toString(16).padStart(5, '0')}`, undefined, i % 2 === 0 ? 'peep' : 'periscope'))
   let hops = 0
   for (let n = 1; n <= 400; n++) {
     t.mock.timers.tick(250)
     const tags = clients.map((c) => c.player.tag)
+    const from = clients.map((c) => c.player.position)
     world.update(0.25)
     multiplayer.flushAll(n, 250)
     clients.forEach((c, i) => { if (c.player.tag !== tags[i]) hops++ })
+    // Exactly what each can see, allowing for its own move this tick (see
+    // `assertHolds`). Not one that came through a portal this tick: the hop
+    // comes after its own update, and its client is switched at the next.
+    const hopped = new Set(clients.filter((c, i) => c.player.tag !== tags[i]).map((c) => c.player.id))
+    clients.forEach((c, i) => { if (!hopped.has(c.player.id)) assertHolds(multiplayer, c, `tick ${n}`, from[i], hopped) })
     for (const client of clients) {
       if (gone(client.player)) continue
       if (n % 6 === 0 || client.player.path.length === 0) {

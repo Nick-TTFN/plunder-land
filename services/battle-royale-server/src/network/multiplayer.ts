@@ -161,6 +161,13 @@ function sameCells (a: Vector[], b: Vector[]): boolean {
 
 export default class Multiplayer {
   static order = ['create', 'update', 'effect', 'destroy']
+  /**
+   * The interest box's half-width, in world units. Since server fog (#48) it
+   * decides only who is sent an effect, what a viewpoint with no `vision`
+   * sees (`viewOf`), and `hello.interest`, which the client's `stillPresent`
+   * reads (looser than the view, which is harmless: the server destroys what
+   * leaves view). Units, pickups, projectiles and stones go by `viewOf`.
+   */
   static INTEREST_RADIUS = 500
 
   /**
@@ -738,14 +745,73 @@ export default class Multiplayer {
   // outgoing traffic ========
 
   /**
-   * How far past the interest box a unit, pickup or projectile a client holds
-   * may go before it is sent a destroy, in world units: 2 cells. An object
-   * enters a client's view strictly inside `INTEREST_RADIUS` and leaves it
-   * only beyond `INTEREST_RADIUS + EXIT_MARGIN`, so one standing on the edge,
-   * or a viewer walking to and fro across it, is not destroyed and re-created
-   * every tick. Inside the margin it is still sent its changes.
+   * Server fog (decision #48): a connection is sent a unit, pickup,
+   * projectile or StoneWall stone on its client's layer only while it is
+   * within its viewpoint's sight, measured in hex rings from the cell under
+   * the viewpoint's centre to the cell under the object's (`Hex.toCell`, the
+   * rule every gameplay test uses). It **enters** at the robot's `vision` +
+   * `VIEW_MARGIN_RINGS` rings, one ring past what the client draws, so an
+   * arrival is already there when it comes out of the fog, and **leaves**
+   * only beyond `VIEW_EXIT_RINGS` more, so one on the edge, or a viewer
+   * walking to and fro across it, is not destroyed and re-created every tick.
+   * Inside that ring it is still sent its changes. So a modified client knows
+   * at most `vision` + 2 rings. Peep: 7 and 8; Periscope: 12 and 13.
+   * `World.INTEREST_BUCKET` is sized from these. 1 is #48's margin; the exit
+   * ring is Archie's provisional pick: nothing but a dash covers more than
+   * about a cell a tick.
+   */
+  static VIEW_MARGIN_RINGS = 1
+  static VIEW_EXIT_RINGS = 1
+
+  /**
+   * A viewpoint with no `vision` (every robot has one; a mob is never a viewpoint)
+   * falls back to the interest box, so nothing silently sees nothing: it
+   * enters strictly inside `INTEREST_RADIUS` and leaves only beyond
+   * `INTEREST_RADIUS + EXIT_MARGIN`, in world units (2 cells). Server fog
+   * replaced this as the rule for every robot (#48).
    */
   static EXIT_MARGIN = 2 * Hex.SIZE
+
+  /** `viewOf`'s answers: beyond the leave radius, between the two, within the enter radius. */
+  static readonly VIEW_OUT = 0
+  static readonly VIEW_EDGE = 1
+  static readonly VIEW_IN = 2
+
+  /**
+   * Where a point at (x, y), whose cell is `cell` (`Hex.toCell` of it), lies
+   * in `viewer`'s sight, its layer not checked: `VIEW_IN` within the enter
+   * radius, `VIEW_EDGE` beyond it but within the leave radius, `VIEW_OUT`
+   * beyond both. Rings from the viewer's own cell, by its robot's `vision`
+   * (`VIEW_MARGIN_RINGS`); the box with no vision (`EXIT_MARGIN`). The
+   * viewer is a connection's viewpoint (`viewpoint`), so a spectator sees by
+   * the watched player's vision, not its own dead robot's.
+   */
+  static viewOf (viewer: Player, x: number, y: number, cell: Vector): number {
+    const vision = viewer.archetype?.vision
+    if (vision === undefined || vision === null) {
+      const dx = viewer.position.x - x
+      const dy = viewer.position.y - y
+      const inner = Multiplayer.INTEREST_RADIUS
+      if (dx < inner && dx > -inner && dy < inner && dy > -inner) return Multiplayer.VIEW_IN
+      const outer = inner + Multiplayer.EXIT_MARGIN
+      return dx < outer && dx > -outer && dy < outer && dy > -outer ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_OUT
+    }
+    const enter = vision + Multiplayer.VIEW_MARGIN_RINGS
+    const leave = enter + Multiplayer.VIEW_EXIT_RINGS
+    // Out at once when it is plainly beyond the leave radius, before the cell
+    // arithmetic: most candidates from the 3 x 3 buckets are (the buckets
+    // are sized for Periscope). Exact, not a guess: `leave` rings is at most
+    // leave x 45 units east-west and leave x 39 north-south, and each end is
+    // at most half a cell (22.5, or 26 to a corner) off its cell's centre, so
+    // anything further than (leave + 1) x `Hex.SIZE` on either axis is out.
+    const reach = (leave + 1) * Hex.SIZE
+    const dx = viewer.position.x - x
+    const dy = viewer.position.y - y
+    if (dx > reach || dx < -reach || dy > reach || dy < -reach) return Multiplayer.VIEW_OUT
+    const rings = Hex.distance(Hex.toCell(viewer.position), cell)
+    if (rings <= enter) return Multiplayer.VIEW_IN
+    return rings <= leave ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_OUT
+  }
 
   /**
    * The connection whose live player `player` is, if any: `Player.connection`,
@@ -830,10 +896,11 @@ export default class Multiplayer {
 
   /**
    * True if `connection`'s client is on layer `tag` (its `layer`) and (x, y)
-   * is strictly inside the box of half-width `reach` around its player. The
-   * box test is the one `update` has always used.
+   * is strictly inside the box of half-width `reach` around its viewpoint.
+   * Effects only (`effect`, `effectAt`): #48 kept their recipients on the
+   * 500 box rather than the fogged view.
    */
-  static inView (connection: Connection, x: number, y: number, tag: number, reach: number): boolean {
+  static inBox (connection: Connection, x: number, y: number, tag: number, reach: number): boolean {
     const player = Multiplayer.viewpoint(connection)
     if (player === undefined || connection.layer !== tag) return false
     return player.position.withinBounds(x, y, reach)
@@ -841,18 +908,25 @@ export default class Multiplayer {
 
   /**
    * True if `player` is among `World.interestCandidates` around `obj`: its
-   * `INTEREST` bucket is within one of `obj`'s on both axes. The layer is
-   * not checked here.
+   * `INTEREST` bucket (`World.INTEREST_BUCKET`) is within one of `obj`'s on
+   * both axes. The layer is not checked here.
    */
   static isCandidate (player: Player, obj: GameObject): boolean {
-    const size = Multiplayer.INTEREST_RADIUS
+    const size = World.INTEREST_BUCKET
     return Math.abs(Math.floor(player.position.x / size) - Math.floor(obj.position.x / size)) <= 1 &&
       Math.abs(Math.floor(player.position.y / size) - Math.floor(obj.position.y / size)) <= 1
   }
 
-  /** `inView` for an object's own position and layer; `reach` defaults to the interest box. */
-  static sees (connection: Connection, obj: GameObject, reach: number = Multiplayer.INTEREST_RADIUS): boolean {
-    return Multiplayer.inView(connection, obj.position.x, obj.position.y, obj.tag, reach)
+  /**
+   * True if `connection`'s client is on `obj`'s layer and `obj` is in its
+   * viewpoint's sight (`viewOf`): within the enter radius, or with `leave`,
+   * within the leave radius (a holder keeps it that far).
+   */
+  static sees (connection: Connection, obj: GameObject, leave: boolean = false): boolean {
+    const player = Multiplayer.viewpoint(connection)
+    if (player === undefined || connection.layer !== obj.tag) return false
+    const view = Multiplayer.viewOf(player, obj.position.x, obj.position.y, Hex.toCell(obj.position))
+    return view >= (leave ? Multiplayer.VIEW_EDGE : Multiplayer.VIEW_IN)
   }
 
   /**
@@ -883,6 +957,58 @@ export default class Multiplayer {
   private unknow (connection: Connection, obj: GameObject): void {
     connection.known.delete(obj)
     obj.knownBy.delete(connection)
+  }
+
+  /**
+   * The destroys each outbox (one flush's worth) has been given for objects
+   * leaving its client's view, by object, so `enter` can take one back. Weak
+   * on the outbox, which is replaced at every flush, so it empties itself.
+   * Static: a spec's `Object.create(Multiplayer.prototype)` runs no field
+   * initialisers.
+   */
+  private static readonly _leaving = new WeakMap<Outbox, Map<GameObject, Buffer>>()
+
+  /** `obj` leaves `connection`'s view: queue `record` (its id-only destroy) and let go of it. */
+  private leave (connection: Connection, obj: GameObject, record: Buffer): void {
+    const out = this.outbox(connection)
+    out.destroy.push(record)
+    let leaving = Multiplayer._leaving.get(out)
+    if (leaving === undefined) {
+      leaving = new Map()
+      Multiplayer._leaving.set(out, leaving)
+    }
+    leaving.set(obj, record)
+    this.unknow(connection, obj)
+  }
+
+  /**
+   * `obj` comes into the view of `connection`, whose client does not hold
+   * it: `record` (its whole record, or null for nothing to send) goes out as
+   * a create, into `into` (the outbox's creates unless given), and it is
+   * held from then on. **Unless it left the same view earlier in this
+   * flush**: then the client still holds it, and the destroy and a create
+   * for one id in one flush would be applied create first (the client takes
+   * creates before destroys), leaving a second sprite. So the destroy is
+   * taken back and the whole record goes as an update instead, as
+   * `switchLayer` does for what it keeps. It happens when a view is
+   * re-centred between flushes (a spectator's `watch`, a layer change) and
+   * the object walks back into the new view before the next flush: with
+   * server fog (#48) a Periscope's dead robot re-centred on a Peep made it
+   * reachable at walking pace.
+   */
+  private enter (connection: Connection, obj: GameObject, record: Buffer | null, into?: Buffer[]): void {
+    const out = this.outbox(connection)
+    const leaving = Multiplayer._leaving.get(out)
+    const pending = leaving?.get(obj)
+    if (pending !== undefined) {
+      leaving?.delete(obj)
+      const at = out.destroy.lastIndexOf(pending)
+      if (at >= 0) out.destroy.splice(at, 1)
+      if (record !== null) out.update.push(record)
+    } else if (record !== null) {
+      (into ?? out.create).push(record)
+    }
+    this.know(connection, obj)
   }
 
   /** Put the connection's client on `tag` in the bookkeeping. Sends nothing. */
@@ -960,10 +1086,10 @@ export default class Multiplayer {
   }
 
   /**
-   * A create, into `into`, for every unit, pickup and projectile inside the
-   * connection's interest box that its client does not hold yet, and mark
-   * them held. For the join and a layer change only: from then on `update`
-   * keeps it current. Players come from `World.INTEREST`; the other lists are
+   * A create, into `into`, for every unit, pickup, projectile and StoneWall
+   * stone within the connection's enter radius (`sees`; server fog, #48) that
+   * its client does not hold yet, and mark them held. For the join and a
+   * layer change only: from then on `update` keeps it current. Players come from `World.INTEREST`; the other lists are
    * walked whole (about 81 mobs, 500 pickups and a few projectiles), which is
    * cheap next to serialising what is found.
    */
@@ -974,8 +1100,7 @@ export default class Multiplayer {
     const visit = (obj: GameObject): void => {
       if (obj.tag !== tag || obj.knownBy.has(connection) || Multiplayer.gone(obj)) return
       if (!Multiplayer.sees(connection, obj)) return
-      into.push(obj.serialiseBinary(obj.allFields))
-      this.know(connection, obj)
+      this.enter(connection, obj, obj.serialiseBinary(obj.allFields), into)
     }
     for (const obj of World.PROJECTILES) visit(obj)
     // StoneWall stones: the obstacles that are not terrain.
@@ -992,9 +1117,11 @@ export default class Multiplayer {
    * carries the player's new tag. A destroy for the old layer's terrain and
    * for every unit, pickup and projectile it held there, a create for the new
    * layer's terrain and for what is in range on it (decision #35). Its own
-   * object is kept. So is anything that came through with it and is still in
-   * view: a destroy and a create for one id in one flush would be applied
-   * create first, and leave a sprite behind.
+   * object is kept. So is anything that came through with it and is still
+   * within the leave radius (`sees(…, true)`, #48): a destroy and a create for
+   * one id in one flush would be applied create first, and leave a sprite
+   * behind. A spectator re-centred on another player (`watch`) comes through
+   * here too, and from then on sees by that player's vision.
    *
    * What is kept is sent whole, as an update. Between its player's hop and
    * this, the connection was sent no changes (`update` finds it on neither
@@ -1024,22 +1151,21 @@ export default class Multiplayer {
         this.unknow(connection, obj)
         continue
       }
-      if (Multiplayer.sees(connection, obj, Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN)) {
+      if (Multiplayer.sees(connection, obj, true)) {
         const whole = obj.serialiseBinary(obj.allFields)
         if (whole !== null) out.update.push(whole)
         continue
       }
-      out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
-      this.unknow(connection, obj)
+      this.leave(connection, obj, obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer)
     }
     this.sendVisible(connection, out.create)
   }
 
   /**
    * A new object. Terrain goes to every connection on its layer; anything
-   * else only to connections whose player is on its layer and has it inside
-   * the interest box, which then hold it (decision #35). Others get it when
-   * it comes into their range (`update`).
+   * else only to connections whose client is on its layer and has it within
+   * the enter radius (`sees`; server fog, #48), which then hold it (decision
+   * #35). Others get it when it comes into their range (`update`).
    */
   create (obj: GameObject): void {
     Multiplayer.checkWorld(this, 'Multiplayer.create')
@@ -1053,8 +1179,7 @@ export default class Multiplayer {
             // Its own player's object goes out once, as create_own (`admit`).
             if (connection.player === obj) continue
             if (obj.knownBy.has(connection) || !Multiplayer.sees(connection, obj)) continue
-            this.outbox(connection).create.push(data)
-            this.know(connection, obj)
+            this.enter(connection, obj, data)
           }
         }
       }
@@ -1067,12 +1192,14 @@ export default class Multiplayer {
    * (a pickup's comes from `World.update`). This is where it comes into and
    * goes out of each connection's view, whichever of the two moved:
    *
-   * - a connection whose player is on its layer with it inside the interest
-   *   box, and that does not hold it, is sent a create (the whole record) and
+   * - a connection whose client is on its layer with it within the enter
+   *   radius (server fog, #48: the viewpoint's vision + 1 ring, `viewOf`),
+   *   and that does not hold it, is sent a create (the whole record) and
    *   holds it from then on;
-   * - one that holds it is sent its changes, if any;
-   * - one that holds it and no longer has it within `INTEREST_RADIUS +
-   *   EXIT_MARGIN` on its layer is sent a destroy (`id` only) and drops it.
+   * - one that holds it is sent its changes, if any, while it is within the
+   *   leave radius (one ring further);
+   * - one that holds it and no longer has it within the leave radius on its
+   *   layer is sent a destroy (`id` only) and drops it.
    *
    * So a client is never sent an update for an object it does not hold (the
    * client ignores those) or a create for one it does (the client would draw
@@ -1105,28 +1232,32 @@ export default class Multiplayer {
 
     // Holders still in view, found here; if that is all of them, none has
     // left and the loop over holders below is skipped. A holder in the exit
-    // margin is served here too when it is among the candidates, so one
-    // standing in the margin does not force that loop every tick.
-    const outer = Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN
+    // ring is served here too when it is among the candidates, so one
+    // standing in that ring does not force that loop every tick.
     const knownBy = obj.knownBy
-    // Read once: nothing below moves the object. The box tests are
-    // `Multiplayer.sees` written out on these, since this loop runs for every
-    // player near every object every tick.
+    // Read once: nothing below moves the object. Its cell is worked out once
+    // here, and each candidate's view of it once (`viewOf`, which `sees`
+    // also uses), since this loop runs for every player near every object
+    // every tick.
     const ox = obj.position.x
     const oy = obj.position.y
     const otag = obj.tag
-    const inner = Multiplayer.INTEREST_RADIUS
+    const ocell = Hex.toCell(obj.position)
     let holdersInRange = 0
     for (const player of World.interestCandidates(ox, oy, otag)) {
-      // Its own connection and its spectators, who all see from `player`.
-      for (const connection of this.viewersOf(player, Multiplayer._viewersUpdate)) {
-        const dx = player.position.x - ox
-        const dy = player.position.y - oy
+      // Its own connection and its spectators, who all see from `player`,
+      // by its vision (#48).
+      const viewers = this.viewersOf(player, Multiplayer._viewersUpdate)
+      // A bot, or a player whose run ended this tick: nobody to send to.
+      if (viewers.length === 0) continue
+      const view = Multiplayer.viewOf(player, ox, oy, ocell)
+      for (const connection of viewers) {
         const onLayer = connection.layer === otag
-        if (connection !== self && !(onLayer && dx < inner && dx > -inner && dy < inner && dy > -inner)) {
-          // Not in the box. A holder whose client is on this layer (so no
-          // switch pending) and still has it in the margin keeps it.
-          if (connection.layer === player.tag && onLayer && dx < outer && dx > -outer && dy < outer && dy > -outer && knownBy.has(connection)) {
+        if (connection !== self && !(onLayer && view === Multiplayer.VIEW_IN)) {
+          // Not within the enter radius. A holder whose client is on this
+          // layer (so no switch pending) and still has it within the leave
+          // radius keeps it.
+          if (connection.layer === player.tag && onLayer && view === Multiplayer.VIEW_EDGE && knownBy.has(connection)) {
             holdersInRange++
             if (changed) {
               if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
@@ -1143,8 +1274,7 @@ export default class Multiplayer {
           }
         } else {
           if (fullData === undefined) fullData = obj.serialiseBinary(obj.allFields)
-          if (fullData !== null) this.outbox(connection).create.push(fullData)
-          this.know(connection, obj)
+          this.enter(connection, obj, fullData)
         }
       }
     }
@@ -1152,22 +1282,26 @@ export default class Multiplayer {
     if (holdersInRange < knownBy.size) {
       let gone: Buffer | undefined
       for (const connection of knownBy) {
-        // Its own, and anyone handled above.
-        if (connection === self || Multiplayer.sees(connection, obj)) continue
+        // Its own: handled above.
+        if (connection === self) continue
         const player = Multiplayer.viewpoint(connection)
         // A player who died or left this tick: dropped whole at the flush.
         if (player === undefined || Multiplayer.gone(player)) continue
+        const view = connection.layer === otag ? Multiplayer.viewOf(player, ox, oy, ocell) : Multiplayer.VIEW_OUT
+        // Within the enter radius: a candidate (the buckets cover every
+        // view, `World.INTEREST_BUCKET`), handled above.
+        if (view === Multiplayer.VIEW_IN) continue
         // Served above: a candidate (on the object's layer, in the 3 x 3
-        // buckets around it) with no switch pending and it in the margin.
-        if (connection.layer === player.tag && player.tag === obj.tag &&
-          Multiplayer.isCandidate(player, obj) && Multiplayer.sees(connection, obj, outer)) continue
+        // buckets around it) with no switch pending and it in the exit ring.
+        if (connection.layer === player.tag && player.tag === otag &&
+          Multiplayer.isCandidate(player, obj) && view === Multiplayer.VIEW_EDGE) continue
         // Its client changes layer at its player's own update (`switchLayer`),
         // which settles everything it holds. A destroy from here as well
         // could meet a create from the switch for the same id in one flush:
         // two players who come through portals together, each updated before
         // the other's switch.
         if (connection.layer !== player.tag) continue
-        if (Multiplayer.sees(connection, obj, outer)) {
+        if (view === Multiplayer.VIEW_EDGE) {
           if (changed) {
             if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
             if (changedData !== null) this.outbox(connection).update.push(changedData)
@@ -1175,8 +1309,7 @@ export default class Multiplayer {
           continue
         }
         if (gone === undefined) gone = obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
-        this.outbox(connection).destroy.push(gone)
-        this.unknow(connection, obj)
+        this.leave(connection, obj, gone)
       }
     }
 
@@ -1194,6 +1327,12 @@ export default class Multiplayer {
    *
    * Sent to connections on the originator's layer with it inside the interest
    * box. It went to every layer until interest-filtered-broadcasts (#35).
+   * Still the 500 box under server fog: #48 rejected hiding effects. So a
+   * client is sent effects of originators it does not hold (beyond its
+   * vision + 1 ring and inside the box); for types 0-4 (breaths, melee,
+   * ranged, defend) the client looks the originator up, finds nothing and
+   * draws nothing (`Game.onEffect`, counted in `Game.EFFECTS_UNHELD`). Whether
+   * to stop sending those is open. Blasts and bombs (5-8) draw on their cell.
    */
   effect (type: number, originator: Unit, lifetime: number, aimCell?: Vector): void {
     Multiplayer.checkWorld(this, 'Multiplayer.effect')
@@ -1210,7 +1349,7 @@ export default class Multiplayer {
       // `viewersOf` skips a player killed this tick, as `connectionOf` didn't:
       // its client has its own destroy already and is showing its run card.
       for (const connection of this.viewersOf(player, Multiplayer._viewersEffect)) {
-        if (Multiplayer.sees(connection, originator)) this.outbox(connection).effect.push(data)
+        if (Multiplayer.inBox(connection, originator.position.x, originator.position.y, originator.tag, Multiplayer.INTEREST_RADIUS)) this.outbox(connection).effect.push(data)
       }
     }
   }
@@ -1236,7 +1375,7 @@ export default class Multiplayer {
     const centre = Hex.toPosition(cell)
     for (const player of World.interestCandidates(centre.x, centre.y, tag)) {
       for (const connection of this.viewersOf(player, Multiplayer._viewersEffect)) {
-        if (Multiplayer.inView(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS)) this.outbox(connection).effect.push(data)
+        if (Multiplayer.inBox(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS)) this.outbox(connection).effect.push(data)
       }
     }
   }
