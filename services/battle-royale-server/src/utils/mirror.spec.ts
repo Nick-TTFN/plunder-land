@@ -22,7 +22,9 @@ import { join } from 'node:path'
 // drifted slot makes a key use a different item than the readout shows.
 // finishes.ts: the colour and pattern ids of the `finish` field. A drifted id
 // paints another player's robot the wrong colour.
-const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts']
+// protocol.ts: the wire protocol's version. A drifted number reloads every
+// client on every connection, or never reloads a stale one.
+const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts', 'protocol.ts']
 
 const SERVER = __dirname
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'utils')

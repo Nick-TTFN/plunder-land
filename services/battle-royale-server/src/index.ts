@@ -12,6 +12,9 @@ function startGame (): void {
   // `hello` payload and echoed as a tick counter on every update packet.
   const tickLengthMs = parseInt(process.env.TICK_MS ?? '250')
 
+  // One Redis client for every world: stats only.
+  const redis = Multiplayer.connectRedis()
+
   // Several worlds in this one process (worlds-per-process, decision #39): a
   // run goes to the fullest world with fewer than WORLD_CAP active players,
   // and a world with none for WORLD_IDLE_MS closes (one always stays open).
@@ -19,9 +22,44 @@ function startGame (): void {
     tickLengthMs,
     cap: parseInt(process.env.WORLD_CAP ?? '200'),
     idleMs: parseInt(process.env.WORLD_IDLE_MS ?? '300000'),
-    // One Redis client for every world: stats only.
-    redis: Multiplayer.connectRedis()
+    redis
   })
+
+  // A deploy (decision #46): the host starts the new server, routes new
+  // connections to it, then sends this one SIGTERM and kills it
+  // `drainingSeconds` later (railway.json: 600). Draining, it takes no new
+  // runs and plays out the live ones, then stops; at DRAIN_MAX_MS (default
+  // 570 s, inside the host's window) it closes whatever is left, so the
+  // disconnect handlers still write their stats. SIGINT (Ctrl-C) stays an
+  // immediate stop.
+  const drainMaxMs = parseInt(process.env.DRAIN_MAX_MS ?? '570000')
+  let drainDeadline: number | undefined
+  let stopping = false
+  process.on('SIGTERM', () => {
+    if (drainDeadline !== undefined) return
+    drainDeadline = Date.now() + drainMaxMs
+    worlds.drain()
+    console.log(`SIGTERM: draining, ${Worlds.activeRuns(worlds)} runs live, at most ${Math.round(drainMaxMs / 1000)} s`)
+  })
+
+  function stop (reason: string): void {
+    stopping = true
+    console.log(`stopping: ${reason}`)
+    worlds.closeAll()
+    // The disconnect handlers (and their stats writes) run a moment after the
+    // transports close, not inside closeAll: wait for them, then `quit`, which
+    // waits for the commands already queued. Quitting at once lost every
+    // write. The timer is the fallback if Redis or a handler hangs.
+    setTimeout(() => process.exit(0), 5000).unref()
+    const quitWhenClosed = (): void => {
+      if (worlds.connectionCount > 0) {
+        setTimeout(quitWhenClosed, 50)
+        return
+      }
+      redis.quit().catch(() => {}).finally(() => process.exit(0))
+    }
+    quitWhenClosed()
+  }
 
   const httpserver = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/healthcheck') {
@@ -88,6 +126,11 @@ function startGame (): void {
         worlds.tickAll(dtMs)
       } catch (e) {
         console.error('tick', e)
+      }
+
+      if (drainDeadline !== undefined && !stopping) {
+        if (worlds.drained) stop('every run has ended')
+        else if (Date.now() >= drainDeadline) stop(`drain deadline, ${Worlds.activeRuns(worlds)} runs cut short`)
       }
     }
 

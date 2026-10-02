@@ -601,6 +601,21 @@ server damages; the client's port of the cone and ring logic is `src/vfx/cells.t
 first hp value it happens to see. **The field table is append-only** — new fields go on the
 end of `fieldOrder` (server) and `allFields` (client), and the two must stay identical.
 
+**`welcome`** is emitted on every connection, before anything else: `{ protocol }`, the
+mirrored `utils/protocol.ts` `PROTOCOL` (decision #46). A client whose own number differs
+reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 times per
+number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
+can't read**; additive ones it already skips need none. Ship the client first all the same: the
+number only rescues tabs left open across a release.
+
+**A server stops by draining** (decision #46, `Worlds.drain`, `index.ts`). On SIGTERM it takes
+no new runs: lobby connections are sent on at once, a run card's when it asks for its next run,
+a connection arriving later at once. "Sent on" is closing the transport (`Worlds.redirect`,
+`socket.conn.close()`), never `socket.disconnect()`, after which a client does not reconnect.
+Live runs play out; it stops when none is left or at `DRAIN_MAX_MS` (default 570 s, inside
+Railway's 600 s `drainingSeconds`), and waits for the disconnects' stats writes before quitting
+Redis. SIGINT is still an immediate stop.
+
 **`hello`** is emitted once on join: `{ tick, map, interest, layers }`. Nothing on the client
 may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, top (01) first;
 the client builds one plane per entry when `hello` lands (it precedes the join's first

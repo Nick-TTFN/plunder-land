@@ -2,6 +2,7 @@ import { type Socket } from 'socket.io'
 import type Redis from 'ioredis'
 import Multiplayer, { type Connection } from './multiplayer'
 import World from '../objects/world'
+import { PROTOCOL } from '../utils/protocol'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -45,6 +46,11 @@ export default class Worlds {
   readonly worlds: World[] = []
   /** The loop's tick counter, shared by every world: each client's clock is monotonic. */
   tick = 0
+  /**
+   * Set by `drain` when the host asks this process to stop (SIGTERM, a
+   * deploy): no run starts here any more, the live ones play out.
+   */
+  draining = false
 
   private readonly tickLengthMs: number
   private readonly cap: number
@@ -56,6 +62,8 @@ export default class Worlds {
   private readonly worldOf = new Map<Connection, World>()
   /** When each open world was last seen with no active players. */
   private readonly emptySince = new Map<World, number>()
+  /** Every open connection, in a world or not: `drain` reaches the lobby ones too. */
+  private readonly connections = new Set<Connection>()
 
   constructor (options: WorldsOptions) {
     this.tickLengthMs = options.tickLengthMs
@@ -107,6 +115,11 @@ export default class Worlds {
   /** A new socket. It joins no world until it asks for a run. */
   onConnection (socket: Socket): Connection {
     const connection = Multiplayer.connectionFor(socket)
+    this.connections.add(connection)
+    // The protocol before anything else, so a stale client reloads at the
+    // lobby (utils/protocol.ts).
+    socket.emit('welcome', { protocol: PROTOCOL })
+    if (this.draining) Worlds.redirect(connection)
     socket.on('start_requested', (data) => {
       Multiplayer.guarded(() => { this.start(connection, data) })
     })
@@ -123,6 +136,7 @@ export default class Worlds {
     socket.on('disconnect', () => {
       this.inWorld(connection, (mp) => { mp.release(connection) })
       this.worldOf.delete(connection)
+      this.connections.delete(connection)
     })
     return connection
   }
@@ -143,6 +157,11 @@ export default class Worlds {
    */
   start (connection: Connection, data: unknown): void {
     if (connection.started || Multiplayer.parseStart(data) === undefined) return
+    if (this.draining) {
+      // To the next server: the client reconnects and lands in the lobby.
+      Worlds.redirect(connection)
+      return
+    }
     const target = this.choose()
     const from = this.worldOf.get(connection)
     if (from !== target) {
@@ -207,6 +226,56 @@ export default class Worlds {
     this.emptySince.delete(world)
     const i = this.worlds.indexOf(world)
     if (i >= 0) this.worlds.splice(i, 1)
+  }
+
+  /**
+   * Stop taking runs (decision #46): the host is replacing this process.
+   * Connections with no run behind them, which have only ever seen the lobby,
+   * go to the next server now; one on its run card goes when it asks for its
+   * next run (`start`), so the card stays up. Live runs play out; the caller
+   * ends the process once `drained`, or at its deadline.
+   */
+  drain (): void {
+    this.draining = true
+    for (const connection of this.connections) {
+      if (!connection.started && !this.worldOf.has(connection)) Worlds.redirect(connection)
+    }
+  }
+
+  /** Open connections, in a world or not. */
+  get connectionCount (): number {
+    return this.connections.size
+  }
+
+  /** Runs in progress across every world. */
+  static activeRuns (worlds: Worlds): number {
+    let n = 0
+    for (const world of worlds.worlds) n += Worlds.activePlayers(world)
+    return n
+  }
+
+  /** No run in progress in any world: a draining process can stop. */
+  get drained (): boolean {
+    return this.worlds.every((world) => Worlds.activePlayers(world) === 0)
+  }
+
+  /**
+   * Close every connection the way a dying server would, live runs included:
+   * each one's disconnect handler runs (stats writes, the player destroyed as
+   * on any disconnect) and its client reconnects to the next server.
+   */
+  closeAll (): void {
+    for (const connection of [...this.connections]) Worlds.redirect(connection)
+  }
+
+  /**
+   * Close the connection's transport, not the socket.io session: a client
+   * told to disconnect by the server (`socket.disconnect()`) does not
+   * reconnect, one whose transport closed does, which lands it on whatever
+   * server the host routes new connections to.
+   */
+  static redirect (connection: Connection): void {
+    connection.socket.conn.close()
   }
 
   private _leaderboard: Record<string, Record<string, string>> = {}

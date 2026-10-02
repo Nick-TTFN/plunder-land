@@ -10,6 +10,7 @@ import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
+import { decideWelcome, KEY, readPending } from './net/protocol'
 
 // The stats.js developer overlay (fps, socket bytes), only with ?stats=1. It
 // sat on top of the HUD's status panel for every player (hud-rebuild, M2), so
@@ -102,6 +103,40 @@ function setup (): void {
   Game.socket.on('connect', () => {
     onConnect()
   })
+  Game.socket.on('welcome', onWelcome)
+}
+
+/**
+ * The server's protocol number, first thing on every connection (net/protocol.ts).
+ * A page from another release reloads, but never in the middle of a run.
+ */
+function onWelcome (data: unknown): void {
+  let raw: string | null
+  try {
+    raw = window.sessionStorage.getItem(KEY)
+  } catch {
+    // Without storage a reload can't be counted, so it could loop: play on.
+    console.warn('protocol check skipped: no sessionStorage')
+    return
+  }
+  const welcome = decideWelcome(data, readPending(raw))
+  try {
+    if (welcome.action === 'match') {
+      window.sessionStorage.removeItem(KEY)
+    } else if (welcome.action === 'reload') {
+      window.sessionStorage.setItem(KEY, JSON.stringify(welcome.next))
+      console.warn(`server protocol ${welcome.next.protocol}, this client's differs: reloading`)
+      const reload = (): void => {
+        if (Game.PLAYER !== undefined) setTimeout(reload, 5000)
+        else window.location.reload()
+      }
+      setTimeout(reload, welcome.delayMs)
+    } else {
+      console.warn(`server protocol ${welcome.protocol}: still not this client's after reloading; playing on`)
+    }
+  } catch {
+    console.warn('protocol check skipped: sessionStorage refused a write')
+  }
 }
 
 // socket.io fires `connect` again after every reconnect. Everything that

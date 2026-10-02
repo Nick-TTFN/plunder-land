@@ -150,11 +150,16 @@ literally: an id pattern given as "for example" would have locked out every real
   release: push only when Nick says so, for that push.
 - **The server deploys to Railway** (project `plunderland`, region EU West Amsterdam, since
   2026-10-02), built by Railway's GitHub integration from `main`: root
-  `services/battle-royale-server`, `npm run build` / `npm start`, healthcheck `/healthcheck`,
-  sleep off, with a Railway Redis (`REDIS_URL`). It redeploys only on a push that touches
-  `services/battle-royale-server/**` (watch paths), and **a redeploy wipes every live run**
-  until drain-then-restart exists (launch plan L0), so the client still ships first and a
-  server push is a release. Public URL: `https://server-production-e1da2.up.railway.app`,
+  `services/battle-royale-server`, `npm run build`, then `node dist/index.js`, with a Railway
+  Redis (`REDIS_URL`). **Deploy settings are on the service** (set through `railway api`,
+  `serviceInstanceUpdate`): start `node dist/index.js` (not `npm start`, so SIGTERM reaches
+  node), healthcheck `/healthcheck` 60 s, restart on failure ×10, sleep off, overlap 30 s,
+  draining 600 s. Railway deprecated `railway.json` on 2026-10-02 in favour of
+  `.railway/railway.ts`; not adopted yet. It
+  redeploys only on a push that touches `services/battle-royale-server/**` (watch paths).
+  **A redeploy drains** (decision #46): the old process takes no new runs and plays out the
+  live ones for up to `DRAIN_MAX_MS` (570 s) after SIGTERM, then stops. The client still ships
+  first, and a server push is still a release. Public URL: `https://server-production-e1da2.up.railway.app`,
   which is the client Worker's `SERVER_URL` build variable. Check a deploy with
   `railway logs --service server` and a socket.io join (`hello`, then `create`/`update`).
 - There is no config endpoint to poll, so a client deploy can only be reported as pushed.
