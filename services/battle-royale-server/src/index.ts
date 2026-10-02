@@ -1,9 +1,9 @@
 import { Server } from 'socket.io'
 import http from 'http'
-import dotenv from 'dotenv'
 import Multiplayer from './network/multiplayer'
 import Worlds from './network/worlds'
-dotenv.config()
+// The environment is the whole config: Railway and docker compose inject it.
+// Locally without docker: node --env-file=.env dist/index.js
 
 startGame()
 

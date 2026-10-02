@@ -116,7 +116,7 @@ server-cpu-trim, 2026-09-26). With no target swc compiled to ES5, which is slowe
 its own Unicode version, and `Player.sanitiseName` then failed the names fuzz spec 20 times
 out of 20 against the swc build (0 of 20 at ES2022, which keeps the regexes native). The specs
 run through ts-node (tsc, `ESNext`, define semantics), and define semantics are pinned in
-`.swcrc` so the two agree on class fields. Node 18 (the container) runs ES2022.
+`.swcrc` so the two agree on class fields. **The server runs Node 24** (`.node-version`, pinned 2026-10-02: Railway's Railpack had picked its LTS default, 24.21, and docker compose ran an end-of-life 18; now `node:24-alpine`). The server has no `dotenv` since then: Railway and compose inject the environment, and a bare local run is `node --env-file=.env dist/index.js`.
 
 ### Client typecheck baseline (2026-09-08: 36 errors)
 
