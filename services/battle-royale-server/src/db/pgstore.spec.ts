@@ -1,5 +1,6 @@
 import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { Client } from 'pg'
 import { hashToken } from './accounts'
 import { PgAccountStore, NotReadyError } from './pgstore'
@@ -97,7 +98,9 @@ pgTest('the store: not ready until migrated, then the contract, and token_hash i
     const row = (await store.pool.query('SELECT token_hash, public_id, created_at, last_seen_at FROM accounts WHERE public_id = $1', [account.publicId])).rows[0]
     assert.ok(Buffer.isBuffer(row.token_hash))
     assert.ok(!row.token_hash.equals(Buffer.from(token)), 'the token itself is stored')
-    assert.ok(row.token_hash.equals(hashToken(token)), 'token_hash is not the token\'s SHA-256')
+    // Computed here, not only through hashToken, so a broken hashToken shows.
+    assert.ok(row.token_hash.equals(createHash('sha256').update(token).digest()), 'token_hash is not the token\'s SHA-256')
+    assert.ok(row.token_hash.equals(hashToken(token)))
     assert.equal(row.token_hash.length, 32)
 
     // resolve touches last_seen_at.

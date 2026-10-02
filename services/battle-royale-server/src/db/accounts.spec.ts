@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { hashToken, MemoryAccountStore, newToken, tokenOf, TOKEN_SHAPE } from './accounts'
 import { storeContract } from './storecontract'
 import { MIGRATIONS } from './migrations'
@@ -14,8 +15,11 @@ test('memory store: the store contract', async () => {
 test('memory store: what is kept is the token\'s SHA-256, never the token', async () => {
   const store = new MemoryAccountStore()
   const { token } = await store.create()
-  assert.deepEqual(store.storedHashes, [hashToken(token).toString('hex')])
-  assert.ok(!store.storedHashes.some((stored) => stored.includes(token)))
+  // Computed here, not through hashToken, so a broken hashToken shows.
+  const sha256 = createHash('sha256').update(token).digest()
+  assert.deepEqual(hashToken(token), sha256)
+  assert.deepEqual(store.storedHashes, [sha256.toString('hex')])
+  assert.ok(!store.storedHashes.some((stored) => stored.includes(token) || stored.includes(Buffer.from(token).toString('hex'))))
 })
 
 test('tokens: 32 random bytes as base64url; the handshake accepts only that shape', () => {
