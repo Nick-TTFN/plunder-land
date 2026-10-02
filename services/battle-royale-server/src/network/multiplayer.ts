@@ -421,6 +421,9 @@ export default class Multiplayer {
       // a layer. Additive: an older client ignores it and routes into the
       // void, and the server corrects it, so ship the client first.
       voids: World.TAGS.map((tag) => World.VOID_RUNS.get(tag) ?? []),
+      // Each layer's walls (decision #44), the same way. Additive like voids:
+      // an older client routes into a wall and is corrected.
+      walls: World.TAGS.map((tag) => World.WALL_RUNS.get(tag) ?? []),
       // Only to a client that asked: it now gets one frame per tick. Sent in
       // the same engine.io stream as that frame, so it always arrives first.
       ...(connection.framed ? { frames: Multiplayer.FRAME_VERSION } : {})

@@ -25,6 +25,8 @@ export class Session {
    * from `hello.voids`. Empty for a server from before the valleys.
    */
   static voids: Array<Set<number>> = []
+  /** Each layer's walls (decision #44), the same way, from `hello.walls`. Empty for a server from before walls. */
+  static walls: Array<Set<number>> = []
   static known: boolean = false
 
   /** Rolling window of observed gaps between update packets, in ms. */
@@ -32,7 +34,7 @@ export class Session {
   private static _lastArrival: number = 0
   private static _p95: number = 250
 
-  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown }): void {
+  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown }): void {
     if (typeof data?.tick === 'number' && data.tick > 0) Session.tickMs = data.tick
     if (typeof data?.map === 'number' && data.map > 0) Session.mapSize = data.map
     if (typeof data?.interest === 'number' && data.interest > 0) Session.interestRadius = data.interest
@@ -50,6 +52,9 @@ export class Session {
     const voids = data?.voids
     Session.voids = Session.layers.map((_, i) =>
       Array.isArray(voids) ? Session.decodeRuns(voids[i], Session.mapSize) : new Set<number>())
+    const walls = data?.walls
+    Session.walls = Session.layers.map((_, i) =>
+      Array.isArray(walls) ? Session.decodeRuns(walls[i], Session.mapSize) : new Set<number>())
     Session.known = true
 
     // Seed the measurement so the first second of play is not timed off a guess.
@@ -136,5 +141,6 @@ export class Session {
     Session._gaps.length = 0
     Session._lastArrival = 0
     Session.voids = []
+    Session.walls = []
   }
 }

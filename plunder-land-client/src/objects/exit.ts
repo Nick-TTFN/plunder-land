@@ -1,6 +1,7 @@
 import { GameObject } from './gameobject'
 import { Sprite, Texture } from 'pixi.js'
 import { namePlate } from '../ui/elements/nameplate'
+import { PAD_HEIGHT, shadowOffset } from './shadow'
 import { THEME } from '../ui/theme'
 
 export class Exit extends GameObject {
@@ -15,6 +16,11 @@ export class Exit extends GameObject {
     this.radius = radius
     const texture = Texture.from('map/extract_pad.png')
     this.main = new Sprite(texture)
+    // Its shadow: a black copy offset under it the way every shadow falls.
+    const shadow = this.createSilhouette(texture)
+    const offset = shadowOffset(PAD_HEIGHT)
+    shadow.position.set(offset.x, offset.y)
+    this.addChild(shadow)
     this.addChild(this.main)
 
     // "EXTRACT" under the pad, as the mockup (world-markers): exits are marked

@@ -46,6 +46,19 @@ export class GameObject extends Container {
 
   static SHADOW_CACHE: Record<string, RenderTexture> = {}
 
+  /**
+   * A black copy of `texture` at the shadow's opacity, on the same anchor, not
+   * laid down: a portal or exit pad's shadow, offset under it
+   * (`shadowOffset`). Shares `createShadow`'s cache.
+   */
+  createSilhouette (texture: Texture): Sprite {
+    const sprite = this.createShadow(texture)
+    sprite.skew.set(0, 0)
+    sprite.scale.set(1)
+    sprite.anchor.copyFrom(texture.defaultAnchor)
+    return sprite
+  }
+
   createShadow (texture: Texture): Sprite {
     const cacheId = `${texture.baseTexture.uid}@${texture.frame.x}:${texture.frame.y}`
     let renderTexture = GameObject.SHADOW_CACHE[cacheId]

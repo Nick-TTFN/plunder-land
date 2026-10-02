@@ -19,6 +19,7 @@ import Timers from './timers'
 import type Throwable from './throwable'
 import { CellIndex } from '../utils/cellindex'
 import { carveValleys, encodeRuns } from './valleys'
+import { placeWalls } from './walls'
 // Read inside functions only (the interest bucket size): multiplayer imports
 // this module, so its default export is not defined yet while this one loads.
 import Multiplayer from '../network/multiplayer'
@@ -138,6 +139,15 @@ export default class World {
    */
   VOIDS: Map<number, Set<number>> = new Map()
   VOID_RUNS: Map<number, number[]> = new Map()
+
+  /**
+   * Each layer's walls (`walls.ts`, decision #44): blocked with no blocker in
+   * `BLOCKED`, like void, and kept apart here for what treats them
+   * differently (Hopper walks through them; they stop shots). `WALL_RUNS` is
+   * the set run-length encoded for `hello.walls`, built once.
+   */
+  WALLS: Map<number, Set<number>> = new Map()
+  WALL_RUNS: Map<number, number[]> = new Map()
 
   /**
    * Rocks, stone-wall stones, portals, exits. Rocks and stones block their
@@ -526,6 +536,10 @@ export default class World {
   static set VOIDS (value: Map<number, Set<number>>) { World.current.VOIDS = value }
   static get VOID_RUNS (): Map<number, number[]> { return World.current.VOID_RUNS }
   static set VOID_RUNS (value: Map<number, number[]>) { World.current.VOID_RUNS = value }
+  static get WALLS (): Map<number, Set<number>> { return World.current.WALLS }
+  static set WALLS (value: Map<number, Set<number>>) { World.current.WALLS = value }
+  static get WALL_RUNS (): Map<number, number[]> { return World.current.WALL_RUNS }
+  static set WALL_RUNS (value: Map<number, number[]>) { World.current.WALL_RUNS = value }
   static get OBSTACLES (): GameObject[] { return World.current.OBSTACLES }
   static set OBSTACLES (value: GameObject[]) { World.current.OBSTACLES = value }
   static get PROJECTILES (): Throwable[] { return World.current.PROJECTILES }
@@ -614,6 +628,18 @@ export default class World {
       }
       for (let n = 0; n < layer.exits; n++) this.placeGate(layer.tag, undefined)
     })
+
+    // The walls last, on the ground the valleys left, clear of every gate's
+    // disc (and so of every arrival cell).
+    for (const layer of World.LAYERS) {
+      const voids = World.VOIDS.get(layer.tag) ?? new Set<number>()
+      const walls = placeWalls(size, voids, World.gateKeepOut(layer.tag), layer.wallShare)
+      for (const cell of Hex.mapCells(size)) {
+        if (walls.has(Hex.key(cell.x, cell.y))) World.block(cell.x, cell.y, layer.tag, null)
+      }
+      World.WALLS.set(layer.tag, walls)
+      World.WALL_RUNS.set(layer.tag, encodeRuns(walls, size))
+    }
   }
 
   /**

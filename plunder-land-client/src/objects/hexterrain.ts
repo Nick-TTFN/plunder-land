@@ -82,8 +82,8 @@ export class HexTerrain extends Container {
   /** What an unknown cell is drawn as instead of its face. */
   private readonly outline: Texture
   /** The edge fade's halves, under a lower-left and a lower-right edge. */
-  private readonly fadeLeft: Texture
-  private readonly fadeRight: Texture
+  readonly fadeLeft: Texture
+  readonly fadeRight: Texture
   /** Back to front: the unknown cells' outlines, the edge fades, the faces. */
   private readonly voids = new Container()
   private readonly fades = new Container()
@@ -293,8 +293,8 @@ export class HexTerrain extends Container {
     return (r << 16) | (g << 8) | bl
   }
 
-  /** The face this cell always wears: its region's palette, indexed by its hash. */
-  private faceOf (q: number, r: number): Texture {
+  /** The face this cell always wears: its region's palette, indexed by its hash. Walls wear it too (`Walls`). */
+  faceOf (q: number, r: number): Texture {
     const x = Hex.SIZE * (q + r / 2)
     const y = HexTerrain.ROW_PITCH * r
     const span = Hex.SIZE * HexTerrain.REGION_CELLS

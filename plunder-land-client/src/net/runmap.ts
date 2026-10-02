@@ -46,6 +46,8 @@ export class RunMap {
   blocked = new Map<number, Set<number>>()
   /** Each layer's valleys by tag, from `hello.voids` (`Session.voids`). */
   voids = new Map<number, Set<number>>()
+  /** Each layer's walls by tag, from `hello.walls` (`Session.walls`, decision #44). Blocked like the valleys. */
+  walls = new Map<number, Set<number>>()
   /** Portals per layer: `Hex.key` of the portal's cell to the tag it leads to. */
   portals = new Map<number, Map<number, number>>()
 
@@ -53,6 +55,7 @@ export class RunMap {
   reset (): void {
     this.blocked = new Map()
     this.voids = new Map()
+    this.walls = new Map()
     this.portals = new Map()
   }
 
@@ -61,10 +64,15 @@ export class RunMap {
     this.voids = new Map(layers.map((tag, i) => [tag, voids[i] ?? new Set<number>()]))
   }
 
-  /** True if the cell is a valley or blocked on `tag`. The map edge is the caller's (`Game.isBlocked`). */
+  /** The walls from a `hello`: `walls[i]` is layer `layers[i]`'s. Replaces any before. */
+  setWalls (layers: readonly number[], walls: ReadonlyArray<Set<number>>): void {
+    this.walls = new Map(layers.map((tag, i) => [tag, walls[i] ?? new Set<number>()]))
+  }
+
+  /** True if the cell is a valley, a wall or blocked on `tag`. The map edge is the caller's (`Game.isBlocked`). */
   has (q: number, r: number, tag: number): boolean {
     const key = Hex.key(q, r)
-    return this.voids.get(tag)?.has(key) === true || this.blocked.get(tag)?.has(key) === true
+    return this.voids.get(tag)?.has(key) === true || this.walls.get(tag)?.has(key) === true || this.blocked.get(tag)?.has(key) === true
   }
 
   block (q: number, r: number, tag: number): void {

@@ -18,3 +18,20 @@ export function layShadow (shadow: Container, scaleX = 1, scaleY = 1): void {
   shadow.skew.set(SHADOW_SKEW, 0)
   shadow.scale.set(scaleX, -Math.abs(scaleY) * SHADOW_LENGTH)
 }
+
+/**
+ * Where the shadow of a point `height` px above the ground falls, relative to
+ * the point under it: what `layShadow` does to a silhouette's top, so a
+ * shadow drawn as an offset (walls, portal and exit pads) leans the same way
+ * as every laid silhouette. Mostly down, a little right.
+ */
+export function shadowOffset (height: number): { x: number, y: number } {
+  return { x: Math.sin(SHADOW_SKEW) * SHADOW_LENGTH * height, y: Math.cos(SHADOW_SKEW) * SHADOW_LENGTH * height }
+}
+
+/**
+ * How far a portal or exit pad stands off the ground, for its offset shadow
+ * (Nick, 2026-10-02: "offset copy underneath for portals"). Claude's pick:
+ * the pads are thin.
+ */
+export const PAD_HEIGHT = 6

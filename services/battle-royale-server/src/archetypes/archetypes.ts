@@ -409,6 +409,12 @@ export interface LayerSpec {
    * pass, 2026-09-27).
    */
   voidShare: number
+  /**
+   * The share of the free ground (what the valleys leave) walled off in short
+   * raised runs (`walls.ts`, decision #44): cover that blocks every robot but
+   * Hopper, and every shot. Provisional, 2026-10-01.
+   */
+  wallShare: number
   /** Natural pickups only. Death drops are uncapped and expire on their own. */
   naturalLoot: number
   exits: number
@@ -454,6 +460,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     tag: 0,
     lootMultiplier: 1,
     voidShare: 1 / 3,
+    wallShare: 0.06,
     naturalLoot: 150,
     exits: 4,
     extractMs: 5000,
@@ -473,6 +480,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     tag: -1,
     lootMultiplier: 1.75,
     voidShare: 1 / 3,
+    wallShare: 0.06,
     naturalLoot: 150,
     exits: 4,
     extractMs: 7000,
@@ -492,6 +500,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     tag: -2,
     lootMultiplier: 3,
     voidShare: 1 / 3,
+    wallShare: 0.06,
     naturalLoot: 150,
     exits: 4,
     extractMs: 9000,

@@ -21,6 +21,7 @@ import { Throwable, PROJECTILE } from './objects/throwable'
 import { Portal } from './objects/portal'
 import TWEEN from '@tweenjs/tween.js'
 import { HexTerrain } from './objects/hexterrain'
+import { Walls } from './objects/walls'
 import { Fog, SEEN, LAYER_TINT } from './objects/fog'
 import { TILT, TiltedContainer, onGround } from './objects/tilt'
 import Mob from './objects/mob'
@@ -68,6 +69,8 @@ export class Game extends Container {
   LOOKUP: Record<string, GameObject> = {}
   /** The drawn ground of each layer, parallel to `layers`. */
   terrains: HexTerrain[] = []
+  /** Each plane's walls, in `tags` order like `terrains`. */
+  walls: Walls[] = []
   /** Draws the route the local player is walking. */
   pathMarker: PathMarker | undefined
   /** Red cells under the mobs that can reach you (world-markers). */
@@ -135,6 +138,11 @@ export class Game extends Container {
    */
   static get VOIDS (): Map<number, Set<number>> {
     return Game.MAP.voids
+  }
+
+  /** Each layer's walls by tag, from `hello.walls` (decision #44): blocked for routing, drawn by `Walls`. */
+  static get WALLS (): Map<number, Set<number>> {
+    return Game.MAP.walls
   }
 
   static isBlocked (q: number, r: number, tag: number | undefined): boolean {
@@ -241,6 +249,7 @@ export class Game extends Container {
     this.tags = undefined
     this.layers = undefined
     this.terrains = []
+    this.walls = []
 
     // Parented in update(), not here: it belongs to whichever plane the player
     // is standing on, and a portal moves them between planes mid-run.
@@ -302,10 +311,14 @@ export class Game extends Container {
   onHello (data: Parameters<typeof Session.onHello>[0]): void {
     Session.onHello(data)
     Game.MAP.setVoids(Session.layers, Session.voids)
+    Game.MAP.setWalls(Session.layers, Session.walls)
     // A later hello (a new run, or a reconnect to a restarted server) may
     // bring a different map: redraw the ground's fog over it.
     for (const terrain of this.terrains) terrain.retint()
-    if (this.layers != null) return
+    if (this.layers != null) {
+      this.placeWalls()
+      return
+    }
 
     this.tags = [...Session.layers]
     this.terrains = []
@@ -324,6 +337,17 @@ export class Game extends Container {
       layer.sortableChildren = true
       Game.CONTAINER.addChild(layer)
     }
+    this.walls = this.layers.map((layer, i) => new Walls(layer, this.terrains[i], LAYER_TINT[Math.min(i, LAYER_TINT.length - 1)]))
+    this.placeWalls()
+  }
+
+  /** Each plane's walls from `Game.WALLS`, under the fog as it stands. */
+  private placeWalls (): void {
+    this.walls.forEach((walls, i) => {
+      const tag = this.tags?.[i]
+      walls.set(tag !== undefined ? Game.WALLS.get(tag) : undefined, Session.mapSize)
+      walls.retint((q, r) => Game.FOG.state(q, r, tag))
+    })
   }
 
   onObjectsCreated (data: ArrayBuffer): void {
@@ -1068,6 +1092,11 @@ export class Game extends Container {
         // from the airborne plane, which is gone.
         this.terrains[i]?.update(Game.PLAYER.x, Game.PLAYER.y, screen.width, screen.height)
         if (fogMoved) this.terrains[i]?.retint()
+        // Every frame, not only when the fog moves: the fog's radius arrives
+        // with the own create, after the hello that placed the walls, and a
+        // wall shown before it stayed shown through fog. ~300 lookups.
+        const tag = this.tags?.[i]
+        this.walls[i]?.retint((q, r) => Game.FOG.state(q, r, tag))
       }
     }
   }

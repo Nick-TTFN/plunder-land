@@ -1,5 +1,5 @@
 import { GameObject } from './gameobject'
-import { Graphics, Sprite, Texture } from 'pixi.js'
+import { Sprite, Texture } from 'pixi.js'
 
 /**
  * A loot crystal. Its size says what it is worth (art pass 2026-09-28): the
@@ -26,14 +26,14 @@ export class Consumable extends GameObject {
     this.loot = loot
     const texture = Consumable.textureFor(loot)
 
-    // A contact shadow rather than a silhouette of the sprite: the crystal's
-    // baked glow would come out as a dark smear.
-    const w = texture.frame.width * 0.35
-    const shadow = new Graphics().beginFill(0x000000, 0.3).drawEllipse(0, 0, w, w * 0.4).endFill()
-    this.addChild(shadow)
-
     // At its baked size, on its baked ground point (the frame's anchor).
     this.main = new Sprite(texture)
+    // A cast shadow like a stone's, laid to the bottom right (Nick,
+    // 2026-10-02: "skewed silhouette for loot"). It was a contact ellipse,
+    // for fear the crystal's baked glow would come out as a dark smear.
+    const shadow = this.createShadow(texture)
+    shadow.y = -(1 - this.main.anchor.y) * texture.frame.height
+    this.addChild(shadow)
     this.addChild(this.main)
 
     this.DEBUG_DRAW_COLLIDER()

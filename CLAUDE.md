@@ -242,6 +242,24 @@ any more (`World.isRock` still tells StoneWall stones apart for the bomb). **Kno
 still step greedily (`Unit.chooseStep`) and stall on valley edges; real mob pathing was
 deferred on 2026-09-27.
 
+**Walls inside the islands** (decision #44, 2026-10-01; step 1 of 3 built: generation, wire, routing,
+placeholder drawing). `src/objects/walls.ts` (server) puts straight runs of 2-5 cells on the ground the
+valleys leave, `LAYERS.wallShare` of it (0.06, provisional), after the gates so they keep out of
+`World.gateKeepOut`; segments never touch, and one that would cut the ground apart or need a detour of
+more than `DETOUR_RINGS` (10) is refused (`walls.spec.ts`). About 5 ms a layer; a whole-layer flood fill
+per segment was 140. Wall cells are in `World.BLOCKED` with a null blocker, like void, so mobs, spawns,
+drops and StoneWall avoid them with no other change, and in `World.WALLS` for what will treat them
+differently. **Mobs keep greedy stepping and may stall on a wall; accepted** (Nick: mobs are noise in a
+PvP free-for-all). They reach the client as **`hello.walls`**, run lengths like `hello.voids`
+(additive; client first), into `Game.WALLS` (`RunMap.walls`, blocked for routing), and are drawn by
+`src/objects/walls.ts` (client) from the ground's own art (Nick: "use same tiles and wall drop offs"):
+per cell, the face its ground cell wears (`HexTerrain.faceOf`) lifted `Walls.HEIGHT` 11 px (60% of the
+first 18, Nick), a faint white over it (`Walls.HIGHLIGHT`, so it reads lighter than the floor; a tint can
+only darken), the edge drop-offs (`fade_left`/`fade_right`) hung under it at full strength, and its hex
+swept along `shadowOffset` as its shadow;
+sorted by `y` with the units, shown and tinted by the fog every frame. **Not built yet:** Hopper walking through walls and standing on them (step 2), and walls
+stopping shots (step 3).
+
 **The camera is tilted, in drawing only** (`src/objects/tilt.ts`, tile art pass 2026-09-27).
 `Game.CONTAINER.scale.y = TILT` (about 0.924: the art's 0.93 rounded so a tilted row is exactly 36 px; 0.744 until the flat-tile pass), so a world `y` draws at `y * TILT`; rules, wire and
 server stay on the regular top-down grid, and `toLocal` undoes the squash for the pointer and
@@ -329,7 +347,7 @@ as a bounce: only the landing squash, the push-off and the flight, 1.0-1.07 then
 The eye smiles for `Player.LOOT_SMILE_S` (0.5 s, Nick) on a loot gain (not the first loot seen for a
 robot coming into view); as in the drop's preview, a change of expression is a blink with the eye
 swapped 0.06 s in, and auto-blink pauses while smiling (`RobotSprite.smile`).
-Jump is unused (Nick). **Cast shadows fall to the bottom right** (Nick, 2026-10-01; they leaned up-left), all through `objects/shadow.ts` (`layShadow`): mobs, StoneWall stones, and in game the rigged robots, whose shadow is every part again in black under one `AlphaFilter` (`RobotSprite.cast`, a render pass per robot on screen; not in the lobby). The drop's contact ellipse stays under the feet. Your own robot's head and eye follow the mouse (`Player.aimAt` from
+Jump is unused (Nick). **Cast shadows fall to the bottom right** (Nick, 2026-10-01; they leaned up-left), all through `objects/shadow.ts` (`layShadow`): mobs, StoneWall stones, loot and items (silhouettes since 2026-10-02; they were contact ellipses), and in game the rigged robots, whose shadow is every part again in black under one `AlphaFilter` (`RobotSprite.cast`, a render pass per robot on screen; not in the lobby). The drop's contact ellipse stays under the feet. What is drawn as an offset instead of a laid silhouette leans the same way through `shadowOffset(height)`: walls, and portal and exit pads (a black copy `PAD_HEIGHT` 6 px down-right under them, Claude's pick). Your own robot's head and eye follow the mouse (`Player.aimAt` from
 `Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
 down are accepted dead zones; no mouse over the world gives facing back to movement. Other
 players aim only in actions: aim isn't on the wire.

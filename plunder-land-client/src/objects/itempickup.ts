@@ -22,15 +22,18 @@ export class ItemPickup extends GameObject {
     if (radius !== undefined) this.radius = radius
     const r = this.radius
 
-    // A shadow, so it reads as lying on the ground like the loot does.
-    this.addChild(new Graphics().beginFill(0x000000, 0.3).drawEllipse(0, 0, r * 0.75, r * 0.3).endFill())
-
     const art = info !== undefined ? ART[info.key] : undefined
     if (art !== undefined) {
-      // At its baked size on its baked ground point (the frame's anchor).
-      this.main = new Sprite(Texture.from(art.ground))
+      // At its baked size on its baked ground point (the frame's anchor), with
+      // a cast shadow like the loot's.
+      const texture = Texture.from(art.ground)
+      this.main = new Sprite(texture)
+      const shadow = this.createShadow(texture)
+      shadow.y = -(1 - this.main.anchor.y) * texture.frame.height
+      this.addChild(shadow)
       this.addChild(this.main)
     } else {
+      this.addChild(new Graphics().beginFill(0x000000, 0.3).drawEllipse(0, 0, r * 0.75, r * 0.3).endFill())
       this.addChild(new Graphics().lineStyle(2, 0x000000, 1).beginFill(0x9a9a9a).drawCircle(0, -r * 0.6, r * 0.6).endFill())
     }
     this.DEBUG_DRAW_COLLIDER()

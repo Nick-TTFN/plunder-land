@@ -1,6 +1,7 @@
 import { GameObject } from './gameobject'
 import { Sprite, Texture } from 'pixi.js'
 import { namePlate } from '../ui/elements/nameplate'
+import { PAD_HEIGHT, shadowOffset } from './shadow'
 
 export class Portal extends GameObject {
   /**
@@ -19,6 +20,11 @@ export class Portal extends GameObject {
     this.radius = radius
     const texture = Texture.from('map/portal.png')
     this.main = new Sprite(texture)
+    // Its shadow: a black copy offset under it the way every shadow falls.
+    const shadow = this.createSilhouette(texture)
+    const offset = shadowOffset(PAD_HEIGHT)
+    shadow.position.set(offset.x, offset.y)
+    this.addChild(shadow)
     this.addChild(this.main)
 
     const arrow = new Sprite(Texture.from(up ? 'map/portal_up.png' : 'map/portal_down.png'))
