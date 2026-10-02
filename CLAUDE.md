@@ -191,11 +191,22 @@ numbers in `LAYERS`) are checked by the world specs, not by a join.
 
 ## Bundle size
 
-Main JS, 2026-10-02 after the SDK cleanup: **758 KB** parsed, 225 KB gzipped (889 / 259 before;
+Main JS, 2026-10-02 with Sentry: **847 KB** parsed, 254 KB gzipped (Sentry is +89 / +30 of that;
+758 / 225 after the SDK cleanup that morning, 889 / 259 before it;
 it was 699 on 2026-09-08, before the arena, ground, rigs and lobby). Measure with
 `npm run build` and read `dist/main.*.js`; `ANALYZE=1 npm run build` also writes
 `dist/report.html` (webpack-bundle-analyzer) for a breakdown. It is no longer written by
 default, because the site published it.
+
+**Errors go to Sentry** (decision #46; EU region): `src/errors.ts` in both packages. The
+client reports only in production builds and not with `?server=`; its DSN (a public key) is in
+the source and its release is `WORKERS_CI_COMMIT_SHA`. The server reports when `SENTRY_DSN` is
+set (Railway), from the four places that catch errors so the world keeps running: the loop,
+each world's tick, timers and `guarded` socket handlers. No user fields, IPs, cookies or headers
+(`dataCollection`, which replaced `sendDefaultPii` in v11), no tracing; a budget of 30 events
+per 10 min (server) and 20 per page load (client). The server SDK costs about 25-30 MB of RSS.
+Source maps are not uploaded: Sentry fetches the public `.map` of the deployed build, so a
+stack from an older deploy can't be mapped once a newer one replaces it.
 
 **The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
 It was `firebase/app` + `firebase/analytics`, about 96 KB parsed with its `tslib` and `idb`;

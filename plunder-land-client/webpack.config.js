@@ -25,7 +25,13 @@ module.exports = (env, options) => {
       hints: false
     },
     plugins: [
-      new DefinePlugin({ __SERVER_URL__: JSON.stringify(serverUrl) }),
+      new DefinePlugin({
+        __SERVER_URL__: JSON.stringify(serverUrl),
+        // src/errors.ts: Sentry only in production builds, tagged with the
+        // commit Cloudflare's Workers Builds checked out ('' elsewhere).
+        __PRODUCTION__: JSON.stringify(options.mode === 'production'),
+        __RELEASE__: JSON.stringify(process.env.WORKERS_CI_COMMIT_SHA ?? '')
+      }),
       // dist/report.html only when asked for (ANALYZE=1 npm run build): built
       // every time, it was published with the site.
       ...(process.env.ANALYZE === '1' ? [new BundleAnalyzerPlugin({ analyzerMode: 'static', openAnalyzer: false })] : []),

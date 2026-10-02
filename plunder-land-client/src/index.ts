@@ -1,3 +1,5 @@
+// First, so errors from everything after it are reported (src/errors.ts).
+import { initErrorReporting } from './errors'
 import TWEEN from '@tweenjs/tween.js'
 import * as io from 'socket.io-client'
 import { framedParser } from './net/framedparser'
@@ -11,6 +13,8 @@ import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
+
+initErrorReporting()
 
 // The stats.js developer overlay (fps, socket bytes), only with ?stats=1. It
 // sat on top of the HUD's status panel for every player (hud-rebuild, M2), so

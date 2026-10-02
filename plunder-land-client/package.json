@@ -11,6 +11,7 @@
   "author": "Nick Balyanitsa",
   "license": "ISC",
   "dependencies": {
+    "@sentry/browser": "^11.2.0",
     "@tweenjs/tween.js": "^18.5.0",
     "pixi.js": "^7.2.4",
     "socket.io-client": "^4.6.1",

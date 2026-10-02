@@ -1,3 +1,5 @@
+import { reportError } from '../errors'
+
 /** One scheduled callback. Opaque to callers except as a handle for `cancel`. */
 export interface Timer {
   readonly due: number
@@ -158,7 +160,7 @@ export default class Timers {
       try {
         timer.fn()
       } catch (e) {
-        console.error('timer', e)
+        reportError('timer', e)
       }
     }
   }

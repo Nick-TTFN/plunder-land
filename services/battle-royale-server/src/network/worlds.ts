@@ -3,6 +3,7 @@ import type Redis from 'ioredis'
 import Multiplayer, { type Connection } from './multiplayer'
 import World from '../objects/world'
 import { PROTOCOL } from '../utils/protocol'
+import { reportError } from '../errors'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -186,7 +187,7 @@ export default class Worlds {
           world.update(dt)
           world.multiplayer?.flushAll(this.tick, dtMs)
         } catch (e) {
-          console.error('tick', e)
+          reportError('tick', e)
         }
       })
     }

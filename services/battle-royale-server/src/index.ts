@@ -1,3 +1,4 @@
+import { flushErrors, initErrorReporting, reportError } from './errors'
 import { Server } from 'socket.io'
 import http from 'http'
 import Multiplayer from './network/multiplayer'
@@ -5,6 +6,7 @@ import Worlds from './network/worlds'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
+initErrorReporting()
 startGame()
 
 function startGame (): void {
@@ -56,7 +58,8 @@ function startGame (): void {
         setTimeout(quitWhenClosed, 50)
         return
       }
-      redis.quit().catch(() => {}).finally(() => process.exit(0))
+      // Sentry's queue too, inside the same 5 s.
+      Promise.allSettled([redis.quit(), flushErrors(2000)]).finally(() => process.exit(0))
     }
     quitWhenClosed()
   }
@@ -125,7 +128,7 @@ function startGame (): void {
       try {
         worlds.tickAll(dtMs)
       } catch (e) {
-        console.error('tick', e)
+        reportError('loop', e)
       }
 
       if (drainDeadline !== undefined && !stopping) {

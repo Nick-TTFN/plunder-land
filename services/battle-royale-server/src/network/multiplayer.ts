@@ -7,6 +7,7 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import Redis from 'ioredis'
 import { Stats } from '../objects/player'
+import { captureError } from '../errors'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -360,7 +361,9 @@ export default class Multiplayer {
     try {
       fn()
     } catch (e) {
+      // The log is throttled; Sentry gets each one (within its own budget).
       Multiplayer.HANDLER_LOG.report(e)
+      captureError('handler', e)
     }
   }
 
