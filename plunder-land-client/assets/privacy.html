@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plunderland: Privacy</title>
+  <!-- Decision #46. Keep it true to what the game does: change it with any new
+       data, processor or storage key (src/errors.ts, server src/analytics.ts,
+       the lobby's plunderland_* keys). The operator is TO BE REVIEWED after
+       branding (L8). -->
+  <style>
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url('/res/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+      font-weight: 400;
+    }
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; background: #0b1622; color: #c8d6e2;
+      font: 15px/1.65 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    }
+    main { max-width: 720px; margin: 0 auto; padding: 48px 16px 64px; }
+    h1 { font-size: 26px; letter-spacing: .12em; color: #eef5fb; margin: 0 0 4px; }
+    h2 { font-size: 15px; letter-spacing: .1em; text-transform: uppercase; color: #5fe0cf; margin: 32px 0 8px; }
+    .updated { color: #7f95a8; margin: 0 0 24px; }
+    p, li { margin: 0 0 10px; }
+    ul { padding-left: 20px; }
+    b { color: #eef5fb; font-weight: 400; }
+    a { color: #5fe0cf; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PLUNDERLAND: PRIVACY</h1>
+  <p class="updated">Last updated: 2 October 2026</p>
+
+  <h2>Who runs it</h2>
+  <p>Plunderland is run by <b>TTFN</b>. Contact: <a href="mailto:nick.ttfn@gmail.com">nick.ttfn@gmail.com</a>.</p>
+
+  <h2>No accounts, no cookies, no ads</h2>
+  <p>You don't sign up, and we don't sell or share your data for advertising.</p>
+
+  <h2>What we keep, and why</h2>
+  <ul>
+    <li><b>A player id</b>: a random code your browser creates the first time you play. It keeps your stats together and isn't linked to who you are.</li>
+    <li><b>The name you choose.</b> Other players see it during play and on the in-game leaderboard. A name containing a profanity is replaced with a random callsign.</li>
+    <li><b>Your stats</b>: runs played, time played, loot, kills and the day of your first run, stored with your player id on our game server in the EU. These stats (without names) are published on the game's public stats page.</li>
+    <li><b>Gameplay analytics.</b> When a run starts and ends, our server tells Google Analytics: robot, run number, days since your first run, players in the world, time to first loot, how the run ended, its length, loot, kills and deepest layer. They're keyed by your player id and collected in Google's EU region. Your browser never contacts Google.</li>
+    <li><b>Error reports.</b> If the game crashes, a report goes to Sentry (servers in Germany): the error, the browser and operating system, and the game version. We've turned off collection of IP addresses, cookies and request headers.</li>
+    <li><b>Connections.</b> Our server sees your IP address to connect you but doesn't store it. Our hosting providers keep standard access logs.</li>
+  </ul>
+
+  <h2>In your browser</h2>
+  <p>Local storage holds your player id, name, robot and colours; session storage holds a counter used when the game updates itself. Clearing this site's data gives you a new id.</p>
+
+  <h2>Who processes it</h2>
+  <p>Cloudflare (the website), Railway (the game server, Amsterdam), Google Analytics, and Sentry.</p>
+
+  <h2>How long</h2>
+  <p>Stats until you ask us to delete them. Analytics: 14 months. Error reports: Sentry's retention for our plan.</p>
+
+  <h2>Your rights</h2>
+  <p>You can ask to see or delete your data. Email us your player name and roughly when you played, and we'll find and delete it.</p>
+
+  <h2>Children</h2>
+  <p>We don't ask anyone for personal information, including children.</p>
+
+  <h2>Changes</h2>
+  <p>Changes will be posted on this page.</p>
+</main>
+</body>
+</html>

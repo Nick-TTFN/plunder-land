@@ -84,6 +84,8 @@ export const LOBBY_CSS = `
   box-shadow: 0 0 22px rgba(255,181,71,.45); }
 .lb-ready:hover { filter: brightness(1.08); }
 .lb-keys { position: absolute; left: 44px; bottom: 50px; font-size: 13px; letter-spacing: .1em; color: #a9bccd; }
+.lb-privacy { position: absolute; left: 52px; bottom: 18px; font-size: 11px; letter-spacing: .12em; color: #7f95a8; text-decoration: none; pointer-events: auto; }
+.lb-privacy:hover { color: #5fe0cf; }
 .lb-keys kbd { display: inline-block; min-width: 18px; padding: 3px 6px; margin: 0 4px 0 8px; border: 1px solid #3a5266; border-radius: 4px;
   font-family: inherit; color: #E6EEF5; text-align: center; }
 @media (max-width: 1300px) {
@@ -109,6 +111,7 @@ export const LOBBY_CSS = `
   .lb-brand { font-size: 15px; letter-spacing: .2em; }
   .lb-tabs { display: none; }
   .lb-heading, .lb-arrow, .lb-keys { display: none; }
+  .lb-privacy { left: auto; bottom: auto; right: 16px; top: 19px; }
   .lb-pill { top: 64px; }
   .lb-plate { width: 100%; }
   .lb-robot { font-size: 34px; }

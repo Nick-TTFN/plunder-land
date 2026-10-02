@@ -121,6 +121,16 @@ test('"YOU" is reserved, in any case, because every client labels its own robot 
   assert.equal(Player.sanitiseName('YOUR MUM'), 'YOUR MUM')
 })
 
+test('a profane name is no name, so the player gets a callsign; innocent words that contain one survive', () => {
+  for (const name of ['fuck', 'sh1t', 'a55hole', 'fuuuck', 'Fück', 'ｆｕｃｋ', 'fu ck', 'motherfucker', 'wh0re']) {
+    assert.equal(Player.sanitiseName(name), '', name)
+    assert.match(Player.displayName(name, 'abc123'), /^[A-Z]+-\d{2}$/, name)
+  }
+  for (const name of ['Cassandra', 'Scunthorpe', 'assassin', 'Dickens', 'Hancock', 'cocktail', 'Sussex', 'arsenal', 'Peep']) {
+    assert.equal(Player.sanitiseName(name), name, name)
+  }
+})
+
 test('ordinary names from other scripts survive untouched', () => {
   for (const name of ['NOVA', 'Zo' + cp(0xEB), cp(0x6771, 0x4EAC), cp(0x141) + 'ukasz', 'd' + cp(0x0301) + 'j', 'x_X-99']) {
     assert.equal(Player.sanitiseName(name), name.normalize('NFKC'))

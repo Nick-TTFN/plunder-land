@@ -14,6 +14,7 @@ import { itemForSlot, useItem } from '../items/use'
 import type Consumable from './consumable'
 import type ItemPickup from './itempickup'
 import Analytics from '../analytics'
+import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'obscenity'
 
 export class Stats {
   kills?: number
@@ -596,8 +597,16 @@ export default class Player extends Unit {
     name = name.replace(/[\s\p{Z}]+/gu, ' ').trim()
     name = Array.from(name).slice(0, Player.NAME_MAX).join('').trim()
     if (Player.RESERVED_NAMES.includes(name.toUpperCase())) return ''
+    // Profanity (decision #46): the whole name goes, and `displayName` gives
+    // the player their callsign. Catches leetspeak, look-alikes, stretched and
+    // spaced-out words; misses letters split by dots, and takes "Penistone"
+    // and "pussycat" (measured 2026-10-02).
+    if (Player.PROFANITY.hasMatch(name)) return ''
     return name
   }
+
+  /** obscenity's English set; built once. */
+  static readonly PROFANITY = new RegExpMatcher({ ...englishDataset.build(), ...englishRecommendedTransformers })
 
   /** `sanitiseName`, falling back to the id's callsign when nothing is left. */
   static displayName (raw: unknown, playerId: string): string {

@@ -40,6 +40,11 @@ module.exports = (env, options) => {
           {
             from: 'assets/res',
             to: 'res'
+          },
+          // Served at /privacy by the Worker (decision #46).
+          {
+            from: 'assets/privacy.html',
+            to: 'privacy.html'
           }
         ]
       }),

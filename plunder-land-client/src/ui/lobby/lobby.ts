@@ -246,6 +246,8 @@ export default class Lobby extends Container {
     const ready = el('button', 'lb-ready', 'READY UP \u203A')
     ready.onclick = () => { this.ready() }
     this.root.append(ready)
+    // Portals ask for it, and it is what the game collects (decision #46).
+    this.root.append(Object.assign(el('a', 'lb-privacy'), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'PRIVACY' }))
     this.root.append(Object.assign(el('div', 'lb-keys'), {
       innerHTML: '<kbd>&larr;</kbd><kbd>&rarr;</kbd> SWITCH <kbd>E</kbd> EDIT <kbd>ENTER</kbd> READY'
     }))
