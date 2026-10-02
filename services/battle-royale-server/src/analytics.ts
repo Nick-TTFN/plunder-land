@@ -27,7 +27,9 @@ import type Redis from 'ioredis'
  *   made up for one connection and has no history, and nothing is written
  *   to Redis for it. Added with guest accounts.
  *
- * `client_id` is the player's persistent per-browser id; each run is its own
+ * `client_id` is the player id: since guest accounts (decision #48) the
+ * account's `publicId` (16 hex, issued by the server), or a made-up id for
+ * one connection on an offline run (`offline: 1`). Each run is its own
  * GA session (`session_id`, the run's start in seconds). GA's own "new" and
  * "returning" user counts need events that only its web tag sends, so return
  * is read from `run_number` and `days_since_first`. The first run's day is

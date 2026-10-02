@@ -91,6 +91,20 @@ export default class Worlds {
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
+  /**
+   * Sentry hears of account failures once per stretch of them, not once per
+   * connection: a database outage fails every join, and Sentry's budget is
+   * 30 events per 10 min (errors.ts). The first failure after a success is
+   * sent; while failures go on, one more every `ACCOUNTS_REPORT_MS`. The
+   * console log above still sees each one, throttled.
+   */
+  static ACCOUNTS_REPORT_MS = 10 * 60_000
+  /** Where those reports go; specs replace it. */
+  static accountReport: (e: unknown) => void = (e) => { captureError('accounts', e) }
+  /** The clock for `ACCOUNTS_REPORT_MS`; specs replace it. */
+  static accountClock: () => number = () => Date.now()
+  /** When the current stretch of failures was last sent to Sentry; undefined after a success. */
+  private static accountReportedAt: number | undefined
 
   constructor (options: WorldsOptions) {
     this.tickLengthMs = options.tickLengthMs
@@ -208,6 +222,7 @@ export default class Worlds {
     if (token === undefined) return null
     try {
       const account = await this.bounded(this.accounts.resolve(token))
+      Worlds.accountSuccess()
       if (account !== null) this.setAccount(connection, account)
       return account
     } catch (e) {
@@ -251,10 +266,20 @@ export default class Worlds {
   }
 
   /** Never the token: errors from the store carry none, and nothing here adds it. */
-  private static accountFailure (e: unknown): void {
+  static accountFailure (e: unknown): void {
     Worlds.ACCOUNTS_LOG.report(e)
     // Not migrated yet is a state the store reports itself (open.ts), once.
-    if (!(e instanceof NotReadyError)) captureError('accounts', e)
+    if (e instanceof NotReadyError) return
+    const now = Worlds.accountClock()
+    const last = Worlds.accountReportedAt
+    if (last !== undefined && now - last < Worlds.ACCOUNTS_REPORT_MS) return
+    Worlds.accountReportedAt = now
+    Worlds.accountReport(e)
+  }
+
+  /** The store answered: the next failure starts a new stretch, and is reported. */
+  static accountSuccess (): void {
+    Worlds.accountReportedAt = undefined
   }
 
   /**
@@ -276,6 +301,7 @@ export default class Worlds {
       this.setAccount(connection, offlineAccount())
       return
     }
+    Worlds.accountSuccess()
     this.setAccount(connection, created.account, created.token)
   }
 

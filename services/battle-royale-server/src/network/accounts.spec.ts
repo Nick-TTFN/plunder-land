@@ -22,15 +22,24 @@ import { onAccount, readToken, handshakeAuth, TOKEN_KEY, type TokenStorage } fro
 
 let savedLog: ThrottledLog
 let failures: unknown[] = []
+let reported: unknown[] = []
+const savedReport = Worlds.accountReport
+const savedClock = Worlds.accountClock
 
 beforeEach(() => {
   savedLog = Worlds.ACCOUNTS_LOG
   failures = []
+  reported = []
   Worlds.ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000, () => Date.now(), (...args) => { failures.push(args) })
+  Worlds.accountReport = (e) => { reported.push(e) }
+  Worlds.accountSuccess()
 })
 
 afterEach(() => {
   Worlds.ACCOUNTS_LOG = savedLog
+  Worlds.accountReport = savedReport
+  Worlds.accountClock = savedClock
+  Worlds.accountSuccess()
   World.strict = false
 })
 
@@ -106,6 +115,8 @@ class TestStore implements AccountStore {
   mode: 'ok' | 'throw' | 'hang' | 'not-ready' = 'ok'
   /** Resolves `create` only when released (for "while pending" tests). */
   gate: Promise<void> | undefined
+  /** Holds `resolve` until it settles: resolves to go on, rejects to fail. */
+  resolveGate: Promise<void> | undefined
 
   private fail (): Promise<never> {
     if (this.mode === 'hang') return new Promise(() => {})
@@ -115,6 +126,7 @@ class TestStore implements AccountStore {
 
   async resolve (token: string): Promise<Account | null> {
     this.resolves++
+    if (this.resolveGate !== undefined) await this.resolveGate
     if (this.mode !== 'ok') return await this.fail()
     return await this.inner.resolve(token)
   }
@@ -302,6 +314,82 @@ test('a drain that lands between the lookup and the start still sends it on', as
   await settle()
   assert.equal(a.closed, true, 'not sent on')
   assert.equal(a.events('hello').length, 0, 'a run started on a draining server')
+})
+
+test('READY while a known token\'s lookup is in flight: the known account, no new one', async () => {
+  const store = new TestStore()
+  const known = await store.inner.create()
+  let release!: () => void
+  store.resolveGate = new Promise((resolve) => { release = resolve })
+  const worlds = makeWorlds(store)
+  const a = connect(worlds, 'a', { token: known.token })
+  a.start()
+  await settle()
+  assert.equal(a.connection.player, undefined, 'started before the lookup answered')
+  release()
+  await settle()
+  assert.deepEqual(a.events('account'), [{ id: known.account.publicId }], 'a second account (and token) was issued')
+  assert.equal(store.creates, 0)
+  assert.equal(a.events('hello').length, 1)
+  assert.equal(a.connection.player?.playerId, known.account.publicId)
+})
+
+test('READY while a lookup is in flight that then fails: offline, no creation, and the run plays', async () => {
+  const store = new TestStore()
+  const known = await store.inner.create()
+  let fail!: (e: Error) => void
+  store.resolveGate = new Promise((resolve, reject) => { fail = reject })
+  const worlds = makeWorlds(store)
+  const a = connect(worlds, 'a', { token: known.token })
+  a.start()
+  await settle()
+  fail(new Error('connection reset (stub)'))
+  await settle()
+  const accounts = a.events('account') as Array<{ id: string, token?: string, offline?: boolean }>
+  assert.equal(accounts.length, 1)
+  assert.equal(accounts[0].offline, true)
+  assert.equal(accounts[0].token, undefined)
+  assert.equal(store.creates, 0)
+  assert.equal(a.events('hello').length, 1, 'the run did not start')
+  assert.equal(a.connection.player?.playerId, accounts[0].id)
+})
+
+test('Sentry hears of account failures once per stretch, not once per connection', async () => {
+  let now = 0
+  Worlds.accountClock = () => now
+  const store = new TestStore()
+  store.mode = 'throw'
+  const worlds = makeWorlds(store)
+  for (let i = 0; i < 40; i++) {
+    connect(worlds, `c${i}`).start()
+    now += 1000
+  }
+  await settle()
+  assert.equal(failures.length >= 1, true, 'the log saw nothing')
+  assert.equal(reported.length, 1, `40 failures in 40 s sent ${reported.length} reports`)
+
+  // Still failing, a report interval later: one more.
+  now += Worlds.ACCOUNTS_REPORT_MS
+  connect(worlds, 'late').start()
+  await settle()
+  assert.equal(reported.length, 2)
+
+  // A success ends the stretch: the next failure is reported at once.
+  store.mode = 'ok'
+  connect(worlds, 'ok').start()
+  await settle()
+  store.mode = 'throw'
+  now += 1000
+  connect(worlds, 'again').start()
+  await settle()
+  assert.equal(reported.length, 3)
+
+  // Not migrated is the store's own report (open.ts): never sent from here.
+  Worlds.accountSuccess()
+  store.mode = 'not-ready'
+  connect(worlds, 'nr').start()
+  await settle()
+  assert.equal(reported.length, 3)
 })
 
 // --- failure: fail open, no grants ----------------------------------------------

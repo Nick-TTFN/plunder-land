@@ -19,9 +19,26 @@ import { storeContract } from './storecontract'
  *     node --test --require ts-node/register src/db/pgstore.spec.ts
  *
  * **Each test drops and recreates the `public` schema** of that database.
- * Never point it at anything but a throwaway container.
+ * Never point it at anything but a throwaway container. So it refuses (a
+ * failure, not a skip) any URL whose host isn't this machine
+ * (`isLocalDatabase`): a Railway URL pasted here would wipe every account.
  */
 const URL = process.env.TEST_DATABASE_URL
+
+/** The only hosts this spec will drop a schema on. */
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
+
+/** Whether `url` names a database on this machine; false for anything unparseable. */
+function isLocalDatabase (url: string): boolean {
+  let host: string
+  try {
+    host = new globalThis.URL(url).hostname
+  } catch {
+    return false
+  }
+  // WHATWG keeps the brackets on an IPv6 host.
+  return LOCAL_HOSTS.has(host.replace(/^\[(.*)\]$/, '$1').toLowerCase())
+}
 
 async function freshSchema (): Promise<void> {
   const client = new Client({ connectionString: URL })
@@ -49,10 +66,29 @@ function pgTest (name: string, fn: (t: TestContext) => Promise<void>): void {
       t.skip('TEST_DATABASE_URL not set')
       return
     }
+    // Before anything touches it: this spec drops the public schema.
+    assert.ok(isLocalDatabase(URL), 'TEST_DATABASE_URL is not on 127.0.0.1, localhost or ::1: refusing to drop its schema')
     await freshSchema()
     await fn(t)
   })
 }
+
+test('the spec refuses any database not on this machine (no database needed)', () => {
+  for (const url of ['postgres://postgres:spec@127.0.0.1:5439/postgres', 'postgres://p:s@localhost/x', 'postgresql://p:s@[::1]:5439/x', 'postgres://p:s@LOCALHOST:1/x']) {
+    assert.equal(isLocalDatabase(url), true, url)
+  }
+  for (const url of [
+    'postgres://postgres:secret@postgres.railway.internal:5432/railway',
+    'postgres://postgres:secret@monorail.proxy.rlwy.net:41234/railway',
+    'postgres://p:s@127.0.0.1.evil.example/x',
+    'postgres://p:s@10.0.0.5/x',
+    'postgres://p:s@postgres:5432/plunderland',
+    'not a url',
+    ''
+  ]) {
+    assert.equal(isLocalDatabase(url), false, url)
+  }
+})
 
 pgTest('migrations twice in a row apply once', async () => {
   const first = await withClient(async (client) => await migrate(client))
