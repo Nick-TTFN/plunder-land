@@ -89,6 +89,13 @@ export class Game extends Container {
   /** This run's facts for the end-of-run card (run-summary-card, M2). */
   static RUN = new RunRecord()
   /**
+   * Effects (types 0-4) whose originator this client does not hold, so
+   * nothing was drawn (`onEffect`). Expected since server fog (#48): effects
+   * still go by the 500 box, units only within vision + 1 ring. A counter,
+   * not a warning, which would fire constantly.
+   */
+  static EFFECTS_UNHELD = 0
+  /**
    * The object id a dead player watches (spectate, decision #47), from the
    * server's `spectate` event; undefined when not spectating.
    */
@@ -740,7 +747,9 @@ export class Game extends Container {
     }
 
     if (target === undefined) {
-      console.warn('target not found for effect', buffer)
+      // An originator in the fog: the server sends effects in its 500 box but
+      // units only in sight (#48). Counted, not warned.
+      Game.EFFECTS_UNHELD++
       return
     }
 
@@ -1062,6 +1071,10 @@ export class Game extends Container {
       const cell = Hex.toCell(new Vector(Game.LOCAL.x, Game.LOCAL.y))
       fogMoved = Game.FOG.update(cell.x, cell.y, Game.LOCAL.tag)
     } else if (watched !== undefined) {
+      // By the watched robot's vision, which is what the server sends it by
+      // (#48), not this player's own dead robot's. Here rather than in
+      // `onSpectate`, which can arrive before the watched unit's create.
+      Game.FOG.setRadius(watched.archetype?.vision ?? null)
       const cell = Hex.toCell(new Vector(watched.x, watched.y))
       fogMoved = Game.FOG.update(cell.x, cell.y, watched.tag)
       if (watched.tag !== undefined && watched.tag !== this.shownTag) this.updateLayerVisibility(watched.tag)

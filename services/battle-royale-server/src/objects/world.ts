@@ -9,7 +9,7 @@ import Portal from './portal'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob from './mob'
 import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item } from '../archetypes/archetypes'
-import { SELECTABLE_ROBOTS } from '../utils/archetypes'
+import { ARCHETYPE_INFO, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
 import Exit from './exit'
@@ -196,11 +196,12 @@ export default class World {
   )
 
   /**
-   * Players by layer and coarse square bucket, `Multiplayer.INTEREST_RADIUS`
-   * on a side: who might be sent an object's create, update or an effect
+   * Players by layer and coarse square bucket, `World.INTEREST_BUCKET` on a
+   * side: who might be sent an object's create, update or an effect
    * (`Multiplayer.create`, `update`, `effect`, `effectAt`). The 3 x 3 buckets
-   * around a point hold every player inside the interest box around it, so
-   * the box test itself is unchanged; this only stops it running against
+   * around a point hold every player whose view could contain it (server fog,
+   * #48: up to the largest robot's vision + 2 rings; the 500 box for effects),
+   * so the view test itself is unchanged; this only stops it running against
    * every connection. Membership is `PLAYERS`, kept by the same helpers as
    * `UNITS`. By layer since interest-filtered-broadcasts: every caller wants
    * one layer, and a layer change refiles the player (`unitMoved`).
@@ -243,21 +244,53 @@ export default class World {
     return Hex.key(cell.x, cell.y)
   }
 
+  /**
+   * The side of an `INTEREST` bucket, in world units: 630 with Periscope's
+   * vision of 11 (server fog, #48). A player's view reaches an object at most
+   * `vision` + `Multiplayer.VIEW_MARGIN_RINGS` + `VIEW_EXIT_RINGS` rings away
+   * (the leave radius, 13 for Periscope), cell to cell. East-west that is 45
+   * units a ring on this pointy-top grid (39 north-south), and each end may
+   * sit up to half a cell (22.5) off its cell's centre, so the reach is at
+   * most (vision + 3) * `Hex.SIZE` on either axis, and one bucket of that
+   * size each way covers it. Never less than the 500 box
+   * (`Multiplayer.INTEREST_RADIUS`), which effects and a viewer with no vision
+   * use. Derived from the largest vision in the mirrored archetype table, so
+   * a robot that sees further widens it; `interest.spec.ts` checks the cover
+   * with random off-centre positions. Rejected (#48 task): capping the view
+   * at the old box (Periscope would lose its 12th ring east-west only), and
+   * querying 5 x 5 buckets.
+   *
+   * A getter worked out on first use, because `Multiplayer` (the 500) is not
+   * defined yet while this module loads.
+   */
+  static get INTEREST_BUCKET (): number {
+    if (World._interestBucket === undefined) {
+      let maxVision = 0
+      for (const key in ARCHETYPE_INFO) {
+        const vision = ARCHETYPE_INFO[key as keyof typeof ARCHETYPE_INFO].vision
+        if (vision !== null && vision > maxVision) maxVision = vision
+      }
+      World._interestBucket = Math.max(Multiplayer.INTEREST_RADIUS, (maxVision + 3) * Hex.SIZE)
+    }
+    return World._interestBucket
+  }
+
+  private static _interestBucket: number | undefined
+
   /** The `INTEREST` bucket holding a world position. */
   static bucketKeyOf (x: number, y: number): number {
-    const size = Multiplayer.INTEREST_RADIUS
+    const size = World.INTEREST_BUCKET
     return Hex.key(Math.floor(x / size), Math.floor(y / size))
   }
 
   /**
-   * The players on layer `tag` who could be inside the interest box around
-   * (x, y): the 3 x 3 `INTEREST` buckets around it. A bucket is as wide as the
-   * box's half-width, and `Vector.withinBounds` is strict, so a player inside
-   * the box is never more than one bucket away on either axis. Callers still
-   * run the box test.
+   * The players on layer `tag` whose view could contain (x, y): the 3 x 3
+   * `INTEREST` buckets around it. A bucket is at least as wide as the longest
+   * reach on either axis (`INTEREST_BUCKET`), so such a player is never more
+   * than one bucket away. Callers still run the view test.
    */
   static interestCandidates (x: number, y: number, tag: number): Player[] {
-    const size = Multiplayer.INTEREST_RADIUS
+    const size = World.INTEREST_BUCKET
     const bx = Math.floor(x / size)
     const by = Math.floor(y / size)
     const result: Player[] = []
@@ -324,10 +357,14 @@ export default class World {
   /**
    * How far round a moved bucket a pickup must look, in buckets. A pickup's
    * view state for a connection changes only when that connection's player
-   * crosses the interest box (`INTEREST_RADIUS`) or the exit margin beyond it
-   * around the pickup, and both lines lie within 2 buckets of the pickup's
-   * own bucket on each axis (500 + 90 < 2 x 500). A player that crosses either
-   * line in a tick therefore moved in a bucket within 2 of the pickup's.
+   * crosses its enter or leave radius around the pickup (server fog, #48:
+   * vision + 1 and vision + 2 rings; the 500 box and its 90-unit margin for a
+   * viewer with no vision). Both lines lie within one `INTEREST_BUCKET` of the
+   * pickup on each axis (Periscope's leave reach is at most 13 x 45 + 45 =
+   * 630), so a player that crosses one in a tick stands, after its move,
+   * within that plus one tick's travel (a dash: under 100 units) of the
+   * pickup, well inside 2 buckets (1260): it moved in a bucket within 2 of
+   * the pickup's. `interest.spec.ts` asserts the bound.
    */
   static PICKUP_WATCH_BUCKETS = 2
 
