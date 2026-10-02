@@ -1,5 +1,6 @@
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js'
 import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
 import { FOG_TINT, SEEN, type Seen } from './fog'
 import { HexTerrain } from './hexterrain'
 import { shadowOffset } from './shadow'
@@ -25,8 +26,8 @@ interface Piece {
  * two lower edges at full strength, and a shadow to the bottom right.
  *
  * Each cell is its own object in the plane, sorted by `y` with the units
- * (`zIndex`, just under a unit on the same cell), so a wall hides the feet of
- * whoever stands north of it. Added to a `TiltedContainer`, it stands up: the
+ * (`zIndex` at the cell's north boundary), so a wall hides the feet of
+ * whoever stands north of it and never of whoever is on it. Added to a `TiltedContainer`, it stands up: the
  * face and fades are baked already squashed by the tilt, as the ground's are.
  *
  * Shown only once the fog has seen its cell, and tinted by the fog and the
@@ -43,6 +44,9 @@ export class Walls {
    * can only darken.
    */
   static readonly HIGHLIGHT = 0.16
+
+  /** Half the distance between rows, world units: a cell's centre to its north boundary. */
+  private static readonly HALF_ROW = Hex.toPosition(new Vector(0, 1)).y / 2
 
   private readonly pieces: Piece[] = []
 
@@ -61,7 +65,11 @@ export class Walls {
       const at = Hex.toPosition(cell)
       const piece = this.build(cell.x, cell.y)
       piece.node.position.set(at.x, at.y)
-      piece.node.zIndex = at.y - 0.5
+      // Sorted at the cell's north boundary, not its centre (Nick, 2026-10-02):
+      // a unit still on the cell, or leaving it northwards, stays in front
+      // until it crosses into the next row, the moment its lift drops
+      // (`Player.raise`); a unit in the row north is still behind it.
+      piece.node.zIndex = at.y - Walls.HALF_ROW
       piece.node.renderable = false
       this.plane.addChild(piece.node)
       this.pieces.push(piece)

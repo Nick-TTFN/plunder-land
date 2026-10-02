@@ -145,6 +145,19 @@ export class Game extends Container {
     return Game.MAP.walls
   }
 
+  /**
+   * Whether the local player can't walk into cell (q, r) of its layer:
+   * `isBlocked`, except that Hopper (`passesObstacles`) is stopped only by
+   * void and the map edge (decision #44). **Mirrors the server's
+   * `Unit.blocks`.**
+   */
+  static blocksLocal (q: number, r: number): boolean {
+    const tag = Game.LOCAL.tag
+    if (Game.PLAYER?.archetype?.passesObstacles !== true) return Game.isBlocked(q, r, tag)
+    if (!Hex.onMap(q, r, Session.mapSize)) return true
+    return tag !== undefined && Game.VOIDS.get(tag)?.has(Hex.key(q, r)) === true
+  }
+
   static isBlocked (q: number, r: number, tag: number | undefined): boolean {
     // Off the map counts as solid, matching `World.isBlocked`. Without it the
     // client would happily route out past the edge while the server refused,
@@ -171,13 +184,14 @@ export class Game extends Container {
 
   /** The locally simulated player. Never fed through onObjectUpdated. */
   static LOCAL: LocalPlayer = new LocalPlayer(
-    (q, r) => Game.isBlocked(q, r, Game.LOCAL.tag),
+    (q, r) => Game.blocksLocal(q, r),
     (q, r) => Game.portalTo(q, r, Game.LOCAL.tag)
   )
 
   constructor () {
     super()
     this.mapSize = 4000
+    Player.wallAt = (q, r, tag) => Game.WALLS.get(tag)?.has(Hex.key(q, r)) === true
 
   }
 

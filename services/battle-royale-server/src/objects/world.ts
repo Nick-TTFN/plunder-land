@@ -1093,6 +1093,15 @@ export default class World {
     World.PICKUPS.push(World.ITEMS, new ItemPickup(at.x, at.y, tag, item, World.DROPPED_LOOT_LIFETIME))
   }
 
+  /**
+   * True if this cell is void (a valley) on this plane, or off the map: all
+   * that stops Hopper (`Unit.blocks`, decisions #16 H3 and #44).
+   */
+  static isVoid (q: number, r: number, tag: number): boolean {
+    if (!Hex.onMap(q, r, World.mapSize)) return true
+    return World.VOIDS.get(tag)?.has(Hex.key(q, r)) ?? false
+  }
+
   /** True if this cell blocks movement on this plane, or is off the map. */
   static isBlocked (q: number, r: number, tag: number): boolean {
     if (!Hex.onMap(q, r, World.mapSize)) return true

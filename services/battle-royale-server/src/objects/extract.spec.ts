@@ -14,7 +14,7 @@ import Portal from './portal'
 import Obstacle from './obstacle'
 import { Unit } from './unit'
 import { GameObject, ObjectType } from './gameobject'
-import { ITEMS } from '../archetypes/archetypes'
+import { ARCHETYPES, ITEMS } from '../archetypes/archetypes'
 import { detonate } from '../items/bomb'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
@@ -795,4 +795,94 @@ test('a predicted dash is not corrected while the server catches up with it', ()
     assert.equal(corrections, 0, `a dash pressed at frame ${frame} was corrected ${corrections} time(s)`)
     assert.ok(same(server, client), 'they did not end in the same place')
   }
+})
+
+// --- Hopper through walls (decision #44, walls step 2) -----------------------
+//
+// Hopper (`passesObstacles`) is stopped only by void and the map edge
+// (`Unit.blocks`; the client's `Game.blocksLocal`): it routes and dashes
+// through walls and StoneWall stones (#16 H2) and may stop on one (#23).
+
+/** A wall across the straight line from (26, 40) to (32, 40). */
+const WALL = [new Vector(29, 39), new Vector(29, 40), new Vector(29, 41)]
+
+function wallUp (): void {
+  for (const cell of WALL) World.block(cell.x, cell.y, TOP, null)
+}
+
+function hopperOn (cell: Vector): Player {
+  const at = Hex.toPosition(cell)
+  const player = new Player(at.x, at.y, TOP, 'hop', ARCHETYPES.hopper)
+  World.PLAYERS.push(player)
+  return player
+}
+
+const onWall = (path: Vector[]): boolean => path.some((c) => WALL.some((w) => w.x === c.x && w.y === c.y))
+
+test('Hopper routes straight through a wall that Peep goes round', () => {
+  wallUp()
+  const hopper = hopperOn(new Vector(26, 40))
+  hopper.setDestination(32, 40)
+  const peep = playerOn(TOP, new Vector(26, 40))
+  peep.setDestination(32, 40)
+  assert.ok(onWall(hopper.path), 'Hopper went round the wall')
+  assert.ok(!onWall(peep.path), 'Peep walked through the wall')
+  assert.ok(hopper.path.length < peep.path.length, 'Hopper\'s route is no shorter')
+})
+
+test('Hopper may stop on a wall; Peep can\'t route there at all', () => {
+  wallUp()
+  const hopper = hopperOn(new Vector(26, 40))
+  hopper.setDestination(29, 40)
+  for (let n = 0; n < 12; n++) hopper.update(TICK)
+  assert.ok(same(hopper.position, Hex.toPosition(new Vector(29, 40))), 'Hopper didn\'t end on the wall')
+  const peep = playerOn(TOP, new Vector(26, 40))
+  peep.setDestination(29, 40)
+  assert.equal(peep.path.length, 0)
+})
+
+test('a standing dash carries Hopper over a wall, and stops Peep in front of it', () => {
+  wallUp()
+  for (const make of [hopperOn, (cell: Vector) => playerOn(TOP, cell)]) {
+    const player = make(new Vector(27, 40))
+    const cells = player.dashCells()
+    const direction = World.FACING_INDEX(player.facing)
+    const expected = player.archetype.passesObstacles ? 3 : 1
+    assert.equal(cells.length, expected, `${player.archetype.key} dashed ${cells.length} cells`)
+    let cell = player.cell
+    for (const c of cells) {
+      cell = Hex.neighbour(cell, direction)
+      assert.ok(c.x === cell.x && c.y === cell.y)
+    }
+  }
+})
+
+test('void still stops Hopper', () => {
+  const voids = new Set(WALL.map((c) => Hex.key(c.x, c.y)))
+  World.VOIDS.set(TOP, voids)
+  try {
+    for (const cell of WALL) World.block(cell.x, cell.y, TOP, null)
+    const hopper = hopperOn(new Vector(26, 40))
+    hopper.setDestination(32, 40)
+    assert.ok(hopper.path.length > 0)
+    assert.ok(!onWall(hopper.path), 'Hopper crossed void')
+    assert.equal(hopperOn(new Vector(27, 40)).dashCells().length, 1)
+  } finally {
+    World.VOIDS.delete(TOP)
+  }
+})
+
+test('mirror: Hopper\'s client and server walk the same track through a wall', () => {
+  wallUp()
+  const player = hopperOn(new Vector(26, 40))
+  // The client's rule for Hopper (`Game.blocksLocal`): void and the edge only.
+  const local: Local = new LocalPlayer(
+    (q: number, r: number) => World.isVoid(q, r, local.tag),
+    () => undefined
+  )
+  local.reset(player.position.x, player.position.y, player.tag, player.maxVelocity)
+  routeBoth(player, local, new Vector(32, 40))
+  assert.ok(onWall(local.path), 'the client went round')
+  const track = run(player, local, 12)
+  assertSameTrack(track)
 })

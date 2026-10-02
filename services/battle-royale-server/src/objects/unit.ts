@@ -242,6 +242,18 @@ export class Unit extends GameObject {
     World.unitMoved(this)
   }
 
+  /**
+   * True if this unit can't walk into cell (q, r) of its layer. A unit whose
+   * archetype `passesObstacles` (Hopper, decisions #15, #16 H2-H3, #44) is
+   * stopped only by void and the map edge: it routes and dashes through
+   * walls and StoneWall stones, and may stop on one (#23). Everyone else, by
+   * any blocked cell. **Mirrored by the client's `Game.blocksLocal`.**
+   */
+  blocks (q: number, r: number): boolean {
+    if (this.archetype?.passesObstacles === true) return World.isVoid(q, r, this.tag)
+    return World.isBlocked(q, r, this.tag)
+  }
+
   /** The cell this unit is standing in. */
   get cell (): Vector {
     return Hex.toCell(this.position)
@@ -281,7 +293,7 @@ export class Unit extends GameObject {
       const leg = Path.find(
         from,
         waypoint,
-        (cq, cr) => World.isBlocked(cq, cr, this.tag)
+        (cq, cr) => this.blocks(cq, cr)
       )
       if (leg.length === 0) break
       for (const cell of leg) this.path.push(cell)
@@ -367,7 +379,7 @@ export class Unit extends GameObject {
     let cell = this.cell
     for (let i = 0; i < Unit.DASH_CELLS; i++) {
       cell = Hex.neighbour(cell, direction)
-      if (World.isBlocked(cell.x, cell.y, this.tag)) break
+      if (this.blocks(cell.x, cell.y)) break
       cells.push(cell)
       if (this.stopsOn(cell.x, cell.y)) break
     }

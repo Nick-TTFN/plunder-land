@@ -14,6 +14,9 @@ import { RobotSprite } from '../robots/robotsprite'
 import { ROBOT_RIGS } from '../robots/robotrig'
 import { TILT } from './tilt'
 import { type Finish } from '../utils/finishes'
+import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
+import { Walls } from './walls'
 
 export default class Player extends Unit {
   skills: Skill[]
@@ -56,6 +59,21 @@ export default class Player extends Unit {
     for (let i = 0; i < this.skills.length; i++) this.skills[i].index = i
   }
 
+  /**
+   * Whether cell (q, r) of layer `tag` is a wall (`Game.WALLS`); set by
+   * `Game`, which owns the map, so this file needn't import it.
+   */
+  static wallAt: (q: number, r: number, tag: number) => boolean = () => false
+
+  /** A wall's height eased in over this long, ms, as Hopper steps on or off one. */
+  static readonly LIFT_MS = 80
+
+  /**
+   * How far the robot stands above its ground point, px: a wall's height
+   * while on a wall cell (only Hopper gets there, decision #44), eased.
+   */
+  private lift = 0
+
   /** When `applyPosition` last ran, and the smoothed ground speed it fed the rig (`RobotSprite.setPace`). */
   private lastMovedAt = 0
   private pace = 1
@@ -72,11 +90,24 @@ export default class Player extends Unit {
     super.applyPosition(nx, ny, now, motionX, motionY)
     const elapsed = now - this.lastMovedAt
     this.lastMovedAt = now
+    this.raise(elapsed)
     if (this.robot === undefined || elapsed <= 0 || elapsed > 250) return
     const speed = Math.hypot(dx, dy) / elapsed * 1000
     if (speed < 1) return
     this.pace += (speed / RobotSprite.STRIDE_SPEED - this.pace) * Math.min(1, elapsed / 80)
     this.robot.setPace(this.pace)
+  }
+
+  /** Ease the robot up onto a wall, or back down, over `LIFT_MS`; the panel follows. */
+  private raise (elapsed: number): void {
+    if (this.robot === undefined) return
+    const cell = Hex.toCell(new Vector(this.x, this.y))
+    const target = this.tag !== undefined && Player.wallAt(cell.x, cell.y, this.tag) ? Walls.HEIGHT : 0
+    if (this.lift === target) return
+    const step = Walls.HEIGHT * Math.max(0, elapsed) / Player.LIFT_MS
+    this.lift = this.lift < target ? Math.min(target, this.lift + step) : Math.max(target, this.lift - step)
+    this.robot.y = Player.PEEP_FEET_Y - this.lift
+    this.panel.y = this.headY - 4
   }
 
   /** How long a robot smiles after picking up loot (Nick, 2026-09-30). */
@@ -122,12 +153,12 @@ export default class Player extends Unit {
 
   // Unit's, plus the rig. (`super.headY` on an accessor doesn't typecheck here.)
   get headY (): number {
-    if (this.robot !== undefined) return Player.PEEP_FEET_Y - this.robot.standHeight
+    if (this.robot !== undefined) return Player.PEEP_FEET_Y - this.lift - this.robot.standHeight
     return this.animation !== undefined ? this.animation.y - this.animation.height : -30
   }
 
   get feetY (): number {
-    if (this.robot !== undefined) return Player.PEEP_FEET_Y
+    if (this.robot !== undefined) return Player.PEEP_FEET_Y - this.lift
     return this.animation !== undefined ? this.animation.y : 10
   }
 
@@ -189,7 +220,7 @@ export default class Player extends Unit {
    */
   private aimToward (point: { x: number, y: number }, keep: 1 | -1 | undefined): { aim: number, facing: 1 | -1 | undefined } {
     const dx = point.x - this.x
-    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - (this.robot?.aimPx ?? 0))
+    const dy = (point.y - this.y) * TILT - (Player.PEEP_FEET_Y - this.lift - (this.robot?.aimPx ?? 0))
     const facing = Math.abs(dx) < Player.AIM_FLIP_DEADBAND ? keep : dx < 0 ? -1 : 1
     const aim = Math.atan2(-dy, Math.max(Math.abs(dx), 1e-6)) * 180 / Math.PI
     return { aim, facing }

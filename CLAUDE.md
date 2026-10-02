@@ -242,8 +242,8 @@ any more (`World.isRock` still tells StoneWall stones apart for the bomb). **Kno
 still step greedily (`Unit.chooseStep`) and stall on valley edges; real mob pathing was
 deferred on 2026-09-27.
 
-**Walls inside the islands** (decision #44, 2026-10-01; step 1 of 3 built: generation, wire, routing,
-placeholder drawing). `src/objects/walls.ts` (server) puts straight runs of 2-5 cells on the ground the
+**Walls inside the islands** (decision #44, 2026-10-01; built 2026-10-02: generation, wire,
+routing, drawing, Hopper through them; shot blocking deferred). `src/objects/walls.ts` (server) puts straight runs of 2-5 cells on the ground the
 valleys leave, `LAYERS.wallShare` of it (0.06, provisional), after the gates so they keep out of
 `World.gateKeepOut`; segments never touch, and one that would cut the ground apart or need a detour of
 more than `DETOUR_RINGS` (10) is refused (`walls.spec.ts`). About 5 ms a layer; a whole-layer flood fill
@@ -257,8 +257,14 @@ per cell, the face its ground cell wears (`HexTerrain.faceOf`) lifted `Walls.HEI
 first 18, Nick), a faint white over it (`Walls.HIGHLIGHT`, so it reads lighter than the floor; a tint can
 only darken), the edge drop-offs (`fade_left`/`fade_right`) hung under it at full strength, and its hex
 swept along `shadowOffset` as its shadow;
-sorted by `y` with the units, shown and tinted by the fog every frame. **Not built yet:** Hopper walking through walls and standing on them (step 2), and walls
-stopping shots (step 3).
+sorted by `y` with the units at the cell's north boundary (at its centre, a Hopper stepping off northwards was drawn behind the wall it still stood on), shown and tinted by the fog every frame. **Hopper walks through walls
+and StoneWall stones and may stop on them** (step 2, 2026-10-02): `Unit.blocks` (server; route planning
+and the standing dash) stops a unit whose archetype `passesObstacles` only at void and the map edge
+(`World.isVoid`), mirrored by the client's `Game.blocksLocal`, which `LocalPlayer` routes with
+(`extract.spec.ts`'s Hopper tests, one a client/server mirror). A robot on a wall cell is drawn raised by
+`Walls.HEIGHT`, eased over `Player.LIFT_MS` (80 ms). **Walls don't stop shots**: step 3 of #44 is
+deferred (Nick, 2026-10-02: "shots stopped maybe not needed for now"), so ranged, fireball and icicle
+still fly through walls as they did through rocks.
 
 **The camera is tilted, in drawing only** (`src/objects/tilt.ts`, tile art pass 2026-09-27).
 `Game.CONTAINER.scale.y = TILT` (about 0.924: the art's 0.93 rounded so a tilted row is exactly 36 px; 0.744 until the flat-tile pass), so a world `y` draws at `y * TILT`; rules, wire and
@@ -384,9 +390,8 @@ shrinks to fit on a short screen.
 `springPoints`, not baked) and `src/waddle/rig.ts` (a shell with two eyes; the shot fires from
 between them, `RobotRig.shot.offset`); sheets `hopper.json` 7 KB, `waddle.json` 15 KB, and lobby
 sheets. Stats are #16's table with #43's vision: Hopper HP 90 / armor 50 / 140 / pickup 1 / vision 6,
-Waddle HP 130 / armor 100 / 120 / pickup 1 / vision 6. **Hopper's trait (passing through obstacle
-cells, #15) is not built**: `passesObstacles` is true in the table and nothing reads it, so Hopper
-plays as a light-HP Peep for now, whatever its lobby tagline says. Their `referenceUnits` are the top of the reference pose's boxes (193.9,
+Waddle HP 130 / armor 100 / 120 / pickup 1 / vision 6. Hopper's trait (#15) is
+built since walls (#44): it passes walls and stones, see "Walls inside the islands". Their `referenceUnits` are the top of the reference pose's boxes (193.9,
 190), not measured from the art's alpha like the others. Hopper's head and Waddle's shell are
 painted in two groups (body and head): the bake gives such a part a shade and patterns per group
 (`<group>-shade`, `meta.finish` group `mixed`) and `RobotSprite` tints each stack by its own group.
