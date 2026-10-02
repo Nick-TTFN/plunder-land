@@ -218,9 +218,17 @@ export default class Multiplayer {
    * A Redis client with its error listener. Without the listener ioredis
    * prints "[ioredis] Unhandled error event" with a stack on every reconnect
    * attempt, forever, while Redis is down.
+   *
+   * `REDIS_URL` (Railway's Redis: password included, host on the private
+   * network) wins over `REDIS_HOST`/`REDIS_PORT` (docker compose, no
+   * password). `family: 0` lets the host resolve to IPv6 as well, which
+   * Railway's private network may require; ioredis defaults to IPv4 only.
    */
   static connectRedis (): Redis {
-    return Multiplayer.shareRedis(new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis'))
+    const url = process.env.REDIS_URL
+    return Multiplayer.shareRedis(url !== undefined && url !== ''
+      ? new Redis(url, { family: 0 })
+      : new Redis(parseInt(process.env.REDIS_PORT ?? '6379'), process.env.REDIS_HOST ?? 'redis'))
   }
 
   /**
