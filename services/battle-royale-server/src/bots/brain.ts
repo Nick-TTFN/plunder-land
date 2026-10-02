@@ -90,10 +90,10 @@ export default class BotBrain implements IAIRoutine {
     const enemy = this.enemy(cell, skill.engageRings)
     if (enemy !== undefined) {
       const distance = Hex.distance(cell, enemy.cell)
-      // On the way out, only what is close enough to stop it.
+      // On the way out, it shoots back at what is close and keeps going.
       if (!out || distance <= 2) {
-        this.fight(enemy, distance, skill, health)
-        return
+        this.fight(enemy, distance, skill, health, out)
+        if (!out) return
       }
     }
 
@@ -134,13 +134,17 @@ export default class BotBrain implements IAIRoutine {
     const me = this.owner
     const live = (u: Unit): boolean => u !== me && !u.destroyed && !(u as Player).exited
     const now = Date.now()
+    const isHuman = (u: Unit): boolean => u.type === ObjectType.Player && (u as Player).bot === undefined
     const human = World.NEAREST_IN_CELLS(cell, rings, me.tag, ObjectType.Player,
-      (u) => live(u) && (u as Player).bot === undefined && now - (u as Player).createdAt >= SPAWN_GRACE_MS)
+      (u) => live(u) && isHuman(u) && now - (u as Player).createdAt >= SPAWN_GRACE_MS)
     if (human !== undefined) return human
-    return World.NEAREST_IN_CELLS(cell, BOT_SCUFFLE_RINGS, me.tag, ObjectType.Player | ObjectType.Mob, live)
+    // Another bot or a mob, never a human: one in its grace matched here once,
+    // and was hit 0.75 s into its run.
+    return World.NEAREST_IN_CELLS(cell, BOT_SCUFFLE_RINGS, me.tag, ObjectType.Player | ObjectType.Mob, (u) => live(u) && !isHuman(u))
   }
 
-  private fight (enemy: Unit, distance: number, skill: typeof BOT_SKILL[number], health: number): void {
+  /** `fleeing`: on its way out, it shoots back but keeps going (Nick: "running away when hp is low felt really cool"). */
+  private fight (enemy: Unit, distance: number, skill: typeof BOT_SKILL[number], health: number, fleeing: boolean): void {
     const me = this.owner
     const aim = this.aimAt(enemy.cell, skill.aimMiss)
     if (distance <= 1 && health < 0.5) me.tryExecuteSkill(DEFEND)
@@ -148,8 +152,15 @@ export default class BotBrain implements IAIRoutine {
     if (distance <= 6) me.tryExecuteSkill(RANGED, aim)
     const layer = World.TAGS.indexOf(me.tag)
     if (layer >= 1 && distance >= 3 && this.random() < 0.3) me.tryExecuteSkill(this.random() < 0.5 ? FIREBALL : ICICLE, aim)
-    // Close in on a player to shooting range; hold against a mob.
+    if (fleeing) return
+    // Close in on a player to shooting range; otherwise stand and fight. A bot
+    // that kept walking its old route (a wander, a portal) fired a shot or two
+    // as it went and was out of range within a second or two.
     if (enemy.type === ObjectType.Player && distance > 4) this.go(enemy.cell)
+    else if (me.path.length > 0) {
+      me.stop()
+      this.target = undefined
+    }
   }
 
   /** The enemy's cell, or a neighbour of it `miss` of the time. */

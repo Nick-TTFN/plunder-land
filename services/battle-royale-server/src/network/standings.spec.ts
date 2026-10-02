@@ -372,10 +372,11 @@ test('own row finished this tick: sent with its status and rank, and the client 
   // The client's own row is the ACTIVE one with its id: there is none, so no highlight.
   assert.equal(pickShown(rows, me.player.id, 5).own, undefined)
 
-  // After that flush the connection is done: no more boards.
+  // After that flush it spectates someone (#47) and still gets the board,
+  // as anyone watching the world does.
   const before = standingsSent(me.sent).length
   for (let tick = 5; tick <= 12; tick++) multiplayer.flushAll(tick, 250)
-  assert.equal(standingsSent(me.sent).length, before)
+  assert.ok(standingsSent(me.sent).length > before)
 })
 
 test('a recycled id: the own row is the live player, even when a finished row with its id is in the top 10', () => {

@@ -49,6 +49,8 @@ export default class Player extends Unit {
    * world counts its humans (`Worlds.activePlayers`).
    */
   bot: BotBrain | undefined
+  /** Connections spectating this player (decision #47), made on first use. */
+  spectators: Set<Connection> | undefined
 
   /**
    * The robot's colours and patterns (robot-finishes, #41), fixed for the run.

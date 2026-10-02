@@ -25,6 +25,13 @@ export class Connection {
    * (`Worlds.choose`). Random per browser, never the player id.
    */
   party: string | undefined
+  /**
+   * The player this connection watches after its own player died (spectate,
+   * decision #47). Its client is then sent what that player's client would
+   * be: `Multiplayer.viewpoint` stands in for the dead player wherever a view
+   * is tested. Cleared by `forget` (a new run, a move, a disconnect).
+   */
+  spectating: Player | undefined
   // Last input sequence number consumed by the simulation, and how much
   // simulated time it has been applied for. The client needs both: the sequence
   // alone leaves it unable to tell how far into that input the server has got,
@@ -473,11 +480,12 @@ export default class Multiplayer {
     // Always drop the buffer, even for a socket that never started a run.
     // Clients connect on page load but only send `start_requested` on button
     // click, so returning early here leaked a buffer per idle visitor.
-    if (connection.player != null && connection.framed) {
+    const watching = connection.player != null || connection.spectating !== undefined
+    if (watching && connection.framed) {
       connection.socket.conn.write(Multiplayer.packFrame(
         buffered, standings, tick, connection.lastInputSeq, connection.ackElapsedMs
       ))
-    } else if (connection.player != null) {
+    } else if (watching) {
       if (buffered !== undefined) {
         for (const event in buffered) {
           if (event === 'update') continue
@@ -509,7 +517,16 @@ export default class Multiplayer {
     const player = connection.player
     if (player != null && (player.destroyed || player.exited)) {
       connection.player = undefined
-      this.forget(connection)
+      // A death, not an extraction: watch the killer, else whoever is nearest
+      // (#47). Its view replaces the dead player's from the next flush on;
+      // what the client holds is kept or let go as on a layer change.
+      const target = player.exited ? undefined : Multiplayer.spectateTarget(player, player.killer)
+      if (target !== undefined) {
+        this.unknow(connection, player)
+        this.watch(connection, target)
+      } else {
+        this.forget(connection)
+      }
       // The run is over: the client may ask for another on this socket. It
       // does, after its game-over screen, and until 2026-09-27 this stayed
       // true from the first start (since the 2026-09-02 revival), so every
@@ -715,6 +732,33 @@ export default class Multiplayer {
   }
 
   /**
+   * Every connection that sees from `player`: its own (`viewerOf`) and those
+   * spectating it (#47), into `into`, cleared first. Each call site passes
+   * its own scratch array, so nothing is allocated per candidate in the hot
+   * loops and a nested call can't clobber an outer one's list.
+   */
+  private viewersOf (player: Player, into: Connection[]): Connection[] {
+    into.length = 0
+    if (Multiplayer.gone(player)) return into
+    const own = this.connectionOf(player)
+    if (own !== undefined) into.push(own)
+    if (player.spectators !== undefined) for (const watcher of player.spectators) into.push(watcher)
+    return into
+  }
+
+  // Static, not fields: a spec's `Object.create(Multiplayer.prototype)` runs
+  // no field initialisers. Shared by every world; each call site has its own
+  // and none of them re-enters itself.
+  private static readonly _viewersCreate: Connection[] = []
+  private static readonly _viewersUpdate: Connection[] = []
+  private static readonly _viewersEffect: Connection[] = []
+
+  /** Where a connection sees from: the player it spectates, else its own. */
+  static viewpoint (connection: Connection): Player | undefined {
+    return connection.spectating ?? connection.player
+  }
+
+  /**
    * Destroyed, or a player who has extracted. Either has been sent its
    * destroy, and nothing may be sent about it after that: a create for it
    * would reach the client ahead of the destroy in the same flush (`create`
@@ -751,7 +795,7 @@ export default class Multiplayer {
    * box test is the one `update` has always used.
    */
   static inView (connection: Connection, x: number, y: number, tag: number, reach: number): boolean {
-    const player = connection.player
+    const player = Multiplayer.viewpoint(connection)
     if (player === undefined || connection.layer !== tag) return false
     return player.position.withinBounds(x, y, reach)
   }
@@ -821,6 +865,7 @@ export default class Multiplayer {
    * already had the destroy that ended its run or is gone.
    */
   private forget (connection: Connection): void {
+    Multiplayer.unwatch(connection)
     // `known` is missing on a plain object a spec passes as a connection.
     if (connection.known !== undefined) {
       for (const obj of connection.known) obj.knownBy.delete(connection)
@@ -884,7 +929,7 @@ export default class Multiplayer {
    * cheap next to serialising what is found.
    */
   private sendVisible (connection: Connection, into: Buffer[]): void {
-    const player = connection.player
+    const player = Multiplayer.viewpoint(connection)
     const tag = connection.layer
     if (player === undefined || tag === undefined) return
     const visit = (obj: GameObject): void => {
@@ -918,20 +963,28 @@ export default class Multiplayer {
    * new tag, and would go on drawing it on the old layer.
    */
   private switchLayer (connection: Connection): void {
-    const player = connection.player
+    const player = Multiplayer.viewpoint(connection)
     if (player === undefined) return
     const out = this.outbox(connection)
 
-    for (const obj of World.OBSTACLES) {
-      if (obj.tag === connection.layer && !obj.destroyed && Multiplayer.isTerrain(obj)) {
-        out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+    // A spectator re-centred on someone on its own layer keeps the terrain.
+    if (connection.layer !== player.tag) {
+      for (const obj of World.OBSTACLES) {
+        if (obj.tag === connection.layer && !obj.destroyed && Multiplayer.isTerrain(obj)) {
+          out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+        }
       }
+      this.setLayer(connection, player.tag)
+      this.sendTerrain(connection, out.create)
     }
-    this.setLayer(connection, player.tag)
-    this.sendTerrain(connection, out.create)
 
     for (const obj of connection.known) {
       if (obj === player) continue
+      // Gone already, and its destroy was sent when it went: just let go.
+      if (Multiplayer.gone(obj)) {
+        this.unknow(connection, obj)
+        continue
+      }
       if (Multiplayer.sees(connection, obj, Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN)) {
         const whole = obj.serialiseBinary(obj.allFields)
         if (whole !== null) out.update.push(whole)
@@ -957,12 +1010,13 @@ export default class Multiplayer {
         for (const connection of this.layers.get(obj.tag) ?? []) this.outbox(connection).create.push(data)
       } else {
         for (const player of World.interestCandidates(obj.position.x, obj.position.y, obj.tag)) {
-          const connection = this.viewerOf(player)
-          // Its own player's object goes out once, as create_own (`admit`).
-          if (connection === undefined || connection.player === obj) continue
-          if (obj.knownBy.has(connection) || !Multiplayer.sees(connection, obj)) continue
-          this.outbox(connection).create.push(data)
-          this.know(connection, obj)
+          for (const connection of this.viewersOf(player, Multiplayer._viewersCreate)) {
+            // Its own player's object goes out once, as create_own (`admit`).
+            if (connection.player === obj) continue
+            if (obj.knownBy.has(connection) || !Multiplayer.sees(connection, obj)) continue
+            this.outbox(connection).create.push(data)
+            this.know(connection, obj)
+          }
         }
       }
     }
@@ -1000,6 +1054,9 @@ export default class Multiplayer {
 
     const self = obj.type === ObjectType.Player ? this.connectionOf(obj as Player) : undefined
     if (self !== undefined && self.layer !== obj.tag) this.switchLayer(self)
+    // Its spectators follow it through a portal the same way (#47).
+    const watchers = obj.type === ObjectType.Player ? (obj as Player).spectators : undefined
+    if (watchers !== undefined) for (const watcher of watchers) if (watcher.layer !== obj.tag) this.switchLayer(watcher)
 
     // Encoded at most once each, on first need, and shared by every
     // connection it goes to. `null` from the serialiser means nothing to send.
@@ -1022,34 +1079,34 @@ export default class Multiplayer {
     const inner = Multiplayer.INTEREST_RADIUS
     let holdersInRange = 0
     for (const player of World.interestCandidates(ox, oy, otag)) {
-      const connection = this.viewerOf(player)
-      if (connection === undefined) continue
-      // `viewerOf` returned it, so `connection.player` is `player`.
-      const dx = player.position.x - ox
-      const dy = player.position.y - oy
-      const onLayer = connection.layer === otag
-      if (connection !== self && !(onLayer && dx < inner && dx > -inner && dy < inner && dy > -inner)) {
-        // Not in the box. A holder whose client is on this layer (so no
-        // switch pending) and still has it in the margin keeps it.
-        if (connection.layer === player.tag && onLayer && dx < outer && dx > -outer && dy < outer && dy > -outer && knownBy.has(connection)) {
+      // Its own connection and its spectators, who all see from `player`.
+      for (const connection of this.viewersOf(player, Multiplayer._viewersUpdate)) {
+        const dx = player.position.x - ox
+        const dy = player.position.y - oy
+        const onLayer = connection.layer === otag
+        if (connection !== self && !(onLayer && dx < inner && dx > -inner && dy < inner && dy > -inner)) {
+          // Not in the box. A holder whose client is on this layer (so no
+          // switch pending) and still has it in the margin keeps it.
+          if (connection.layer === player.tag && onLayer && dx < outer && dx > -outer && dy < outer && dy > -outer && knownBy.has(connection)) {
+            holdersInRange++
+            if (changed) {
+              if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
+              if (changedData !== null) this.outbox(connection).update.push(changedData)
+            }
+          }
+          continue
+        }
+        if (knownBy.has(connection)) {
           holdersInRange++
           if (changed) {
             if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
             if (changedData !== null) this.outbox(connection).update.push(changedData)
           }
+        } else {
+          if (fullData === undefined) fullData = obj.serialiseBinary(obj.allFields)
+          if (fullData !== null) this.outbox(connection).create.push(fullData)
+          this.know(connection, obj)
         }
-        continue
-      }
-      if (knownBy.has(connection)) {
-        holdersInRange++
-        if (changed) {
-          if (changedData === undefined) changedData = obj.serialiseBinary(obj.dirtyFields)
-          if (changedData !== null) this.outbox(connection).update.push(changedData)
-        }
-      } else {
-        if (fullData === undefined) fullData = obj.serialiseBinary(obj.allFields)
-        if (fullData !== null) this.outbox(connection).create.push(fullData)
-        this.know(connection, obj)
       }
     }
 
@@ -1058,7 +1115,7 @@ export default class Multiplayer {
       for (const connection of knownBy) {
         // Its own, and anyone handled above.
         if (connection === self || Multiplayer.sees(connection, obj)) continue
-        const player = connection.player
+        const player = Multiplayer.viewpoint(connection)
         // A player who died or left this tick: dropped whole at the flush.
         if (player === undefined || Multiplayer.gone(player)) continue
         // Served above: a candidate (on the object's layer, in the 3 x 3
@@ -1111,9 +1168,11 @@ export default class Multiplayer {
     }
 
     for (const player of World.interestCandidates(originator.position.x, originator.position.y, originator.tag)) {
-      const connection = this.connectionOf(player)
-      if (connection === undefined || !Multiplayer.sees(connection, originator)) continue
-      this.outbox(connection).effect.push(data)
+      // `viewersOf` skips a player killed this tick, as `connectionOf` didn't:
+      // its client has its own destroy already and is showing its run card.
+      for (const connection of this.viewersOf(player, Multiplayer._viewersEffect)) {
+        if (Multiplayer.sees(connection, originator)) this.outbox(connection).effect.push(data)
+      }
     }
   }
 
@@ -1137,10 +1196,9 @@ export default class Multiplayer {
 
     const centre = Hex.toPosition(cell)
     for (const player of World.interestCandidates(centre.x, centre.y, tag)) {
-      const connection = this.connectionOf(player)
-      if (connection === undefined) continue
-      if (!Multiplayer.inView(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS)) continue
-      this.outbox(connection).effect.push(data)
+      for (const connection of this.viewersOf(player, Multiplayer._viewersEffect)) {
+        if (Multiplayer.inView(connection, centre.x, centre.y, tag, Multiplayer.INTEREST_RADIUS)) this.outbox(connection).effect.push(data)
+      }
     }
   }
 
@@ -1323,6 +1381,13 @@ export default class Multiplayer {
     Multiplayer.checkWorld(this, 'Multiplayer.flushAll')
     const board = this.standingsDue() ? Multiplayer.rankStandings() : undefined
     for (const connection of this._connections) {
+      // The watched player's run ended: on to whoever is nearest it, or stop.
+      const watched = connection.spectating
+      if (watched !== undefined && Multiplayer.gone(watched)) {
+        const next = Multiplayer.spectateTarget(watched)
+        if (next !== undefined) this.watch(connection, next)
+        else this.stopWatching(connection)
+      }
       if (connection.player != null) connection.ackElapsedMs += dtMs
       // Only a board that differs from the last one this connection got: the
       // client shows the last board it was sent until another arrives, so a
@@ -1335,6 +1400,57 @@ export default class Multiplayer {
       }
       this.flush(connection, tick, standings)
     }
+  }
+
+  // Spectate ======== (decision #47)
+
+  /**
+   * Who a connection whose player just died (or whose watched player's run
+   * just ended) watches: `preferred` if it is a live player (the killer), else
+   * the live player nearest `from` on its layer, else on any layer, bots
+   * included. Undefined when nobody is left.
+   */
+  static spectateTarget (from: Player, preferred?: GameObject): Player | undefined {
+    if (preferred !== undefined && preferred.type === ObjectType.Player && !Multiplayer.gone(preferred)) return preferred as Player
+    let best: Player | undefined
+    let bestScore = Infinity
+    for (const player of World.PLAYERS) {
+      if (player === from || Multiplayer.gone(player)) continue
+      const dx = player.position.x - from.position.x
+      const dy = player.position.y - from.position.y
+      // Another layer counts as far: any one on the same layer comes first.
+      const score = dx * dx + dy * dy + (player.tag === from.tag ? 0 : 1e12)
+      if (score < bestScore) {
+        best = player
+        bestScore = score
+      }
+    }
+    return best
+  }
+
+  /** Watch `target`: re-centre the client's view on it and tell the client whom it follows. */
+  private watch (connection: Connection, target: Player): void {
+    Multiplayer.unwatch(connection)
+    connection.spectating = target
+    if (target.spectators === undefined) target.spectators = new Set()
+    target.spectators.add(connection)
+    this.switchLayer(connection)
+    // A plain event: framed clients still decode text packets (framedparser.ts).
+    connection.socket.emit('spectate', { id: target.id, name: target.name })
+  }
+
+  /** Nobody left to watch: the client keeps its card and is sent nothing more. */
+  private stopWatching (connection: Connection): void {
+    this.forget(connection)
+    connection.socket.emit('spectate', { id: null })
+  }
+
+  /** Off the watched player's list. Sends nothing. */
+  static unwatch (connection: Connection): void {
+    const watched = connection.spectating
+    if (watched === undefined) return
+    watched.spectators?.delete(connection)
+    connection.spectating = undefined
   }
 
   // Standings ========

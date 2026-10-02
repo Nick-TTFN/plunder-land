@@ -163,6 +163,9 @@ test('bots leave a human alone for the first 10 s of the run', (t) => {
   const me = a.connection.player
   const bot = world.PLAYERS.find((p) => p.bot !== undefined)
   assert.ok(me !== undefined && bot !== undefined)
+  // No mobs at all: refilled every tick, one next to the human drew a bot's
+  // melee, which hits everyone within 2 rings (2 runs in 20 failed that way).
+  Object.assign(world, { refillLayer: () => {} })
   World.run(world, () => {
     // Nothing else around, and the bot right beside the human.
     world.MOBS.length = 0
@@ -170,11 +173,16 @@ test('bots leave a human alone for the first 10 s of the run', (t) => {
     bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0))
   })
   const full = me.hp + me.armor
-  for (let i = 0; i < 36; i++) { tick(250); worlds.tickAll(250); World.run(world, () => { world.MOBS.length = 0 }) }
+  for (let i = 0; i < 36; i++) { tick(250); worlds.tickAll(250) }
   assert.equal(me.hp + me.armor, full, 'untouched at 9 s')
-  // It wandered off to loot meanwhile: beside the human again as the grace ends.
-  World.run(world, () => { bot.stop(); bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0)) })
-  for (let i = 0; i < 24; i++) { tick(250); worlds.tickAll(250); World.run(world, () => { world.MOBS.length = 0 }) }
+  // It wandered off meanwhile, maybe through a portal: beside the human
+  // again, on its layer, as the grace ends.
+  World.run(world, () => {
+    bot.stop()
+    if (bot.tag !== me.tag) bot.changeLayer(me.tag)
+    bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0))
+  })
+  for (let i = 0; i < 24; i++) { tick(250); worlds.tickAll(250) }
   assert.ok(me.hp + me.armor < full, 'attacked after the grace')
 })
 

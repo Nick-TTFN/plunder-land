@@ -462,7 +462,7 @@ test('a destroy goes to exactly the clients that hold the object, including for 
   assertClean(clients, 'kill')
 })
 
-test('a player who dies is told, and its connection holds nothing afterwards', () => {
+test('a player who dies is told, then sees through the nearest live player (spectate, #47)', () => {
   const multiplayer = new Multiplayer(250, okRedis())
   const a = join(multiplayer, 'a00009', new Vector(1000, 1000))
   const b = join(multiplayer, 'a0000a', new Vector(1100, 1000))
@@ -475,16 +475,38 @@ test('a player who dies is told, and its connection holds nothing afterwards', (
   assert.ok(a.mirror.seen.destroy.includes(a.player.id), 'not told of its own death')
   assert.ok(b.mirror.seen.destroy.includes(a.player.id))
   const connection = connectionOf(multiplayer, a)
+  assert.equal(connection.spectating, b.player, 'watches the nearest live player')
+  assert.equal(connection.player, undefined)
+  assert.ok(!connection.known.has(a.player), 'lets go of its own corpse')
+  assert.ok(connection.known.has(b.player) && connection.known.has(mob), 'keeps what the new viewpoint sees')
+
+  a.mirror.clear()
+  mob.position = new Vector(1060, 1000)
+  tick(multiplayer, 2)
+  assert.ok(a.mirror.seen.update.includes(mob.id), 'follows changes around whom it watches')
+  assertClean([a, b], 'spectate')
+})
+
+test('a player who dies with nobody left to watch holds nothing afterwards', () => {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const a = join(multiplayer, 'a00009', new Vector(1000, 1000))
+  const mob = idleMob(1050, 1000, TOP)
+  tick(multiplayer, 0)
+  a.mirror.clear()
+
+  a.player.hit(9999)
+  tick(multiplayer, 1)
+  assert.ok(a.mirror.seen.destroy.includes(a.player.id), 'not told of its own death')
+  const connection = connectionOf(multiplayer, a)
+  assert.equal(connection.spectating, undefined)
   assert.equal(connection.known.size, 0)
   assert.equal(connection.layer, undefined)
   assert.equal(mob.knownBy.has(connection), false)
-  assert.equal(b.player.knownBy.has(connection), false)
 
   a.mirror.clear()
   mob.position = new Vector(1060, 1000)
   tick(multiplayer, 2)
   assert.deepEqual(a.mirror.seen, { create: [], create_own: [], destroy: [], update: [], effect: [] }, 'sent something after its death')
-  assertClean([b], 'death')
 })
 
 // --- the join snapshot -------------------------------------------------------------

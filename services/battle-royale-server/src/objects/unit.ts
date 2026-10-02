@@ -744,9 +744,14 @@ export class Unit extends GameObject {
 
   /** Who dealt the killing blow, by kind (analytics `run_end` `killed_by`, #46). */
   killedBy: 'robot' | 'mob' | undefined
+  /** Who dealt it: whom the dead player spectates first (#47). */
+  killer: Unit | undefined
 
   /** Every credited kill comes through here; subclasses call super. */
   onKill (obj: GameObject): void {
-    if (obj instanceof Unit && this.archetype !== undefined) obj.killedBy = this.archetype.kind
+    if (obj instanceof Unit) {
+      obj.killer = this
+      if (this.archetype !== undefined) obj.killedBy = this.archetype.kind
+    }
   }
 }
