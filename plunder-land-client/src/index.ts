@@ -13,7 +13,7 @@ import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
-import { ACCOUNT, handshakeAuth, localTokenStorage, onAccount } from './net/account'
+import { applyProgress, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 
 initErrorReporting()
 
@@ -109,13 +109,25 @@ function setup (): void {
   Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage) })
 
   Game.socket.on('connect', () => {
+    // A new connection announces its own account: the last one's is stale
+    // (its standing too) until it does. Nothing arrives before `connect`.
+    setAccountInfo(undefined)
     onConnect()
   })
   Game.socket.on('welcome', onWelcome)
   // Here, not per run: it can arrive on connect, before any start.
   Game.socket.on('account', (data: unknown) => {
     const info = onAccount(data, localTokenStorage())
-    if (info !== undefined) ACCOUNT.info = info
+    if (info !== undefined) setAccountInfo(info)
+  })
+  // A run's XP (decision #48 step 3), a database round trip after its end.
+  // The server never sends one after the next run's `hello`, so it is always
+  // the run `Game.RUN` holds (before or after its card opened).
+  Game.socket.on('progress', (data: unknown) => {
+    const progress = onProgress(data)
+    if (progress === undefined) return
+    applyProgress(progress)
+    Game.RUN.setProgress(progress)
   })
 }
 

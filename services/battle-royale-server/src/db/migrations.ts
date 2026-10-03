@@ -41,5 +41,21 @@ export const MIGRATIONS: readonly Migration[] = [
         last_seen_at timestamptz NOT NULL DEFAULT now()
       )
     `
+  },
+  {
+    version: 2,
+    name: 'account_progress',
+    // XP per account (decision #48 step 3). The level is derived from `xp` by
+    // the curve in progress/xp.ts and never stored, so a curve change
+    // re-levels everyone (Nick, #48 build call 6). A row appears with the
+    // account's first grant; no row reads as 0. Granted by one atomic upsert
+    // (`PgAccountStore.grant`).
+    sql: `
+      CREATE TABLE account_progress (
+        account_id bigint      PRIMARY KEY REFERENCES accounts(id),
+        xp         bigint      NOT NULL DEFAULT 0 CHECK (xp >= 0),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `
   }
 ]

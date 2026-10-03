@@ -11,6 +11,12 @@
  *
  * Storage that is blocked or cleared means a new account next play: the
  * accepted risk in #48.
+ *
+ * XP and levels (decision #48 step 3): a persisted account's `account` event
+ * carries its standing (`xp`, `level`, `levelAt`, `nextAt`), and after each
+ * run the server sends `progress { gained, xp, level, levelAt, nextAt,
+ * levelUp }` once the grant is written. The level is the server's: the curve
+ * is not copied here. An offline account has no standing and earns nothing.
  */
 export const TOKEN_KEY = 'plunderland_token'
 
@@ -23,14 +29,86 @@ export interface TokenStorage {
   setItem: (key: string, value: string) => void
 }
 
+/** An account's XP and level, as the server computed them. */
+export interface Standing {
+  xp: number
+  level: number
+  /** Total XP at which `level` began. */
+  levelAt: number
+  /** Total XP at which the next level begins. */
+  nextAt: number
+}
+
 /** What the server said about this connection's account. */
 export interface AccountInfo {
   id: string
   offline: boolean
+  /** Undefined offline, or from a server before XP. */
+  standing: Standing | undefined
 }
 
-/** This connection's account, as last announced; read by later steps (level, energy). */
-export const ACCOUNT: { info: AccountInfo | undefined } = { info: undefined }
+/** A `progress` event: what the run just ended earned, and the standing after it. */
+export interface ProgressInfo extends Standing {
+  gained: number
+  levelUp: boolean
+}
+
+/**
+ * This connection's account, as last announced, and who wants to hear when
+ * it changes (the lobby's level). Cleared on every (re)connect: a new
+ * connection's account is announced again, and until then the last one's is
+ * not this one's.
+ */
+export const ACCOUNT: { info: AccountInfo | undefined, listeners: Set<() => void> } = { info: undefined, listeners: new Set() }
+
+/** Replace the announced account and tell the listeners. */
+export function setAccountInfo (info: AccountInfo | undefined): void {
+  ACCOUNT.info = info
+  // forEach, not for-of: the client's tsconfig targets ES5 for typechecking.
+  ACCOUNT.listeners.forEach((listener) => {
+    try {
+      listener()
+    } catch {
+      // One broken listener must not stop the others.
+    }
+  })
+}
+
+/** A whole number that is at least 0, or undefined. */
+function count (value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
+/** The standing in a message, if it has a whole, consistent one. */
+export function standingOf (data: unknown): Standing | undefined {
+  if (data === null || typeof data !== 'object') return undefined
+  const d = data as Record<string, unknown>
+  const xp = count(d.xp)
+  const level = count(d.level)
+  const levelAt = count(d.levelAt)
+  const nextAt = count(d.nextAt)
+  if (xp === undefined || level === undefined || level < 1 || levelAt === undefined || nextAt === undefined) return undefined
+  if (levelAt > xp || nextAt <= xp) return undefined
+  return { xp, level, levelAt, nextAt }
+}
+
+/** A `progress` event, or undefined for a malformed one. */
+export function onProgress (data: unknown): ProgressInfo | undefined {
+  const standing = standingOf(data)
+  if (standing === undefined) return undefined
+  const { gained, levelUp } = data as { gained?: unknown, levelUp?: unknown }
+  const g = count(gained)
+  if (g === undefined || g > standing.xp) return undefined
+  return { ...standing, gained: g, levelUp: levelUp === true }
+}
+
+/** A run's XP landed: the announced account's standing moves with it. */
+export function applyProgress (progress: ProgressInfo): void {
+  const info = ACCOUNT.info
+  if (info === undefined || info.offline) return
+  const { xp, level, levelAt, nextAt } = progress
+  setAccountInfo({ ...info, standing: { xp, level, levelAt, nextAt } })
+}
 
 /** The stored token, if there is a well-formed one. */
 export function readToken (storage: TokenStorage | undefined): string | undefined {
@@ -65,7 +143,7 @@ export function onAccount (data: unknown, storage: TokenStorage | undefined): Ac
       // Not remembered: the next play makes a new account.
     }
   }
-  return { id, offline: offline === true }
+  return { id, offline: offline === true, standing: offline === true ? undefined : standingOf(data) }
 }
 
 /** localStorage, or undefined where touching it throws. */
@@ -75,4 +153,22 @@ export function localTokenStorage (): TokenStorage | undefined {
   } catch {
     return undefined
   }
+}
+
+/** How long the run card waits for the run's XP before it says it is unavailable. */
+export const PROGRESS_WAIT_MS = 6000
+
+/**
+ * The run card's XP line (`ui/popups/runsummary.ts`): what it says, and its
+ * tone. Here so a spec can run it without pixi.
+ */
+export function xpLine (progress: ProgressInfo | undefined, waited: boolean, offline: boolean): [string, 'pending' | 'muted' | 'text' | 'accent'] {
+  if (progress !== undefined) {
+    return progress.levelUp
+      ? [`+${progress.gained}  LEVEL UP ${progress.level}`, 'accent']
+      : [`+${progress.gained}  LV ${progress.level}`, 'text']
+  }
+  // An offline run earns nothing, so there is nothing to wait for.
+  if (offline || waited) return ['UNAVAILABLE', 'muted']
+  return ['...', 'pending']
 }

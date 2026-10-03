@@ -16,6 +16,12 @@ export interface Account {
   publicId: string
   /** False for an offline account: made up for one connection while the store failed. */
   persisted: boolean
+  /**
+   * Total XP (decision #48 step 3) when the account was looked up, created or
+   * last granted; 0 for an offline account, which earns nothing. The level is
+   * derived from it (`progress/xp.ts`), never stored.
+   */
+  xp: number
 }
 
 export interface AccountStore {
@@ -23,6 +29,14 @@ export interface AccountStore {
   resolve: (token: string) => Promise<Account | null>
   /** A new account and its token, which is never stored. Throws when the store fails. */
   create: () => Promise<{ account: Account, token: string }>
+  /**
+   * Add `xp` to the account's total in one atomic step and return the new
+   * total. Throws when the store fails or knows no such account. Never
+   * retried by the caller: a failed grant is logged, not carried into the
+   * next run.
+   */
+  grant: (publicId: string, xp: number) => Promise<number>
+  /** Waits for grants in flight, then lets go of the store. */
   close: () => Promise<void>
 }
 
@@ -49,7 +63,7 @@ export function newPublicId (): string {
 
 /** An account for one connection while the store is failing (fail open). */
 export function offlineAccount (): Account {
-  return { publicId: newPublicId(), persisted: false }
+  return { publicId: newPublicId(), persisted: false, xp: 0 }
 }
 
 /**
@@ -73,10 +87,12 @@ export class MemoryAccountStore implements AccountStore {
   /** Public id by token hash (hex). */
   private readonly byHash = new Map<string, string>()
   private readonly ids = new Set<string>()
+  /** Total XP by public id; an account with none yet has 0. */
+  private readonly xp = new Map<string, number>()
 
   async resolve (token: string): Promise<Account | null> {
     const publicId = this.byHash.get(hashToken(token).toString('hex'))
-    return publicId === undefined ? null : { publicId, persisted: true }
+    return publicId === undefined ? null : { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0 }
   }
 
   async create (): Promise<{ account: Account, token: string }> {
@@ -85,7 +101,14 @@ export class MemoryAccountStore implements AccountStore {
     const token = newToken()
     this.ids.add(publicId)
     this.byHash.set(hashToken(token).toString('hex'), publicId)
-    return { account: { publicId, persisted: true }, token }
+    return { account: { publicId, persisted: true, xp: 0 }, token }
+  }
+
+  async grant (publicId: string, xp: number): Promise<number> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: grant to an unknown account')
+    const total = (this.xp.get(publicId) ?? 0) + xp
+    this.xp.set(publicId, total)
+    return total
   }
 
   async close (): Promise<void> {}

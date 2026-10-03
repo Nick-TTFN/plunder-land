@@ -10,6 +10,7 @@ import { Stats } from '../objects/player'
 import { captureError } from '../errors'
 import Analytics from '../analytics'
 import type { Account } from '../db/accounts'
+import { earnedXp } from '../progress/run'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -202,6 +203,12 @@ export default class Multiplayer {
   readonly tickLengthMs: number
   private readonly _connections: Connection[]
   redis: Redis
+  /**
+   * Called when a human's run ends on its own connection (`destroy`), with
+   * the XP it earned (`earnedXp`, 0 offline). `Worlds` grants it (decision
+   * #48 step 3); unset (single-world specs) nothing is granted.
+   */
+  runEnded: ((connection: Connection, player: Player, xp: number) => void) | undefined
 
   /**
    * Stats are a side channel. Nothing in the world is persisted, so a stats write
@@ -1435,7 +1442,8 @@ export default class Multiplayer {
       const own = this.connectionOf(obj as Player)
       if (own !== undefined) {
         this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure)
-        Multiplayer.sendRunEnd(obj as Player)
+        const xp = Multiplayer.sendRunEnd(obj as Player)
+        this.runEnded?.(own, obj as Player, xp)
       }
     }
 
@@ -1447,22 +1455,31 @@ export default class Multiplayer {
    * Sent a microtask later: a killing hit destroys its victim inside
    * `target.hit()`, before the attacker's `onKill` records itself as the
    * killer (`Unit.killedBy`). Everything else is read now.
+   *
+   * Returns the XP the run earned (decision #48 step 3), from the same values
+   * (`xp_gained`; 0 on an offline run), which the caller grants.
    */
-  static sendRunEnd (player: Player): void {
+  static sendRunEnd (player: Player): number {
     const outcome = player.extracted ? 'extracted' : player.hp <= 0 ? 'died' : 'left'
     const at = Date.now()
+    const seconds = Math.round((at - player.createdAt) / 1000)
+    const deepest = World.TAGS.indexOf(Math.min(player.deepestTag, player.tag)) + 1
+    const offline = Multiplayer.isOffline(player)
+    const xp = earnedXp(player, offline, seconds, deepest)
     const params = {
       outcome,
-      seconds: Math.round((at - player.createdAt) / 1000),
+      seconds,
       loot: Math.floor(player.loot),
       kills: player.kills,
-      deepest_layer: World.TAGS.indexOf(Math.min(player.deepestTag, player.tag)) + 1,
-      robot: player.archetype.key
+      deepest_layer: deepest,
+      robot: player.archetype.key,
+      xp_gained: xp
     }
-    const run = { playerId: player.playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player) }
+    const run = { playerId: player.playerId, startedAt: player.createdAt, offline }
     queueMicrotask(() => {
       Analytics.send(run, 'run_end', outcome === 'died' ? { ...params, killed_by: player.killedBy ?? 'other' } : params, at)
     })
+    return xp
   }
 
   /**
@@ -1763,8 +1780,13 @@ export default class Multiplayer {
     // Not a player that is already gone. One killed between ticks (a skill
     // runs from its socket handler) is still here until the next flush,
     // and destroying it again freed its id twice and counted the run twice.
+    // Nor one that extracted (`exit` never sets `destroyed`): the flush that
+    // lets it go is skipped when the world's tick throws after the
+    // extraction, and a disconnect before the next good flush ended the run
+    // a second time (stats, banked loot and `run_end` twice, the id freed
+    // twice).
     const player = connection.player
-    if (player != null && !player.destroyed) player.destroy()
+    if (player != null && !player.destroyed && !player.exited) player.destroy()
     this.forget(connection)
     connection.outbox = undefined
     this._connections.splice(i, 1)

@@ -30,6 +30,11 @@ export const LOBBY_CSS = `
   letter-spacing: .12em; text-align: center; text-transform: uppercase; }
 .lb-name::placeholder { color: #6b7d8f; }
 .lb-pencil { color: #a9bccd; }
+.lb-level { position: relative; padding: 2px 8px 4px; border-radius: 10px; font-size: 13px; letter-spacing: .1em; color: #3DE0D0;
+  border: 1px solid #2A4A5E; white-space: nowrap; }
+.lb-level::after { content: ''; position: absolute; left: 8px; bottom: 2px; height: 2px; width: calc((100% - 16px) * var(--lb-level-fill, 0));
+  background: #3DE0D0; }
+.lb-level[hidden] { display: none; }
 .lb-arrow { position: absolute; top: 44%; width: 60px; height: 60px; border-radius: 50%; font-size: 34px; line-height: 1;
   color: #E6EEF5; background: rgba(11,18,32,.75); border: 1px solid #2A4A5E; }
 .lb-arrow:hover { border-color: #3DE0D0; }

@@ -20,7 +20,9 @@ import type Redis from 'ioredis'
  * - `run_end`: `outcome` (`extracted`, `died`, `left`), `seconds`, `loot`
  *   (carried at the end: banked on an extraction, lost otherwise), `kills`,
  *   `deepest_layer` (1-3), `robot`, and `killed_by` (`robot`, `mob`, `other`)
- *   on a death.
+ *   on a death. `xp_gained` (decision #48 step 3, added with XP): the XP the
+ *   run earned by the formula in `progress/xp.ts`, 0 on an offline run; sent
+ *   whether or not the grant then reached the database.
  * - Every event of a run on an offline account (the account store failed,
  *   decision #48) also carries `offline: 1`; it is absent otherwise. Such a
  *   run's `run_start` has no `run_number` or `days_since_first`: its id is

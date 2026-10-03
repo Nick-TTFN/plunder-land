@@ -1,7 +1,8 @@
-import { Container, Graphics } from 'pixi.js'
+import { Container, Graphics, type Text } from 'pixi.js'
 import { Panel } from '../components/panel'
 import { THEME, two } from '../theme'
 import { HUD } from '../components/hud'
+import { ACCOUNT, PROGRESS_WAIT_MS, type ProgressInfo, xpLine } from '../../net/account'
 
 /** How a run ended, from the own player's destroy record. */
 export type RunOutcome = 'extracted' | 'dead'
@@ -14,10 +15,16 @@ export type RunOutcome = 'extracted' | 'dead'
  * server's `loot32`, so it is the banked figure, not an estimate.
  *
  * `start` at the own create; `layer` and `kills` as they change; `finish` at
- * the own destroy.
+ * the own destroy; `setProgress` when the server's `progress` lands (decision
+ * #48 step 3), which can be just before the own destroy or a database round
+ * trip after it.
  */
 export class RunRecord {
   startedAt = 0
+  /** The XP this run earned, once the server has written it. */
+  progress: ProgressInfo | undefined
+  /** The open card's, to show the XP when it lands. */
+  onProgress: ((progress: ProgressInfo) => void) | undefined
   /** Deepest layer reached, as a layer number (1 = layer 01). */
   deepest = 0
   kills = 0
@@ -32,6 +39,12 @@ export class RunRecord {
     this.loot = 0
     this.durationMs = 0
     this.robot = (robot ?? 'robot').toUpperCase()
+    this.progress = undefined
+  }
+
+  setProgress (progress: ProgressInfo): void {
+    this.progress = progress
+    this.onProgress?.(progress)
   }
 
   /** The player is on layer number `n` (undefined: a tag this client wasn't told about). */
@@ -67,6 +80,8 @@ export class RunSummaryCard extends Container {
   private readonly _onResize: () => void
   private _done = false
   private _watch: Container | undefined
+  private _xp: Text | undefined
+  private _wait: ReturnType<typeof setTimeout> | undefined
 
   /**
    * `onWatch`, on a death: a WATCH button that puts the card away to spectate
@@ -82,7 +97,8 @@ export class RunSummaryCard extends Container {
       [extracted ? 'LOOT BANKED' : 'LOOT LOST', run.loot.toLocaleString('en-US'), run.loot === 0 ? THEME.text : extracted ? THEME.loot : THEME.danger],
       ['KILLS', String(run.kills), THEME.text],
       ['DEEPEST', run.deepest > 0 ? `LAYER ${two(run.deepest)}` : '-', THEME.text],
-      ['ROBOT', run.robot, THEME.text]
+      ['ROBOT', run.robot, THEME.text],
+      ['XP', '', THEME.text]
     ]
     const inner = WIDTH - 2 * THEME.pad
     rows.forEach(([label, value, colour], i) => {
@@ -93,7 +109,14 @@ export class RunSummaryCard extends Container {
       v.x = inner
       v.y = i * ROW
       panel.body.addChild(l, v)
+      if (label === 'XP') this._xp = v
     })
+    this.showXp(run, false)
+    const onProgress = (): void => { this.showXp(run, false) }
+    if (run.progress === undefined) {
+      run.onProgress = onProgress
+      this._wait = setTimeout(() => { this.showXp(run, true) }, PROGRESS_WAIT_MS)
+    }
 
     const button = this.button('PLAY AGAIN', inner, () => { this.again() })
     button.y = rows.length * ROW + 12
@@ -120,9 +143,20 @@ export class RunSummaryCard extends Container {
     window.addEventListener('keydown', this._onKey)
     window.addEventListener('resize', this._onResize)
     this.on('removed', () => {
+      if (run.onProgress === onProgress) run.onProgress = undefined
+      clearTimeout(this._wait)
       window.removeEventListener('keydown', this._onKey)
       window.removeEventListener('resize', this._onResize)
     })
+  }
+
+  private showXp (run: RunRecord, waited: boolean): void {
+    const v = this._xp
+    if (v === undefined) return
+    const [text, tone] = xpLine(run.progress, waited, ACCOUNT.info?.offline === true)
+    v.text = text
+    v.style.fill = tone === 'accent' ? THEME.accent : tone === 'text' ? THEME.text : THEME.muted
+    if (run.progress !== undefined) clearTimeout(this._wait)
   }
 
   /** Show WATCH once the server says whom this player spectates; hide it when nobody is left. */

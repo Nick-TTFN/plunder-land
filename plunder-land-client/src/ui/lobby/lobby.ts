@@ -9,6 +9,7 @@ import {
 } from '../../utils/finishes'
 import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
+import { ACCOUNT } from '../../net/account'
 
 const ID_KEY = 'plunderland_player_id'
 const NAME_KEY = 'plunderland_player_name'
@@ -165,6 +166,9 @@ export default class Lobby extends Container {
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
   private readonly onResize = (): void => { this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
+  private readonly onAccount = (): void => { this.renderLevel() }
+  /** The account's level in the name pill (decision #48 step 3); hidden until the server says. */
+  private readonly level: HTMLSpanElement
 
   constructor (private readonly start: LobbyStart) {
     super()
@@ -194,7 +198,12 @@ export default class Lobby extends Container {
     this.nameInput.spellcheck = false
     this.nameInput.value = readStorage(NAME_KEY) ?? ''
     pill.append(this.nameInput, el('span', 'lb-pencil', '\u270E'))
+    this.level = el('span', 'lb-level')
+    pill.append(this.level)
     this.root.append(pill)
+    // The account is announced on connect, which may be before or after this.
+    ACCOUNT.listeners.add(this.onAccount)
+    this.renderLevel()
 
     // Invites (decision #47): the link puts a friend in this player's world.
     this.inviteButton = el('button', 'lb-invite', 'INVITE')
@@ -635,7 +644,18 @@ export default class Lobby extends Container {
     }
   }
 
+  /** `LV n` and the XP into it, from the account's standing; nothing offline or before it is known. */
+  private renderLevel (): void {
+    const standing = ACCOUNT.info?.standing
+    this.level.hidden = standing === undefined
+    if (standing === undefined) return
+    this.level.textContent = `LV ${standing.level}`
+    this.level.title = `${standing.xp - standing.levelAt} / ${standing.nextAt - standing.levelAt} XP to level ${standing.level + 1}`
+    this.level.style.setProperty('--lb-level-fill', String(Math.min(1, Math.max(0, (standing.xp - standing.levelAt) / Math.max(1, standing.nextAt - standing.levelAt)))))
+  }
+
   private teardown (): void {
+    ACCOUNT.listeners.delete(this.onAccount)
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
     window.removeEventListener('pointermove', this.onMove)

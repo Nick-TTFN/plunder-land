@@ -7,6 +7,9 @@ import { captureError, reportError } from '../errors'
 import BotFill from '../bots/fill'
 import { type Account, type AccountStore, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
 import { NotReadyError } from '../db/pgstore'
+import type Player from '../objects/player'
+import { claimGrant } from '../progress/run'
+import { standingOf } from '../progress/xp'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -53,7 +56,13 @@ export interface WorldsOptions {
  * token }` before that run's `hello`. A store that fails or takes longer than
  * `accountTimeoutMs` gives an offline account instead (fail open, no grants):
  * the run plays, no stats are written and no token is sent, so a returning
- * player's stored token survives the outage.
+ * player's stored token survives the outage. A connection left offline tries
+ * again at each later start (`retryAccount`), so one blip doesn't cost a long
+ * session on one socket its progress.
+ *
+ * **XP is granted here at each run's end** (decision #48 step 3, `grant`):
+ * once per run, whatever ended it, to a persisted account only (an offline
+ * run and a bot earn nothing), and the client is told in a `progress` event.
  *
  * **Everything runs inside `World.run`** for the world it belongs to: each
  * world's tick and flush, and every socket handler, inside `guarded`. The
@@ -125,6 +134,7 @@ export default class Worlds {
   /** A new world with its own Multiplayer, not left current. */
   open (): World {
     const multiplayer = new Multiplayer(this.tickLengthMs, this.redis)
+    multiplayer.runEnded = (connection, player, xp) => { this.grant(connection, player, xp) }
     const world = World.build(this.mapSize, { multiplayer })
     this.worlds.push(world)
     return world
@@ -259,10 +269,72 @@ export default class Worlds {
       token = undefined
     }
     connection.account = account
-    const message: { id: string, token?: string, offline?: boolean } = { id: account.publicId }
+    const message: { id: string, token?: string, offline?: boolean, xp?: number, level?: number, levelAt?: number, nextAt?: number } = { id: account.publicId }
     if (!account.persisted) message.offline = true
-    else if (token !== undefined) message.token = token
+    else {
+      if (token !== undefined) message.token = token
+      // The account's standing, for the lobby (decision #48 step 3). An
+      // offline account has none: it earns nothing.
+      Object.assign(message, standingOf(account.xp))
+    }
     connection.socket.emit('account', message)
+  }
+
+  /**
+   * The account again, for a start on a connection whose account is offline
+   * (its lookup or creation failed earlier; PLAY AGAIN reuses the socket):
+   * the handshake's token is looked up again, with the same timeout, and an
+   * account is created only if the store answered that it doesn't know it,
+   * or there was none, as on a first play. A stored token is never replaced
+   * while its lookup is unanswered. Still failing: the connection keeps its
+   * offline account and this run plays offline. Never rejects.
+   */
+  private async retryAccount (connection: Connection): Promise<void> {
+    const token = tokenOf(connection.socket.handshake?.auth)
+    try {
+      if (token !== undefined) {
+        const found = await this.bounded(this.accounts.resolve(token))
+        Worlds.accountSuccess()
+        if (found !== null) {
+          if (!connection.closed) this.setAccount(connection, found)
+          return
+        }
+      }
+      if (connection.closed || this.draining) return
+      const created = await this.bounded(this.accounts.create())
+      Worlds.accountSuccess()
+      this.setAccount(connection, created.account, created.token)
+    } catch (e) {
+      Worlds.accountFailure(e)
+    }
+  }
+
+  /**
+   * A run ended (`Multiplayer.destroy`: a death, an extraction, a disconnect,
+   * a drain's cut-off) and earned `xp` (`earnedXp`, 0 for an offline run).
+   * Granted once per run (`claimGrant`), only to the persisted account the
+   * run was played under, never to a bot; one atomic add in the store. Then
+   * `progress { gained, xp, level, levelAt, nextAt, levelUp }` goes to the
+   * client, unless its socket closed or it has started another run since
+   * (that card is gone; the totals reach the lobby with the next `account`).
+   * A failed or slow grant is logged and reported like any account failure
+   * and is not retried: no `progress` is sent, and the card says the XP is
+   * unavailable.
+   */
+  grant (connection: Connection, player: Player, xp: number): void {
+    const account = connection.account
+    if (player.bot !== undefined || account === undefined || !account.persisted || account.publicId !== player.playerId) return
+    if (!claimGrant(player)) return
+    this.bounded(this.accounts.grant(account.publicId, xp)).then((total) => {
+      Worlds.accountSuccess()
+      account.xp = total
+      Multiplayer.guarded(() => {
+        if (connection.closed) return
+        if (connection.player !== undefined && connection.player !== player) return
+        const standing = standingOf(total)
+        connection.socket.emit('progress', { gained: xp, ...standing, levelUp: standing.level > standingOf(total - xp).level })
+      })
+    }).catch((e) => { Worlds.accountFailure(e) })
   }
 
   /** Never the token: errors from the store carry none, and nothing here adds it. */
@@ -308,7 +380,8 @@ export default class Worlds {
   /**
    * `start_requested`. A malformed one, or one while a run is in progress or
    * waiting on the account, moves nothing. Otherwise, once the connection has
-   * an account (`accountFor`; at once on its later runs), it goes to
+   * an account (`accountFor`; at once on its later runs, unless the account
+   * is offline, when `retryAccount` tries the store again first), it goes to
    * `choose()`'s world, leaving its old one first if that is another, and
    * the run starts there.
    *
@@ -325,12 +398,14 @@ export default class Worlds {
       Worlds.redirect(connection)
       return
     }
-    if (connection.account !== undefined) {
+    if (connection.account?.persisted === true) {
       this.begin(connection, start, data)
       return
     }
     connection.starting = true
-    this.accountFor(connection).then(() => {
+    // No account yet (the first play), or an offline one to try again.
+    const ready = connection.account === undefined ? this.accountFor(connection) : this.retryAccount(connection)
+    ready.then(() => {
       Multiplayer.guarded(() => {
         connection.starting = false
         if (connection.closed) return

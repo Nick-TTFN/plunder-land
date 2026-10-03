@@ -15,6 +15,7 @@ import type Consumable from './consumable'
 import type ItemPickup from './itempickup'
 import Analytics from '../analytics'
 import type BotBrain from '../bots/brain'
+import { countKill } from '../progress/run'
 import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'obscenity'
 
 export class Stats {
@@ -474,6 +475,8 @@ export default class Player extends Unit {
     // The run's count, on the wire as `kills` (21). Every credited kill, mob
     // or player, as the redis `kills` stat counts them.
     this.kills++
+    // Split by victim for the run's XP (decision #48 step 3, progress/run.ts).
+    countKill(this, value)
 
     // Never `void`: see Multiplayer.STATS_LOG. A rejected stats write is an
     // unhandled rejection, and that ends the process. An offline account

@@ -37,6 +37,8 @@ export class PgAccountStore implements AccountStore {
   ready = false
   private retry: NodeJS.Timeout | undefined
   private closed = false
+  /** Grants in flight, which `close` waits for. */
+  private readonly grants = new Set<Promise<unknown>>()
   private readonly retryMs: number
   private readonly onError: (e: unknown) => void
   private readonly onReady: (applied: number[]) => void
@@ -98,12 +100,14 @@ export class PgAccountStore implements AccountStore {
 
   async resolve (token: string): Promise<Account | null> {
     if (!this.ready) throw new NotReadyError()
+    // One round trip: the account and its XP (no progress row yet reads as 0).
     const result = await this.pool.query(
-      'UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING public_id',
+      `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
+       SELECT a.public_id, COALESCE(p.xp, 0) AS xp FROM a LEFT JOIN account_progress p ON p.account_id = a.id`,
       [hashToken(token)]
     )
-    const row = result.rows[0] as { public_id: string } | undefined
-    return row === undefined ? null : { publicId: row.public_id, persisted: true }
+    const row = result.rows[0] as { public_id: string, xp: string | number } | undefined
+    return row === undefined ? null : { publicId: row.public_id, persisted: true, xp: Number(row.xp) }
   }
 
   async create (): Promise<{ account: Account, token: string }> {
@@ -115,16 +119,48 @@ export class PgAccountStore implements AccountStore {
       const publicId = newPublicId()
       try {
         await this.pool.query('INSERT INTO accounts (public_id, token_hash) VALUES ($1, $2)', [publicId, hashToken(token)])
-        return { account: { publicId, persisted: true }, token }
+        return { account: { publicId, persisted: true, xp: 0 }, token }
       } catch (e) {
         if ((e as { code?: string }).code !== '23505' || attempt >= 3) throw e
       }
     }
   }
 
+  /**
+   * Add `xp` to the account's total: one atomic upsert, so two grants at once
+   * (two tabs ending runs together) both count. Throws for an unknown public
+   * id, as for any failure.
+   */
+  async grant (publicId: string, xp: number): Promise<number> {
+    if (!this.ready) throw new NotReadyError()
+    if (this.closed) throw new Error('accounts: store closed')
+    const pending = this.pool.query(
+      `INSERT INTO account_progress (account_id, xp)
+       SELECT id, $2 FROM accounts WHERE public_id = $1
+       ON CONFLICT (account_id) DO UPDATE SET xp = account_progress.xp + EXCLUDED.xp, updated_at = now()
+       RETURNING xp`,
+      [publicId, xp]
+    )
+    this.grants.add(pending)
+    try {
+      const row = (await pending).rows[0] as { xp: string | number } | undefined
+      if (row === undefined) throw new Error('accounts: grant to an unknown account')
+      return Number(row.xp)
+    } finally {
+      this.grants.delete(pending)
+    }
+  }
+
+  /**
+   * Waits for the grants in flight, then ends the pool. Runs cut short by a
+   * drain's deadline are all granted at once from their disconnects, more
+   * than the pool's 5 clients, and `pool.end()` would leave the queued ones
+   * waiting forever: their XP would be lost.
+   */
   async close (): Promise<void> {
     this.closed = true
     if (this.retry !== undefined) clearTimeout(this.retry)
+    await Promise.allSettled([...this.grants])
     await this.pool.end()
   }
 }
