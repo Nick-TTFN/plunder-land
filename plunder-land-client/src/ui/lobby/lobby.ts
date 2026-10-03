@@ -10,6 +10,7 @@ import {
 import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
 import { ACCOUNT } from '../../net/account'
+import { LoadoutPanel } from './loadoutpanel'
 
 const ID_KEY = 'plunderland_player_id'
 const NAME_KEY = 'plunderland_player_name'
@@ -60,7 +61,7 @@ let _pageId: string | undefined
 const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
 /** `finish` as its wire bytes, `robot` an archetype key. */
-export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string) => Promise<void>
+export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number) => Promise<void>
 
 /** A group's finish as one swatch: colour and pattern. */
 interface Swatch { colour: number, pattern: number }
@@ -127,7 +128,8 @@ function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, 
  * Locked robots (no art yet) show as cards that can't be picked. The choice of
  * robot, finish and name is remembered in localStorage.
  *
- * Keys: left/right switch robot, E opens and closes customize, Enter is READY
+ * Keys: left/right switch robot, E opens and closes customize, L the skill
+ * loadouts (`loadoutpanel.ts`, decision #48 step 4), Enter is READY
  * UP. Keys typed into the name field are the field's.
  */
 export default class Lobby extends Container {
@@ -162,6 +164,8 @@ export default class Lobby extends Container {
   private readonly customize: HTMLDivElement
   private readonly rows: Partial<Record<FinishGroup, { current: HTMLSpanElement, swatches: HTMLDivElement }>> = {}
   private readonly mixButton: HTMLButtonElement
+  /** The skill loadouts (decision #48 step 4); one of it and customize is open at a time. */
+  private readonly loadout: LoadoutPanel
 
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
   private readonly onResize = (): void => { this.layout() }
@@ -230,7 +234,9 @@ export default class Lobby extends Container {
     this.nameLine = el('div', 'lb-robot')
     const edit = el('button', 'lb-edit', '\u270E EDIT')
     edit.onclick = () => { this.toggleCustomize() }
-    nameRow.append(this.nameLine, edit)
+    const loadout = el('button', 'lb-edit', 'LOADOUT')
+    loadout.onclick = () => { this.toggleLoadout() }
+    nameRow.append(this.nameLine, edit, loadout)
     this.tagline = el('div', 'lb-tagline')
     plate.append(this.kindLine, nameRow, this.tagline)
     this.root.append(plate)
@@ -288,6 +294,8 @@ export default class Lobby extends Container {
     foot.append(this.mixButton, done)
     this.customize.append(foot)
     this.root.append(this.customize)
+    this.loadout = new LoadoutPanel(() => { this.toggleLoadout(false) })
+    this.root.append(this.loadout.root)
 
     const ready = el('button', 'lb-ready', 'READY UP \u203A')
     ready.onclick = () => { this.ready() }
@@ -295,7 +303,7 @@ export default class Lobby extends Container {
     // Portals ask for it, and it is what the game collects (decision #46).
     this.root.append(Object.assign(el('a', 'lb-privacy'), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'PRIVACY' }))
     this.root.append(Object.assign(el('div', 'lb-keys'), {
-      innerHTML: '<kbd>&larr;</kbd><kbd>&rarr;</kbd> SWITCH <kbd>E</kbd> EDIT <kbd>ENTER</kbd> READY'
+      innerHTML: '<kbd>&larr;</kbd><kbd>&rarr;</kbd> SWITCH <kbd>E</kbd> EDIT <kbd>L</kbd> LOADOUT <kbd>ENTER</kbd> READY'
     }))
 
     this.nameInput.addEventListener('keydown', (e) => {
@@ -428,6 +436,7 @@ export default class Lobby extends Container {
       this.statRows[i].fill.style.width = v === null ? '0%' : `${Math.min(100, 100 * v / bar.top)}%`
       this.statRows[i].value.textContent = v === null ? '-' : bar.text(v)
     })
+    this.loadout.setRobot(entry.robot ?? 'peep')
     this.buildRobots()
   }
 
@@ -441,6 +450,14 @@ export default class Lobby extends Container {
   private toggleCustomize (open?: boolean): void {
     const show = open ?? this.customize.classList.contains('lb-hidden')
     this.customize.classList.toggle('lb-hidden', !show)
+    if (show) this.loadout.root.classList.add('lb-hidden')
+    this.root.classList.toggle('lb-editing', show)
+  }
+
+  private toggleLoadout (open?: boolean): void {
+    const show = open ?? this.loadout.root.classList.contains('lb-hidden')
+    this.loadout.root.classList.toggle('lb-hidden', !show)
+    if (show) this.customize.classList.add('lb-hidden')
     this.root.classList.toggle('lb-editing', show)
   }
 
@@ -454,8 +471,16 @@ export default class Lobby extends Container {
     writeStorage(NAME_KEY, name)
     writeStorage(FINISH_KEY, JSON.stringify(finishToBytes(this.finish)))
     writeStorage(ROBOT_KEY, this.entry.key)
-    void this.start(this.playerId, name, finishToBytes(this.finish), this.entry.robot ?? 'peep', this.party)
-    this.parent?.removeChild(this)
+    const robot = this.entry.robot ?? 'peep'
+    const loadout = this.loadout.indexFor(robot)
+    // A loadout change still saving goes first (at most `SETTLE_MAX_MS`), or
+    // the join would play the loadout from before it.
+    void this.loadout.settle().then(() => {
+      // Taken down meanwhile (a reconnect clears the popups): no start.
+      if (this.tornDown) return
+      void this.start(this.playerId, name, finishToBytes(this.finish), robot, this.party, loadout)
+      this.parent?.removeChild(this)
+    })
   }
 
   private key (e: KeyboardEvent): void {
@@ -467,7 +492,11 @@ export default class Lobby extends Container {
     else if (e.key === 'ArrowLeft') this.step(-1)
     else if (e.key === 'ArrowRight') this.step(1)
     else if (e.key === 'e' || e.key === 'E') this.toggleCustomize()
-    else if (e.key === 'Escape') this.toggleCustomize(false)
+    else if (e.key === 'l' || e.key === 'L') this.toggleLoadout()
+    else if (e.key === 'Escape') {
+      this.toggleCustomize(false)
+      this.toggleLoadout(false)
+    }
     else handled = false
     // Skill keys are bound on window: nothing typed here is game input.
     e.stopImmediatePropagation()
@@ -664,6 +693,7 @@ export default class Lobby extends Container {
     if (this.tornDown) return
     this.tornDown = true
     ACCOUNT.listeners.delete(this.onAccount)
+    this.loadout.dispose()
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
     window.removeEventListener('pointermove', this.onMove)

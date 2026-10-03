@@ -84,6 +84,24 @@ export const LOBBY_CSS = `
 .lb-customfoot { display: flex; justify-content: space-between; align-items: center; padding-top: 14px; }
 .lb-mix { background: none; border: 0; color: #a9bccd; font-size: 13px; text-decoration: underline; }
 .lb-done { padding: 10px 36px; font-size: 17px; letter-spacing: .14em; font-weight: 700; color: #0B1220; background: #3DE0D0; border: 0; border-radius: 6px; }
+.lb-lo-tabs { display: flex; gap: 8px; padding: 14px 0 10px; }
+.lb-lo-tabs .lb-chip { min-width: 52px; padding: 6px 10px; font-size: 13px; }
+.lb-lo-tabs .lb-chip:disabled { opacity: .45; cursor: default; }
+.lb-lo-slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-bottom: 14px; border-bottom: 1px solid #1E3344; }
+.lb-lo-slot { position: relative; height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: #E6EEF5; background: #101A28; border: 2px solid #2A4A5E; border-radius: 8px; padding: 18px 4px 6px; }
+.lb-lo-key { position: absolute; top: 4px; left: 6px; font-size: 11px; color: #a9bccd; }
+.lb-lo-icon { width: 30px; height: 30px; object-fit: contain; font-size: 20px; color: #3b4e60; line-height: 30px; text-align: center; }
+.lb-lo-name { font-size: 9px; letter-spacing: .06em; text-align: center; line-height: 1.2; }
+.lb-lo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 14px 0; }
+.lb-lo-skill { position: relative; height: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: #E6EEF5; background: #101A28; border: 1px solid #2A4A5E; border-radius: 8px; font-size: 11px; letter-spacing: .08em; padding: 4px; }
+.lb-lo-skill:hover:not(:disabled) { border-color: #3DE0D0; }
+.lb-lo-skill:disabled { cursor: default; }
+.lb-lo-locked { opacity: .4; }
+.lb-lo-badge { position: absolute; top: 3px; right: 4px; font-size: 9px; padding: 1px 4px; border-radius: 3px; background: #1A2533; color: #a9bccd; }
+.lb-lo-on { background: #3DE0D0; color: #0B1220; }
+.lb-lo-status { font-size: 12px; letter-spacing: .1em; color: #a9bccd; }
 .lb-ready { position: absolute; right: 44px; bottom: 44px; padding: 18px 40px; font-size: 26px; font-weight: 800; letter-spacing: .14em;
   color: #1a1206; background: linear-gradient(#ffc45e, #f2a12e); border: 2px solid #ffd58a; border-radius: 10px;
   box-shadow: 0 0 22px rgba(255,181,71,.45); }
