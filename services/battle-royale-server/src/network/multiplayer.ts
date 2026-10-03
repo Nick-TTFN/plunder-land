@@ -1338,10 +1338,9 @@ export default class Multiplayer {
    *   did not hold the originator, which dropped the record unread (about
    *   half of these effects; `Game.EFFECTS_UNHELD`). A connection whose own
    *   player has died and that is not yet spectating is skipped, as before.
-   * - **Types 5 and 6** (fireball and icicle blasts) are drawn on their
-   *   cell, which can be 11 cells from the thrower, and the thrower may be
-   *   dead or out of sight by the burst: they go by the cell (`sendAt`, as
-   *   `effectAt` does), on the originator's layer.
+   *
+   * Types 5-8 (fireball and icicle blasts, bomb fuse and blast) are drawn on
+   * a cell and go through `effectAt` instead.
    */
   effect (type: number, originator: Unit, lifetime: number, aimCell?: Vector): void {
     Multiplayer.checkWorld(this, 'Multiplayer.effect')
@@ -1352,11 +1351,6 @@ export default class Multiplayer {
     if (aimCell !== undefined) {
       data.writeInt16BE(aimCell.x, 4)
       data.writeInt16BE(aimCell.y, 6)
-    }
-
-    if (Multiplayer.CELL_EFFECTS.has(type) && aimCell !== undefined) {
-      this.sendAt(data, aimCell, originator.tag)
-      return
     }
 
     for (const connection of originator.knownBy) {
@@ -1370,17 +1364,14 @@ export default class Multiplayer {
   }
 
   /**
-   * `effect` types drawn on their aimed cell, not on their originator: the
-   * fireball's (5) and the icicle's (6) blast. Sent by the cell (`sendAt`).
-   */
-  static readonly CELL_EFFECTS: ReadonlySet<number> = new Set([5, 6])
-
-  /**
    * An aimed effect that belongs to a cell rather than to its originator: the
    * same record as `effect`, but sent to connections whose player is on `tag`
    * and see the cell (`sendAt`). A bomb lands up to 6
    * cells from its thrower and the fuse outlives them, so the thrower's
-   * position says nothing about who can see it. `originatorId` is carried but
+   * position says nothing about who can see it. The fireball and icicle
+   * blasts (5, 6) come here too, with the projectile's own layer: a thrower
+   * who hops a portal during the flight is on another layer by the burst,
+   * and the blast belongs where it hits. `originatorId` is carried but
    * the client does not look it up for these types: by the blast it may be
    * dead, and its id reused.
    */

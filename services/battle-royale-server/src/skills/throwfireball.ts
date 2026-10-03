@@ -50,7 +50,7 @@ export class ThrowFireball extends Skill {
     // The blast's own cell, so the client draws the ring the server damages.
     // The client cannot work it out: the destroy record carries no position,
     // and its last one is a tick behind the hit.
-    Multiplayer.Instance.effect(5, this.owner, 500, origin)
+    Multiplayer.Instance.effectAt(5, this.owner.id, 500, origin, target.tag)
     for (const collidee of World.FIND_IN_CELLS(
       origin,
       ThrowFireball.BLAST_RINGS,

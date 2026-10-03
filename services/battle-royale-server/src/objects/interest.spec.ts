@@ -11,6 +11,8 @@ import Mob from './mob'
 import Consumable from './consumable'
 import ItemPickup from './itempickup'
 import Obstacle from './obstacle'
+import { ThrowFireball } from '../skills/throwfireball'
+import { Throwicicle } from '../skills/throwicicle'
 import { type GameObject } from './gameobject'
 import { ARCHETYPES, ITEMS, LAYERS } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
@@ -1135,8 +1137,8 @@ test('a fireball or icicle blast and a bomb reach the viewers of their cell, hel
   assert.ok(!scope.mirror.held.has(thrower.player.id))
 
   const sends: Array<[string, () => void, number]> = [
-    ['fireball blast', () => multiplayer.effect(5, thrower.player, 500, cell), 5],
-    ['icicle blast', () => multiplayer.effect(6, thrower.player, 500, cell), 6],
+    ['fireball blast', () => multiplayer.effectAt(5, thrower.player.id, 500, cell, TOP), 5],
+    ['icicle blast', () => multiplayer.effectAt(6, thrower.player.id, 500, cell, TOP), 6],
     ['bomb fuse', () => multiplayer.effectAt(7, thrower.player.id, 2000, cell, TOP), 7],
     ['bomb blast', () => multiplayer.effectAt(8, thrower.player.id, 500, cell, TOP), 8]
   ]
@@ -1151,6 +1153,76 @@ test('a fireball or icicle blast and a bomb reach the viewers of their cell, hel
     assert.deepEqual(below.mirror.effectTypes, [], `${label}: another layer`)
   }
   assertClean(clients, 'cell effects')
+})
+
+/**
+ * A thrower on TOP throws `Skill` 10 cells due east, then hops to MIDDLE while
+ * it flies (`changeLayer`, as `Player.hopPortal` does), with no update since:
+ * its client's switch is pending. `old` stands on TOP 4 rings beyond the end of
+ * the line, where the projectile bursts; `fresh` stands on MIDDLE right on
+ * that cell. Neither is on the projectile's swath, so it strikes nobody.
+ */
+function hopMidFlight (skill: typeof ThrowFireball | typeof Throwicicle, prefix: string) {
+  const multiplayer = new Multiplayer(250, okRedis())
+  const at = Hex.toPosition(new Vector(30, 40))
+  const thrower = join(multiplayer, `${prefix}0`, at, 'peep')
+  const end = new Vector(40, 40)
+  const old = join(multiplayer, `${prefix}1`, offCell(Hex.toPosition(end), 4), 'peep')
+  const fresh = join(multiplayer, `${prefix}2`, Hex.toPosition(end), 'peep')
+  fresh.player.changeLayer(MIDDLE)
+  tick(multiplayer, 0)
+  const clients = [thrower, old, fresh]
+  for (const client of clients) client.mirror.clear()
+
+  const throwSkill = thrower.player.skills.find((s) => s instanceof skill)
+  assert.ok(throwSkill !== undefined, `${skill.name} not equipped`)
+  assert.equal(throwSkill.execute(end), true, 'the throw was refused')
+  assert.equal(World.PROJECTILES.length, 1)
+  const projectile = World.PROJECTILES[0]
+  assert.equal(projectile.tag, TOP)
+  thrower.player.changeLayer(MIDDLE)
+  assert.equal(connectionOf(multiplayer, thrower).layer, TOP, 'the switch is not pending')
+  return { multiplayer, thrower, old, fresh, clients, end, projectile }
+}
+
+for (const [skill, type] of [[ThrowFireball, 5], [Throwicicle, 6]] as const) {
+  test(`a ${skill.name} blast after its thrower hops a portal reaches the cell's viewers on the layer it flew on, and nobody on the thrower's new one`, () => {
+    const { multiplayer, thrower, old, fresh, clients, end, projectile } = hopMidFlight(skill, `c${type}000`)
+    const blasts = (client: Client): number => client.mirror.effectTypes.filter((t) => t === type).length
+
+    for (let n = 1; n <= 10 && World.PROJECTILES.length > 0; n++) {
+      World.updateProjectiles(0.25)
+      tick(multiplayer, n)
+    }
+    assert.equal(World.PROJECTILES.length, 0, 'the projectile never burst')
+    assert.equal(projectile.struck, undefined, 'it struck someone, so the burst is not where the test put it')
+    assert.deepEqual(Hex.toCell(projectile.position), end, 'it burst off the end of its line')
+    assert.equal(thrower.player.tag, MIDDLE)
+    assert.equal(connectionOf(multiplayer, thrower).layer, MIDDLE, 'the thrower\'s client never switched')
+
+    assert.equal(blasts(old), 1, 'the viewer of the burst cell on the projectile\'s layer did not get the blast')
+    assert.equal(blasts(fresh), 0, 'the blast went to the thrower\'s new layer')
+    assert.equal(blasts(thrower), 0, 'the blast went to the thrower, now on another layer')
+    assertClean(clients, 'blast after a hop')
+  })
+}
+
+test('a cell effect on the new layer is not sent to a client whose switch to it is still pending', () => {
+  // `sendAt` takes candidates by the player's tag, which is already MIDDLE,
+  // while its client still draws TOP until the player's next update
+  // (`switchLayer`). Sent now, a MIDDLE blast would be drawn on TOP's plane.
+  const { multiplayer, thrower, old, fresh, clients } = hopMidFlight(ThrowFireball, 'c70000')
+  const cell = Hex.toCell(offCell(thrower.player.position, 1))
+  for (const client of clients) client.mirror.clear()
+  multiplayer.effectAt(8, fresh.player.id, 500, cell, MIDDLE)
+  // A flush only, with no update: the switch stays pending through it.
+  multiplayer.flushAll(1, 250)
+  assert.equal(connectionOf(multiplayer, thrower).layer, TOP, 'the flush switched the client')
+  assert.deepEqual(thrower.mirror.effectTypes, [], 'a MIDDLE effect reached a client still on TOP')
+  // Nine rings from the cell, inside the box: the effect did go out on MIDDLE.
+  assert.deepEqual(fresh.mirror.effectTypes, [8], 'the MIDDLE viewer of the cell did not get it')
+  assert.deepEqual(old.mirror.effectTypes, [], 'a TOP viewer got a MIDDLE effect')
+  assertClean(clients, 'pending switch')
 })
 
 // --- a real world ------------------------------------------------------------------------

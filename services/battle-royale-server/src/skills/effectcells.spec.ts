@@ -45,6 +45,10 @@ beforeEach(() => {
     destroy: noop,
     effect: (type: number, originator: Unit, lifetime: number, aimCell?: Vector) => {
       effects.push({ type, id: originator.id, lifetime, aimCell })
+    },
+    // The blasts (5, 6) go by their cell, on the projectile's layer.
+    effectAt: (type: number, originatorId: number, lifetime: number, cell: Vector) => {
+      effects.push({ type, id: originatorId, lifetime, aimCell: cell })
     }
   } as unknown as Multiplayer
 

@@ -29,7 +29,7 @@ const DT = 0.25
 beforeEach(() => {
   const noop = (): void => {}
   Multiplayer.Instance = {
-    create: noop, update: noop, destroy: noop, effect: noop
+    create: noop, update: noop, destroy: noop, effect: noop, effectAt: noop
   } as unknown as Multiplayer
 
   World.mapSize = 4000
