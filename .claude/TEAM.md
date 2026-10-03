@@ -79,7 +79,7 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   `update` header, the 4-byte `pointer` input, and `hello`.
 - The `standings` record (`[0][uint16 rank]` after the name): server `Multiplayer.rankStandings`
   / `StandingsBoard`, client `src/ui/components/standings.ts` (`decodeStanding`, `pickShown`).
-- The order of `Player.skills` (server `src/objects/player.ts`) against the HUD bar.
+- `utils/skills.ts` (mirrored; ids append-only), `hello.skills` and the `skill` slot as an index into it, `start_requested.loadout`, `save_loadout`/`loadout_saved`, and `account.loadouts` (#48 step 4; server `progress/loadouts.ts`, `network/worlds.ts`, `multiplayer.ts`; client `net/loadout.ts`, `net/session.ts`, `net/account.ts`, `ui/lobby/loadoutpanel.ts`).
 - `utils/hex.ts` and `utils/path.ts`, byte-identical in both packages; `mirror.spec.ts`
   enforces it.
 - `LocalPlayer._step` (client) mirrors `Unit.update` (server). If one changes, so does the other.
@@ -88,7 +88,7 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   duplicated on both sides by hand. Also its standing fields (`xp, level, levelAt, nextAt`) and
   the `progress` event (#48 step 3; server `network/worlds.ts` `grant`, `progress/xp.ts`
   `standingOf`; client `net/account.ts`, `index.ts`, `ui/popups/runsummary.ts`, `ui/lobby/lobby.ts`).
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 2 since #48): bump it with any change an older
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 3 since #48 step 4): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
 - **Who is sent what is a contract too, though no byte changes** (server fog, #48):
   `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what
@@ -197,7 +197,7 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48). Dez states values in the spec and Beck applies them.
+  formula and level curve, #48), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`. Dez states values in the spec and Beck applies them.
 - **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See CLAUDE.md,
   Known-unfixed.
 - Art is Nick's boundary. Every unit and two player clips are still missing (the arena pass of

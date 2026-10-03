@@ -651,7 +651,7 @@ repeats is harmless (`sameCells`). The server ignores a buffer shorter than its 
 (`Multiplayer.onPointer`). (It was a 4-byte direction before click-to-move routed along hex
 centres.)
 
-**Client → server `skill` is 5 bytes:** `[uint8 slot][int16 q][int16 r]`, **big-endian**,
+**Client → server `skill` is 5 bytes:** `[uint8 slot][int16 q][int16 r]`, **big-endian**; the slot is an index into the player's 4 (`hello.skills`), and an empty slot or 4-7 runs nothing,
 where (q, r) is the **absolute** axial cell aimed at (decision #21). Not an offset from the
 player: the predicting client and the server can disagree about the player's cell by one,
 and an offset would then land a cell off. The server takes the offset from its own position.
@@ -690,7 +690,7 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 2 since guest accounts** (#48, 2026-10-03).
+tabs left open across a release. **`PROTOCOL` is 3 since skill loadouts** (#48 step 4, 2026-10-04; 2 was guest accounts): an older client sends the `skill` slot as an index into eight.
 
 **`account`** (server → client, text; framed clients decode text events; #48): `{ id }` on
 connect for a known handshake token, `{ id, token }` on a connection's first play without one
@@ -706,6 +706,19 @@ before its own destroy reaches the client). Never sent after the next run's `hel
 XP row says UNAVAILABLE after `PROGRESS_WAIT_MS` (6 s) without it, at once offline. Additive, no
 PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
 
+**`save_loadout { robot, index, skills }`** (client → server, text, in the lobby or mid-run, effective
+at the next join) is answered by **`loadout_saved { robot, index, ok, skills, busy? }`**. Refused
+unless the account is persisted, the robot selectable, the index one the level has and
+`checkLoadout` passes; a refusal or failure answers with `kitFor`'s current answer so the lobby
+snaps back. One write in flight per connection (a second meanwhile answers `busy`); the account in
+memory changes only after the write resolves; one landing after the 3 s timeout is stored but
+answered `ok: false` (the next connection reads it). READY waits up to 4 s for a save in flight.
+The client applies every `loadout_saved` to its account in `index.ts`, so a late one still counts
+after the lobby is gone; the LOADOUT panel is read-only until the account carries `loadouts`. A
+persisted account's `account` carries `loadouts` (`loadoutsFor`: every robot, the level's loadouts,
+each as a join would play it); the grant's mid-run `account` carries none and the client keeps the
+last for that id.
+
 **A server stops by draining** (decision #46, `Worlds.drain`, `index.ts`). On SIGTERM it takes
 no new runs: lobby connections are sent on at once, a run card's when it asks for its next run,
 a connection arriving later at once. "Sent on" is closing the transport (`Worlds.redirect`,
@@ -714,7 +727,7 @@ Live runs play out; it stops when none is left or at `DRAIN_MAX_MS` (default 570
 Railway's 600 s `drainingSeconds`), and waits for the disconnects' stats writes before quitting
 Redis. SIGINT is still an immediate stop.
 
-**`hello`** is emitted once on join: `{ tick, map, interest, layers }`. Nothing on the client
+**`hello`** is emitted once on join: `{ tick, map, interest, layers, skills }`; `skills` is the run's 4 skill ids, Q W E R, as the server resolved them (#48 step 4), and the client resets `Session.skills` on every hello. Nothing on the client
 may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, top (01) first;
 the client builds one plane per entry when `hello` lands (it precedes the join's first
 flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hello` without
@@ -729,7 +742,7 @@ id); the lobby's INVITE copies `?join=<code>&from=<name>`, and a tab opened from
 inviter's code (sessionStorage `plunderland_join`; `ui/lobby/party.ts`, pixi-free and run by
 `party.spec.ts`). Free-for-all all the same. Additive: an old server ignores it.
 
-**Client → server `start_requested` is `{ id, name, finish, robot, party }`** (`robot` the picked
+**Client → server `start_requested` is `{ id, name, finish, robot, party, loadout }`** (`loadout` the robot's loadout index, raw; `kitFor` checks it; absent = 0) (`robot` the picked
 robot's key; anything not selectable plays Peep; until the lobby, the client sends `?robot=` or
 `peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
@@ -1127,7 +1140,7 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
 
 ## Bots
 
-**Bots fill worlds** (decision #47, `src/bots/`). A bot is an ordinary `Player` from
+**Bots fill worlds** (decision #47, `src/bots/`). A bot's kit is melee, ranged and defend plus fireball or icicle (half each, `botKit`); it has no account and is not level-checked, and the brain presses by skill id through `Player.slotOf`, never by slot number. A bot is an ordinary `Player` from
 `World.createPlayer` with no connection and a `BotBrain` as an AI routine (`player.bot`), playing
 through the entry points a human's input reaches: `setWaypoints`, `tryExecuteSkill`, `tryUseItem`.
 `BotFill` (one per world, run by `Worlds.tickAll` before the world's update) tops humans + bots up
@@ -1198,6 +1211,11 @@ provisioned 2026-10-03), and the server's `DATABASE_URL` is `${{Postgres.DATABAS
 compose and the pg spec's container use `postgres:18-alpine` to match (see "Running it
 locally").
 
+**Loadouts** (#48 step 4): migration 3, table `loadouts (account_id, robot key, slot_index,
+skills smallint[4])` keyed by (account, robot, index), CHECKs as a backstop; written by one upsert
+(`saveLoadout`, which `close` waits for), read by `resolve` in the same round trip (`json_agg`).
+Rows are untrusted: `kitFor` checks each at every join. Finishes are not in loadouts.
+
 **XP and levels** (#48 step 3, `src/progress/`). Every number is `PROGRESSION` in
 `progress/xp.ts` (Dez's v1, `ideas/meta-progression-numbers.md` §1-2, pinned by `xp.spec.ts`); a
 mob key missing from it pays `mobDefault` 2 (no such mob exists yet; Nick/Dez to confirm 2 or 0
@@ -1213,10 +1231,19 @@ not `Unit.level`, which stays 1 (skill damage reads it). `Multiplayer.drop` stil
 
 ## Skills
 
-All eight are equipped: Dash, MeleeAttack, RangedAttack, Defend, StoneWall, ThrowFireball,
-Throwicicle, IceBreath. **The order of `Player.skills` is a wire contract** — the client sends
-the index of the slot pressed and `tryExecuteSkill` indexes straight into the server's array,
-so the two lists must stay identical. The HUD bar binds them to `q w e r t y u i`.
+**Skills unlock by account level; a player equips 4 on Q W E R** (decision #48 step 4, shipped
+2026-10-04). The skill ids, labels, unlock levels (Dez v1: Dash, Melee and Ranged 1, Defend 2,
+Fireball 4, StoneWall 6, Icicle 9, IceBreath 11), `START_KIT` `[1,2,3,0]`, `LOADOUT_SLOTS` (1/2/3/4
+loadouts per robot at levels 1/10/15/20) and `checkLoadout` are in the mirrored `utils/skills.ts`.
+**Ids are append-only and are not slot indices.** A join plays `kitFor(account, robot,
+start.loadout)` (`progress/loadouts.ts`): the stored row, checked against `levelOf(account.xp)`
+(never `Unit.level`) at every join, because a curve change can lock what was valid when saved;
+otherwise the whole start kit. A join is never refused. The server builds the 4 with `buildKit`
+over `SKILL_SPECS` (`archetypes.ts`); robots carry no skills and `Player`'s default kit is the
+start kit, so a path that forgets the kit fails closed. The 4 reach the client in `hello.skills`;
+the client builds only its own player's skills (`Player.equip`, `skills/catalog.ts`). With no
+`hello.skills` (a server from before loadouts) it plays the legacy eight on q-i; delete
+`LEGACY_SLOTS`/`LEGACY_KEYS` (`net/loadout.ts`) in the release after.
 
 **All eight have their own icon since the arena art pass** (2026-09-28; the four that had
 none are still in `src/skills/placeholders.ts`, which kept its name), and the shield,
