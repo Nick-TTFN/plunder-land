@@ -243,7 +243,8 @@ new/returning counts need events only its web tag sends; the first day is in Red
 `player-<id>`, outside the public `stats-*` hashes. Two traps it hit: `Player.exit` sets
 `exited` only after `Multiplayer.destroy`, so extraction is read from `extracted`; and a killing
 hit destroys its victim before the attacker's `onKill` runs, so `run_end` goes a microtask later
-to carry `killed_by`. Smoke tests against production send real events, and since #48 the
+to carry `killed_by`. `run_end` also carries `xp_gained` (#48 step 3: the formula's XP, 0 offline,
+sent whether or not the grant lands). Smoke tests against production send real events, and since #48 the
 server picks the id, so record the id the `account` event gives the smoke test.
 
 **The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
@@ -698,7 +699,15 @@ connect for a known handshake token, `{ id, token }` on a connection's first pla
 (before that run's `hello`), `{ id, offline: true }` when the account store failed. The client
 sends the handshake `auth: { token }`, which the server checks against `TOKEN_SHAPE`
 (`/^[A-Za-z0-9_-]{43}$/`, `db/accounts.ts`, copied by hand in the client's `net/account.ts`);
-anything else is no token. Additive both ways. See Accounts.
+anything else is no token. Additive both ways. See Accounts. A persisted account's `account`
+also carries its standing, `xp, level, levelAt, nextAt` (#48 step 3).
+
+**`progress`** (server → client, text, #48 step 3): `{ gained, xp, level, levelAt, nextAt,
+levelUp }` once a run's grant is written, a database round trip after the run's end (sometimes
+before its own destroy reaches the client). Never sent after the next run's `hello`
+(`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; the run card's
+XP row says UNAVAILABLE after `PROGRESS_WAIT_MS` (6 s) without it, at once offline. Additive, no
+PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
 
 **A server stops by draining** (decision #46, `Worlds.drain`, `index.ts`). On SIGTERM it takes
 no new runs: lobby connections are sent on at once, a run card's when it asks for its next run,
@@ -1167,8 +1176,12 @@ bounces and crawlers make no rows. **Fail open, no grants:** a store that is dow
 2 s connect and query timeouts, `Worlds` `accountTimeoutMs` 3 s) or not yet migrated gives the
 connection an offline account, which plays, writes no Redis stats (`Multiplayer.isOffline`), is
 sent no token (`account { id, offline: true }`, so a returning player's stored token survives
-the outage) and tags its GA events `offline: 1`. It stays offline until the socket reconnects,
-and PLAY AGAIN reuses the socket (retry at the next start is wanted before XP, #48 step 3).
+the outage) and tags its GA events `offline: 1`. An offline connection tries the store again at
+each later start (`Worlds.retryAccount`: the handshake token looked up again, same timeout and
+Sentry throttle) and creates an account only once the store has answered that it knows none (or
+there is no token), never while a lookup is unanswered, failed or timed out. Still failing, the
+run plays offline under the same id. Every PLAY AGAIN while offline waits on the store again (up
+to 3 s while it hangs).
 Sentry hears of account failures once per stretch (`Worlds.accountFailure`: the first after a
 success, then one per `ACCOUNTS_REPORT_MS`, 10 min), and of a failing migration runner once per
 run of failures (`db/open.ts`), which also covers not-migrated. Migrations are
@@ -1181,6 +1194,20 @@ only its SHA-256 is kept. **Railway runs Postgres 18** (`ghcr.io/railwayapp-temp
 provisioned 2026-10-03), and the server's `DATABASE_URL` is `${{Postgres.DATABASE_URL}}`;
 compose and the pg spec's container use `postgres:18-alpine` to match (see "Running it
 locally").
+
+**XP and levels** (#48 step 3, `src/progress/`). Every number is `PROGRESSION` in
+`progress/xp.ts` (Dez's v1, `ideas/meta-progression-numbers.md` §1-2, pinned by `xp.spec.ts`); a
+mob key missing from it pays `mobDefault` 2 (no such mob exists yet; Nick/Dez to confirm 2 or 0
+before a fourth mob type). Kills are tallied by victim from `Player.onKill` (`progress/run.ts`
+`countKill`); time XP uses `run_end`'s rounded `seconds`, so it agrees with GA. `account_progress`
+(migration 2) holds the total; the level is derived by the curve and never stored, so a curve
+change re-levels everyone (Nick, #48). One grant per run at its end, from `Multiplayer.destroy` →
+`runEnded` → `Worlds.grant` (death, extraction, disconnect, a drain's cut-off; `claimGrant` keeps
+it single), as one atomic upsert; offline runs and bots earn nothing; a failed grant is logged and
+reported, never retried. `PgAccountStore.close` waits for grants in flight. The account level is
+not `Unit.level`, which stays 1 (skill damage reads it). `Multiplayer.drop` never ends an
+extracted run a second time (`!player.exited`, 2026-10-03): a tick that threw between an
+extraction and its flush used to let a disconnect count it twice.
 
 ## Skills
 
@@ -1244,6 +1271,7 @@ the other's cell. The skip is what makes a stone's unconditional unblock safe.
   out in `playerstats.ts`, so the per-level damage tables always index level 1.
   Note `Player.setLevel()` zeroes `this.loot` — probably leftover init, but nobody has
   decided whether that is meant to be "spend your haul on power or carry it to the gate".
+  Account levels (#48 step 3) are separate and do change; `Unit.level` stays 1.
 - **Our client-side teardown is `dispose()`, not `destroy()`.** `destroy()` belongs to PIXI and
   overriding it with a different signature meant PIXI's own cleanup could never run. `dispose()`
   deliberately does *not* chain to `super.destroy()`: effects hold a reference to their target
