@@ -50,6 +50,7 @@ import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
+import { stillPresent, type Viewpoint } from './net/presence'
 import { SpectateBar } from './ui/popups/spectatebar'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 
@@ -90,9 +91,9 @@ export class Game extends Container {
   static RUN = new RunRecord()
   /**
    * Effects (types 0-4) whose originator this client does not hold, so
-   * nothing was drawn (`onEffect`). Expected since server fog (#48): effects
-   * still go by the 500 box, units only within vision + 1 ring. A counter,
-   * not a warning, which would fire constantly.
+   * nothing was drawn (`onEffect`). Since the fog follow-ups (#48) a unit's
+   * effect goes only to holders of its originator, so this should stay at 0;
+   * a counter, not a warning, in case it doesn't.
    */
   static EFFECTS_UNHELD = 0
   /**
@@ -999,15 +1000,22 @@ export class Game extends Container {
   /**
    * Silence is no longer evidence of absence. Idle units send nothing at all
    * now that the per-tick id heartbeat is gone, so a unit that has stopped
-   * reporting is only really gone if it is also outside the interest window the
-   * server is filtering on.
+   * reporting is only gone if it is also beyond the radius the server keeps
+   * it to, measured from where the camera looks from (`net/presence.ts`).
    */
-  stillPresent (unit: GameObject, staleBefore: number): boolean {
-    if (unit._lastUpdate > staleBefore) return true
-    if (Game.PLAYER === undefined) return false
+  stillPresent (unit: GameObject, staleBefore: number, viewpoint: Viewpoint | undefined): boolean {
+    return stillPresent({ x: unit.x, y: unit.y, lastUpdate: unit._lastUpdate }, staleBefore, viewpoint, Session.interestRadius)
+  }
 
-    const r = Session.interestRadius
-    return Math.abs(unit.x - Game.PLAYER.x) < r && Math.abs(unit.y - Game.PLAYER.y) < r
+  /**
+   * What the server measures this client's view from: the own robot, else
+   * the spectated one (#47), by that robot's vision (#48). Undefined between
+   * runs, or while the watched unit's create hasn't arrived.
+   */
+  private viewpoint (watched: Unit | undefined): Viewpoint | undefined {
+    const unit = Game.PLAYER ?? watched
+    if (unit === undefined) return undefined
+    return { x: unit.x, y: unit.y, vision: unit.archetype?.vision }
   }
 
   /**
@@ -1090,6 +1098,7 @@ export class Game extends Container {
     this.updatePathMarker()
 
     const staleBefore = Date.now() - Session.stalenessLimit
+    const viewpoint = this.viewpoint(watched)
 
     for (const player of Game.PLAYERS) {
       if (player === Game.PLAYER) {
@@ -1100,7 +1109,7 @@ export class Game extends Container {
         player.aimAt(Game.LOCAL.dashLeft > 0 ? undefined : Aim.world())
         continue
       }
-      if (this.stillPresent(player, staleBefore)) {
+      if (this.stillPresent(player, staleBefore, viewpoint)) {
         player.visible = true
         player.update(dt)
       } else {
@@ -1109,7 +1118,7 @@ export class Game extends Container {
     }
 
     for (const mob of Game.MOBS) {
-      if (this.stillPresent(mob, staleBefore)) {
+      if (this.stillPresent(mob, staleBefore, viewpoint)) {
         mob.visible = true
         mob.update(dt)
       } else {
