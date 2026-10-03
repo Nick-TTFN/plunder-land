@@ -83,6 +83,15 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
 - `utils/hex.ts` and `utils/path.ts`, byte-identical in both packages; `mirror.spec.ts`
   enforces it.
 - `LocalPlayer._step` (client) mirrors `Unit.update` (server). If one changes, so does the other.
+- The `account` event and the handshake `auth.token` (#48; server `network/worlds.ts`,
+  `db/accounts.ts` `TOKEN_SHAPE`; client `net/account.ts`, `index.ts`). The token shape is
+  duplicated on both sides by hand.
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 2 since #48): bump it with any change an older
+  client can't read, or (as in #48) one an older client would silently misbehave against.
+- **Who is sent what is a contract too, though no byte changes** (server fog, #48):
+  `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what
+  the client draws (`objects/fog.ts`, `Game.onEffect`). `interest.spec.ts` (and
+  `interest.framed.spec.ts` over frames) holds exact held sets every tick.
 - **A new run may be in another world** (#39): the client clears its map, fog and ids on every
   `Game.start` (`resetForRun`, `net/runmap.ts`). Any new per-run client state must be reset there;
   `runmap.spec.ts` plays a run in one world and the next in another.
@@ -90,15 +99,20 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
 ## Verification
 
 ```
-cd plunder-land-client           && npm run typecheck   # baseline 24 errors, see CLAUDE.md
+cd plunder-land-client           && npm run typecheck   # baseline 22 errors (2026-10-02), see CLAUDE.md
 cd services/battle-royale-server && npm run typecheck   # must stay at 0
 cd services/battle-royale-server && npm test            # node --test over src/**/*.spec.ts
 ```
 
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
-CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-09-27, after world-markers:
-client 24, server 0.)
+CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-10-03,
+after #48: client 22, server 0.)
+
+`src/db/pgstore.spec.ts` needs `TEST_DATABASE_URL` and otherwise reports 5 skips. It drops the
+`public` schema, so it refuses any host but localhost; use a throwaway `postgres:18-alpine`
+container on a spare port, removed by name (command in CLAUDE.md, "Verification path"). Never
+point it at Railway.
 
 Running and smoke-testing locally: CLAUDE.md, "Running it locally".
 
@@ -151,7 +165,12 @@ literally: an id pattern given as "for example" would have locked out every real
 - **The server deploys to Railway** (project `plunderland`, region EU West Amsterdam, since
   2026-10-02), built by Railway's GitHub integration from `main`: root
   `services/battle-royale-server`, `npm run build`, then `node dist/index.js`, with a Railway
-  Redis (`REDIS_URL`). **Deploy settings are on the service** (set through `railway api`,
+  Redis (`REDIS_URL`) and a Railway **Postgres 18** (decision #48;
+  `ghcr.io/railwayapp-templates/postgres-ssl:18`, provisioned 2026-10-03), which the server's
+  `DATABASE_URL=${{Postgres.DATABASE_URL}}` references. Without it the server runs on the
+  in-memory account store and Sentry says so. Migrations run at boot in the background and are
+  additive only, because overlap and drain run the old server on the new schema. Keep compose's
+  image on the same major. **Deploy settings are on the service** (set through `railway api`,
   `serviceInstanceUpdate`): start `node dist/index.js` (not `npm start`, so SIGTERM reaches
   node), healthcheck `/healthcheck` 60 s, restart on failure ×10, sleep off, overlap 30 s,
   draining 600 s. Railway deprecated `railway.json` on 2026-10-02 in favour of

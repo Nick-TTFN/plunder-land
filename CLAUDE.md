@@ -51,13 +51,20 @@ The client compiles through `babel-loader` + `@babel/preset-typescript`, which s
 types without checking them, so `tsc` errors never fail a client build.
 
 ```
-cd plunder-land-client        && npm run typecheck   # 24 errors — see baseline below
+cd plunder-land-client        && npm run typecheck   # 22 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
 cd services/battle-royale-server && npm test          # node --test via ts-node
 ```
 
 The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typechecked**. A
 type error in a spec only shows up if ts-node trips over it at run time.
+
+**`src/db/pgstore.spec.ts` runs only with `TEST_DATABASE_URL`** and otherwise reports 5 skips.
+It drops and recreates the `public` schema, so it refuses (fails, not skips) any host but
+127.0.0.1, localhost or ::1 (`isLocalDatabase`). Use a throwaway container on the same major as
+Railway, removed by name afterwards:
+`docker run -d --name plunder-pg-spec -p 5439:5432 -e POSTGRES_PASSWORD=spec postgres:18-alpine`,
+then `TEST_DATABASE_URL=postgres://postgres:spec@127.0.0.1:5439/postgres npm test`.
 
 **Server cost per player: `services/battle-royale-server/tools/load/`.** One command
 builds the server, runs it with a timing probe, ramps headless bots and prints a table
@@ -79,7 +86,13 @@ the old and new commits back to back on the same machine, at least twice each.
 per tick for ~75 server functions, socket writes and emits per tick, and a CPU budget split
 into tick / input / GC / networking / kernel). Judge a CPU change by **CPU ms per
 player-second**, which it prints: on 2026-09-26 about 40% of the server's CPU was sending,
-not simulating. `--frames 0` makes the bots connect as pre-frame clients.
+not simulating. `--frames 0` makes the bots connect as pre-frame clients;
+`LOADBOT_ROBOT=<key>` in the environment makes them join as that robot (Peep otherwise, whose
+vision is the smallest, so under server fog it is the cheapest viewer). The ramp unsets
+`DATABASE_URL`, so its bots get in-memory guest accounts (#48; join size and latency moved
+slightly from `57671dc`). **When the ramp's CPU numbers are noisy** (other lanes or apps on
+the machine, as on 2026-10-03), compare two builds of the tick with `tools/load/tickbench.cjs`
+(deterministic, in-process, 400 players, no sockets), and say that sending isn't in it.
 **Several worlds** (worlds-per-process): `ramp.sh` passes its environment through, so
 `WORLD_CAP=100 tools/load/ramp.sh …` runs 400 bots as 4 worlds. The probe then sums
 `World.update` and `flushAll` over one pass of the loop (`Worlds.tickAll`), so "world ms" is
@@ -118,11 +131,11 @@ out of 20 against the swc build (0 of 20 at ES2022, which keeps the regexes nati
 run through ts-node (tsc, `ESNext`, define semantics), and define semantics are pinned in
 `.swcrc` so the two agree on class fields. **The server runs Node 24** (`.node-version`, pinned 2026-10-02: Railway's Railpack had picked its LTS default, 24.21, and docker compose ran an end-of-life 18; now `node:24-alpine`). The server has no `dotenv` since then: Railway and compose inject the environment, and a bare local run is `node --env-file=.env dist/index.js`.
 
-### Client typecheck baseline (2026-09-08: 36 errors)
+### Client typecheck baseline (22 errors, re-measured 2026-10-03; 36 on 2026-09-08)
 
 The client is **not** at zero and fixing it to zero is not expected. Known-benign:
 
-- ~9 × `Type 'Point' is missing ... from type 'ObservablePoint'`. Verified harmless:
+- 3 × `Type 'Point' is missing ... from type 'ObservablePoint'`. Verified harmless:
   pixi's `set anchor` (and the other transform setters) do `this._anchor.copyFrom(value)`,
   so assigning a plain `Point` works correctly at runtime. Typings quirk only.
 - 17 × `Property 'setHP' / 'setMaxHP' / 'loot' / 'pushState' ... does not exist on type
@@ -137,7 +150,7 @@ The client is **not** at zero and fixing it to zero is not expected. Known-benig
   rewritten; `game.ts`'s four "possibly undefined" went with the layer code they were in.)
 
 Anything **outside** these three groups is a new regression. The count is 22: 3 `Point`,
-17 `GameObject`, 2 nits (measured 2026-09-28, arena art pass, whose rewritten props no longer
+17 `GameObject`, 2 nits (unchanged through #48 on 2026-10-03; measured 2026-09-28, arena art pass, whose rewritten props no longer
 assign a `Point`; 24 after `world-markers`, which deleted `progressbar.ts`;
 25 after `hud-rebuild`, where one `Point` went with the deleted `playerstats.ts`; 26 after
 `hex-cells-p4-cleanup` dropped the two `impulse` errors, 28 before). Compare the
@@ -146,7 +159,7 @@ sorted error list, not just the count, before dismissing.
 ## Running it locally
 
 ```
-cd services && docker compose up -d          # redis + game server on :8000
+cd services && docker compose up -d          # redis + postgres + game server on :8000
 cd plunder-land-client && npm start          # webpack dev server
 ```
 
@@ -156,7 +169,17 @@ cd plunder-land-client && npm start          # webpack dev server
 PORT=8000
 REDIS_HOST=redis
 REDIS_PORT=6379
+DATABASE_URL=postgres://postgres:plunderland@postgres:5432/plunderland
 ```
+
+**Compose runs `postgres` too** (guest accounts, #48): `postgres:18-alpine`, no published port
+(the server reaches it as `postgres:5432`), data in **`services/saved/postgres18`**
+(gitignored with the rest of `saved/`). Its major version follows Railway's, which is 18. From
+18 the image keeps its data in `/var/lib/postgresql/18/docker` and wants the volume on
+`/var/lib/postgresql`; it refuses to start with a volume on the old `/var/lib/postgresql/data`
+or old data at `/var/lib/postgresql`. So 17's `services/saved/postgres` can't be reused and
+can be deleted (local accounts are disposable). Without `DATABASE_URL` the server uses the
+in-memory account store.
 
 **`services/saved/redis` must exist too**, and is also gitignored. It is redis's data volume;
 without it redis cannot write its snapshot, sets `stop-writes-on-bgsave-error`, and starts
@@ -181,11 +204,12 @@ either at run time — no source edit needed:
 http://localhost:3000/?server=http://localhost:8000
 ```
 
-Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested`, and
-count the `create` records. Since interest filtering (#35) a join gets only layer 01's
-terrain (10 portals, 4 exits and any live StoneWall stones; the valleys come in `hello.voids`,
-about 1 KB a layer) plus the units and pickups inside its interest box, and its own
-`create_own`. (Before the valleys it was about 150 terrain records plus 10-20, 4-11 KB, not
+Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested` (an
+object; the bare string is gone since #48; the server sends `account` first and makes a guest
+account for it), and count the `create` records. Since interest filtering (#35) a join gets
+only layer 01's terrain (10 portals and 4 exits; the valleys come in `hello.voids`, about 1 KB
+a layer) plus the units, pickups and StoneWall stones within its robot's `vision` + 1 rings
+(server fog, #48), and its own `create_own`. (Before the valleys it was about 150 terrain records plus 10-20, 4-11 KB, not
 re-measured since.) The whole-world counts (per layer: the void share, 150 loot, the item and mob
 numbers in `LAYERS`) are checked by the world specs, not by a join.
 
@@ -210,15 +234,17 @@ stack from an older deploy can't be mapped once a newer one replaces it.
 
 **Game events go to GA4 from the server** (decision #46; `src/analytics.ts`, EU endpoint),
 only when `GA_MEASUREMENT_ID` and `GA_API_SECRET` are set (Railway; never locally or in the load
-harness): `run_start`, `first_loot`, `run_end`, one GA session per run, `client_id` the player's
-id. Their names and params are listed in that file and are **append-only** (the reports are built
-on them). Return is read from `run_start`'s `run_number` and `days_since_first`, because GA's own
+harness): `run_start`, `first_loot`, `run_end`, one GA session per run, `client_id` the
+account's `publicId` (#48; random per connection on an offline run). Their names and params are
+listed in that file and are **append-only** (the reports are built on them). Every event of an
+offline run carries `offline: 1`; its `run_start` has no `run_number`/`days_since_first` and
+writes no `player-<id>`. Return is read from `run_start`'s `run_number` and `days_since_first`, because GA's own
 new/returning counts need events only its web tag sends; the first day is in Redis
 `player-<id>`, outside the public `stats-*` hashes. Two traps it hit: `Player.exit` sets
 `exited` only after `Multiplayer.destroy`, so extraction is read from `extracted`; and a killing
 hit destroys its victim before the attacker's `onKill` runs, so `run_end` goes a microtask later
-to carry `killed_by`. Smoke tests against production send real events: give them a recognisable
-id.
+to carry `killed_by`. Smoke tests against production send real events, and since #48 the
+server picks the id, so record the id the `account` event gives the smoke test.
 
 **The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
 It was `firebase/app` + `firebase/analytics`, about 96 KB parsed with its `tslib` and `idb`;
@@ -553,25 +579,60 @@ records**, because that header is the client's clock and its input acknowledgeme
 it with `Game.splitRecords(buffer, 8)`; `unpackRecords` is the headerless form used by the
 other four events.
 
-**Who gets what (decision #35, interest-filtered-broadcasts; #38).** Terrain (portals, exits
-and any untimed obstacle: `Multiplayer.isTerrain`; the valleys go in `hello`) goes to every
-connection on its layer, whatever the distance: the client routes the whole layer. **StoneWall
-stones are not terrain since #38**: they go by range, like pickups (created on arrival in range
-and brought into and out of view by `World.pickupPass`), because layer-wide they were 41-52% of
-every client's bandwidth. A client can route through a stone it hasn't been sent; the server
-corrects it and the client re-routes when the stone arrives (`Game.block`). Units, pickups and
-projectiles go only to connections whose client is on their layer (`Connection.layer`) with
-them strictly inside the interest box: a `create` when they come into it (from
-`Multiplayer.update`, whichever side moved; pickups get an update from the pass at the end
-of `World.update`), deltas while held, and a destroy with only `id` once beyond
-`INTEREST_RADIUS + EXIT_MARGIN` (2 cells) or off the layer. Who holds what is
+**Who gets what (decision #35, interest-filtered-broadcasts; #38; server fog #48, shipped
+2026-10-03).** Terrain (portals, exits and any untimed obstacle: `Multiplayer.isTerrain`; the
+valleys and walls go in `hello`) goes to every connection on its layer, whatever the distance:
+the client routes the whole layer. **StoneWall stones are not terrain since #38** and are
+**fogged like pickups since #48** (Nick, 2026-10-03): brought into and out of view by
+`World.pickupPass`, because layer-wide they were 41-52% of every client's bandwidth. A client
+can route through a stone it hasn't been sent; the server corrects it and the client re-routes
+when the stone arrives (`Game.block`). **Units, pickups, projectiles and stones go only to
+connections whose client is on their layer (`Connection.layer`) and whose viewpoint sees them**
+(`Multiplayer.viewOf`), counted in hex rings from the cell under the viewpoint's centre to the
+cell under the object's: a `create` once within the robot's `vision` + `VIEW_MARGIN_RINGS` (1)
+rings (from `Multiplayer.update`, whichever side moved; pickups and stones get an update from
+the pass at the end of `World.update`), deltas while held, and a destroy with only `id` once
+beyond `VIEW_EXIT_RINGS` (1) more, or off the layer. Peep and the other vision-6 robots: in at 7,
+out beyond 8; Periscope: in at 12, out beyond 13. So a modified client can know at most
+`vision` + 2 rings (accepted by Nick, 2026-10-03). The viewpoint is `Multiplayer.viewpoint`:
+the watched player for a spectator, who sees by that robot's vision, not its own dead robot's.
+A viewpoint with no `vision` (none today) falls back to the old box: strictly inside
+`INTEREST_RADIUS` (500), out beyond `+ EXIT_MARGIN` (2 cells). Who holds what is
 `Connection.known` / `GameObject.knownBy`; updates and destroys go to exactly the holders.
 Nothing is sent about an object after its destroy (`Multiplayer.gone`): a create after a
-destroy in one flush is applied create first by the client and leaves a ghost. A layer
-change swaps the client at the player's own next update (`switchLayer`), in the flush with
-its new tag. The join snapshot is the layer's terrain plus what is in range. Effects are
-layer-checked. `World.INTEREST` is per layer. `changedAt`/`seen` and `pendingObjectIDs` are
-gone.
+destroy in one flush is applied create first by the client and leaves a ghost. For the same
+reason **an object that leaves a view and re-enters it within one flush** (a view re-centred
+by `watch` or a layer change) has its destroy taken back and goes as a whole update
+(`Multiplayer.enter` / `leave`, `06194a7`). A layer change swaps the client at the player's
+own next update (`switchLayer`, which keeps what is within the leave radius), in the flush with
+its new tag. The join snapshot is the layer's terrain plus what is in view. **Candidates come
+from `World.INTEREST`**, per layer, in square buckets of `World.INTEREST_BUCKET`, derived (not
+written down) from the largest robot vision in the mirrored `utils/archetypes.ts`:
+max(`INTEREST_RADIUS`, (vision + 3) × `Hex.SIZE`) = 630 with Periscope's 11, so the 3 × 3
+buckets cover the largest leave reach (`interest.spec.ts` checks it with random off-centre
+positions). `hello.interest` is still `INTEREST_RADIUS`, which the client's `stillPresent`
+reads. **Known gap** (found reading the code 2026-10-03, not seen in play): that box is looser
+than the view only up to about 11 rings east-west, so for Periscope a held unit that stops
+sending for `Session.stalenessLimit` (at least 1 s) out at its east-west edge (up to 585 units)
+is hidden although the server still holds it; and `stillPresent` measures from `Game.PLAYER`,
+which is unset while spectating, so a spectator hides every silent unit (since #47).
+**Effects** (#48 follow-ups, `0a0b2d9`): **types 0-4** (breaths, melee, ranged, defend) are
+drawn on their originator, so `Multiplayer.effect` sends them to exactly the connections that
+hold it (`knownBy`: its own, those who see it and their spectators), skipping a connection
+whose viewpoint died this tick and hasn't been re-centred yet. Under fog the 500 box had sent about
+half of them to clients that dropped them unread (`Game.EFFECTS_UNHELD`, now near 0). **Types
+5-8** (fireball and icicle blasts, bomb fuse and blast) are drawn on a cell and go through
+`Multiplayer.effectAt` (`sendAt`) to connections on the effect's layer with the cell's centre
+inside the 500 box around their viewpoint or within its leave radius (which reaches past the
+box only for Periscope: 13 rings is up to 585 units east-west). **Fireball and icicle blasts go on the
+projectile's layer**, not the thrower's (`63d8947`): a thrower who hopped a portal during the
+flight used to send the blast to the wrong layer. Effects are not fogged inside the 500 box
+(#48 rejected hiding them; Nick accepted): a blast or bomb in the dark is sent and drawn.
+`changedAt`/`seen` and `pendingObjectIDs` are gone. Measured 2026-10-03 (`tools/load/`, Peep
+bots): per-client bytes 36-40% lower at 100 and 400 players (about 270-410 B/s decompressed,
+from 430-700), update records 55-63% fewer; Periscope bots only 10% lower. `Multiplayer.update`
+cost 31% more (tickbench, 400 players: the whole tick 3.25 to 3.86 ms) from the wider buckets;
+whether sending saves more than that is not measured.
 
 `ackElapsedMs` is how long the server has been applying `lastInputSeq`. It exists because
 the sequence number alone does not say how far *into* an input the server has got, and
@@ -628,8 +689,16 @@ end of `fieldOrder` (server) and `allFields` (client), and the two must stay ide
 mirrored `utils/protocol.ts` `PROTOCOL` (decision #46). A client whose own number differs
 reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 times per
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
-can't read**; additive ones it already skips need none. Ship the client first all the same: the
-number only rescues tabs left open across a release.
+can't read**, or (as in #48) one an older client would silently misbehave against; additive
+ones it already skips need none. Ship the client first all the same: the number only rescues
+tabs left open across a release. **`PROTOCOL` is 2 since guest accounts** (#48, 2026-10-03).
+
+**`account`** (server → client, text; framed clients decode text events; #48): `{ id }` on
+connect for a known handshake token, `{ id, token }` on a connection's first play without one
+(before that run's `hello`), `{ id, offline: true }` when the account store failed. The client
+sends the handshake `auth: { token }`, which the server checks against `TOKEN_SHAPE`
+(`/^[A-Za-z0-9_-]{43}$/`, `db/accounts.ts`, copied by hand in the client's `net/account.ts`);
+anything else is no token. Additive both ways. See Accounts.
 
 **A server stops by draining** (decision #46, `Worlds.drain`, `index.ts`). On SIGTERM it takes
 no new runs: lobby connections are sent on at once, a run card's when it asks for its next run,
@@ -654,20 +723,25 @@ id); the lobby's INVITE copies `?join=<code>&from=<name>`, and a tab opened from
 inviter's code (sessionStorage `plunderland_join`; `ui/lobby/party.ts`, pixi-free and run by
 `party.spec.ts`). Free-for-all all the same. Additive: an old server ignores it.
 
-**Client → server `start_requested` is `{ id, name, finish, robot }`** (`robot` the picked
+**Client → server `start_requested` is `{ id, name, finish, robot, party }`** (`robot` the picked
 robot's key; anything not selectable plays Peep; until the lobby, the client sends `?robot=` or
 `peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
-the default, never a refused join; a client from before finishes sends none). A bare
-string, the id alone, is still accepted for one release; drop it after that. The id is the
-client's persistent per-browser id: exactly 6 lowercase hex digits (`genRanHex(6)` in the
-lobby). The server accepts only `Multiplayer.ID_SHAPE` = `/^[0-9a-f]{6,32}$/` and ignores
-anything else, so specs must use hex ids too. **Redis stats are keyed by id, never by name**.
+the default, never a refused join; a client from before finishes sends none; `party`, see
+Invites). The bare-string form is gone (#48). **`id` is ignored**: the player id is the
+connection's account's `publicId` (see Accounts). The client still sends its old `genRanHex(6)`
+id for one release, because an older server refuses a start without one, and drops it after
+(`Lobby.loadId`). `Multiplayer.ID_SHAPE` (`/^[0-9a-f]{6,32}$/`) stays the guard on Redis keys:
+every issued id is checked against it (`Worlds.setAccount`), and one that fails plays offline.
+Without an account `startRequested` falls back to the start's `id` only while `World.strict` is
+off (single-world specs joining through `Multiplayer.onConnect`; they must use hex ids);
+production and every `Worlds` spec ignore such a start. **Redis stats are keyed by id, never
+by name**.
 The raw name is cut to `Player.NAME_RAW_MAX` (256 UTF-16 units) first, so a huge name costs
 nothing, and then sanitised by `Player.sanitiseName`: NFKC, no control, zero-width, bidi, private-use
 or blank-looking characters, no `< > & " '` or backtick, at most 16 code points, and "YOU" is
 reserved (every client labels its own robot YOU). An empty result becomes a callsign hashed
-from the id (`Player.callsign`, for example `ROOK-42`), so a reconnect keeps it. It travels
+from the player id (`Player.callsign`, for example `ROOK-42`), so a returning player keeps it. It travels
 in the existing `name` field, NUL-terminated UTF-8.
 
 Each record is a sequence of `[field index][payload]`, indexed into `GameObject.fieldOrder`
@@ -839,17 +913,23 @@ rebuilt only when the camera's own cell changes. Two things about it are load-be
   patches are what makes it read as ground. `meta.regions` in `hex.json` fixes the order the
   palettes lie along the field; value noise is centre-heavy, so the middle ones dominate.
 
-**Fog of war is cosmetic** (decision #36, `src/objects/fog.ts`). Cells within the robot's
-`vision` rings (the mirrored `utils/archetypes.ts`: 6 for Peep and Magnet, 11 for Periscope since
-#43, 8 before; null = no fog; kept inside the 500-unit interest box, about 11 rings) are visible, cells
-seen before on that layer this run are explored, the rest unknown. The ground is tinted per
+**Fog of war is enforced by the server since #48** (shipped 2026-10-03; drawn by
+`src/objects/fog.ts`, decision #36). Cells within the robot's `vision` rings (the mirrored
+`utils/archetypes.ts`: 6 for every robot but Periscope, 11 for Periscope since #43, 8 before;
+null = no fog) are visible, cells seen before on that layer this run are explored, the rest
+unknown. The server sends units, pickups, projectiles and StoneWall stones only within
+`vision` + 1 rings and keeps them to + 2 (see "Who gets what"), so the client's fog draws what
+arrives and a modified client sees at most 2 rings past it. The 500-unit box no longer caps
+vision: the interest buckets grow with the largest one (`World.INTEREST_BUCKET`), so Periscope
+could have the 12 rings first asked for in #43 (not decided). **While spectating, the fog's
+radius is the watched robot's vision** (`Fog.setRadius`, set each frame in `Game.update`, since
+the `spectate` event can arrive before the watched unit's create; the next run's `Fog.reset`
+restores it), because that is what the server sends. The ground is tinted per
 cell (`HexTerrain.tintOf` / `retint`); `Game.applyFog` sets every object's **`renderable`**
 each frame: units, pickups and projectiles only on visible cells, terrain on visible and
 explored, portals, exits and your own robot always (#16). `renderable`, not `visible`, because
-other code already drives `visible` (a unit that left the interest box, a stale one) and the two
-would undo each other. The server still sends everything in its 500-unit box, so a modified
-client sees through fog; server-enforced fog would also cut bandwidth and is not decided. The
-minimap draws only `renderable` objects, or it would show what fog hides.
+other code already drives `visible` (a unit that left view, a stale one) and the two
+would undo each other. The minimap draws only `renderable` objects, or it would show what fog hides.
 
 **World markers** (`world-markers`, M2, placeholder look). Every unit has a fixed-width
 health bar over its head (`ui/elements/unitbar.ts`: 36 px, 60 for a boss; red); it used to be
@@ -985,8 +1065,9 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
   **The client ships first**: the next run on a socket may be another world, and the client
   resets its map, fog and ids per run (`resetForRun` in `net/runmap.ts`, from `Game.start`);
   an older client keeps `Game.BLOCKED` across runs and would route on the old world's stones.
-- **Nothing is persisted.** The world lives entirely in memory. Redis holds only cumulative
-  `stats-*` hashes. This is why the tick has an error boundary — an uncaught throw would
+- **The world is not persisted.** It lives entirely in memory. Redis holds cumulative
+  `stats-*` hashes (and the `player-<id>` first days); Postgres holds guest accounts only
+  (see Accounts). This is why the tick has an error boundary — an uncaught throw would
   otherwise take every in-flight run down with the process. It also rules out serverless,
   edge, and sleep-enabled hosting: a sleep/wake cycle wipes the world.
 - **Delayed world work goes through `Timers` (`src/objects/timers.ts`), never `setTimeout`.**
@@ -1012,7 +1093,7 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
   `!destroyed`. That was the `stepping.spec.ts` "population never filled" (82 vs 81) flake,
   closed in hex-cells P4.
 - **Units, pickups and gates are indexed by cell** (`World.UNITS`, `PICKUPS`, `GATES`, and
-  `INTEREST` for players by 500-unit bucket; `utils/cellindex.ts`). Server code adds and
+  `INTEREST` for players by `World.INTEREST_BUCKET` (630-unit) bucket; `utils/cellindex.ts`). Server code adds and
   removes through `World.addUnit`/`removeUnitAt`, `World.PICKUPS.push`/`removeAt`/`remove`
   and `World.addObstacle`/`removeObstacleAt`/`removeObstacle`, never on the lists directly.
   A unit refiles itself from the `position`/`tag` setters (`GameObject.placed`). Specs may
@@ -1065,6 +1146,38 @@ follows with a plain `spectate` `{ id, name }` event, text, which framed clients
 its camera, fog and shown plane follow that unit (`Game.SPECTATE_ID`). The run card gets WATCH,
 and a SPECTATING bar (RUN CARD, PLAY AGAIN) sits above the popups. No spectate after an
 extraction. `forget` ends any spectating (a new run, a move to another world, a disconnect).
+The view itself is the watched robot's: the server sends by its vision (see "Who gets what")
+and the client's fog follows it (`Fog.setRadius`), since #48.
+
+## Accounts
+
+**Guest accounts** (decision #48 step 1, shipped 2026-10-03; `src/db/`). The server owns the
+player id. On a connection's first play with no known token it creates an account (Postgres
+`accounts`: internal `id`, 16-hex `public_id`, `token_hash` the SHA-256 of a 32-byte base64url
+token) and sends `account { id, token }` before that run's `hello`. The client keeps the token
+in localStorage `plunderland_token` (`net/account.ts`) and sends it in every socket.io
+handshake (`auth`, a function, so a reconnect re-reads it); the server looks it up on connect
+(`Worlds`, so READY doesn't wait on the database) and answers `account { id }`. The player id
+(Redis keys, `/stats`, GA `client_id`, the callsign) is the account's `publicId`;
+`start_requested`'s `id` is ignored. Creation is on first play, not on connect, so lobby
+bounces and crawlers make no rows. **Fail open, no grants:** a store that is down, slow (pool
+2 s connect and query timeouts, `Worlds` `accountTimeoutMs` 3 s) or not yet migrated gives the
+connection an offline account, which plays, writes no Redis stats (`Multiplayer.isOffline`), is
+sent no token (`account { id, offline: true }`, so a returning player's stored token survives
+the outage) and tags its GA events `offline: 1`. It stays offline until the socket reconnects,
+and PLAY AGAIN reuses the socket (retry at the next start is wanted before XP, #48 step 3).
+Sentry hears of account failures once per stretch (`Worlds.accountFailure`: the first after a
+success, then one per `ACCOUNTS_REPORT_MS`, 10 min), and of a failing migration runner once per
+run of failures (`db/open.ts`), which also covers not-migrated. Migrations are
+TypeScript strings in `db/migrations.ts` (a `.sql` file would not reach `dist`), **additive
+only** (overlap and drain run the old server on the new schema for up to 10 min), applied at
+boot in the background under an advisory lock, retried every 30 s; boot never waits. Without
+`DATABASE_URL` the store is in memory (never evicts) and logs `accounts: in memory (no
+DATABASE_URL)`, reported to Sentry once on Railway (`RAILWAY_ENVIRONMENT_NAME` set). The token is never stored, logged or reported;
+only its SHA-256 is kept. **Railway runs Postgres 18** (`ghcr.io/railwayapp-templates/postgres-ssl:18`,
+provisioned 2026-10-03), and the server's `DATABASE_URL` is `${{Postgres.DATABASE_URL}}`;
+compose and the pg spec's container use `postgres:18-alpine` to match (see "Running it
+locally").
 
 ## Skills
 
