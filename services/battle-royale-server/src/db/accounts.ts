@@ -22,6 +22,20 @@ export interface Account {
    * derived from it (`progress/xp.ts`), never stored.
    */
   xp: number
+  /**
+   * Saved skill loadouts (decision #48 step 4), raw as stored: nothing here
+   * is trusted. Every join checks the row again (`progress/loadouts.ts`
+   * `kitFor`), because a level is derived from XP and a curve change can lock
+   * what was valid when saved. `[]` for a new or offline account.
+   */
+  loadouts: StoredLoadout[]
+}
+
+/** One saved loadout: a robot's key, its loadout index, and 4 skill ids. */
+export interface StoredLoadout {
+  robot: string
+  index: number
+  skills: number[]
 }
 
 export interface AccountStore {
@@ -36,7 +50,14 @@ export interface AccountStore {
    * next run.
    */
   grant: (publicId: string, xp: number) => Promise<number>
-  /** Waits for grants in flight, then lets go of the store. */
+  /**
+   * Store `skills` as the account's loadout `index` for `robot`, replacing
+   * any there (one upsert). Validation is the caller's (`Worlds`, through
+   * `checkLoadout`); the store stores. Throws when the store fails or knows
+   * no such account.
+   */
+  saveLoadout: (publicId: string, robot: string, index: number, skills: number[]) => Promise<void>
+  /** Waits for grants and saves in flight, then lets go of the store. */
   close: () => Promise<void>
 }
 
@@ -63,7 +84,7 @@ export function newPublicId (): string {
 
 /** An account for one connection while the store is failing (fail open). */
 export function offlineAccount (): Account {
-  return { publicId: newPublicId(), persisted: false, xp: 0 }
+  return { publicId: newPublicId(), persisted: false, xp: 0, loadouts: [] }
 }
 
 /**
@@ -89,10 +110,27 @@ export class MemoryAccountStore implements AccountStore {
   private readonly ids = new Set<string>()
   /** Total XP by public id; an account with none yet has 0. */
   private readonly xp = new Map<string, number>()
+  /** Saved loadouts by public id, then by `robot/index`. */
+  private readonly loadouts = new Map<string, Map<string, StoredLoadout>>()
 
   async resolve (token: string): Promise<Account | null> {
     const publicId = this.byHash.get(hashToken(token).toString('hex'))
-    return publicId === undefined ? null : { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0 }
+    if (publicId === undefined) return null
+    // Copies, so an account in memory never shares an array with the store.
+    const loadouts = [...(this.loadouts.get(publicId)?.values() ?? [])]
+      .map((l) => ({ robot: l.robot, index: l.index, skills: copyOf(l.skills) }))
+      .sort((a, b) => a.robot < b.robot ? -1 : a.robot > b.robot ? 1 : a.index - b.index)
+    return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts }
+  }
+
+  async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: loadout for an unknown account')
+    let rows = this.loadouts.get(publicId)
+    if (rows === undefined) {
+      rows = new Map()
+      this.loadouts.set(publicId, rows)
+    }
+    rows.set(`${robot}/${index}`, { robot, index, skills: copyOf(skills) })
   }
 
   async create (): Promise<{ account: Account, token: string }> {
@@ -101,7 +139,7 @@ export class MemoryAccountStore implements AccountStore {
     const token = newToken()
     this.ids.add(publicId)
     this.byHash.set(hashToken(token).toString('hex'), publicId)
-    return { account: { publicId, persisted: true, xp: 0 }, token }
+    return { account: { publicId, persisted: true, xp: 0, loadouts: [] }, token }
   }
 
   async grant (publicId: string, xp: number): Promise<number> {
@@ -122,4 +160,13 @@ export class MemoryAccountStore implements AccountStore {
   get storedHashes (): string[] {
     return [...this.byHash.keys()]
   }
+}
+
+/**
+ * A copy of a stored array; anything else as it is. The memory store keeps
+ * what it is given unchecked, as the database's CHECKs would not, so specs
+ * can write forged rows straight to it (network/loadouts.spec.ts).
+ */
+function copyOf (skills: number[]): number[] {
+  return Array.isArray(skills) ? [...skills] : skills
 }

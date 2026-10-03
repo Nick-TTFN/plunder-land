@@ -10,6 +10,8 @@ import type Player from './player'
 import { GameObject } from './gameobject'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
+import { buildKit } from '../archetypes/archetypes'
+import { SKILL_LIST } from '../utils/skills'
 
 /**
  * server-cpu-trim: `serialiseBinary` writes into one scratch buffer instead of
@@ -147,11 +149,14 @@ function world (): { players: Player[] } {
   }
   // Fill the world (mobs, loot, items arrive a few a tick), move, and cast
   // every skill, so projectiles, stones and wounded, armored units exist.
+  const every = players.map((player) => buildKit(player, SKILL_LIST.map((s) => s.id)))
   for (let tick = 0; tick < 60; tick++) {
     for (const [i, player] of players.entries()) {
       if (player.destroyed || player.exited) continue
       if (tick % 10 === 0) player.setWaypoints([Hex.neighbour(player.cell, (i + tick) % 6)])
-      player.tryExecuteSkill(tick % 8)
+      // All eight, as before loadouts (#48 step 4): built from the whole catalog,
+      // since a player now holds only its 4.
+      every[i][tick % every[i].length]?.execute()
     }
     w.update(0.25)
   }

@@ -16,19 +16,17 @@ const CARD_GAP = 8
 export class SkillCard extends Container {
   private _readyAt = 0
   private readonly _status: Text
-  private readonly _icon: Sprite
+  private readonly _icon: Sprite | undefined
   private _shown = ''
 
-  constructor (readonly skill: Skill, readonly key: string) {
+  /** `skill` null is an empty slot: its key and EMPTY, dimmed, not pressable. */
+  constructor (readonly skill: Skill | null, readonly key: string) {
     super()
     const bg = new Graphics()
       .beginFill(0x101A28, 1)
       .lineStyle(1, THEME.panelBorder, 1)
       .drawRoundedRect(0, 0, CARD_W, CARD_H, 6)
       .endFill()
-    bg.eventMode = 'static'
-    bg.cursor = 'pointer'
-    bg.on('pointertap', () => { this.invoke() })
     this.addChild(bg)
 
     const keyBox = new Graphics()
@@ -40,6 +38,20 @@ export class SkillCard extends Container {
     keyText.x = 17
     keyText.y = 17
     this.addChild(keyText)
+
+    if (skill === null) {
+      // Placeholder until empty-slot art (Dez's missing-art list).
+      this._status = Panel.text('EMPTY', THEME.smallSize, THEME.muted)
+      this._status.anchor.set(0.5, 0.5)
+      this._status.x = CARD_W / 2
+      this._status.y = CARD_H / 2
+      this.addChild(this._status)
+      this.alpha = 0.45
+      return
+    }
+    bg.eventMode = 'static'
+    bg.cursor = 'pointer'
+    bg.on('pointertap', () => { this.invoke() })
 
     this._icon = new Sprite(skill.uiTexture)
     this._icon.anchor.set(0.5, 0.5)
@@ -72,6 +84,7 @@ export class SkillCard extends Container {
   }
 
   invoke (): void {
+    if (this.skill === null) return
     const now = performance.now()
     if (now < this._readyAt) return
     this.skill.execute()
@@ -79,6 +92,7 @@ export class SkillCard extends Container {
   }
 
   update (now: number): void {
+    if (this.skill === null || this._icon === undefined) return
     const left = this._readyAt - now
     const text = left > 0 ? `${Math.ceil(left / 1000)} s` : 'READY'
     if (text === this._shown) return
@@ -90,18 +104,19 @@ export class SkillCard extends Container {
 }
 
 /**
- * The mockup's bottom-left SKILLS panel: a card for each of the player's
- * skills, keyed q w e r t y u i in `Player.skills` order (a wire contract:
- * the index pressed is the server's slot). Wraps into rows to fit `maxWidth`.
+ * The mockup's bottom-left SKILLS panel: a card per slot, card i on `keys[i]`
+ * (q w e r; q to i in the legacy fallback, `net/loadout.ts` `slotsFor`).
+ * Card i's skill is slot i of `hello.skills`, and a press sends i (a wire
+ * contract: the server indexes the same 4). An empty slot keeps its card, so
+ * the keys keep their places. Wraps into rows to fit `maxWidth`.
  */
 export class SkillPanel extends Panel {
   readonly cards: SkillCard[] = []
   /** Rows the last `wrap` needed. */
   rows = 1
 
-  constructor (skills: Skill[]) {
+  constructor (skills: Array<Skill | null>, keys: readonly string[]) {
     super('SKILLS')
-    const keys = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i']
     skills.forEach((skill, i) => {
       if (keys[i] === undefined) return
       const card = new SkillCard(skill, keys[i])

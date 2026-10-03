@@ -114,6 +114,7 @@ class GrantStore implements AccountStore {
     return await this.inner.grant(publicId, xp)
   }
 
+  async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> { await this.inner.saveLoadout(publicId, robot, index, skills) }
   async close (): Promise<void> {}
 }
 
@@ -394,7 +395,7 @@ test('progress is never sent after the next run began: that card is gone, and ac
   // The client takes it as a standing update only: same id, nothing stored.
   const writes: string[] = []
   const info = onAccount(accounts.at(-1), { getItem: () => null, setItem: (key) => { writes.push(key) } })
-  assert.deepEqual(info, { id: player.playerId, offline: false, standing: { xp: 15, level: 1, levelAt: 0, nextAt: 40 } })
+  assert.deepEqual(info, { id: player.playerId, offline: false, standing: { xp: 15, level: 1, levelAt: 0, nextAt: 40 }, loadouts: undefined })
   assert.deepEqual(writes, [], 'a mid-run account stored something')
 })
 
@@ -454,7 +455,7 @@ test('the account event carries the standing of a known account', async () => {
   const client = new Client('a', { token: known.token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
-  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000 }])
+  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[1, 2, 3, 0]], periscope: [[1, 2, 3, 0]], magnet: [[1, 2, 3, 0]], hopper: [[1, 2, 3, 0]], waddle: [[1, 2, 3, 0]] } }])
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).

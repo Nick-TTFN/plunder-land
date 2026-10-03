@@ -7,7 +7,7 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import Player from '../objects/player'
 import Mob from '../objects/mob'
-import { ARCHETYPES } from './archetypes'
+import { ARCHETYPES, buildKit } from './archetypes'
 import { GameObject, ObjectType } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import GuardPosition from '../ai/guardposition'
@@ -222,14 +222,25 @@ test('player: stats at construction and after one update', () => {
   assert.equal(player.radius, 14)
 })
 
-test('player: the eight skills, in wire order, with their cooldowns', () => {
+// Changed on purpose by loadouts (decision #48 step 4): a player no longer has
+// all eight; its 4 slots come from its kit, the start kit by default. The
+// cooldowns of the other five are still pinned, through a kit that holds them.
+test('player: the start kit by default, in its slots, with the same cooldowns as before', () => {
   const player = makePlayer(X, Y)
   assert.deepEqual(
-    player.skills.map((s) => [s.constructor, s.cooldown]),
+    player.skills.map((s) => s === null ? null : [s.constructor, s.cooldown]),
     [
       [Dash, 2000],
       [MeleeAttack, 1000],
       [RangedAttack, 750],
+      null
+    ]
+  )
+  for (const skill of player.skills) if (skill !== null) assert.equal(skill.owner, player)
+  const rest = buildKit(player, [4, 5, 6, 7]).concat(buildKit(player, [8, 0, 0, 0]))
+  assert.deepEqual(
+    rest.filter((s) => s !== null).map((s) => [s?.constructor, s?.cooldown]),
+    [
       [Defend, 8000],
       [StoneWall, 6000],
       [ThrowFireball, 4000],
@@ -237,7 +248,6 @@ test('player: the eight skills, in wire order, with their cooldowns', () => {
       [IceBreath, 3000]
     ]
   )
-  for (const skill of player.skills) assert.equal(skill.owner, player)
 })
 
 test('player: no contact damage, to a mob or another player', () => {

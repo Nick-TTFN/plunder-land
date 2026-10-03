@@ -3,7 +3,8 @@ import { GameObject, ObjectType } from './gameobject'
 import { type Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { type Skill } from '../skills/skill'
-import { type Archetype, ARCHETYPES, buildSkills } from '../archetypes/archetypes'
+import { type Archetype, ARCHETYPES, buildKit } from '../archetypes/archetypes'
+import { LOADOUT_SIZE, START_KIT } from '../utils/skills'
 import World from './world'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Timers from './timers'
@@ -30,7 +31,10 @@ export default class Player extends Unit {
   // Always set, by Unit's constructor; narrowed from Unit's optional one.
   declare archetype: Archetype
 
-  skills: Skill[]
+  /** The run's 4 slots, Q W E R; null is an empty slot. Always `LOADOUT_SIZE` long. */
+  skills: Array<Skill | null>
+  /** The mirrored skill id in each slot (0 = empty), as `hello.skills` sends it. Frozen. */
+  skillIds: readonly number[]
   createdAt: number
   exited: boolean
   playerId: string
@@ -97,8 +101,12 @@ export default class Player extends Unit {
    *
    * `finish` is the client's, unchecked; anything unreadable in it becomes
    * the default finish (`finishFromBytes`) rather than refusing the join.
+   *
+   * `kit` is the run's 4 skill ids, already resolved (`kitFor` for a human,
+   * a bot's own). **It defaults to the start kit, not all eight, on
+   * purpose**: a path that forgets the kit fails closed, never open.
    */
-  constructor (x: number, y: number, tag: number, playerId: string, archetype: Archetype = ARCHETYPES.peep, name?: unknown, finish?: unknown) {
+  constructor (x: number, y: number, tag: number, playerId: string, archetype: Archetype = ARCHETYPES.peep, name?: unknown, finish?: unknown, kit: readonly number[] = START_KIT) {
     super(ObjectType.Player, x, y, 0, tag, archetype)
     this.playerId = playerId
     this.name = Player.displayName(name, playerId)
@@ -106,10 +114,11 @@ export default class Player extends Unit {
 
     this.setLevel(archetype.level ?? 1)
 
-    // Order is the wire contract: the client sends the index of the slot it
-    // pressed, and `tryExecuteSkill` indexes straight into this array. Every
-    // robot's skills are PLAYER_SKILLS, which is in the client's order.
-    this.skills = buildSkills(this, archetype)
+    // The run's 4 slots (decision #48 step 4): the client sends the slot it
+    // pressed, `tryExecuteSkill` indexes this array, and `hello.skills` tells
+    // the client which skill is in each (`skillIds`).
+    this.skillIds = Object.freeze([...kit])
+    this.skills = buildKit(this, this.skillIds)
 
     this.createdAt = Date.now()
     this.deepestTag = tag
@@ -465,12 +474,24 @@ export default class Player extends Unit {
    * The index comes off the wire, so anything that is not a whole number in
    * range is ignored: `skills[-1]` or `skills[1.5]` is undefined and calling
    * `execute` on it threw inside a socket handler.
+   *
+   * The index is a slot of this player's kit (decision #48 step 4): 0-3, the
+   * client's Q W E R, in `hello.skills` order. An empty slot, and 4-7 from a
+   * client from before loadouts, run nothing.
    */
   tryExecuteSkill (index: number, aimCell?: Vector): void {
     if (this.skills === undefined) return
-    if (!Number.isInteger(index) || index < 0 || index >= this.skills.length) return
+    if (!Number.isInteger(index) || index < 0 || index >= LOADOUT_SIZE) return
+    const skill = this.skills[index]
+    if (skill === null || skill === undefined) return
 
-    this.skills[index].execute(aimCell)
+    skill.execute(aimCell)
+  }
+
+  /** The slot holding skill `id` (a mirrored id, `utils/skills.ts`), or -1. */
+  slotOf (id: number): number {
+    if (id === 0) return -1
+    return this.skillIds.indexOf(id)
   }
 
   onCollideWithPlayer (target: GameObject): void {

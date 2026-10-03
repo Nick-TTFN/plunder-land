@@ -57,5 +57,27 @@ export const MIGRATIONS: readonly Migration[] = [
         updated_at timestamptz NOT NULL DEFAULT now()
       )
     `
+  },
+  {
+    version: 3,
+    name: 'loadouts',
+    // Skill loadouts (decision #48 step 4): 4 skill ids (utils/skills.ts) per
+    // account, robot and loadout index, written by one upsert
+    // (`PgAccountStore.saveLoadout`). `robot` is the archetype key, as
+    // `start_requested.robot` and the lobby name it. The CHECKs are a
+    // backstop: the server checks a loadout before every write and again at
+    // every join (`checkLoadout`), because a level can drop under a curve
+    // change. No finish column: finishes stay in `start_requested.finish`
+    // (48-4 task, "Finishes stay out of loadouts"); adding one is additive.
+    sql: `
+      CREATE TABLE loadouts (
+        account_id bigint      NOT NULL REFERENCES accounts(id),
+        robot      text        NOT NULL CHECK (robot ~ '^[a-z]{1,16}$'),
+        slot_index smallint    NOT NULL CHECK (slot_index >= 0 AND slot_index < 16),
+        skills     smallint[]  NOT NULL CHECK (array_ndims(skills) = 1 AND cardinality(skills) = 4),
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (account_id, robot, slot_index)
+      )
+    `
   }
 ]

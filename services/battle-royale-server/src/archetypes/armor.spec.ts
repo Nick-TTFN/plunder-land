@@ -51,7 +51,8 @@ function advance (t: TestContext, ms: number): void {
 }
 
 function addPlayer (): Player {
-  const player = new Player(X, Y, 0, 'p1')
+  // Defend is not in the start kit (#48 step 4): a kit with it in slot 3.
+  const player = new Player(X, Y, 0, 'p1', undefined, undefined, undefined, [1, 2, 3, 4])
   World.PLAYERS.push(player)
   return player
 }

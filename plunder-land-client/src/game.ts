@@ -48,6 +48,7 @@ import { type PopupManager } from './ui/popups/popupmanager'
 import { Exit } from './objects/exit'
 import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
+import { slotsFor } from './net/loadout'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
@@ -316,7 +317,7 @@ export class Game extends Container {
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string): Promise<void> {
+  async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number): Promise<void> {
     Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
@@ -335,7 +336,9 @@ export class Game extends Container {
     // `robot` is the key of the robot picked in the lobby (robot-select); the
     // server plays peep for anything it doesn't offer.
     // `party`: the invite code (decision #47); a server from before it ignores it.
-    Game.socket.emit('start_requested', { id: playerId, name, finish, robot, party })
+    // `loadout`: the index of the robot's loadout READY plays (decision #48
+    // step 4); the server checks it and plays the start kit for anything else.
+    Game.socket.emit('start_requested', { id: playerId, name, finish, robot, party, loadout })
 
     Game.hud.setupGameUI()
   }
@@ -612,7 +615,10 @@ export class Game extends Container {
       if (typeof data.kills === 'number') Game.RUN.kills = data.kills
 
       Game.hud.setupStats()
-      Game.hud.setupSkills(Game.PLAYER.skills)
+      // The 4 the server built for this run (`hello.skills`, which precedes
+      // this create), on Q W E R; the legacy eight from an older server.
+      const slots = slotsFor(Session.skills)
+      Game.hud.setupSkills(Game.PLAYER.equip(slots.ids), slots.keys)
       Game.hud.setupInventory()
       if (Array.isArray(data.inventory)) Game.hud.updateInventory(data.inventory)
 

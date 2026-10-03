@@ -1,10 +1,6 @@
 import { Point } from 'pixi.js'
-import { Dash } from '../skills/dash'
-import { MeleeAttack } from '../skills/meleeattack'
-import { RangedAttack } from '../skills/rangedattack'
-import { Defend } from '../skills/defend'
-import { StoneWall, ThrowFireball, ThrowIcicle, IceBreath } from '../skills/placeholders'
 import { type Skill } from '../skills/skill'
+import { skillFor } from '../skills/catalog'
 import { AnimationStates } from '../animation/animationstates'
 import Unit from './unit'
 import { lookFor } from './archetypesprites'
@@ -44,19 +40,26 @@ export default class Player extends Unit {
     this.panel.y = this.headY - 4
     this.addChild(this.panel)
 
-    // Must match Player.skills on the server: the index of the pressed slot is
-    // the whole payload of the `skill` message.
-    this.skills = [
-      new Dash(this),
-      new MeleeAttack(this),
-      new RangedAttack(this),
-      new Defend(this),
-      new StoneWall(this),
-      new ThrowFireball(this),
-      new ThrowIcicle(this),
-      new IceBreath(this)
-    ]
-    for (let i = 0; i < this.skills.length; i++) this.skills[i].index = i
+    // Only your own robot has skills (decision #48 step 4): `Game` builds them
+    // from `hello.skills` when its create_own lands (`equip`). Nothing reads a
+    // remote player's.
+    this.skills = []
+  }
+
+  /**
+   * This run's skills, one per HUD slot: slot i holds skill id `ids[i]`
+   * (`skills/catalog.ts`; 0 or an unknown id is an empty slot) and sends i,
+   * which the server reads as an index into the same 4 (`hello.skills`).
+   * Returns one entry per slot, null where it is empty.
+   */
+  equip (ids: readonly number[]): Array<Skill | null> {
+    const slots = ids.map((id, slot) => {
+      const skill = skillFor(id, this)
+      if (skill !== null) skill.index = slot
+      return skill
+    })
+    this.skills = slots.filter((s): s is Skill => s !== null)
+    return slots
   }
 
   /**

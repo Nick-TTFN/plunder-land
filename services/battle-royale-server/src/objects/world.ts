@@ -739,11 +739,13 @@ export default class World {
   /**
    * Joins on the top layer (#26), at a cell centre `spawnCell` picks. `name`,
    * `finish` and `robot` are what the client sent, raw; Player's constructor
-   * cleans the first two, `robotFor` the last.
+   * cleans the first two, `robotFor` the last. `kit` is the run's 4 skill
+   * ids, already resolved (`kitFor`, or a bot's); it is not checked here.
+   * Left out, the player gets the start kit (`Player`).
    */
-  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown): Player {
+  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[]): Player {
     const pos = Hex.toPosition(World.spawnCell(World.LAYERS[0].tag).cell)
-    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, World.robotFor(robot), name, finish)
+    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, World.robotFor(robot), name, finish, kit)
     World.addUnit(World.PLAYERS as unknown as Unit[], player)
     return player
   }

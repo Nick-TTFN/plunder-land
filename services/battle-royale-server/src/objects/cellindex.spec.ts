@@ -17,7 +17,7 @@ import { type Unit } from './unit'
 import { CellIndex } from '../utils/cellindex'
 import { throwBomb } from '../items/bomb'
 import { StoneWall } from '../skills/stonewall'
-import { ARCHETYPES, ITEMS, LAYERS } from '../archetypes/archetypes'
+import { ARCHETYPES, ITEMS, LAYERS, buildKit } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
@@ -307,8 +307,10 @@ test('a world run through its own paths never rebuilds an index after the first 
       // It throws the bomb too, as one player did both before.
       caster = live.find((p) => StoneWall.cells(p).some((cell) => StoneWall.canPlace(cell, p.tag))) ?? live[1]
       if (caster !== undefined) {
-        caster.skills[4].execute() // StoneWall: stones in and, 4 s later, out
-        caster.skills[5].execute() // a fireball
+        // Not in the start kit (#48 step 4): built from a kit that holds them.
+        const [wall, fireball] = buildKit(caster, [5, 6, 0, 0])
+        wall?.execute() // StoneWall: stones in and, 4 s later, out
+        fireball?.execute() // a fireball
       }
     }
     if (tick === 14 && caster !== undefined && !caster.destroyed && !caster.exited) {

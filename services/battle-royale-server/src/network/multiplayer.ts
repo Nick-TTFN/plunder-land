@@ -11,6 +11,7 @@ import { captureError } from '../errors'
 import Analytics from '../analytics'
 import type { Account } from '../db/accounts'
 import { earnedXp } from '../progress/run'
+import { kitFor } from '../progress/loadouts'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -378,7 +379,14 @@ export default class Multiplayer {
       : (!World.strict ? start.id : undefined)
     if (playerId === undefined) return
     connection.started = true
-    this.onStart(connection, playerId, start.name, start.finish, start.robot)
+    // The run's skills (decision #48 step 4): the account's loadout `loadout`
+    // for the robot this join really plays (a forged robot plays Peep, with
+    // Peep's loadout), checked against the account's level now. A start
+    // without `loadout` (a client from before loadouts) is loadout 0; no
+    // account (single-world specs) is the start kit.
+    const robot = World.robotFor(start.robot)
+    const kit = kitFor(connection.account, robot.key, 'loadout' in start ? start.loadout : 0)
+    this.onStart(connection, playerId, start.name, start.finish, start.robot, kit)
   }
 
   onConnect (socket: Socket): void {
@@ -438,11 +446,11 @@ export default class Multiplayer {
    * has been emitted to the joining client (`hello` goes out just before that
    * flush), and `started` is cleared so it can ask again.
    */
-  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown, robot?: unknown): void {
+  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[]): void {
     Multiplayer.checkWorld(this, 'Multiplayer.onStart')
     let player: Player | undefined
     try {
-      player = World.createPlayer(playerId, name, finish, robot)
+      player = World.createPlayer(playerId, name, finish, robot, kit)
       this.admit(connection, player)
       let humans = 0
       let bots = 0
@@ -508,6 +516,11 @@ export default class Multiplayer {
       // Each layer's walls (decision #44), the same way. Additive like voids:
       // an older client routes into a wall and is corrected.
       walls: World.TAGS.map((tag) => World.WALL_RUNS.get(tag) ?? []),
+      // The run's 4 skill ids, Q W E R (decision #48 step 4): the kit the
+      // server built, after checking and any fallback, never what the client
+      // asked for. Slot i of it is what a `skill` press of i runs. A client
+      // that finds no key here plays the legacy eight (a server before this).
+      skills: [...player.skillIds],
       // Only to a client that asked: it now gets one frame per tick. Sent in
       // the same engine.io stream as that frame, so it always arrives first.
       ...(connection.framed ? { frames: Multiplayer.FRAME_VERSION } : {})
@@ -693,7 +706,7 @@ export default class Multiplayer {
   }
 
   /**
-   * `start_requested` is `{ id, name, finish, robot, party }`: `id` is the
+   * `start_requested` is `{ id, name, finish, robot, loadout, party }`: `id` is the
    * id an older client made for itself, which this server no longer plays
    * under (the account's is used, decision #48; `startRequested`). It is kept
    * in the result only when it has `ID_SHAPE`, for the spec-only fallback, and
@@ -712,13 +725,16 @@ export default class Multiplayer {
    * again. The bare-string form (the id alone, player-names 2026-09-25) is
    * gone: the id was all it carried.
    */
-  static parseStart (data: unknown): { id?: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } | undefined {
+  static parseStart (data: unknown): { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string } | undefined {
     if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined
-    const { id, name, finish, robot, party } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, party?: unknown }
-    const start: { id?: string, name?: unknown, finish?: unknown, robot?: unknown, party?: string } = { name }
+    const { id, name, finish, robot, loadout, party } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown }
+    const start: { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string } = { name }
     if (typeof id === 'string' && Multiplayer.ID_SHAPE.test(id)) start.id = id
     if (finish !== undefined) start.finish = finish
     if (robot !== undefined) start.robot = robot
+    // The lobby's loadout index for that robot (decision #48 step 4), raw:
+    // `kitFor` checks it against the account's level.
+    if (loadout !== undefined) start.loadout = loadout
     // Only a well-formed code; anything else plays as if there were none.
     if (typeof party === 'string' && Multiplayer.PARTY_SHAPE.test(party)) start.party = party
     return start

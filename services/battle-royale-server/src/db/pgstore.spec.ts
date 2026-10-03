@@ -211,7 +211,84 @@ pgTest('XP: account_progress (migration 2), grants add up atomically, resolve re
   try {
     await again.migrateOnce()
     again.ready = true
-    assert.deepEqual(await again.resolve(token), { publicId, persisted: true, xp: 175 })
+    assert.deepEqual(await again.resolve(token), { publicId, persisted: true, xp: 175, loadouts: [] })
+  } finally {
+    await again.close()
+  }
+})
+
+/** The previous release's queries (migration 2's), verbatim: they must still run on the new schema. */
+const V2_RESOLVE = `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
+       SELECT a.public_id, COALESCE(p.xp, 0) AS xp FROM a LEFT JOIN account_progress p ON p.account_id = a.id`
+const V2_GRANT = `INSERT INTO account_progress (account_id, xp)
+       SELECT id, $2 FROM accounts WHERE public_id = $1
+       ON CONFLICT (account_id) DO UPDATE SET xp = account_progress.xp + EXCLUDED.xp, updated_at = now()
+       RETURNING xp`
+
+pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v2 queries still run, and its CHECKs hold', async () => {
+  // A database at version 2, holding accounts and progress.
+  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 2))), [1, 2])
+  const v2 = new PgAccountStore({ connectionString: URL as string, migrations: MIGRATIONS.filter((m) => m.version <= 2) })
+  const made: Array<{ token: string, publicId: string }> = []
+  try {
+    v2.ready = true
+    for (let i = 0; i < 3; i++) {
+      const { account, token } = await v2.create()
+      await v2.grant(account.publicId, 10 * (i + 1))
+      made.push({ token, publicId: account.publicId })
+    }
+  } finally {
+    await v2.close()
+  }
+  const before = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [3])
+  const after = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
+  assert.deepEqual(after, before, 'migration 3 changed an existing row')
+
+  const store = new PgAccountStore({ connectionString: URL as string })
+  try {
+    store.ready = true
+    // The previous release's resolve and grant, on the new schema.
+    const old = await store.pool.query(V2_RESOLVE, [hashToken(made[0].token)])
+    assert.deepEqual(old.rows.map((r) => [r.public_id, Number(r.xp)]), [[made[0].publicId, 10]])
+    const granted = await store.pool.query(V2_GRANT, [made[1].publicId, 5])
+    assert.equal(Number(granted.rows[0].xp), 25)
+    // This release's, on an account from before it: no loadouts yet.
+    assert.deepEqual(await store.resolve(made[2].token), { publicId: made[2].publicId, persisted: true, xp: 30, loadouts: [] })
+    await store.saveLoadout(made[2].publicId, 'periscope', 2, [8, 7, 6, 5])
+    assert.deepEqual((await store.resolve(made[2].token))?.loadouts, [{ robot: 'periscope', index: 2, skills: [8, 7, 6, 5] }])
+
+    // The CHECKs back what the server checks first.
+    const id = (await store.pool.query('SELECT id FROM accounts WHERE public_id = $1', [made[0].publicId])).rows[0].id
+    const insert = async (robot: string, slot: number, skills: string): Promise<unknown> =>
+      await store.pool.query(`INSERT INTO loadouts (account_id, robot, slot_index, skills) VALUES ($1, $2, $3, '${skills}'::smallint[])`, [id, robot, slot])
+    await assert.rejects(insert('peep', 0, '{1,2,3}'), /check/i, 'cardinality 3')
+    await assert.rejects(insert('peep', 0, '{{1,2},{3,0}}'), /check/i, 'a 2-D array')
+    await assert.rejects(insert('peep', -1, '{1,2,3,0}'), /check/i, 'slot_index -1')
+    await assert.rejects(insert('peep', 16, '{1,2,3,0}'), /check/i, 'slot_index 16')
+    await assert.rejects(insert('Peep!', 0, '{1,2,3,0}'), /check/i, "robot 'Peep!'")
+    await insert('peep', 0, '{1,2,3,0}')
+    await assert.rejects(store.saveLoadout(made[0].publicId, 'peep', 0, [1, 2, 3]), /check/i, 'a 3-skill save through the store')
+    assert.deepEqual((await store.resolve(made[0].token))?.loadouts, [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }])
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('close waits for every loadout save in flight before ending the pool', async () => {
+  const store = new PgAccountStore({ connectionString: URL as string })
+  await store.migrateOnce()
+  store.ready = true
+  const { account, token } = await store.create()
+  const saves = Array.from({ length: 20 }, async (_, i) => { await store.saveLoadout(account.publicId, 'peep', i % 4, [1 + (i % 8), 0, 0, 0]) })
+  await store.close()
+  const settled = await Promise.allSettled(saves)
+  assert.deepEqual(settled.filter((r) => r.status === 'rejected'), [], 'a save was lost at close')
+  await assert.rejects(store.saveLoadout(account.publicId, 'peep', 0, [1, 0, 0, 0]), 'a save after close')
+  const again = new PgAccountStore({ connectionString: URL as string })
+  try {
+    again.ready = true
+    assert.equal((await again.resolve(token))?.loadouts.length, 4)
   } finally {
     await again.close()
   }

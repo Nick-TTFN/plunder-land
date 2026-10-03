@@ -1,5 +1,5 @@
 import { Client, Pool } from 'pg'
-import { type Account, type AccountStore, hashToken, newPublicId, newToken } from './accounts'
+import { type Account, type AccountStore, type StoredLoadout, hashToken, newPublicId, newToken } from './accounts'
 import { migrate } from './migrate'
 import { MIGRATIONS, type Migration } from './migrations'
 
@@ -37,7 +37,7 @@ export class PgAccountStore implements AccountStore {
   ready = false
   private retry: NodeJS.Timeout | undefined
   private closed = false
-  /** Grants in flight, which `close` waits for. */
+  /** Grants and loadout saves in flight, which `close` waits for. */
   private readonly grants = new Set<Promise<unknown>>()
   private readonly retryMs: number
   private readonly onError: (e: unknown) => void
@@ -100,14 +100,43 @@ export class PgAccountStore implements AccountStore {
 
   async resolve (token: string): Promise<Account | null> {
     if (!this.ready) throw new NotReadyError()
-    // One round trip: the account and its XP (no progress row yet reads as 0).
+    // One round trip: the account, its XP (no progress row yet reads as 0)
+    // and its saved loadouts (none reads as []).
     const result = await this.pool.query(
       `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
-       SELECT a.public_id, COALESCE(p.xp, 0) AS xp FROM a LEFT JOIN account_progress p ON p.account_id = a.id`,
+       SELECT a.public_id, COALESCE(p.xp, 0) AS xp,
+         COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
+                   FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
+       FROM a LEFT JOIN account_progress p ON p.account_id = a.id`,
       [hashToken(token)]
     )
-    const row = result.rows[0] as { public_id: string, xp: string | number } | undefined
-    return row === undefined ? null : { publicId: row.public_id, persisted: true, xp: Number(row.xp) }
+    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[] } | undefined
+    if (row === undefined) return null
+    // Raw as stored: `kitFor` checks every row at the join.
+    const loadouts = Array.isArray(row.loadouts) ? row.loadouts.map((l) => ({ robot: l.robot, index: Number(l.index), skills: l.skills })) : []
+    return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts }
+  }
+
+  /**
+   * One upsert: the account's loadout `index` for `robot` becomes `skills`.
+   * Throws for an unknown public id (no row written), as for any failure.
+   * `close` waits for it, as for a grant.
+   */
+  async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> {
+    if (!this.ready) throw new NotReadyError()
+    if (this.closed) throw new Error('accounts: store closed')
+    const pending = this.pool.query(
+      `INSERT INTO loadouts (account_id, robot, slot_index, skills)
+       SELECT id, $2, $3, $4::smallint[] FROM accounts WHERE public_id = $1
+       ON CONFLICT (account_id, robot, slot_index) DO UPDATE SET skills = EXCLUDED.skills, updated_at = now()`,
+      [publicId, robot, index, skills]
+    )
+    this.grants.add(pending)
+    try {
+      if ((await pending).rowCount !== 1) throw new Error('accounts: loadout for an unknown account')
+    } finally {
+      this.grants.delete(pending)
+    }
   }
 
   async create (): Promise<{ account: Account, token: string }> {
@@ -119,7 +148,7 @@ export class PgAccountStore implements AccountStore {
       const publicId = newPublicId()
       try {
         await this.pool.query('INSERT INTO accounts (public_id, token_hash) VALUES ($1, $2)', [publicId, hashToken(token)])
-        return { account: { publicId, persisted: true, xp: 0 }, token }
+        return { account: { publicId, persisted: true, xp: 0, loadouts: [] }, token }
       } catch (e) {
         if ((e as { code?: string }).code !== '23505' || attempt >= 3) throw e
       }

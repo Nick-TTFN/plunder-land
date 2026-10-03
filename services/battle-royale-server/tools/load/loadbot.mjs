@@ -3,7 +3,8 @@
 // Each bot: joins with a hex id, sends its route when it changes (as the client
 // does since server-cpu-trim; LOADBOT_POINTER=tick re-sends it every tick, as
 // older clients did), picks a new destination 2-8 cells away every 3-7 s, presses a random
-// skill aimed at a nearby cell every ~2 s, throws a bomb now and then, and
+// skill slot (0-3 since loadouts, #48 step 4: the start kit casts only Dash,
+// Melee and Ranged) aimed at a nearby cell every ~2 s, throws a bomb now and then, and
 // rejoins on death or extraction. A connect that fails is retried with
 // exponential backoff (0.5 s doubling to 10 s, jittered), so a saturated server
 // shows up as `connectFails`, not as bots that silently never play.
@@ -144,7 +145,7 @@ class Bot {
       stats.msgs[ev] = (stats.msgs[ev] ?? 0) + 1
       if (!this.joinDone) this.joinBytes += n
     }
-    s.on('connect', () => { this.failedConnects = 0; stats.joins++; s.emit('start_requested', { id: hex(8), name: `${prefix}${this.i}`, ...ROBOT_OPT }) })
+    s.on('connect', () => { this.failedConnects = 0; stats.joins++; s.emit('start_requested', { id: hex(8), name: `${prefix}${this.i}`, loadout: 0, ...ROBOT_OPT }) })
     // With `reconnection: false` a failed connect is final for that socket, and
     // nothing else fires: without this the bot was simply gone for the run.
     s.on('connect_error', () => {
@@ -212,7 +213,8 @@ class Bot {
     if (t >= this.nextSkillAt) {
       const c = this.cellNear(6)
       const s = Buffer.alloc(5)
-      s.writeUInt8(Math.floor(Math.random() * 8), 0); s.writeInt16BE(c.q, 1); s.writeInt16BE(c.r, 3)
+      // A slot of the 4 (decision #48 step 4): the start kit casts Dash, Melee and Ranged; slot 3 is empty.
+      s.writeUInt8(Math.floor(Math.random() * 4), 0); s.writeInt16BE(c.q, 1); s.writeInt16BE(c.r, 3)
       this.socket.emit('skill', s)
       if (Math.random() < 0.1) { const u = Buffer.from(s); u.writeUInt8(Math.random() < 0.5 ? 0 : 1, 0); this.socket.emit('use_item', u) }
       this.nextSkillAt = t + rand(1500, 2500)

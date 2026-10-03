@@ -15,6 +15,7 @@ import { GameObject } from '../objects/gameobject'
 import type Player from '../objects/player'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import { buildKit } from '../archetypes/archetypes'
 import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparser'
 import { decodeRecord } from '../../../../plunder-land-client/src/net/records'
 
@@ -292,7 +293,14 @@ test('two worlds ticked together share no object, id, timer, standings row, crea
   const centre = new Vector(40, 40)
   for (const world of [a, b]) {
     World.run(world, () => {
-      world.PLAYERS.forEach((player, i) => { player.position = Hex.toPosition(centre.add(new Vector(i, 0))) })
+      world.PLAYERS.forEach((player, i) => {
+        player.position = Hex.toPosition(centre.add(new Vector(i, 0)))
+        // All eight skills between them, as every player had before loadouts
+        // (#48 step 4): the owned timers (Defend, StoneWall) and the
+        // projectiles' destroys this checks come from skills outside the start kit.
+        player.skillIds = Object.freeze(i % 2 === 0 ? [5, 6, 4, 3] : [1, 2, 7, 8])
+        player.skills = buildKit(player, player.skillIds)
+      })
       // A StoneWall stone each, with a lifetime timer.
       const at = Hex.toPosition(centre.add(new Vector(0, 2)))
       World.addObstacle(new Obstacle(at.x, at.y, 0, 60_000))

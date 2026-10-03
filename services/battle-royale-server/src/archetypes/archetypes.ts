@@ -14,6 +14,7 @@ import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
 import { ARCHETYPE_INFO, type ArchetypeInfo } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
+import { type SkillKey, skillById } from '../utils/skills'
 
 /**
  * Every kind of unit, as data (decision #23, design `ideas/unit-archetypes-design.md`).
@@ -161,25 +162,23 @@ export interface Archetype extends ArchetypeInfo {
 }
 
 /**
- * The player's eight skills **in wire order**. The client sends the index of
- * the slot pressed and `Player.tryExecuteSkill` indexes straight into the
- * built list, so this order must match the client's `Player.skills` and the
- * HUD bar (CLAUDE.md, "Skills").
- *
- * **Every robot's `skills` is this constant, by reference.** No robot may list
- * its own until `skill-equip-or-unlock` decides how loadouts work; a per-robot
- * list would silently re-map the client's slots. archetypes.spec.ts enforces it.
+ * Every skill a player can equip, by its mirrored key (`utils/skills.ts`,
+ * decision #48 step 4), with any overrides of its own defaults (none today).
+ * By key, so a missing or extra skill is a type error. A player's skills are
+ * built from its kit (`buildKit`), never from its robot's row: a robot
+ * carries no skills. archetypes.spec.ts checks that every id has an entry
+ * here and the same class in the client's `skills/catalog.ts`.
  */
-export const PLAYER_SKILLS: readonly SkillSpec[] = Object.freeze([
-  { skill: Dash },
-  { skill: MeleeAttack },
-  { skill: RangedAttack },
-  { skill: Defend },
-  { skill: StoneWall },
-  { skill: ThrowFireball },
-  { skill: Throwicicle },
-  { skill: IceBreath }
-])
+export const SKILL_SPECS: Readonly<Record<SkillKey, SkillSpec>> = Object.freeze({
+  dash: Object.freeze({ skill: Dash }),
+  melee: Object.freeze({ skill: MeleeAttack }),
+  ranged: Object.freeze({ skill: RangedAttack }),
+  defend: Object.freeze({ skill: Defend }),
+  stoneWall: Object.freeze({ skill: StoneWall }),
+  fireball: Object.freeze({ skill: ThrowFireball }),
+  icicle: Object.freeze({ skill: Throwicicle }),
+  iceBreath: Object.freeze({ skill: IceBreath })
+})
 
 /**
  * The GuardPosition shared by grunt and boss. Rings, decision #32 (Dez's
@@ -233,7 +232,8 @@ function robot (info: ArchetypeInfo): Archetype {
     // `Mob.touch` on a player.
     contact: { damage: 0, cooldownMs: 0, rings: 0 },
     killStats: [],
-    skills: PLAYER_SKILLS as SkillSpec[],
+    // A player's skills come from its kit (`buildKit`, #48 step 4), not its robot.
+    skills: [],
     routines: []
   }
 }
@@ -520,19 +520,37 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
 
 /** Build an archetype's skills for `owner`, in table order, with overrides applied. */
 export function buildSkills (owner: Unit, archetype: Archetype): Skill[] {
-  return archetype.skills.map((spec) => {
-    const skill = new spec.skill(owner)
-    if (spec.cooldownMs !== undefined) skill.cooldown = spec.cooldownMs
-    if (spec.damage !== undefined) skill.damage = spec.damage
-    if (spec.range !== undefined) {
-      // A silently ignored range would read as a working override.
-      if (typeof (skill as unknown as { range?: unknown }).range !== 'number') {
-        throw new Error(`${archetype.key}: ${spec.skill.name} has no range to override`)
-      }
-      (skill as unknown as { range: number }).range = spec.range
-    }
-    return skill
+  return archetype.skills.map((spec) => buildSkill(owner, spec, archetype.key))
+}
+
+/**
+ * A player's skills from its kit (decision #48 step 4): slot i is the skill
+ * whose mirrored id is `kit[i]`, or null for 0, with `SKILL_SPECS`'
+ * overrides applied as `buildSkills` applies an archetype's. The kit was
+ * checked before it got here (`progress/loadouts.ts` `kitFor`, or a bot's
+ * fixed kit); an unknown id is a programming error and throws.
+ */
+export function buildKit (owner: Unit, kit: readonly number[]): Array<Skill | null> {
+  return kit.map((id) => {
+    if (id === 0) return null
+    const info = skillById(id)
+    if (info === undefined) throw new Error(`no skill with id ${id}`)
+    return buildSkill(owner, SKILL_SPECS[info.key], info.key)
   })
+}
+
+function buildSkill (owner: Unit, spec: SkillSpec, label: string): Skill {
+  const skill = new spec.skill(owner)
+  if (spec.cooldownMs !== undefined) skill.cooldown = spec.cooldownMs
+  if (spec.damage !== undefined) skill.damage = spec.damage
+  if (spec.range !== undefined) {
+    // A silently ignored range would read as a working override.
+    if (typeof (skill as unknown as { range?: unknown }).range !== 'number') {
+      throw new Error(`${label}: ${spec.skill.name} has no range to override`)
+    }
+    (skill as unknown as { range: number }).range = spec.range
+  }
+  return skill
 }
 
 /** Build an archetype's AI routines for `owner`. `skills` is what `buildSkills` returned. */

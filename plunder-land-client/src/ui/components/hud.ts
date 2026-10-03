@@ -86,11 +86,16 @@ export class HUD extends Container {
     this.status?.inventory.update(counts)
   }
 
-  setupSkills (value: Skill[]): void {
+  /**
+   * One card per slot, `keys[i]` on slot i (`slotsFor`): Q W E R for a kit,
+   * Q to I in the legacy fallback. An empty slot's key binds nothing, and
+   * neither does any key past the kit.
+   */
+  setupSkills (value: Array<Skill | null>, keys: readonly string[]): void {
     if (this.skills !== undefined) this.removeChild(this.skills)
-    this.skills = new SkillPanel(value)
+    this.skills = new SkillPanel(value, keys)
     this.controlsMap.clear()
-    for (const card of this.skills.cards) this.controlsMap.set(card.key, card)
+    for (const card of this.skills.cards) if (card.skill !== null) this.controlsMap.set(card.key, card)
     this.addChild(this.skills)
     this.updateLayout()
   }

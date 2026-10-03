@@ -49,6 +49,7 @@ class CountingStore implements AccountStore {
     return await this.inner.grant(publicId, xp)
   }
 
+  async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> { await this.inner.saveLoadout(publicId, robot, index, skills) }
   async close (): Promise<void> {}
 }
 

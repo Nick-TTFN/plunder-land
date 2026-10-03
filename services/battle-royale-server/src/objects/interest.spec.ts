@@ -14,7 +14,7 @@ import Obstacle from './obstacle'
 import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
 import { type GameObject } from './gameobject'
-import { ARCHETYPES, ITEMS, LAYERS } from '../archetypes/archetypes'
+import { ARCHETYPES, ITEMS, LAYERS, buildKit } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparser'
@@ -1179,6 +1179,8 @@ function hopMidFlight (skill: typeof ThrowFireball | typeof Throwicicle, prefix:
   const clients = [thrower, old, fresh]
   for (const client of clients) client.mirror.clear()
 
+  // Not in the start kit (#48 step 4): the thrower is given a kit with both throws.
+  thrower.player.skills = buildKit(thrower.player, [6, 7, 0, 0])
   const throwSkill = thrower.player.skills.find((s) => s instanceof skill)
   assert.ok(throwSkill !== undefined, `${skill.name} not equipped`)
   assert.equal(throwSkill.execute(end), true, 'the throw was refused')

@@ -24,7 +24,10 @@ import { join } from 'node:path'
 // paints another player's robot the wrong colour.
 // protocol.ts: the wire protocol's version. A drifted number reloads every
 // client on every connection, or never reloads a stale one.
-const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts', 'protocol.ts']
+// skills.ts: the skill ids in `hello.skills` and loadouts, their unlock
+// levels and the loadout rule. A drifted id puts the wrong icon on a key; a
+// drifted rule lets the lobby offer a loadout the server refuses.
+const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts', 'protocol.ts', 'skills.ts']
 
 const SERVER = __dirname
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'utils')

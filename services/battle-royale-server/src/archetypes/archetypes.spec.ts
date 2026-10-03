@@ -22,7 +22,8 @@ import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
-import { type Archetype, ARCHETYPES, LAYERS, PLAYER_SKILLS, buildSkills } from './archetypes'
+import { type Archetype, ARCHETYPES, LAYERS, SKILL_SPECS, buildKit, buildSkills } from './archetypes'
+import { SKILL_INFO, SKILL_LIST, type SkillKey } from '../utils/skills'
 
 /**
  * The archetype table's own rules (decision #23). What each unit does today
@@ -57,41 +58,48 @@ beforeEach(() => {
 
 const ALL: Archetype[] = Object.values(ARCHETYPES)
 
-// --- skill order (design section 5) ------------------------------------------
+// --- player skills (decision #48 step 4) -------------------------------------
 
-test('PLAYER_SKILLS is the eight skills in wire order', () => {
+test('SKILL_SPECS has every mirrored skill id, each its own class, with no overrides', () => {
   assert.deepEqual(
-    PLAYER_SKILLS.map((s) => s.skill),
+    SKILL_LIST.map((info) => SKILL_SPECS[info.key].skill),
     [Dash, MeleeAttack, RangedAttack, Defend, StoneWall, ThrowFireball, Throwicicle, IceBreath]
   )
+  assert.deepEqual(Object.keys(SKILL_SPECS).sort(), Object.keys(SKILL_INFO).sort())
   // No overrides: a player's skills are the skills' own defaults.
-  for (const spec of PLAYER_SKILLS) assert.deepEqual(Object.keys(spec), ['skill'])
+  for (const key of Object.keys(SKILL_SPECS) as SkillKey[]) assert.deepEqual(Object.keys(SKILL_SPECS[key]), ['skill'])
 })
 
-test('every robot uses PLAYER_SKILLS itself, not a list of its own', () => {
+test('no robot carries skills: a player\'s come from its kit', () => {
   const robots = ALL.filter((a) => a.kind === 'robot')
   assert.ok(robots.length > 0)
-  for (const robot of robots) {
-    // By reference: an equal-looking copy is exactly what this forbids,
-    // because the next edit to it would re-map the client's slots.
-    assert.equal(robot.skills, PLAYER_SKILLS, `${robot.key} has its own skill list`)
+  for (const robot of robots) assert.deepEqual(robot.skills, [], `${robot.key} lists skills of its own`)
+})
+
+test('the client\'s skills/catalog.ts has a case for every id, building the same skill', () => {
+  const source = readFileSync(
+    join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'skills', 'catalog.ts'), 'utf8')
+  const cases = new Map(Array.from(source.matchAll(/case '(\w+)': return new (\w+)\(/g), (m) => [m[1], m[2]]))
+  assert.deepEqual([...cases.keys()].sort(), Object.keys(SKILL_INFO).sort(), 'a skill key has no case in the client catalog, or one too many')
+  for (const key of Object.keys(SKILL_INFO) as SkillKey[]) {
+    // Lower-cased: the client spells it ThrowIcicle, the server Throwicicle.
+    assert.equal(cases.get(key)?.toLowerCase(), SKILL_SPECS[key].skill.name.toLowerCase(), key)
   }
 })
 
-test('the client\'s Player.skills lists the same skills in the same order', () => {
-  const source = readFileSync(
-    join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'objects', 'player.ts'), 'utf8')
-  const match = /this\.skills = \[([\s\S]*?)\]/.exec(source)
-  assert.ok(match !== null, 'could not find `this.skills = [...]` in the client player.ts')
-  const client = Array.from(match[1].matchAll(/new (\w+)\(/g), (m) => m[1].toLowerCase())
-  // Lower-cased: the client spells it ThrowIcicle, the server Throwicicle.
-  assert.deepEqual(client, PLAYER_SKILLS.map((s) => s.skill.name.toLowerCase()))
-})
-
-test('a player\'s built skills are PLAYER_SKILLS, in order, owned by the player', () => {
+test('a player\'s skills are its kit, slot by slot, owned by it; the default kit is the start kit', () => {
   const player = new Player(1000, 2000, 0, 'p1')
-  assert.deepEqual(player.skills.map((s) => s.constructor), PLAYER_SKILLS.map((s) => s.skill))
-  for (const skill of player.skills) assert.equal(skill.owner, player)
+  assert.deepEqual(player.skillIds, [1, 2, 3, 0])
+  assert.deepEqual(player.skills.map((s) => s?.constructor ?? null), [Dash, MeleeAttack, RangedAttack, null])
+  const full = new Player(1000, 2000, 0, 'p2', ARCHETYPES.peep, undefined, undefined, [8, 6, 4, 1])
+  assert.deepEqual(full.skills.map((s) => s?.constructor ?? null), [IceBreath, ThrowFireball, Defend, Dash])
+  for (const skill of player.skills) if (skill !== null) assert.equal(skill.owner, player)
+  for (const skill of full.skills) if (skill !== null) assert.equal(skill.owner, full)
+  assert.equal(full.slotOf(6), 1)
+  assert.equal(full.slotOf(3), -1)
+  assert.equal(player.slotOf(0), -1, 'slotOf(0) found the empty slot')
+  assert.ok(Object.isFrozen(player.skillIds))
+  assert.throws(() => buildKit(player, [1, 99, 0, 0]), /no skill with id 99/)
 })
 
 // --- damage (watch item: Damage[undefined]) ---------------------------------

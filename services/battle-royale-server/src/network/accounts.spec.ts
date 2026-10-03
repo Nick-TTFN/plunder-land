@@ -152,12 +152,14 @@ class TestStore implements AccountStore {
     return await this.inner.grant(publicId, xp)
   }
 
+  async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> { await this.inner.saveLoadout(publicId, robot, index, skills) }
   async close (): Promise<void> {}
 }
 
 /** An `account` message without the standing (decision #48 step 3), which `standing` tests check. */
 function bare (message: unknown): unknown {
-  const { xp, level, levelAt, nextAt, ...rest } = message as Record<string, unknown>
+  // The standing (#48 step 3) and the loadouts (step 4) are checked in progress.spec.ts and loadouts.spec.ts.
+  const { xp, level, levelAt, nextAt, loadouts, ...rest } = message as Record<string, unknown>
   return rest
 }
 
@@ -178,7 +180,7 @@ test('no token: account { id, token } arrives before hello, and the run and its 
   assert.ok(account !== undefined, 'no account event')
   assert.match(account.id, PUBLIC_ID_SHAPE)
   assert.match(account.token, TOKEN_SHAPE)
-  assert.equal(Object.keys(account).sort().join(), 'id,level,levelAt,nextAt,token,xp')
+  assert.equal(Object.keys(account).sort().join(), 'id,level,levelAt,loadouts,nextAt,token,xp')
   assert.deepEqual(bare(account), { id: account.id, token: account.token })
   assert.ok(a.order.indexOf('account') < a.order.indexOf('hello'), `account after hello: ${a.order.join(' ')}`)
   assert.equal(a.order.filter((e) => e === 'hello').length, 1)
@@ -480,7 +482,7 @@ test('a lookup that fails: offline at once, announced on connect, and the store 
 
 test('an issued id without ID_SHAPE is never played under', async () => {
   const store = new TestStore()
-  store.inner.create = async () => ({ account: { publicId: 'stats-*', persisted: true, xp: 0 }, token: 'T'.repeat(43) })
+  store.inner.create = async () => ({ account: { publicId: 'stats-*', persisted: true, xp: 0, loadouts: [] }, token: 'T'.repeat(43) })
   const worlds = makeWorlds(store)
   const a = connect(worlds, 'a')
   a.start()
@@ -775,7 +777,7 @@ test('client: a token from account is stored, sent in every handshake after, and
   a.start()
   await settle()
   const [message] = a.events('account')
-  assert.deepEqual(onAccount(message, storage), { id: (message as { id: string }).id, offline: false, standing: { xp: 0, level: 1, levelAt: 0, nextAt: 40 } })
+  assert.deepEqual(onAccount(message, storage), { id: (message as { id: string }).id, offline: false, standing: { xp: 0, level: 1, levelAt: 0, nextAt: 40 }, loadouts: { peep: [[1, 2, 3, 0]], periscope: [[1, 2, 3, 0]], magnet: [[1, 2, 3, 0]], hopper: [[1, 2, 3, 0]], waddle: [[1, 2, 3, 0]] } })
   const token = storage.items.get(TOKEN_KEY) as string
   assert.match(token, TOKEN_SHAPE)
   assert.deepEqual(read(), { token }, 'the next handshake carries it')
@@ -788,7 +790,7 @@ test('client: a token from account is stored, sent in every handshake after, and
   assert.equal(storage.items.get(TOKEN_KEY), token)
 
   // Offline: nothing stored, so the real token survives the outage.
-  assert.deepEqual(onAccount({ id: 'ffffffffffffffff', token: 'B'.repeat(43), offline: true }, storage), { id: 'ffffffffffffffff', offline: true, standing: undefined })
+  assert.deepEqual(onAccount({ id: 'ffffffffffffffff', token: 'B'.repeat(43), offline: true }, storage), { id: 'ffffffffffffffff', offline: true, standing: undefined, loadouts: undefined })
   assert.equal(storage.items.get(TOKEN_KEY), token)
   // Malformed: ignored.
   assert.equal(onAccount(null, storage), undefined)

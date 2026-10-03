@@ -8,7 +8,8 @@ import BotFill from '../bots/fill'
 import { type Account, type AccountStore, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
 import { NotReadyError } from '../db/pgstore'
 import type Player from '../objects/player'
-import { standingOf } from '../progress/xp'
+import { levelOf, standingOf } from '../progress/xp'
+import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -98,6 +99,8 @@ export default class Worlds {
   private readonly accountTimeoutMs: number
   /** Each connection's account creation while it may still land (`create`). */
   private readonly creating = new WeakMap<Connection, Promise<{ account: Account, token: string }>>()
+  /** Connections with a loadout save in flight (`saveLoadout`): at most one each. */
+  private readonly saving = new WeakSet<Connection>()
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
@@ -196,6 +199,10 @@ export default class Worlds {
     socket.on('start_requested', (data) => {
       Multiplayer.guarded(() => { this.start(connection, data) })
     })
+    // In the lobby or mid-run; needs no world, and takes effect at the next join.
+    socket.on('save_loadout', (data) => {
+      Multiplayer.guarded(() => { this.saveLoadout(connection, data) })
+    })
     // Applied on arrival, as with one world (`Multiplayer.onConnect`).
     socket.on('pointer', (data) => {
       this.inWorld(connection, (mp) => { mp.onPointer(connection, data) })
@@ -270,13 +277,17 @@ export default class Worlds {
       token = undefined
     }
     connection.account = account
-    const message: { id: string, token?: string, offline?: boolean, xp?: number, level?: number, levelAt?: number, nextAt?: number } = { id: account.publicId }
+    const message: { id: string, token?: string, offline?: boolean, xp?: number, level?: number, levelAt?: number, nextAt?: number, loadouts?: Record<string, number[][]> } = { id: account.publicId }
     if (!account.persisted) message.offline = true
     else {
       if (token !== undefined) message.token = token
       // The account's standing, for the lobby (decision #48 step 3). An
       // offline account has none: it earns nothing.
       Object.assign(message, standingOf(account.xp))
+      // Every robot's loadouts as a join would play them now (#48 step 4).
+      // Only here: the mid-run `account` from `grant` carries none, and the
+      // client keeps the last ones it had for the same id.
+      message.loadouts = loadoutsFor(account)
     }
     connection.socket.emit('account', message)
   }
@@ -366,6 +377,62 @@ export default class Worlds {
         connection.socket.emit('progress', { gained: xp, ...standing, levelUp: standing.level > standingOf(total - xp).level })
       })
     }).catch((e) => { Worlds.accountFailure(e) })
+  }
+
+  /**
+   * `save_loadout { robot, index, skills }` (decision #48 step 4), answered
+   * with `loadout_saved { robot, index, ok, skills, busy? }`. Written only for
+   * a persisted account, a selectable robot, a loadout index the account's
+   * level has, and skills that pass `checkLoadout` at that level
+   * (`parseSave`); anything else is refused and nothing is written. On ok,
+   * `skills` is what was stored; on a refusal or a failed write, what a join
+   * would play for that robot and index now (`kitFor`), so the lobby snaps
+   * back to the truth.
+   *
+   * **One write in flight per connection**: a save meanwhile is answered
+   * `busy` at once and writes nothing; the lobby sends its newest state again
+   * when the answer to the first lands. The write is bounded like every store
+   * call and a failure is reported as one (`accountFailure`). **The account in
+   * memory changes only once the write has resolved**, so a failed write never
+   * plays. A write that resolves after the timeout is in the store but not in
+   * this connection's account: its next connection reads it.
+   */
+  saveLoadout (connection: Connection, data: unknown): void {
+    const account = connection.account
+    const { robot, index } = (data !== null && typeof data === 'object' ? data : {}) as { robot?: unknown, index?: unknown }
+    const robotKey = typeof robot === 'string' ? robot.slice(0, 16) : ''
+    const indexValue = typeof index === 'number' && Number.isFinite(index) ? index : -1
+    const answer = (ok: boolean, skills: number[], busy = false): void => {
+      if (connection.closed) return
+      connection.socket.emit('loadout_saved', { robot: robotKey, index: indexValue, ok, skills, ...(busy ? { busy: true } : {}) })
+    }
+    if (this.saving.has(connection)) {
+      answer(false, kitFor(account, robotKey, indexValue), true)
+      return
+    }
+    if (account === undefined || !account.persisted) {
+      answer(false, kitFor(account, robotKey, indexValue))
+      return
+    }
+    const save = parseSave(data, levelOf(account.xp))
+    if (save === undefined) {
+      answer(false, kitFor(account, robotKey, indexValue))
+      return
+    }
+    this.saving.add(connection)
+    this.bounded(this.accounts.saveLoadout(account.publicId, save.robot, save.index, save.skills)).then(() => {
+      Worlds.accountSuccess()
+      const i = account.loadouts.findIndex((l) => l.robot === save.robot && l.index === save.index)
+      const row = { robot: save.robot, index: save.index, skills: [...save.skills] }
+      if (i >= 0) account.loadouts[i] = row
+      else account.loadouts.push(row)
+      this.saving.delete(connection)
+      Multiplayer.guarded(() => { answer(true, [...save.skills]) })
+    }, (e) => {
+      Worlds.accountFailure(e)
+      this.saving.delete(connection)
+      Multiplayer.guarded(() => { answer(false, kitFor(account, save.robot, save.index)) })
+    })
   }
 
   /** Never the token: errors from the store carry none, and nothing here adds it. */

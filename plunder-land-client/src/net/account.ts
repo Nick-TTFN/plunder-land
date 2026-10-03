@@ -18,6 +18,8 @@
  * levelUp }` once the grant is written. The level is the server's: the curve
  * is not copied here. An offline account has no standing and earns nothing.
  */
+import { type Loadouts, type SavedAnswer, mergeSaved, parseLoadouts } from './loadout'
+
 export const TOKEN_KEY = 'plunderland_token'
 
 /** The token's shape, as the server makes and checks it (`TOKEN_SHAPE` in its `db/accounts.ts`). */
@@ -45,6 +47,13 @@ export interface AccountInfo {
   offline: boolean
   /** Undefined offline, or from a server before XP. */
   standing: Standing | undefined
+  /**
+   * Each robot's saved skill loadouts (decision #48 step 4), as a join would
+   * play them, by robot key and loadout index. Undefined offline, before the
+   * server has said, or from a server before loadouts; a missing robot or
+   * loadout reads as the start kit (`loadoutOf`).
+   */
+  loadouts: Loadouts | undefined
 }
 
 /** A `progress` event: what the run just ended earned, and the standing after it. */
@@ -143,7 +152,22 @@ export function onAccount (data: unknown, storage: TokenStorage | undefined): Ac
       // Not remembered: the next play makes a new account.
     }
   }
-  return { id, offline: offline === true, standing: offline === true ? undefined : standingOf(data) }
+  if (offline === true) return { id, offline: true, standing: undefined, loadouts: undefined }
+  // The mid-run `account` (a grant's) carries no loadouts: keep the ones this
+  // id was last sent, never another account's.
+  const previous = ACCOUNT.info?.id === id && !ACCOUNT.info.offline ? ACCOUNT.info.loadouts : undefined
+  const loadouts = parseLoadouts((data as { loadouts?: unknown }).loadouts) ?? previous
+  return { id, offline: false, standing: standingOf(data), loadouts }
+}
+
+/**
+ * A `loadout_saved` answer landed: the announced account's loadouts take the
+ * server's answer (`mergeSaved`), so a lobby built after this run shows it.
+ */
+export function applySaved (answer: SavedAnswer): void {
+  const info = ACCOUNT.info
+  if (info === undefined || info.offline || answer.busy) return
+  setAccountInfo({ ...info, loadouts: mergeSaved(info.loadouts, answer) })
 }
 
 /** localStorage, or undefined where touching it throws. */

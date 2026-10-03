@@ -1,4 +1,5 @@
 import { Hex } from '../utils/hex'
+import { helloSkills } from './loadout'
 
 /**
  * Everything the client would otherwise have to hardcode about the server.
@@ -27,6 +28,13 @@ export class Session {
   static voids: Array<Set<number>> = []
   /** Each layer's walls (decision #44), the same way, from `hello.walls`. Empty for a server from before walls. */
   static walls: Array<Set<number>> = []
+  /**
+   * This run's 4 skill ids, Q W E R, from `hello.skills` (decision #48 step 4):
+   * slot i of it is what a press of key i sends. Undefined for a server from
+   * before loadouts, which plays the legacy eight (`slotsFor`). Set on every
+   * `hello`: a missing or malformed key never keeps the last run's kit.
+   */
+  static skills: number[] | undefined = undefined
   static known: boolean = false
 
   /** Rolling window of observed gaps between update packets, in ms. */
@@ -34,7 +42,8 @@ export class Session {
   private static _lastArrival: number = 0
   private static _p95: number = 250
 
-  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown }): void {
+  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown, skills?: unknown }): void {
+    Session.skills = helloSkills(data?.skills)
     if (typeof data?.tick === 'number' && data.tick > 0) Session.tickMs = data.tick
     if (typeof data?.map === 'number' && data.map > 0) Session.mapSize = data.map
     if (typeof data?.interest === 'number' && data.interest > 0) Session.interestRadius = data.interest

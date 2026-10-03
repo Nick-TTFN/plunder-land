@@ -19,7 +19,8 @@ import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import Mob from '../objects/mob'
 import type UseSkillOnTarget from '../ai/useskillontarget'
-import { ARCHETYPES, buildSkills } from '../archetypes/archetypes'
+import { ARCHETYPES, buildKit, buildSkills } from '../archetypes/archetypes'
+import { SKILL_LIST } from '../utils/skills'
 import { ARCHETYPE_INFO, archetypeById } from '../utils/archetypes'
 // The client's port. It imports nothing, so this pulls no pixi into the server.
 import * as Client from '../../../../plunder-land-client/src/vfx/cells'
@@ -118,7 +119,10 @@ test('every archetype\'s built ranged range is the one the client draws it at, l
   for (const archetype of Object.values(ARCHETYPES)) {
     const info = archetypeById(archetype.id)
     assert.ok(info !== undefined, `${archetype.key}: id ${archetype.id} is not in the mirrored table`)
-    const ranged = buildSkills(owner, archetype).filter((s): s is RangedAttack => s instanceof RangedAttack)
+    // A robot carries no skills since loadouts (#48 step 4): its RangedAttack
+    // is the one any kit builds, so every equippable skill is built for it.
+    const built = archetype.kind === 'robot' ? buildKit(owner, SKILL_LIST.map((s) => s.id)) : buildSkills(owner, archetype)
+    const ranged = built.filter((s): s is RangedAttack => s instanceof RangedAttack)
     if (ranged.length === 0) {
       assert.equal(info.rangedCells, null, `${archetype.key} has no RangedAttack but its row gives it a range`)
       continue

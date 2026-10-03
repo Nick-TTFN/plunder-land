@@ -12,5 +12,11 @@
  * table. Additive changes an old client already skips (a new `hello` key) need
  * no bump. The client still ships first; this catches the tabs left open
  * across a release, which "client first" can't.
+ *
+ * 2: guest accounts and server fog (#48 steps 1-3). 3: skill loadouts (#48
+ * step 4). An older client sends the `skill` slot as an index into the old
+ * eight, which this server reads as an index into the player's 4: Q, W and E
+ * would still work with the start kit, but R would fire whatever is in slot 3
+ * and T to I would do nothing. That silent misbehaviour is why it is bumped.
  */
-export const PROTOCOL = 2
+export const PROTOCOL = 3
