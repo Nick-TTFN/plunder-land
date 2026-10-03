@@ -13,7 +13,8 @@ import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
-import { applyProgress, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
+import { applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
+import { parseSaved } from './net/loadout'
 
 initErrorReporting()
 
@@ -119,6 +120,14 @@ function setup (): void {
   Game.socket.on('account', (data: unknown) => {
     const info = onAccount(data, localTokenStorage())
     if (info !== undefined) setAccountInfo(info)
+  })
+  // Every loadout save's answer, here rather than in the lobby's panel: one
+  // that lands after READY's wait gave up (the panel is gone by then) must
+  // still reach the account info, or the next lobby shows the old loadout
+  // while the server plays the new one (48-4 review N1).
+  Game.socket.on('loadout_saved', (data: unknown) => {
+    const answer = parseSaved(data)
+    if (answer !== undefined) applySaved(answer)
   })
   // A run's XP (decision #48 step 3), a database round trip after its end.
   // The server never sends one after the next run's `hello`, so it is always

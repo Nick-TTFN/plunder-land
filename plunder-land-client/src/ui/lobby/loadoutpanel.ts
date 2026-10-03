@@ -1,6 +1,6 @@
 import { Sprite } from 'pixi.js'
 import { Game } from '../../game'
-import { ACCOUNT, applySaved } from '../../net/account'
+import { ACCOUNT } from '../../net/account'
 import {
   LOADOUT_KEY, SKILL_KEYS, type Loadouts, canClear, clear, loadoutOf, mergeSaved, parseRemembered,
   parseSaved, rememberedIndex, skillLocked, swap, tabLabel, tabLocked, withLoadout
@@ -127,9 +127,13 @@ export class LoadoutPanel {
     return ACCOUNT.info?.standing?.level ?? 1
   }
 
-  /** Saving needs an account the server has stored. */
+  /**
+   * Saving needs an account the server has stored, and a server that knows
+   * loadouts: one from before them sends an account with none and never
+   * answers `save_loadout`, so the panel stays read-only (48-4 review R3).
+   */
   private get editable (): boolean {
-    return ACCOUNT.info !== undefined && !ACCOUNT.info.offline
+    return ACCOUNT.info !== undefined && !ACCOUNT.info.offline && ACCOUNT.info.loadouts !== undefined
   }
 
   /** The loadout index READY plays for `robot`. */
@@ -179,6 +183,9 @@ export class LoadoutPanel {
     const answer = parseSaved(data)
     if (answer === undefined || this.inFlight === undefined) return
     const sent = this.inFlight
+    // Only the answer to this panel's own save (one from an earlier lobby's
+    // save may still land); `index.ts` has applied any answer to the account.
+    if (answer.robot !== sent.robot || answer.index !== sent.index) return
     this.inFlight = undefined
     if (answer.busy) {
       // Another save was still in flight (another tab's lobby on this socket
@@ -187,7 +194,8 @@ export class LoadoutPanel {
       this.timer = setTimeout(() => { this.flush() }, SAVE_DELAY_MS)
       return
     }
-    applySaved(answer)
+    // The account info took the answer already: `index.ts` listens for every
+    // `loadout_saved`, so one landing after this panel is gone still counts.
     if (this.pending !== undefined) {
       this.flush()
     } else {

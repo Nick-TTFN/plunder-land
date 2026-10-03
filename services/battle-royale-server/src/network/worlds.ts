@@ -430,6 +430,10 @@ export default class Worlds {
       Multiplayer.guarded(() => { answer(true, [...save.skills]) })
     }, (e) => {
       Worlds.accountFailure(e)
+      // Known race (48-4 review N2): when `bounded` gives up after its 3 s the
+      // write may still land later, and clearing the mark here lets a retry
+      // race it in Postgres, so the stored row can end up older than what
+      // this connection plays. It needs a database stall over 3 s; accepted.
       this.saving.delete(connection)
       Multiplayer.guarded(() => { answer(false, kitFor(account, save.robot, save.index)) })
     })
