@@ -167,6 +167,8 @@ export default class Lobby extends Container {
   private readonly onResize = (): void => { this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
   private readonly onAccount = (): void => { this.renderLevel() }
+  /** `teardown` ran: it can be reached twice (`destroy` also emits `removed`). */
+  private tornDown = false
   /** The account's level in the name pill (decision #48 step 3); hidden until the server says. */
   private readonly level: HTMLSpanElement
 
@@ -304,7 +306,11 @@ export default class Lobby extends Container {
     window.addEventListener('keydown', this.onKey, true)
     window.addEventListener('resize', this.onResize)
     window.addEventListener('pointermove', this.onMove)
+    // Every way out: removed from the popups (READY, a reconnect's
+    // removeChildren), and `destroy`, which emits no `removed` when the lobby
+    // was never parented or was already taken off.
     this.on('removed', this.teardown, this)
+    this.on('destroyed', this.teardown, this)
 
     void this.renderThumbnails()
     this.select(this.index)
@@ -655,6 +661,8 @@ export default class Lobby extends Container {
   }
 
   private teardown (): void {
+    if (this.tornDown) return
+    this.tornDown = true
     ACCOUNT.listeners.delete(this.onAccount)
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
