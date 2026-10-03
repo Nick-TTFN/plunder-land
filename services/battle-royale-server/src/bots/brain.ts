@@ -5,6 +5,7 @@ import { ObjectType, type GameObject } from '../objects/gameobject'
 import type { Unit } from '../objects/unit'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import { SKILL_INFO } from '../utils/skills'
 
 /**
  * A bot's play (decision #47): a Player with no connection, driven through the
@@ -26,12 +27,22 @@ export const BOT_SKILL = [
   { reactionMs: 300, aimMiss: 0.12, engageRings: 6, descend: 0 }
 ]
 
-/** Skill slots (archetypes.ts `PLAYER_SKILLS`, a wire contract) and item slots (utils/items.ts). */
-const MELEE = 1
-const RANGED = 2
-const DEFEND = 3
-const FIREBALL = 5
-const ICICLE = 6
+/**
+ * A bot's skills (decision #48 step 4, Dez's proposal accepted with the rest):
+ * melee, ranged and defend, plus fireball or icicle, picked when it joins
+ * (`botKit`). Bots have no account and are not checked against a level; the
+ * throw is used only on 02-03 (`fight`), so a bot on 01 is no stronger than
+ * a level-2 human. The brain presses by skill id (`press`, `Player.slotOf`),
+ * never by a fixed slot, and never presses Dash, StoneWall or IceBreath.
+ */
+export const BOT_KIT_BASE: readonly number[] = Object.freeze([SKILL_INFO.melee.id, SKILL_INFO.ranged.id, SKILL_INFO.defend.id])
+
+/** A bot's kit: `BOT_KIT_BASE` plus fireball or icicle, each half the time. */
+export function botKit (random: () => number): number[] {
+  return [...BOT_KIT_BASE, random() < 0.5 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id]
+}
+
+/** The medkit's inventory slot (utils/items.ts). */
 const MEDKIT = 0
 
 /**
@@ -143,15 +154,27 @@ export default class BotBrain implements IAIRoutine {
     return World.NEAREST_IN_CELLS(cell, BOT_SCUFFLE_RINGS, me.tag, ObjectType.Player | ObjectType.Mob, (u) => live(u) && !isHuman(u))
   }
 
+  /**
+   * Press the slot holding skill `id` (a mirrored id), as a human's key
+   * would: through `tryExecuteSkill`. Nothing when the kit doesn't hold it.
+   */
+  private press (id: number, aim?: Vector): void {
+    const slot = this.owner.slotOf(id)
+    if (slot >= 0) this.owner.tryExecuteSkill(slot, aim)
+  }
+
   /** `fleeing`: on its way out, it shoots back but keeps going (Nick: "running away when hp is low felt really cool"). */
   private fight (enemy: Unit, distance: number, skill: typeof BOT_SKILL[number], health: number, fleeing: boolean): void {
     const me = this.owner
     const aim = this.aimAt(enemy.cell, skill.aimMiss)
-    if (distance <= 1 && health < 0.5) me.tryExecuteSkill(DEFEND)
-    if (distance <= 2) me.tryExecuteSkill(MELEE)
-    if (distance <= 6) me.tryExecuteSkill(RANGED, aim)
+    if (distance <= 1 && health < 0.5) this.press(SKILL_INFO.defend.id)
+    if (distance <= 2) this.press(SKILL_INFO.melee.id)
+    if (distance <= 6) this.press(SKILL_INFO.ranged.id, aim)
     const layer = World.TAGS.indexOf(me.tag)
-    if (layer >= 1 && distance >= 3 && this.random() < 0.3) me.tryExecuteSkill(this.random() < 0.5 ? FIREBALL : ICICLE, aim)
+    // The throw it carries: fireball, else icicle (its kit has one, `BOT_KIT`).
+    if (layer >= 1 && distance >= 3 && this.random() < 0.3) {
+      this.press(me.slotOf(SKILL_INFO.fireball.id) >= 0 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id, aim)
+    }
     if (fleeing) return
     // Close in on a player to shooting range; otherwise stand and fight. A bot
     // that kept walking its old route (a wander, a portal) fired a shot or two

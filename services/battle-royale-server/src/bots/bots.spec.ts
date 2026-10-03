@@ -11,6 +11,7 @@ import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
 import { LEAVE_GRACE_MS } from './fill'
+import BotBrain, { BOT_KIT_BASE, botKit } from './brain'
 
 /**
  * Bots (decision #47): a world with a human is topped up to the target, a
@@ -259,9 +260,65 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
     assert.deepEqual(errors, [], 'no tick error')
     assert.ok(extracted.length > 0, 'some bot found an exit and extracted')
     assert.ok(looted > list.length / 2, 'most bots pick up loot')
+    // Every bot's kit (#48 step 4), and both throws turn up.
+    const kits = new Set(list.map((p) => p.skillIds.join()))
+    for (const kit of kits) assert.ok(kit === '2,3,4,6' || kit === '2,3,4,7', `a bot played kit ${kit}`)
+    assert.equal(kits.size, 2, `${list.length} bots and only one kit`)
   } finally {
     console.error = realError
   }
+})
+
+// --- the kit and the brain's presses (decision #48 step 4) -----------------------
+
+test('a bot\'s kit: melee, ranged, defend, plus fireball or icicle', () => {
+  assert.deepEqual([...BOT_KIT_BASE], [2, 3, 4])
+  assert.deepEqual(botKit(() => 0), [2, 3, 4, 6])
+  assert.deepEqual(botKit(() => 0.49), [2, 3, 4, 6])
+  assert.deepEqual(botKit(() => 0.5), [2, 3, 4, 7])
+})
+
+test('the brain presses by skill: melee, ranged and defend at their slots, the throw only on 02-03, never an empty or missing slot', () => {
+  World.strict = false
+  void new Multiplayer(250, redisStub())
+  const world = new World(4000)
+  World.MOBS.length = 0
+  World.OBSTACLES.length = 0
+  // Slot orders the brain can't know, so a press by fixed slot would miss.
+  const cases: Array<{ kit: number[], throws: number | undefined }> = [
+    { kit: [2, 3, 4, 6], throws: 6 },
+    { kit: [2, 3, 4, 7], throws: 7 },
+    { kit: [7, 4, 3, 2], throws: 7 },
+    { kit: [1, 2, 3, 0], throws: undefined } // the start kit: no defend, no throw
+  ]
+  for (const { kit, throws } of cases) {
+    const me = World.createPlayer(`bot-${kit.join('')}`, 'b', undefined, 'peep', kit)
+    // random 0: the 30% throw always happens; with aimMiss 0 the aim never misses.
+    const brain = new BotBrain(me, Date.now(), () => 0)
+    const pressed: number[] = []
+    const slots: number[] = []
+    me.skills.forEach((skill, slot) => {
+      if (skill !== null) skill.execute = () => { pressed.push(me.skillIds[slot]); return true }
+    })
+    const press = me.tryExecuteSkill.bind(me)
+    me.tryExecuteSkill = (slot, aim) => { slots.push(slot); press(slot, aim) }
+    const fight = (brain as unknown as { fight: (enemy: unknown, distance: number, skill: unknown, health: number, fleeing: boolean) => void }).fight.bind(brain)
+    const enemy = { cell: Hex.neighbour(me.cell, 0), type: me.type }
+
+    // On 01, close and hurt: defend, melee, ranged; no throw.
+    fight(enemy, 1, { aimMiss: 0 }, 0.4, true)
+    assert.deepEqual(pressed, [4, 2, 3].filter((id) => kit.includes(id)), `01, kit ${kit.join()}`)
+    // On 02, at range: ranged and the throw it carries.
+    pressed.length = 0
+    me.tag = World.TAGS[1]
+    fight(enemy, 3, { aimMiss: 0 }, 1, true)
+    assert.deepEqual(pressed, throws === undefined ? [3] : [3, throws], `02, kit ${kit.join()}`)
+    for (const slot of slots) {
+      assert.ok(slot >= 0 && slot < 4, `pressed slot ${slot}`)
+      assert.notEqual(me.skillIds[slot], 0, 'pressed an empty slot')
+    }
+  }
+  world.close()
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).

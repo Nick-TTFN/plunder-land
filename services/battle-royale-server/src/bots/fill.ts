@@ -2,7 +2,7 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import { FINISH_PRESETS, finishToBytes } from '../utils/finishes'
 import { SELECTABLE_ROBOTS } from '../utils/archetypes'
-import BotBrain from './brain'
+import BotBrain, { botKit } from './brain'
 
 /**
  * Keeps one world's humans + bots at `target` (decision #47), and only while
@@ -72,7 +72,7 @@ export default class BotFill {
     if (this.random() < 0.4) name += String(10 + Math.floor(this.random() * 90))
     // Not hex, so never a real player's id (Multiplayer.ID_SHAPE); bots write no stats anyway.
     const id = `bot-${++this.seq}`
-    const player = World.createPlayer(id, name, finishToBytes(pick(FINISH_PRESETS).finish), pick(SELECTABLE_ROBOTS))
+    const player = World.createPlayer(id, name, finishToBytes(pick(FINISH_PRESETS).finish), pick(SELECTABLE_ROBOTS), botKit(this.random))
     player.bot = new BotBrain(player, now, this.random)
     player.addAIRoutine(player.bot)
     return player
