@@ -96,17 +96,28 @@ function destroys (sent: Recorded[]): any[] {
 
 /**
  * The client must hold the pickup before it is taken, as it does in play:
- * put it two rings east, tick and flush (sent, out of reach), then step the
- * player one cell east, which brings it within a ring.
+ * put it two rings inward, tick and flush (sent, out of reach), then step the
+ * player one cell inward, which brings it within a ring.
  */
 function stepToward (player: Player): void {
-  player.position = eastOf(player, 1)
+  player.position = inward(player, 1)
 }
 
-/** A cell centre `rings` east of the player's cell. */
-function eastOf (player: Player, rings: number): Vector {
+/**
+ * A cell centre `rings` from the player's cell along the row, east or west,
+ * whichever is towards the middle of the map.
+ *
+ * It was always east. A join on the last column (centre x 3982.5 on the
+ * 4000 map) then stepped to x 4027.5, off the map; `Unit.update` clamped
+ * that to 4000, back inside the join cell, and the pickup stayed two rings
+ * away. In 4000 instrumented runs all 24 joins there failed, and they were
+ * the only failures (0.6%); the 20 joins at x 3960, whose clamped step stays
+ * in the next cell, passed.
+ */
+function inward (player: Player, rings: number): Vector {
   const cell = Hex.toCell(player.position)
-  return Hex.toPosition(new Vector(cell.x + rings, cell.y))
+  const way = player.position.x < World.mapSize / 2 ? 1 : -1
+  return Hex.toPosition(new Vector(cell.x + way * rings, cell.y))
 }
 
 test('collector is appended at 24, after finish', () => {
@@ -117,7 +128,7 @@ test('collector is appended at 24, after finish', () => {
 test('loot one ring away is taken, and its destroy names the collector to everyone holding it', () => {
   const { multiplayer, world } = setup()
   const { player, sent } = join(multiplayer, 'a1b2c3')
-  const at = eastOf(player, 2)
+  const at = inward(player, 2)
   const crystal = new Consumable(at.x, at.y, player.tag, 20 as never, 30)
   World.PICKUPS.push(World.CONSUMABLES, crystal)
   world.update(0.25)
@@ -138,7 +149,7 @@ test('loot one ring away is taken, and its destroy names the collector to everyo
 test('an item one ring away is taken the same way', () => {
   const { multiplayer, world } = setup()
   const { player, sent } = join(multiplayer, 'a1b2c4')
-  const at = eastOf(player, 2)
+  const at = inward(player, 2)
   const medkit = new ItemPickup(at.x, at.y, player.tag, ITEMS.medkit)
   World.PICKUPS.push(World.ITEMS, medkit)
   world.update(0.25)
@@ -156,7 +167,7 @@ test('an item one ring away is taken the same way', () => {
 test('loot two rings away stays; a pickup that goes any other way names no collector', () => {
   const { multiplayer, world } = setup()
   const { player, sent } = join(multiplayer, 'a1b2c5')
-  const at = eastOf(player, 2)
+  const at = inward(player, 2)
   const crystal = new Consumable(at.x, at.y, player.tag, 20 as never, 30)
   World.PICKUPS.push(World.CONSUMABLES, crystal)
   world.update(0.25)

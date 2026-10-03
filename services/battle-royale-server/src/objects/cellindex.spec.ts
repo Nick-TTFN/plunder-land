@@ -16,6 +16,7 @@ import { GameObject, ObjectType } from './gameobject'
 import { type Unit } from './unit'
 import { CellIndex } from '../utils/cellindex'
 import { throwBomb } from '../items/bomb'
+import { StoneWall } from '../skills/stonewall'
 import { ARCHETYPES, ITEMS, LAYERS } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
@@ -217,6 +218,10 @@ test('an extracted player leaves the index at the sweep, a disconnected one too'
 test('a recycled id is a new unit to the index', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   const world = emptyWorld()
+  // The update below tops layer 01 up with a grunt on a random cell, and the
+  // query covers 37 cells: 14 runs in 2000 found that grunt inside it (rings
+  // 1-3, live, in MOBS) and failed. The index is the subject here, not refill.
+  Object.assign(world, { refillLayer: () => {} })
   const first = addMob(centre(0))
   const id = first.id
   first.hit(9999)
@@ -265,6 +270,8 @@ test('a world run through its own paths never rebuilds an index after the first 
   const players = ['a1a1a1', 'b2b2b2', 'c3c3c3', 'd4d4d4', 'e5e5e5'].map(join)
   // That each path below really ran, so a pass means something.
   const ran = { pickup: false, stones: false, drops: false, swept: false }
+  let crystal: Consumable | undefined
+  let caster: Player | undefined
   for (let tick = 0; tick < 200; tick++) {
     t.mock.timers.tick(250)
     world.update(DT)
@@ -279,17 +286,34 @@ test('a world run through its own paths never rebuilds an index after the first 
       // A pickup on the player's own cell, standing: taken through PICKUPS.
       live[0].stop()
       const at = Hex.toPosition(live[0].cell)
-      World.PICKUPS.push(World.CONSUMABLES, new Consumable(at.x, at.y, live[0].tag, 20 as never, 7))
+      crystal = new Consumable(at.x, at.y, live[0].tag, 20 as never, 7)
+      World.PICKUPS.push(World.CONSUMABLES, crystal)
     }
-    if (tick === 11 && live[0] !== undefined) ran.pickup = live[0].loot >= 7
+    // Taken by a player and out of its list, within a few ticks. Not
+    // necessarily by live[0]: the five walk the same route offset, and another
+    // one within a ring may update first and take it (3 runs in 600 failed so
+    // on `live[0].loot`). Nor necessarily on tick 11: a player takes one loot a
+    // tick, and a natural crystal refilled within its ring can come first (4
+    // runs in 3000 when this looked at tick 11 alone).
+    if (tick >= 11 && tick <= 15 && !ran.pickup && crystal !== undefined) {
+      const by = crystal.collector
+      ran.pickup = crystal.destroyed && !World.CONSUMABLES.includes(crystal) && players.some((p) => p.id === by)
+    }
     if (tick === 13) ran.stones = World.OBSTACLES.some((o) => o instanceof Obstacle && o.lifetime > 0)
-    if (tick === 12 && live[1] !== undefined) {
-      live[1].skills[4].execute() // StoneWall: stones in and, 4 s later, out
-      live[1].skills[5].execute() // a fireball
+    if (tick === 12) {
+      // StoneWall fills the cells behind its caster that are free. A player
+      // backed against the map edge or a valley has none (3 runs in 600 placed
+      // nothing that way), so the first one with room casts.
+      // It throws the bomb too, as one player did both before.
+      caster = live.find((p) => StoneWall.cells(p).some((cell) => StoneWall.canPlace(cell, p.tag))) ?? live[1]
+      if (caster !== undefined) {
+        caster.skills[4].execute() // StoneWall: stones in and, 4 s later, out
+        caster.skills[5].execute() // a fireball
+      }
     }
-    if (tick === 14 && live[1] !== undefined) {
-      live[1].addItem(ITEMS.bomb)
-      throwBomb(live[1], ITEMS.bomb, ITEMS.bomb.use as never)
+    if (tick === 14 && caster !== undefined && !caster.destroyed && !caster.exited) {
+      caster.addItem(ITEMS.bomb)
+      throwBomb(caster, ITEMS.bomb, ITEMS.bomb.use as never)
     }
     if (tick === 20) {
       for (const mob of World.MOBS.slice(0, 5)) mob.hit(9999) // swept, loot dropped, refilled
