@@ -50,7 +50,7 @@ import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
-import { stillPresent, type Viewpoint } from './net/presence'
+import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
 import { SpectateBar } from './ui/popups/spectatebar'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 
@@ -1004,18 +1004,19 @@ export class Game extends Container {
    * it to, measured from where the camera looks from (`net/presence.ts`).
    */
   stillPresent (unit: GameObject, staleBefore: number, viewpoint: Viewpoint | undefined): boolean {
-    return stillPresent({ x: unit.x, y: unit.y, lastUpdate: unit._lastUpdate }, staleBefore, viewpoint, Session.interestRadius)
+    return stillPresent(unit, staleBefore, viewpoint)
   }
 
   /**
    * What the server measures this client's view from: the own robot, else
    * the spectated one (#47), by that robot's vision (#48). Undefined between
-   * runs, or while the watched unit's create hasn't arrived.
+   * runs, or while the watched unit's create hasn't arrived. Once per
+   * frame, with its reach, which every `stillPresent` that frame reads.
    */
   private viewpoint (watched: Unit | undefined): Viewpoint | undefined {
     const unit = Game.PLAYER ?? watched
     if (unit === undefined) return undefined
-    return { x: unit.x, y: unit.y, vision: unit.archetype?.vision }
+    return { x: unit.x, y: unit.y, reach: presenceReach(unit.archetype?.vision, Session.interestRadius) }
   }
 
   /**

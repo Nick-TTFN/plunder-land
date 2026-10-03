@@ -26,8 +26,13 @@ const SILENT = NOW - 5000
 const PERISCOPE = 11
 const PEEP = 6
 
-function silentAt (x: number, y: number): { x: number, y: number, lastUpdate: number } {
-  return { x, y, lastUpdate: SILENT }
+function silentAt (x: number, y: number): { x: number, y: number, _lastUpdate: number } {
+  return { x, y, _lastUpdate: SILENT }
+}
+
+/** A viewpoint at (x, y) for a robot with `vision`, its reach worked out as `Game.viewpoint` does. */
+function viewpoint (x: number, y: number, vision: number | null): Viewpoint {
+  return { x, y, reach: presenceReach(vision, INTEREST) }
 }
 
 /** The server's verdict for a viewer at `from` with `vision`, on a point at `at`. */
@@ -43,23 +48,23 @@ test('the client copies the server view radii', () => {
 })
 
 test('a unit heard from recently is present whatever the viewpoint', () => {
-  const unit = { x: 99_999, y: 99_999, lastUpdate: NOW }
-  assert.equal(stillPresent(unit, STALE_BEFORE, undefined, INTEREST), true)
-  assert.equal(stillPresent(unit, STALE_BEFORE, { x: 0, y: 0, vision: PEEP }, INTEREST), true)
+  const unit = { x: 99_999, y: 99_999, _lastUpdate: NOW }
+  assert.equal(stillPresent(unit, STALE_BEFORE, undefined), true)
+  assert.equal(stillPresent(unit, STALE_BEFORE, viewpoint(0, 0, PEEP)), true)
 })
 
 test('spectating: a silent unit near the watched robot stays, measured from it', () => {
   // The dead player's own robot is gone (Game.PLAYER undefined); the camera
   // follows the watched one, 2000 units from where the dead one fell.
-  const watched: Viewpoint = { x: 2000, y: 2000, vision: PEEP }
+  const watched = viewpoint(2000, 2000, PEEP)
   const idleMob = silentAt(2000 + 4 * Hex.SIZE, 2000)
-  assert.equal(stillPresent(idleMob, STALE_BEFORE, watched, INTEREST), true)
+  assert.equal(stillPresent(idleMob, STALE_BEFORE, watched), true)
   // A watched Periscope sees further, and so does its spectator (#48).
   const farIdle = silentAt(2000 + 13 * Hex.SIZE, 2000)
-  assert.equal(stillPresent(farIdle, STALE_BEFORE, { ...watched, vision: PERISCOPE }, INTEREST), true)
+  assert.equal(stillPresent(farIdle, STALE_BEFORE, viewpoint(2000, 2000, PERISCOPE)), true)
   // With no viewpoint at all (between runs, a watch that ended) silence is
   // absence, as before: the server forgets what it held without destroys.
-  assert.equal(stillPresent(idleMob, STALE_BEFORE, undefined, INTEREST), false)
+  assert.equal(stillPresent(idleMob, STALE_BEFORE, undefined), false)
 })
 
 test('Periscope: a silent unit on the leave ring east-west stays, past the old 500 box', () => {
@@ -68,7 +73,7 @@ test('Periscope: a silent unit on the leave ring east-west stays, past the old 5
   const at = Hex.toPosition(new Vector(40 + leave, 40))
   assert.equal(serverView(from, PERISCOPE, at), Multiplayer.VIEW_EDGE, 'the server still holds it')
   assert.ok(Math.abs(at.x - from.x) >= INTEREST, 'the old 500 box would have dropped it')
-  assert.equal(stillPresent(silentAt(at.x, at.y), STALE_BEFORE, { x: from.x, y: from.y, vision: PERISCOPE }, INTEREST), true)
+  assert.equal(stillPresent(silentAt(at.x, at.y), STALE_BEFORE, viewpoint(from.x, from.y, PERISCOPE)), true)
 })
 
 test('every point the server still holds is present, for every robot and none (population)', () => {
@@ -84,14 +89,14 @@ test('every point the server still holds is present, for every robot and none (p
   for (const vision of visions) {
     for (const [ox, oy] of offsets) {
       const from = new Vector(centre.x + ox, centre.y + oy)
-      const vp: Viewpoint = { x: from.x, y: from.y, vision }
+      const vp = viewpoint(from.x, from.y, vision)
       const span = 20 * Hex.SIZE
       for (let dx = -span; dx <= span; dx += 9) {
         for (let dy = -span; dy <= span; dy += 9) {
           const at = new Vector(from.x + dx, from.y + dy)
           if (serverView(from, vision, at) === Multiplayer.VIEW_OUT) continue
           held++
-          assert.equal(stillPresent(silentAt(at.x, at.y), STALE_BEFORE, vp, INTEREST), true,
+          assert.equal(stillPresent(silentAt(at.x, at.y), STALE_BEFORE, vp), true,
             `vision ${String(vision)}: (${dx}, ${dy}) is held by the server but hidden`)
         }
       }
@@ -104,10 +109,10 @@ test('a silent unit far beyond the leave radius is dropped', () => {
   const from = Hex.toPosition(new Vector(40, 40))
   for (const vision of [PEEP, PERISCOPE, null]) {
     const reach = presenceReach(vision, INTEREST)
-    const vp: Viewpoint = { x: from.x, y: from.y, vision }
+    const vp = viewpoint(from.x, from.y, vision)
     // Just beyond the reach, on either axis: gone.
-    assert.equal(stillPresent(silentAt(from.x + reach + 1, from.y), STALE_BEFORE, vp, INTEREST), false)
-    assert.equal(stillPresent(silentAt(from.x, from.y - reach - 1), STALE_BEFORE, vp, INTEREST), false)
+    assert.equal(stillPresent(silentAt(from.x + reach + 1, from.y), STALE_BEFORE, vp), false)
+    assert.equal(stillPresent(silentAt(from.x, from.y - reach - 1), STALE_BEFORE, vp), false)
     // And the reach is only the slack beyond what the server could hold.
     const serverBound = vision === null
       ? INTEREST + EXIT_MARGIN
@@ -117,5 +122,5 @@ test('a silent unit far beyond the leave radius is dropped', () => {
   // Periscope at 20 cells east: the server let it go long ago.
   const far = Hex.toPosition(new Vector(60, 40))
   assert.equal(serverView(from, PERISCOPE, far), Multiplayer.VIEW_OUT)
-  assert.equal(stillPresent(silentAt(far.x, far.y), STALE_BEFORE, { x: from.x, y: from.y, vision: PERISCOPE }, INTEREST), false)
+  assert.equal(stillPresent(silentAt(far.x, far.y), STALE_BEFORE, viewpoint(from.x, from.y, PERISCOPE)), false)
 })

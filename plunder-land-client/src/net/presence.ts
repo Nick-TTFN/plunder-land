@@ -29,11 +29,15 @@ export const EXIT_MARGIN = 2 * Hex.SIZE
  */
 export const SLACK_RINGS = 3
 
-/** Where the camera looks from (the own robot, else the spectated one) and its robot's vision. */
+/**
+ * Where the camera looks from (the own robot, else the spectated one), and
+ * `presenceReach` for its robot's vision, worked out once per frame
+ * (`Game.viewpoint`), not once per unit.
+ */
 export interface Viewpoint {
   x: number
   y: number
-  vision: number | null | undefined
+  reach: number
 }
 
 /**
@@ -52,21 +56,21 @@ export function presenceReach (vision: number | null | undefined, interestRadius
 }
 
 /**
- * True if a unit last heard from at `lastUpdate` should still be shown: heard
- * from since `staleBefore`, or silent but inside `presenceReach` of the
- * viewpoint. With no viewpoint (between runs, or a spectator whose watch
- * ended or whose watched unit has not arrived yet) a silent unit is gone:
- * the server sends such a client nothing more (`Multiplayer.stopWatching`
- * forgets what it held without destroys).
+ * True if a unit last heard from at `_lastUpdate` should still be shown: heard
+ * from since `staleBefore`, or silent but inside the viewpoint's reach. With
+ * no viewpoint (between runs, or a spectator whose watch ended or whose
+ * watched unit has not arrived yet) a silent unit is gone: the server sends
+ * such a client nothing more (`Multiplayer.stopWatching` forgets what it held
+ * without destroys). Takes the unit itself and allocates nothing: it runs for
+ * every held unit every frame.
  */
 export function stillPresent (
-  unit: { x: number, y: number, lastUpdate: number },
+  unit: { x: number, y: number, _lastUpdate: number },
   staleBefore: number,
-  viewpoint: Viewpoint | undefined,
-  interestRadius: number
+  viewpoint: Viewpoint | undefined
 ): boolean {
-  if (unit.lastUpdate > staleBefore) return true
+  if (unit._lastUpdate > staleBefore) return true
   if (viewpoint === undefined) return false
-  const r = presenceReach(viewpoint.vision, interestRadius)
+  const r = viewpoint.reach
   return Math.abs(unit.x - viewpoint.x) < r && Math.abs(unit.y - viewpoint.y) < r
 }
