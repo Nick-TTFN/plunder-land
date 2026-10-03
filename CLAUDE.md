@@ -611,12 +611,10 @@ from `World.INTEREST`**, per layer, in square buckets of `World.INTEREST_BUCKET`
 written down) from the largest robot vision in the mirrored `utils/archetypes.ts`:
 max(`INTEREST_RADIUS`, (vision + 3) × `Hex.SIZE`) = 630 with Periscope's 11, so the 3 × 3
 buckets cover the largest leave reach (`interest.spec.ts` checks it with random off-centre
-positions). `hello.interest` is still `INTEREST_RADIUS`, which the client's `stillPresent`
-reads. **Known gap** (found reading the code 2026-10-03, not seen in play): that box is looser
-than the view only up to about 11 rings east-west, so for Periscope a held unit that stops
-sending for `Session.stalenessLimit` (at least 1 s) out at its east-west edge (up to 585 units)
-is hidden although the server still holds it; and `stillPresent` measures from `Game.PLAYER`,
-which is unset while spectating, so a spectator hides every silent unit (since #47).
+positions). `hello.interest` is still `INTEREST_RADIUS`; the client's `stillPresent` no longer uses it for a
+robot with vision but sizes by vision from the viewpoint it follows (see "Liveness is not a
+heartbeat"). That closed two gaps found 2026-10-03 (`19afb95`): a silent unit at Periscope's
+east-west edge was hidden though held, and a spectator hid every silent unit (since #47).
 **Effects** (#48 follow-ups, `0a0b2d9`): **types 0-4** (breaths, melee, ranged, defend) are
 drawn on their originator, so `Multiplayer.effect` sends them to exactly the connections that
 hold it (`knownBy`: its own, those who see it and their spectators), skipping a connection
@@ -704,8 +702,7 @@ also carries its standing, `xp, level, levelAt, nextAt` (#48 step 3).
 
 **`progress`** (server → client, text, #48 step 3): `{ gained, xp, level, levelAt, nextAt,
 levelUp }` once a run's grant is written, a database round trip after the run's end (sometimes
-before its own destroy reaches the client). Never sent after the next run's `hello`
-(`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; the run card's
+before its own destroy reaches the client). Never sent after the next run's `hello` (`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; then the new standing goes as a mid-run `account { id, xp, level, levelAt, nextAt }` instead, which moves only the lobby badge; the run card's
 XP row says UNAVAILABLE after `PROGRESS_WAIT_MS` (6 s) without it, at once offline. Additive, no
 PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
 
@@ -1179,7 +1176,9 @@ sent no token (`account { id, offline: true }`, so a returning player's stored t
 the outage) and tags its GA events `offline: 1`. An offline connection tries the store again at
 each later start (`Worlds.retryAccount`: the handshake token looked up again, same timeout and
 Sentry throttle) and creates an account only once the store has answered that it knows none (or
-there is no token), never while a lookup is unanswered, failed or timed out. Still failing, the
+there is no token), never while a lookup is unanswered, failed or timed out. At most one creation is in flight per connection
+(`Worlds.create`): one the timeout gave up on is waited on again at the next start and its account
+taken if it landed, so a slow store makes one row per connection, not one per PLAY AGAIN. Still failing, the
 run plays offline under the same id. Every PLAY AGAIN while offline waits on the store again (up
 to 3 s while it hangs).
 Sentry hears of account failures once per stretch (`Worlds.accountFailure`: the first after a
@@ -1202,12 +1201,11 @@ before a fourth mob type). Kills are tallied by victim from `Player.onKill` (`pr
 `countKill`); time XP uses `run_end`'s rounded `seconds`, so it agrees with GA. `account_progress`
 (migration 2) holds the total; the level is derived by the curve and never stored, so a curve
 change re-levels everyone (Nick, #48). One grant per run at its end, from `Multiplayer.destroy` →
-`runEnded` → `Worlds.grant` (death, extraction, disconnect, a drain's cut-off; `claimGrant` keeps
-it single), as one atomic upsert; offline runs and bots earn nothing; a failed grant is logged and
+`runEnded` → `Worlds.grant` (death, extraction, disconnect, a drain's cut-off; `Player.runOver`, set at the top of
+`Multiplayer.destroy`'s player block, keeps it single with the stats write and `run_end`, however
+the end is reported), as one atomic upsert; offline runs and bots earn nothing; a failed grant is logged and
 reported, never retried. `PgAccountStore.close` waits for grants in flight. The account level is
-not `Unit.level`, which stays 1 (skill damage reads it). `Multiplayer.drop` never ends an
-extracted run a second time (`!player.exited`, 2026-10-03): a tick that threw between an
-extraction and its flush used to let a disconnect count it twice.
+not `Unit.level`, which stays 1 (skill damage reads it). `Multiplayer.drop` still never destroys an extracted player again (`!player.exited`), because `exit` frees the id itself and a second destroy freed it twice. **A kill credited after the run's XP was computed** (a fireball landing after its caster extracted) counts in `kills` but not in XP: XP is fixed at the run's end, by design (48-3b review).
 
 ## Skills
 

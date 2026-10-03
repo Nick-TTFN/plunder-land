@@ -109,7 +109,7 @@ cd services/battle-royale-server && npm test            # node --test over src/*
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
 CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-10-03,
-after #48 step 3: client 22, server 0, 749 tests with 7 pg skips.)
+after 48-3b: client 22, server 0, 754 tests with 7 pg skips.)
 
 `src/db/pgstore.spec.ts` needs `TEST_DATABASE_URL` and otherwise reports 5 skips. It drops the
 `public` schema, so it refuses any host but localhost; use a throwaway `postgres:18-alpine`
