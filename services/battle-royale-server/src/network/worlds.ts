@@ -340,8 +340,9 @@ export default class Worlds {
    * Called once per run (`Player.runOver`); granted only to the persisted
    * account the run was played under, never to a bot; one atomic add. Then
    * `progress { gained, xp, level, levelAt, nextAt, levelUp }` goes to the
-   * client, unless its socket closed or it has started another run since
-   * (that card is gone; the totals reach the lobby with the next `account`).
+   * client, unless its socket closed, or it has started another run since:
+   * that card is gone, so the new standing goes as `account { id, xp,
+   * level, levelAt, nextAt }` instead, which moves the lobby's badge only.
    * A failed or slow grant is logged and reported like any account failure
    * and is not retried: no `progress` is sent, and the card says the XP is
    * unavailable.
@@ -354,8 +355,14 @@ export default class Worlds {
       account.xp = total
       Multiplayer.guarded(() => {
         if (connection.closed) return
-        if (connection.player !== undefined && connection.player !== player) return
         const standing = standingOf(total)
+        if (connection.player !== undefined && connection.player !== player) {
+          // The next run has begun and this run's card is gone, so no
+          // `progress` (the client would put it on the new run). The lobby's
+          // standing still moves: `account` carries it, mid-run too.
+          connection.socket.emit('account', { id: account.publicId, ...standing })
+          return
+        }
         connection.socket.emit('progress', { gained: xp, ...standing, levelUp: standing.level > standingOf(total - xp).level })
       })
     }).catch((e) => { Worlds.accountFailure(e) })

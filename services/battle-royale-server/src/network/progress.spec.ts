@@ -364,7 +364,7 @@ test('a grant that never answers times out: logged, no progress', async () => {
   assert.ok(failures.length > 0)
 })
 
-test('progress is never sent after the next run began: that card is gone', async (t) => {
+test('progress is never sent after the next run began: that card is gone, and account carries the new standing instead', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   const store = new GrantStore()
   let release!: () => void
@@ -378,11 +378,24 @@ test('progress is never sent after the next run began: that card is gone', async
   client.start()
   await settle()
   assert.notEqual(client.connection.player, player)
+  const accountsBefore = client.events('account').length
   release()
   await settle()
   assert.deepEqual(client.events('progress'), [])
-  // The total still moved, for the next account announcement.
   assert.equal(client.connection.account?.xp, 15)
+  // The lobby's standing doesn't go stale: one `account` with the new
+  // standing (extracted after 100 s: 10 time XP x 1.5 = 15), no token, sent
+  // mid-run.
+  const accounts = client.events('account')
+  assert.equal(accounts.length, accountsBefore + 1, 'no account with the new standing')
+  assert.deepEqual(accounts.at(-1), { id: player.playerId, ...standingOf(15) })
+  const order = client.emitted.map(([event]) => event)
+  assert.ok(order.lastIndexOf('account') > order.lastIndexOf('hello'), 'expected mid-run, after the next run\'s hello')
+  // The client takes it as a standing update only: same id, nothing stored.
+  const writes: string[] = []
+  const info = onAccount(accounts.at(-1), { getItem: () => null, setItem: (key) => { writes.push(key) } })
+  assert.deepEqual(info, { id: player.playerId, offline: false, standing: { xp: 15, level: 1, levelAt: 0, nextAt: 40 } })
+  assert.deepEqual(writes, [], 'a mid-run account stored something')
 })
 
 test('progress that lands before the run\'s own flush (a death from a socket handler) is still sent', async () => {
