@@ -164,9 +164,10 @@ export default class Multiplayer {
   /**
    * The interest box's half-width, in world units. Since server fog (#48) it
    * decides only who is sent an effect, what a viewpoint with no `vision`
-   * sees (`viewOf`), and `hello.interest`, which the client's `stillPresent`
-   * reads (looser than the view, which is harmless: the server destroys what
-   * leaves view). Units, pickups, projectiles and stones go by `viewOf`.
+   * sees (`viewOf`), and `hello.interest`. The client's `stillPresent` no
+   * longer reads it for a robot with vision: the 500 box was tighter than
+   * Periscope's leave radius, so it sizes by vision instead (`net/presence.ts`).
+   * Units, pickups, projectiles and stones go by `viewOf`.
    */
   static INTEREST_RADIUS = 500
 

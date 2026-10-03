@@ -1027,7 +1027,10 @@ Interpolation is timed off the measured value.
 
 **Liveness is not a heartbeat.** Idle units now send nothing at all, so "hasn't updated
 recently" no longer means "gone". `Game.stillPresent` treats a silent unit as present if it
-is inside the interest radius and absent otherwise. The old per-player 3-byte id heartbeat
+is inside the server's leave radius for the viewpoint's robot (your own, else the one you
+spectate) plus 3 rings (`net/presence.ts`, 2026-10-03; it was the 500-unit interest box, which
+hid every silent unit while spectating and cut into Periscope's view), and hides it when there
+is no viewpoint (the cases where the server forgets without a destroy). The old per-player 3-byte id heartbeat
 is gone; the update header replaced it with a fixed per-connection cost instead of a
 per-visible-player one (break-even at about three visible players). Since #35 a unit that
 leaves a client's view is destroyed (a destroy without `hp`, which the client hides at once),
