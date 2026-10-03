@@ -61,8 +61,8 @@ export interface ArchetypeInfo {
    * RangedAttack's range in cells (decision #25), or null for an archetype
    * without RangedAttack. The client draws a shot's beam this far
    * (`vfx/cells.ts`). The server's gunner override reads it; a robot's range
-   * is `RangedAttack.RANGE_CELLS`, which every robot shares through
-   * `PLAYER_SKILLS`. effectcells.spec.ts fails if a built skill disagrees.
+   * is `RangedAttack.RANGE_CELLS`, which every robot builds from any kit
+   * (`SKILL_SPECS`). effectcells.spec.ts fails if a built skill disagrees.
    */
   readonly rangedCells: number | null
   /** Robots only; null for mobs, whose stats live only on the server. */

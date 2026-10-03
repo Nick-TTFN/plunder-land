@@ -66,7 +66,7 @@ export class Hex {
    *
    * **The order is a wire contract.** A facing is sent as an index into this
    * array and a path as a sequence of them, so entries may never be reordered -
-   * the same rule that governs `Player.skills` and `GameObject.fieldOrder`.
+   * the same rule that governs the skill ids in `utils/skills.ts` and `GameObject.fieldOrder`.
    */
   static DIRECTIONS: Vector[] = [
     new Vector(1, 0),
