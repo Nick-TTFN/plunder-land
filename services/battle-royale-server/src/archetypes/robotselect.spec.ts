@@ -100,7 +100,8 @@ test('each robot\'s server row plays the stats the lobby shows', () => {
   assert.deepEqual({ ...ARCHETYPE_INFO.magnet.stats }, { maxHp: 90, armor: 25, speed: 140, pickupReach: 3, damageScale: 1 })
   // Decision #43.
   assert.deepEqual({ ...ARCHETYPE_INFO.periscope.stats }, { maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
-  assert.equal(ARCHETYPE_INFO.periscope.vision, 11)
+  // 10 (Nick, 2026-10-03: "limit it to 10"); 11 from #43, held there by the interest box until #48.
+  assert.equal(ARCHETYPE_INFO.periscope.vision, 10)
   assert.equal(ARCHETYPE_INFO.peep.vision, 6)
   // Decision #16's table, standard vision from #43 (2026-10-01).
   assert.deepEqual({ ...ARCHETYPE_INFO.hopper.stats }, { maxHp: 90, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })

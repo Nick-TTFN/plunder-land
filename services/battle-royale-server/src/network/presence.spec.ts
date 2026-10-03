@@ -15,16 +15,17 @@ import {
  * The client's `Game.stillPresent` (`net/presence.ts`): a held unit that has
  * gone silent stays shown while the server could still be holding the client
  * to it. Two bugs it fixes: a spectator (no own robot) hid every silent unit
- * after a second, and Periscope's leave radius (13 rings, 585 units east-west)
- * reached past the 500 box the client used to measure by.
+ * after a second, and Periscope's leave radius (vision + 2 rings: 13, 585
+ * units east-west, at vision 11) reached past the 500 box the client used to
+ * measure by.
  */
 
 const INTEREST = Multiplayer.INTEREST_RADIUS
 const NOW = 100_000
 const STALE_BEFORE = NOW - 1000
 const SILENT = NOW - 5000
-const PERISCOPE = 11
-const PEEP = 6
+const PERISCOPE = ARCHETYPES.periscope.vision as number
+const PEEP = ARCHETYPES.peep.vision as number
 
 function silentAt (x: number, y: number): { x: number, y: number, _lastUpdate: number } {
   return { x, y, _lastUpdate: SILENT }
@@ -60,7 +61,7 @@ test('spectating: a silent unit near the watched robot stays, measured from it',
   const idleMob = silentAt(2000 + 4 * Hex.SIZE, 2000)
   assert.equal(stillPresent(idleMob, STALE_BEFORE, watched), true)
   // A watched Periscope sees further, and so does its spectator (#48).
-  const farIdle = silentAt(2000 + 13 * Hex.SIZE, 2000)
+  const farIdle = silentAt(2000 + (PERISCOPE + VIEW_MARGIN_RINGS + VIEW_EXIT_RINGS) * Hex.SIZE, 2000)
   assert.equal(stillPresent(farIdle, STALE_BEFORE, viewpoint(2000, 2000, PERISCOPE)), true)
   // With no viewpoint at all (between runs, a watch that ended) silence is
   // absence, as before: the server forgets what it held without destroys.
@@ -119,8 +120,11 @@ test('a silent unit far beyond the leave radius is dropped', () => {
       : (vision + VIEW_MARGIN_RINGS + VIEW_EXIT_RINGS + 1) * Hex.SIZE
     assert.equal(reach, Math.max(INTEREST, serverBound + SLACK_RINGS * Hex.SIZE))
   }
-  // Periscope at 20 cells east: the server let it go long ago.
-  const far = Hex.toPosition(new Vector(60, 40))
+  // Periscope, two cells past the reach east (18 at vision 10): the server
+  // let it go long ago.
+  const farRings = PERISCOPE + VIEW_MARGIN_RINGS + VIEW_EXIT_RINGS + 1 + SLACK_RINGS + 2
+  const far = Hex.toPosition(new Vector(40 + farRings, 40))
+  assert.ok(far.x - from.x > presenceReach(PERISCOPE, INTEREST), 'not past the reach')
   assert.equal(serverView(from, PERISCOPE, far), Multiplayer.VIEW_OUT)
   assert.equal(stillPresent(silentAt(far.x, far.y), STALE_BEFORE, viewpoint(from.x, from.y, PERISCOPE)), false)
 })

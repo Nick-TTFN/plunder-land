@@ -7,6 +7,12 @@
 // the last 300. The same commit gives the same world every run (avgHolders,
 // moving and callsPerTick repeat exactly), so a changed count means changed
 // behaviour, not noise. Within a run of three, times agree to about 3%.
+//   ROBOT=<key>  every player joins as that robot (peep, periscope, magnet,
+//                hopper, waddle); ROBOT=mix cycles through all five. Default:
+//                none sent, so Peep, as before the option existed.
+// kbPerClientTick is the mean framed bytes written per player per tick over
+// the same last 300 ticks (uncompressed: the fake socket has no deflate), and
+// periscopeKbPerTick the same for the Periscopes alone (null without any).
 //
 // The ramp (ramp.sh) measures a real server under real sockets, but its
 // per-function times read about 5x higher than this at the same density:
@@ -26,12 +32,19 @@ const mp = new Multiplayer(250, redis)
 const world = new World(4000)
 World.MOBS.length = 0
 const N = Number(process.env.N ?? 400)
+const ROBOTS = ['peep', 'periscope', 'magnet', 'hopper', 'waddle']
+const robotOf = (i) => process.env.ROBOT === 'mix' ? ROBOTS[i % ROBOTS.length] : process.env.ROBOT
 const players = []
+const written = new Array(N).fill(0)
+let counting = false
 for (let i = 0; i < N; i++) {
   const h = {}
-  const socket = { id: 's' + i, handshake: { query: { frames: '1' } }, on: (e, cb) => { h[e] = cb }, emit: () => true, conn: { write: () => {} } }
+  const write = (data) => { if (counting) written[i] += data.length ?? data.byteLength ?? 0 }
+  const socket = { id: 's' + i, handshake: { query: { frames: '1' } }, on: (e, cb) => { h[e] = cb }, emit: () => true, conn: { write } }
   mp.onConnect(socket)
-  h.start_requested({ id: (0xabc000 + i).toString(16), name: 'b' + i })
+  const start = { id: (0xabc000 + i).toString(16), name: 'b' + i }
+  if (robotOf(i) !== undefined) start.robot = robotOf(i)
+  h.start_requested(start)
   players.push(World.PLAYERS[World.PLAYERS.length - 1])
 }
 let upd = 0; let calls = 0
@@ -46,9 +59,12 @@ for (let tick = 0; tick < 400; tick++) {
       if (Hex.onMap(tq, tr, World.mapSize) && !World.isBlocked(tq, tr, p.tag)) p.setWaypoints([new Vector(tq, tr)])
     }
   }
-  if (tick === 100) { upd = 0; calls = 0 }
+  if (tick === 100) { upd = 0; calls = 0; counting = true }
   world.update(0.25)
   mp.flushAll(tick, 250)
 }
+const kbOf = (list) => list.length === 0 ? null : +(list.reduce((a, i) => a + written[i], 0) / list.length / 300 / 1024).toFixed(3)
+const all = players.map((_, i) => i)
+const scopes = all.filter((i) => players[i].archetype.key === 'periscope')
 const kb = players.filter((p) => !p.destroyed).map((p) => p.knownBy.size); const moving = players.filter((p) => p.path.length > 0).length
-console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2) }))
+console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))

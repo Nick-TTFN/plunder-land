@@ -30,7 +30,7 @@ import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparse
  *   viewpoint robot's `vision` + 1 rings, cell to cell, and are created there
  *   when they come into it, whichever of the two moved, even if they never
  *   change. A connection that holds one is sent a destroy once it is beyond
- *   `vision` + 2 rings, or off the layer. Peep: 7 and 8; Periscope: 12 and 13.
+ *   `vision` + 2 rings, or off the layer. Peep: 7 and 8; Periscope: 13 and 14.
  * - Updates and destroys go to exactly the connections that hold the object.
  * - Effects drawn on their originator (types 0-4) go to exactly the
  *   connections that hold it; blasts and bombs (5-8), drawn on a cell, to the
@@ -75,6 +75,10 @@ function enterRings (viewer: Player): number {
 function leaveRings (viewer: Player): number {
   return enterRings(viewer) + EXIT_RINGS
 }
+
+/** Enter radii read from the archetype table, so a vision change moves the tests with it. */
+const PEEP_ENTER = (ARCHETYPES.peep.vision as number) + ENTER_MARGIN
+const SCOPE_ENTER = (ARCHETYPES.periscope.vision as number) + ENTER_MARGIN
 
 /** A cell's centre `dq`, `dr` from `from`'s cell. */
 function offCell (from: Vector, dq: number, dr: number = 0): Vector {
@@ -335,7 +339,7 @@ test('over thousands of random changes every client holds exactly what it can se
     rock(at.x, at.y, layer())
   }
   const clients: Client[] = []
-  // Peep and Periscope viewers mixed (vision 6 and 11).
+  // Peep and Periscope viewers mixed (vision 6 and 12).
   for (let i = 0; i < 10; i++) clients.push(join(multiplayer, `c${i.toString(16).padStart(5, '0')}`, spot(), i % 2 === 0 ? 'peep' : 'periscope'))
   for (let i = 0; i < 20; i++) { const at = spot(); idleMob(at.x, at.y, layer()) }
   for (let i = 0; i < 25; i++) { const at = spot(); loot(at.x, at.y, layer()) }
@@ -555,27 +559,27 @@ test('a unit a Peep holds stays held with its changes at ring 8, and is destroye
   assertClean([viewer], 'peep exit ring')
 })
 
-test('a Periscope is sent a unit 12 rings due east, 540 units, beyond the old 500 box, and not one at 13', () => {
+test('a Periscope is sent a unit on its enter ring due east, and not one a ring further', () => {
+  // At vision 10 (2026-10-03) the enter ring is 11 rings, 495 units: inside
+  // the old 500 box, so this pins the rings, and the bucket cover is the
+  // random-position spec's job.
   const multiplayer = new Multiplayer(250, okRedis())
-  // x 990 on a 500 bucket grid is bucket 1, and 12 rings east (x 1530) is
-  // bucket 3: with buckets of the old box's size the candidate query misses it.
   const at = Hex.toPosition(new Vector(2, 40))
-  assert.equal(at.x, 990)
   const viewer = join(multiplayer, 'b00003', at, 'periscope')
   tick(multiplayer, 0)
-  const twelve = idleMob(offCell(at, 12).x, offCell(at, 12).y, TOP)
-  const thirteen = idleMob(offCell(at, 13).x, offCell(at, 13).y, TOP)
-  assert.equal(twelve.position.x - at.x, 540)
+  const edge = idleMob(offCell(at, SCOPE_ENTER).x, offCell(at, SCOPE_ENTER).y, TOP)
+  const beyond = idleMob(offCell(at, SCOPE_ENTER + 1).x, offCell(at, SCOPE_ENTER + 1).y, TOP)
+  assert.equal(edge.position.x - at.x, SCOPE_ENTER * Hex.SIZE)
   tick(multiplayer, 1)
-  assert.ok(viewer.mirror.held.has(twelve.id), 'ring 12 not sent')
-  assert.ok(!viewer.mirror.held.has(thirteen.id), 'ring 13 sent')
+  assert.ok(viewer.mirror.held.has(edge.id), `ring ${SCOPE_ENTER} not sent`)
+  assert.ok(!viewer.mirror.held.has(beyond.id), `ring ${SCOPE_ENTER + 1} sent`)
   // And the same from the other side: the viewer walks into range of a standing one.
-  const later = idleMob(offCell(at, 20).x, offCell(at, 20).y, TOP)
+  const later = idleMob(offCell(at, SCOPE_ENTER + 8).x, offCell(at, SCOPE_ENTER + 8).y, TOP)
   tick(multiplayer, 2)
   assert.ok(!viewer.mirror.held.has(later.id))
   viewer.player.position = offCell(at, 8)
   tick(multiplayer, 3)
-  assert.ok(viewer.mirror.held.has(later.id), 'walked to 12 rings: not sent')
+  assert.ok(viewer.mirror.held.has(later.id), `walked to ${SCOPE_ENTER} rings: not sent`)
   assertClean([viewer], 'periscope radii')
 })
 
@@ -589,7 +593,7 @@ test('a spectator sees by the watched player\'s vision, not its own dead robot\'
     const b = join(multiplayer, 'b00005', offCell(at, 0, 1), watched)
     const from = b.player.position
     // Rings from the watched player, east (away from the dead one's cell too).
-    const mobs = [7, 8, 11, 12, 13].map((ring) => idleMob(offCell(from, ring).x, offCell(from, ring).y, TOP))
+    const mobs = [PEEP_ENTER, PEEP_ENTER + 1, SCOPE_ENTER - 1, SCOPE_ENTER, SCOPE_ENTER + 1].map((ring) => idleMob(offCell(from, ring).x, offCell(from, ring).y, TOP))
     tick(multiplayer, 0)
     a.player.hit(9999)
     // The flush that sends its death re-centres it (`watch`); what that
@@ -649,7 +653,8 @@ test('a pickup and a StoneWall stone come into and go out of sight by the same r
   const multiplayer = new Multiplayer(250, okRedis())
   // A wide map, so this runs far east (x 6480-7020), where a pass keyed on
   // the old 500-unit buckets (pickup at 500-bucket 14) and the moves keyed on
-  // the 630 ones (the player in bucket 10, watching 8-12) part company.
+  // the `INTEREST_BUCKET` ones (585 at Periscope's 10: the player in bucket
+  // 9, watching 7-11) part company.
   const world = new World(8000)
   World.OBSTACLES.length = 0
   World.BLOCKED.clear()
@@ -734,7 +739,7 @@ test('the interest buckets hold every viewer whose sight reaches an object, from
   let maxVision = 0
   for (const archetype of Object.values(ARCHETYPES)) if (archetype.vision !== null) maxVision = Math.max(maxVision, archetype.vision)
   assert.equal(bucket, Math.max(R, (maxVision + 3) * Hex.SIZE), 'the bucket is not derived from the largest vision')
-  assert.equal(bucket, 630, 'Periscope sees 11: the bucket should be 630')
+  assert.equal(bucket, ((ARCHETYPES.periscope.vision as number) + 3) * Hex.SIZE, 'Periscope sees furthest: the bucket should be its reach')
 
   // A point somewhere inside `cell` (rejection-sampled on toCell).
   const inside = (cell: Vector): Vector => {
@@ -785,7 +790,7 @@ test('the interest buckets hold every viewer whose sight reaches an object, from
   const longest = Math.max(reachX, reachY)
   assert.ok(longest <= bucket, `a view reaches ${longest} units, past the ${bucket} bucket`)
   assert.ok((maxVision + 3) * Hex.SIZE + 100 < World.PICKUP_WATCH_BUCKETS * bucket, 'the pickup pass watches too few buckets')
-  assert.ok(longest > 600, `only reached ${longest}: Periscope's far cells were never sampled`)
+  assert.ok(longest > bucket - Hex.SIZE, `only reached ${longest}: Periscope's far cells were never sampled`)
 })
 
 test('no client is sent an update for an object it does not hold', () => {
@@ -1123,11 +1128,11 @@ test('a fireball or icicle blast and a bomb reach the viewers of their cell, hel
   const near = join(multiplayer, 'b00015', offCell(centre, 4), 'peep')
   // Holds the thrower (6 rings west of it), 16 rings from the cell.
   const behind = join(multiplayer, 'b00016', offCell(at, -6), 'peep')
-  // 12 rings due east of the cell: 540 units, beyond the old box, inside a
-  // Periscope's 12-ring enter radius.
-  const scope = join(multiplayer, 'b00017', offCell(centre, 12), 'periscope')
-  // Another Peep beside the Periscope, which does not see the cell.
-  const blind = join(multiplayer, 'b00018', offCell(centre, 12, -1), 'peep')
+  // On a Periscope's enter ring due east of the cell.
+  const scope = join(multiplayer, 'b00017', offCell(centre, SCOPE_ENTER), 'periscope')
+  // Another Peep further east, which neither sees the cell nor has it in
+  // the 500 box (13 rings: 562 units east, past Peep's 8-ring leave).
+  const blind = join(multiplayer, 'b00018', offCell(centre, 13, -1), 'peep')
   // On the layer below, right on the cell.
   const below = join(multiplayer, 'b00019', centre, 'peep')
   below.player.changeLayer(MIDDLE)
@@ -1147,7 +1152,7 @@ test('a fireball or icicle blast and a bomb reach the viewers of their cell, hel
     send()
     multiplayer.flushAll(1, 250)
     assert.deepEqual(near.mirror.effectTypes, [type], `${label}: the cell's viewer that does not hold the thrower`)
-    assert.deepEqual(scope.mirror.effectTypes, [type], `${label}: a Periscope 12 rings east of the cell`)
+    assert.deepEqual(scope.mirror.effectTypes, [type], `${label}: a Periscope ${SCOPE_ENTER} rings east of the cell`)
     assert.deepEqual(blind.mirror.effectTypes, [], `${label}: a Peep that does not see the cell`)
     assert.deepEqual(behind.mirror.effectTypes, [], `${label}: a holder of the thrower far from the cell`)
     assert.deepEqual(below.mirror.effectTypes, [], `${label}: another layer`)
@@ -1233,7 +1238,7 @@ test('a real world with walking players and portals never sends a client a recor
   const world = new World(4000)
   const random = lcg(99)
   const clients: Client[] = []
-  // Peep and Periscope viewers mixed (vision 6 and 11).
+  // Peep and Periscope viewers mixed (vision 6 and 12).
   for (let i = 0; i < 8; i++) clients.push(join(multiplayer, `f${i.toString(16).padStart(5, '0')}`, undefined, i % 2 === 0 ? 'peep' : 'periscope'))
   let hops = 0
   for (let n = 1; n <= 400; n++) {

@@ -245,20 +245,22 @@ export default class World {
   }
 
   /**
-   * The side of an `INTEREST` bucket, in world units: 630 with Periscope's
-   * vision of 11 (server fog, #48). A player's view reaches an object at most
-   * `vision` + `Multiplayer.VIEW_MARGIN_RINGS` + `VIEW_EXIT_RINGS` rings away
-   * (the leave radius, 13 for Periscope), cell to cell. East-west that is 45
-   * units a ring on this pointy-top grid (39 north-south), and each end may
-   * sit up to half a cell (22.5) off its cell's centre, so the reach is at
-   * most (vision + 3) * `Hex.SIZE` on either axis, and one bucket of that
-   * size each way covers it. Never less than the 500 box
-   * (`Multiplayer.INTEREST_RADIUS`), which effects and a viewer with no vision
-   * use. Derived from the largest vision in the mirrored archetype table, so
-   * a robot that sees further widens it; `interest.spec.ts` checks the cover
-   * with random off-centre positions. Rejected (#48 task): capping the view
-   * at the old box (Periscope would lose its 12th ring east-west only), and
-   * querying 5 x 5 buckets.
+   * The side of an `INTEREST` bucket, in world units: 585 with Periscope's
+   * vision of 10 (server fog, #48; 630 while it was 11, Nick cut it to 10
+   * on 2026-10-03 for the tick). A player's view
+   * reaches an object at most `vision` + `Multiplayer.VIEW_MARGIN_RINGS` +
+   * `VIEW_EXIT_RINGS` rings away (the leave radius, 12 for Periscope), cell
+   * to cell. East-west that is 45 units a ring on this pointy-top grid (39
+   * north-south), and each end may sit up to half a cell (22.5) off its
+   * cell's centre, so the reach is at most (vision + 3) * `Hex.SIZE` on
+   * either axis, and one bucket of that size each way covers it. Never less
+   * than the 500 box (`Multiplayer.INTEREST_RADIUS`), which effects and a
+   * viewer with no vision use. Derived from the largest vision in the
+   * mirrored archetype table, so a robot that sees further widens it;
+   * `interest.spec.ts` checks the cover with random off-centre positions.
+   * Rejected (#48 task): capping the view at the old box (at vision 11
+   * Periscope would have lost its 12th ring east-west only; moot at 10), and querying
+   * 5 x 5 buckets.
    *
    * A getter worked out on first use, because `Multiplayer` (the 500) is not
    * defined yet while this module loads.
@@ -360,10 +362,10 @@ export default class World {
    * crosses its enter or leave radius around the pickup (server fog, #48:
    * vision + 1 and vision + 2 rings; the 500 box and its 90-unit margin for a
    * viewer with no vision). Both lines lie within one `INTEREST_BUCKET` of the
-   * pickup on each axis (Periscope's leave reach is at most 13 x 45 + 45 =
-   * 630), so a player that crosses one in a tick stands, after its move,
+   * pickup on each axis (Periscope's leave reach is at most 12 x 45 + 45 =
+   * 585), so a player that crosses one in a tick stands, after its move,
    * within that plus one tick's travel (a dash: under 100 units) of the
-   * pickup, well inside 2 buckets (1260): it moved in a bucket within 2 of
+   * pickup, well inside 2 buckets (1170): it moved in a bucket within 2 of
    * the pickup's. `interest.spec.ts` asserts the bound.
    */
   static PICKUP_WATCH_BUCKETS = 2

@@ -53,7 +53,8 @@ export interface ArchetypeInfo {
    * units, pickups, projectiles and StoneWall stones only within vision + 1
    * ring (`Multiplayer.viewOf`), and its interest buckets grow with the
    * largest vision here (`World.INTEREST_BUCKET`). null = no fog, and the
-   * server's 500-unit box. Robots 6, Periscope 11 (#43; 8 before).
+   * server's 500-unit box. Robots 6, Periscope 10 (Nick, 2026-10-03; 11 from #43, held there
+   * by the 500 box until #48 derived the buckets from vision; 8 before).
    */
   readonly vision: number | null
   /**
@@ -77,7 +78,7 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
     stats: Object.freeze({ maxHp: 100, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   periscope: Object.freeze({
-    id: 2, key: 'periscope', kind: 'robot', passesObstacles: false, vision: 11, rangedCells: 6,
+    id: 2, key: 'periscope', kind: 'robot', passesObstacles: false, vision: 10, rangedCells: 6,
     stats: Object.freeze({ maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   magnet: Object.freeze({

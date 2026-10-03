@@ -10,10 +10,10 @@ import { Vector } from './vector'
  * test runner. It only depends on the mirrored `utils/hex.ts`.
  */
 
-// #43, deliberate: 6 rings (it was 8); Periscope 11.
+// #43, deliberate: 6 rings (it was 8); Periscope 10 (11 until 2026-10-03).
 test('peep sees 6 rings: a disc of 1 + 3 x 6 x 7 = 127 cells, exactly the cells within 6 rings', () => {
   assert.equal(ARCHETYPE_INFO.peep.vision, 6)
-  assert.equal(ARCHETYPE_INFO.periscope.vision, 11)
+  assert.equal(ARCHETYPE_INFO.periscope.vision, 10)
   const fog = new Fog()
   fog.reset(6)
   fog.update(10, -4, 0)
