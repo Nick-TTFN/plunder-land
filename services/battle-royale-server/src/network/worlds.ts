@@ -96,6 +96,8 @@ export default class Worlds {
   private readonly connections = new Set<Connection>()
   readonly accounts: AccountStore
   private readonly accountTimeoutMs: number
+  /** Each connection's account creation while it may still land (`create`). */
+  private readonly creating = new WeakMap<Connection, Promise<{ account: Account, token: string }>>()
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
@@ -284,9 +286,11 @@ export default class Worlds {
    * (its lookup or creation failed earlier; PLAY AGAIN reuses the socket):
    * the handshake's token is looked up again, with the same timeout, and an
    * account is created only if the store answered that it doesn't know it,
-   * or there was none, as on a first play. A stored token is never replaced
-   * while its lookup is unanswered. Still failing: the connection keeps its
-   * offline account and this run plays offline. Never rejects.
+   * or there was none, as on a first play (through `create`, so a creation
+   * that timed out earlier is waited on again, not repeated). A stored token
+   * is never replaced while its lookup is unanswered. Still failing: the
+   * connection keeps its offline account and this run plays offline. Never
+   * rejects.
    */
   private async retryAccount (connection: Connection): Promise<void> {
     const token = tokenOf(connection.socket.handshake?.auth)
@@ -300,12 +304,34 @@ export default class Worlds {
         }
       }
       if (connection.closed || this.draining) return
-      const created = await this.bounded(this.accounts.create())
+      const created = await this.create(connection)
       Worlds.accountSuccess()
       this.setAccount(connection, created.account, created.token)
     } catch (e) {
       Worlds.accountFailure(e)
     }
+  }
+
+  /**
+   * A new account for `connection`, or a rejection after `accountTimeoutMs`.
+   * **At most one creation per connection is in flight:** one the timeout
+   * gave up on is kept, and the next try (`retryAccount`, at PLAY AGAIN)
+   * waits on that same creation instead of starting another, and takes its
+   * account if it landed meanwhile. So a slow store commits one row per
+   * connection, not one per try. A creation that fails is forgotten, and the
+   * next try creates anew.
+   */
+  private async create (connection: Connection): Promise<{ account: Account, token: string }> {
+    let pending = this.creating.get(connection)
+    if (pending === undefined) {
+      const created = this.accounts.create()
+      pending = created
+      this.creating.set(connection, created)
+      created.catch(() => { if (this.creating.get(connection) === created) this.creating.delete(connection) })
+    }
+    const result = await this.bounded(pending)
+    this.creating.delete(connection)
+    return result
   }
 
   /**
@@ -365,7 +391,7 @@ export default class Worlds {
     if (connection.account !== undefined || connection.closed || this.draining) return
     let created: { account: Account, token: string }
     try {
-      created = await this.bounded(this.accounts.create())
+      created = await this.create(connection)
     } catch (e) {
       Worlds.accountFailure(e)
       this.setAccount(connection, offlineAccount())

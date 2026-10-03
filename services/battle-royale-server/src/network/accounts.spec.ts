@@ -659,6 +659,51 @@ test('a retry that finds the token unknown creates an account, as a first play d
   assert.equal(store.creates, 1)
 })
 
+test('a creation that timed out is waited on again at the next start, not repeated: one account per connection', async () => {
+  // A slow store, not a down one: the creation commits, but after the 30 ms
+  // bound gave up on it. Each PLAY AGAIN used to create another (an orphan
+  // row per try).
+  const wait = async (ms: number): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+    await settle()
+  }
+  const store = new TestStore()
+  let release!: () => void
+  store.gate = new Promise((resolve) => { release = resolve })
+  const worlds = makeWorlds(store, undefined, 30)
+  const a = connect(worlds, 'a')
+  a.start()
+  await wait(60)
+  assert.equal(a.connection.account?.persisted, false, 'the first creation did not time out')
+  assert.equal(store.creates, 1)
+
+  // PLAY AGAIN while that creation still hangs: no second one, offline again.
+  for (let i = 0; i < 2; i++) {
+    endRun(worlds, a)
+    await settle()
+    a.start()
+    await wait(60)
+    assert.equal(a.events('hello').length, i + 2, 'the run did not start')
+    assert.equal(a.connection.account?.persisted, false)
+  }
+  assert.equal(store.creates, 1, 'a start created again while the first creation was still pending')
+
+  // The slow creation lands; the next start takes its account and token.
+  release()
+  await settle()
+  endRun(worlds, a)
+  await settle()
+  a.start()
+  await settle()
+  assert.equal(store.creates, 1, 'a start created again after the first creation landed')
+  const last = a.events('account').at(-1) as { id: string, token?: string }
+  assert.match(last.token ?? '', TOKEN_SHAPE)
+  assert.equal((await store.inner.resolve(last.token as string))?.publicId, last.id)
+  assert.equal(a.connection.account?.persisted, true)
+  assert.equal(a.connection.player?.playerId, last.id)
+  assert.equal(a.events('hello').length, 4)
+})
+
 test('a disconnect or a drain during the retry: no run', async () => {
   for (const how of ['disconnect', 'drain'] as const) {
     const store = new TestStore()
