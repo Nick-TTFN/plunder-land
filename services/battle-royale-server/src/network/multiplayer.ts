@@ -1063,6 +1063,7 @@ export default class Multiplayer {
       connection.known.clear()
     }
     this.setLayer(connection, undefined)
+    Multiplayer._settled.delete(connection)
   }
 
   /**
@@ -1082,6 +1083,7 @@ export default class Multiplayer {
     this.know(connection, player)
     this.setLayer(connection, player.tag)
     player.connection = connection
+    Multiplayer._settled.delete(connection)
   }
 
   /** A create for all of the terrain on the connection's layer, into `into`. */
@@ -1185,6 +1187,176 @@ export default class Multiplayer {
       this.leave(connection, obj, obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer)
     }
     this.sendVisible(connection, out.create)
+    // Re-centred here, so the pickup pass settles it from scratch.
+    Multiplayer._settled.delete(connection)
+  }
+
+  /**
+   * Where `pickupViews` last settled each connection's pickups and stones: its
+   * viewpoint, layer and cell (and position, for a viewpoint with no vision).
+   * Deleted wherever the held set is rebuilt outside that pass (`switchLayer`,
+   * `forget`, `attach`), so the next pass settles it whole. Static and weak: a
+   * spec's `Object.create(Multiplayer.prototype)` runs no field initialisers,
+   * and an entry goes with its connection.
+   */
+  private static readonly _settled = new WeakMap<Connection, { viewer: Player, tag: number, q: number, r: number, x: number, y: number }>()
+
+  /**
+   * What `pickupViews` did, summed over every pass since the process started,
+   * so each branch is observable (`pickuppass.spec.ts`): connections skipped
+   * (no change of cell), settled from the rings round a short move, settled
+   * from the whole lists, and the creates and destroys it queued.
+   */
+  static readonly pickupViewCounts = { skipped: 0, rings: 0, whole: 0, entered: 0, left: 0 }
+
+  /** True for what `pickupViews` brings into and out of view: loot, items and StoneWall stones. */
+  static isPickupLike (obj: GameObject): boolean {
+    return obj.type === ObjectType.Consumable || obj.type === ObjectType.Item ||
+      (obj.type === ObjectType.Obstacle && !Multiplayer.isTerrain(obj))
+  }
+
+  /**
+   * Pickups and StoneWall stones into and out of each connection's view
+   * (`World.pickupPass`, after the dirty and new ones have had their own
+   * `update`). They never move, so what a connection holds of them changes
+   * only when its viewpoint changes cell; this does, per connection, what
+   * every pickup's `update` would do for it, with the same rules:
+   *
+   * - one it does not hold within the enter radius (`viewOf` `VIEW_IN`) is
+   *   sent a create and held;
+   * - one it holds beyond the leave radius (`VIEW_OUT`) is sent an id-only
+   *   destroy and dropped.
+   *
+   * A connection whose viewpoint is where this last left it is skipped. One
+   * that moved a cell or two on the same layer and viewpoint looks only at the
+   * cells that came within its enter radius (the outer rings round its new
+   * cell that were beyond it from the old one) and at what it holds; anything
+   * else (a first pass, a layer change, a new viewpoint, a longer move, no
+   * vision) walks the lists, as `sendVisible` does. A connection whose client
+   * has a layer change pending, or whose viewpoint is gone, is left alone, as
+   * `update` leaves it. Replaced a per-pickup pass gated on the buckets
+   * players moved in (2026-10-03): that ran about 190 pickup updates a tick
+   * at 200-400 players, to send a handful of creates and destroys.
+   */
+  pickupViews (): void {
+    Multiplayer.checkWorld(this, 'Multiplayer.pickupViews')
+    const counts = Multiplayer.pickupViewCounts
+    const connections = this._connections
+    if (connections === undefined) return
+    let stones: Map<number, Map<number, GameObject[]>> | undefined
+    let records: Map<GameObject, Buffer | null> | undefined
+    const enterIfIn = (connection: Connection, viewer: Player, obj: GameObject): void => {
+      if (obj.knownBy.has(connection) || Multiplayer.gone(obj)) return
+      if (Multiplayer.viewOf(viewer, obj.position.x, obj.position.y, Hex.toCell(obj.position)) !== Multiplayer.VIEW_IN) return
+      if (records === undefined) records = new Map()
+      let record = records.get(obj)
+      if (record === undefined) {
+        record = obj.serialiseBinary(obj.allFields)
+        records.set(obj, record)
+      }
+      this.enter(connection, obj, record)
+      counts.entered++
+    }
+    for (const connection of connections) {
+      const viewer = Multiplayer.viewpoint(connection)
+      const tag = connection.layer
+      if (viewer === undefined || tag === undefined || tag !== viewer.tag || Multiplayer.gone(viewer) || connection.known === undefined) {
+        Multiplayer._settled.delete(connection)
+        continue
+      }
+      const cell = Hex.toCell(viewer.position)
+      const vision = viewer.archetype?.vision
+      const was = Multiplayer._settled.get(connection)
+      const same = was !== undefined && was.viewer === viewer && was.tag === tag
+      if (same && was.q === cell.x && was.r === cell.y &&
+        (vision !== undefined && vision !== null ? true : was.x === viewer.position.x && was.y === viewer.position.y)) {
+        counts.skipped++
+        continue
+      }
+
+      const moved = same && vision !== undefined && vision !== null
+        ? Hex.distance(new Vector(was.q, was.r), cell)
+        : Infinity
+      if (moved <= 2) {
+        counts.rings++
+        // Cells within `enter` rings of the new cell and beyond it from the
+        // old one: all in the outer `moved` rings round the new cell.
+        const enter = (vision as number) + Multiplayer.VIEW_MARGIN_RINGS
+        const old = new Vector(was?.q as number, was?.r as number)
+        const pickups = World.PICKUPS.buckets(tag)
+        if (stones === undefined) stones = Multiplayer.stonesByCell()
+        const layerStones = stones.get(tag)
+        for (let ring = Math.max(0, enter - moved + 1); ring <= enter; ring++) {
+          Multiplayer.forRing(cell, ring, (q, r) => {
+            if (Hex.distance(old, new Vector(q, r)) <= enter) return
+            const key = Hex.key(q, r)
+            const here = pickups.get(key)
+            if (here !== undefined) for (const obj of here) enterIfIn(connection, viewer, obj)
+            const stone = layerStones?.get(key)
+            if (stone !== undefined) for (const obj of stone) enterIfIn(connection, viewer, obj)
+          })
+        }
+      } else {
+        counts.whole++
+        for (const obj of World.CONSUMABLES) if (obj.tag === tag) enterIfIn(connection, viewer, obj)
+        for (const obj of World.ITEMS) if (obj.tag === tag) enterIfIn(connection, viewer, obj)
+        for (const obj of World.OBSTACLES) if (obj.tag === tag && !Multiplayer.isTerrain(obj)) enterIfIn(connection, viewer, obj)
+      }
+
+      // What it holds and no longer sees. Deleting the current entry of a Set
+      // while iterating it is safe.
+      for (const obj of connection.known) {
+        if (!Multiplayer.isPickupLike(obj) || Multiplayer.gone(obj)) continue
+        const view = obj.tag === tag ? Multiplayer.viewOf(viewer, obj.position.x, obj.position.y, Hex.toCell(obj.position)) : Multiplayer.VIEW_OUT
+        if (view === Multiplayer.VIEW_OUT) {
+          this.leave(connection, obj, obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer)
+          counts.left++
+        }
+      }
+      Multiplayer._settled.set(connection, { viewer, tag, q: cell.x, r: cell.y, x: viewer.position.x, y: viewer.position.y })
+    }
+  }
+
+  /** StoneWall stones (the obstacles that are not terrain), by layer and `Hex.key` of their cell. */
+  static stonesByCell (): Map<number, Map<number, GameObject[]>> {
+    const result = new Map<number, Map<number, GameObject[]>>()
+    for (const obj of World.OBSTACLES) {
+      if (Multiplayer.isTerrain(obj)) continue
+      let layer = result.get(obj.tag)
+      if (layer === undefined) {
+        layer = new Map()
+        result.set(obj.tag, layer)
+      }
+      const cell = Hex.toCell(obj.position)
+      const key = Hex.key(cell.x, cell.y)
+      const here = layer.get(key)
+      if (here === undefined) layer.set(key, [obj])
+      else here.push(obj)
+    }
+    return result
+  }
+
+  /**
+   * Calls `fn` with each cell exactly `ring` rings from `centre` (the centre
+   * itself for 0): 6 x `ring` cells, walking the ring's six sides in
+   * `Hex.DIRECTIONS` order from the corner `ring` steps along direction 4.
+   */
+  static forRing (centre: Vector, ring: number, fn: (q: number, r: number) => void): void {
+    if (ring === 0) {
+      fn(centre.x, centre.y)
+      return
+    }
+    const directions = Hex.DIRECTIONS
+    let q = centre.x + directions[4].x * ring
+    let r = centre.y + directions[4].y * ring
+    for (let side = 0; side < 6; side++) {
+      const step = directions[side]
+      for (let i = 0; i < ring; i++) {
+        fn(q, r)
+        q += step.x
+        r += step.y
+      }
+    }
   }
 
   /**

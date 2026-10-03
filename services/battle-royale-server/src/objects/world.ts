@@ -338,90 +338,55 @@ export default class World {
   static unitMoved (unit: Unit): void {
     World.UNITS.moved(unit)
     World.INTEREST.moved(unit as Player)
-    if (unit.type === ObjectType.Player) {
-      let moved = World.MOVED_BUCKETS.get(unit.tag)
-      if (moved === undefined) {
-        moved = new Set()
-        World.MOVED_BUCKETS.set(unit.tag, moved)
-      }
-      moved.add(World.bucketKeyOf(unit.position.x, unit.position.y))
-    }
   }
 
   /**
-   * The `INTEREST` buckets, by layer, that a player moved into or within since
-   * the last pickup pass (`pickupPass`), which empties it. Filled by
-   * `unitMoved`, so every write to a player's position or layer counts,
-   * wherever it comes from.
+   * The pickups and StoneWall stones that have been through a pickup pass.
+   * One that has not was created since the last pass, against wherever its
+   * viewers stood at that moment, so it gets a whole `update` once
+   * (`pickupPass`). Weak, so it goes with the object; shared by every world,
+   * since an object belongs to one.
    */
-  MOVED_BUCKETS = new Map<number, Set<number>>()
+  private static readonly _passed = new WeakSet<GameObject>()
 
   /**
-   * How far round a moved bucket a pickup must look, in buckets. A pickup's
-   * view state for a connection changes only when that connection's player
-   * crosses its enter or leave radius around the pickup (server fog, #48:
-   * vision + 1 and vision + 2 rings; the 500 box and its 90-unit margin for a
-   * viewer with no vision). Both lines lie within one `INTEREST_BUCKET` of the
-   * pickup on each axis (Periscope's leave reach is at most 12 x 45 + 45 =
-   * 585), so a player that crosses one in a tick stands, after its move,
-   * within that plus one tick's travel (a dash: under 100 units) of the
-   * pickup, well inside 2 buckets (1170): it moved in a bucket within 2 of
-   * the pickup's. `interest.spec.ts` asserts the bound.
-   */
-  static PICKUP_WATCH_BUCKETS = 2
-
-  /**
-   * Every pickup's `Multiplayer.update`, skipping those whose result could not
-   * have changed: a pickup never moves and is never dirty after its create, so
-   * what its update decides depends only on the players around it, and it is a
-   * no-op unless one of them moved within `PICKUP_WATCH_BUCKETS` of it (or a
-   * connection's layer or life changed, which `switchLayer`, `admit` and
-   * `forget` settle for every pickup at once). Measured 2026-09-26: 47% of
-   * pickups skip at 400 bots, 64% at 100 (server-cpu-trim). Nearly all of
-   * those are on layers where nobody is walking: 2 buckets each way is 40% of
-   * a layer, and at 15-70 moving players a layer one of them is almost always
-   * inside it. The same shortcut for standing units was built and measured
-   * the same day and skipped 0% of player updates (tickbench: on average 15
-   * of the 25 buckets saw a move within a tick), so it was not kept.
+   * Pickups and StoneWall stones into and out of view. They never move, so
+   * what a client holds of them changes only when its viewpoint changes cell
+   * (`Multiplayer.pickupViews`, per connection, which looks only round the
+   * ones that did). Two kinds still get their own `Multiplayer.update`, which
+   * settles them against every viewer: a dirty one (never, today: nothing
+   * writes a wire field of a pickup after its create), and one created since
+   * the last pass, whose create was decided against where its viewers stood
+   * then. Until 2026-10-03 every pickup within 2 `INTEREST` buckets of one a
+   * player had moved in had its update here (`PICKUP_WATCH_BUCKETS`): about
+   * 190 a tick at 200-400 players, 0.2-0.3 ms of a 1.2-3.4 ms tick in
+   * `tools/load/tickbench.cjs`.
    */
   static pickupPass (dt: number): void {
-    const near = World.pickupWatch()
-    for (const pickup of World.CONSUMABLES) if (World.pickupDue(pickup, near)) pickup.update(dt)
-    for (const item of World.ITEMS) if (World.pickupDue(item, near)) item.update(dt)
+    const passed = World._passed
+    for (const obj of World.CONSUMABLES) {
+      if (obj.dirtyFields.size > 0 || !passed.has(obj)) {
+        passed.add(obj)
+        obj.update(dt)
+      }
+    }
+    for (const obj of World.ITEMS) {
+      if (obj.dirtyFields.size > 0 || !passed.has(obj)) {
+        passed.add(obj)
+        obj.update(dt)
+      }
+    }
     // StoneWall stones go only to connections in range too (`Multiplayer.isTerrain`),
     // and never move, so they come into and out of view here, like a pickup.
     for (const obj of World.OBSTACLES) {
-      if (!Multiplayer.isTerrain(obj) && World.pickupDue(obj, near)) obj.update(dt)
-    }
-  }
-
-  /**
-   * The buckets, by layer, within `PICKUP_WATCH_BUCKETS` of one a player moved
-   * in since the last call, which empties `MOVED_BUCKETS`.
-   */
-  static pickupWatch (): Map<number, Set<number>> {
-    const near = new Map<number, Set<number>>()
-    const reach = World.PICKUP_WATCH_BUCKETS
-    for (const [tag, moved] of World.MOVED_BUCKETS) {
-      const around = new Set<number>()
-      for (const key of moved) {
-        // Hex.key's inverse (hex.ts is mirrored with the client, so not added there).
-        const bx = Math.floor(key / 4096) - 1024
-        const by = (key % 4096) - 1024
-        for (let dx = -reach; dx <= reach; dx++) {
-          for (let dy = -reach; dy <= reach; dy++) around.add(Hex.key(bx + dx, by + dy))
-        }
+      if (Multiplayer.isTerrain(obj)) continue
+      if (obj.dirtyFields.size > 0 || !passed.has(obj)) {
+        passed.add(obj)
+        obj.update(dt)
       }
-      near.set(tag, around)
     }
-    World.MOVED_BUCKETS.clear()
-    return near
-  }
-
-  /** True if `pickup`'s update this tick could send or change anything (see `pickupPass`). */
-  static pickupDue (pickup: GameObject, near: Map<number, Set<number>>): boolean {
-    return pickup.dirtyFields.size > 0 ||
-      near.get(pickup.tag)?.has(World.bucketKeyOf(pickup.position.x, pickup.position.y)) === true
+    // Optional: a spec's stub Multiplayer may not have it.
+    Multiplayer.Instance.pickupViews?.()
   }
 
   /** Push onto `OBSTACLES`, keeping `GATES` in step. */
@@ -615,8 +580,6 @@ export default class World {
   static set PICKUPS (value: CellIndex<Consumable | ItemPickup>) { World.current.PICKUPS = value }
   static get GATES (): CellIndex<GameObject> { return World.current.GATES }
   static set GATES (value: CellIndex<GameObject>) { World.current.GATES = value }
-  static get MOVED_BUCKETS (): Map<number, Set<number>> { return World.current.MOVED_BUCKETS }
-  static set MOVED_BUCKETS (value: Map<number, Set<number>>) { World.current.MOVED_BUCKETS = value }
   static get STEPS (): Map<number, Map<number, Unit>> { return World.current.STEPS }
   static set STEPS (value: Map<number, Map<number, Unit>>) { World.current.STEPS = value }
 

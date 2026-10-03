@@ -13,6 +13,9 @@
 // kbPerClientTick is the mean framed bytes written per player per tick over
 // the same last 300 ticks (uncompressed: the fake socket has no deflate), and
 // periscopeKbPerTick the same for the Periscopes alone (null without any).
+// tickMsPerTick is world update + flush; pickupPassMsPerTick is World.pickupPass
+// inclusive, pickupPassSelfMsPerTick the same less its Multiplayer.update
+// calls (pickupPassCallsPerTick of them), all over the same last 300 ticks.
 //
 // The ramp (ramp.sh) measures a real server under real sockets, but its
 // per-function times read about 5x higher than this at the same density:
@@ -49,7 +52,18 @@ for (let i = 0; i < N; i++) {
 }
 let upd = 0; let calls = 0
 const orig = Multiplayer.prototype.update
-Multiplayer.prototype.update = function (o) { const t = performance.now(); try { return orig.call(this, o) } finally { upd += performance.now() - t; calls++ } }
+let inPass = false; let passUpd = 0; let passCalls = 0
+Multiplayer.prototype.update = function (o) {
+  const t = performance.now()
+  try { return orig.call(this, o) } finally {
+    const d = performance.now() - t; upd += d; calls++
+    if (inPass) { passUpd += d; passCalls++ }
+  }
+}
+// World.pickupPass, inclusive and self (inclusive less its Multiplayer.update calls).
+let pass = 0; let tickMs = 0
+const origPass = World.pickupPass
+World.pickupPass = function (dt) { const t = performance.now(); inPass = true; try { return origPass.call(this, dt) } finally { inPass = false; pass += performance.now() - t } }
 const t0 = performance.now()
 for (let tick = 0; tick < 400; tick++) {
   for (const p of players) {
@@ -59,12 +73,14 @@ for (let tick = 0; tick < 400; tick++) {
       if (Hex.onMap(tq, tr, World.mapSize) && !World.isBlocked(tq, tr, p.tag)) p.setWaypoints([new Vector(tq, tr)])
     }
   }
-  if (tick === 100) { upd = 0; calls = 0; counting = true }
+  if (tick === 100) { upd = 0; calls = 0; pass = 0; passUpd = 0; passCalls = 0; tickMs = 0; counting = true }
+  const t = performance.now()
   world.update(0.25)
   mp.flushAll(tick, 250)
+  tickMs += performance.now() - t
 }
 const kbOf = (list) => list.length === 0 ? null : +(list.reduce((a, i) => a + written[i], 0) / list.length / 300 / 1024).toFixed(3)
 const all = players.map((_, i) => i)
 const scopes = all.filter((i) => players[i].archetype.key === 'periscope')
 const kb = players.filter((p) => !p.destroyed).map((p) => p.knownBy.size); const moving = players.filter((p) => p.path.length > 0).length
-console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))
+console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))

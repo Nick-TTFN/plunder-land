@@ -666,10 +666,15 @@ export class Game extends Container {
     // on purpose, so routing through them has to stay legal (`RunMap.created`).
     const cell = Game.MAP.created(data)
     if (cell !== undefined && Game.LOCAL.tag === data.tag && Game.LOCAL.pathCrosses(cell.x, cell.y)) {
-      // A route planned before this portal was in view runs on through it on
-      // the client and ends on it on the server (which knows every portal).
       // One planned through a stone that has just come into view re-routes,
-      // as `World.block` does on the server.
+      // as `World.block` does on the server. A portal no longer comes into
+      // view mid-route: portals are terrain (#35), sent with the join snapshot
+      // and on a layer change, and the server makes none after the world is
+      // built. A layer change's creates are applied before the update that
+      // carries our new tag (and ends the route), so `LOCAL.tag` is still the
+      // old layer here and this is skipped. `portalAppeared` stays as a
+      // guard for a join whose creates meet a route left from the last run;
+      // not shown to be dead, so not removed (extract.spec.ts covers it).
       if (data.type === LocalPlayer.PORTAL_TYPE) Game.LOCAL.portalAppeared()
       else Game.LOCAL.repath()
     }

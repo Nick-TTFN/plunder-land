@@ -784,12 +784,10 @@ test('the interest buckets hold every viewer whose sight reaches an object, from
     }
   }
   assert.ok(checked > 10000, `only ${checked} pairs in sight`)
-  // The longest reach on either axis fits one bucket, and with a tick's
-  // longest move (a dash: 140 u/s x 2.5 x 0.25 s, under 100) inside the
-  // pickup pass's watch (`World.PICKUP_WATCH_BUCKETS` buckets).
+  // The longest reach on either axis fits one bucket. (The pickup pass's
+  // 2-bucket watch was checked here too until it went, 2026-10-03.)
   const longest = Math.max(reachX, reachY)
   assert.ok(longest <= bucket, `a view reaches ${longest} units, past the ${bucket} bucket`)
-  assert.ok((maxVision + 3) * Hex.SIZE + 100 < World.PICKUP_WATCH_BUCKETS * bucket, 'the pickup pass watches too few buckets')
   assert.ok(longest > bucket - Hex.SIZE, `only reached ${longest}: Periscope's far cells were never sampled`)
 })
 
