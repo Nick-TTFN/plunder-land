@@ -594,7 +594,7 @@ cell under the object's: a `create` once within the robot's `vision` + `VIEW_MAR
 rings (from `Multiplayer.update`, whichever side moved; pickups and stones get an update from
 the pass at the end of `World.update`), deltas while held, and a destroy with only `id` once
 beyond `VIEW_EXIT_RINGS` (1) more, or off the layer. Peep and the other vision-6 robots: in at 7,
-out beyond 8; Periscope: in at 12, out beyond 13. So a modified client can know at most
+out beyond 8; Periscope (vision 10): in at 11, out beyond 12. So a modified client can know at most
 `vision` + 2 rings (accepted by Nick, 2026-10-03). The viewpoint is `Multiplayer.viewpoint`:
 the watched player for a spectator, who sees by that robot's vision, not its own dead robot's.
 A viewpoint with no `vision` (none today) falls back to the old box: strictly inside
@@ -609,7 +609,7 @@ own next update (`switchLayer`, which keeps what is within the leave radius), in
 its new tag. The join snapshot is the layer's terrain plus what is in view. **Candidates come
 from `World.INTEREST`**, per layer, in square buckets of `World.INTEREST_BUCKET`, derived (not
 written down) from the largest robot vision in the mirrored `utils/archetypes.ts`:
-max(`INTEREST_RADIUS`, (vision + 3) × `Hex.SIZE`) = 630 with Periscope's 11, so the 3 × 3
+max(`INTEREST_RADIUS`, (vision + 3) × `Hex.SIZE`) = 585 with Periscope's 10 (630 at 11, until 2026-10-03), so the 3 × 3
 buckets cover the largest leave reach (`interest.spec.ts` checks it with random off-centre
 positions). `hello.interest` is still `INTEREST_RADIUS`; the client's `stillPresent` no longer uses it for a
 robot with vision but sizes by vision from the viewpoint it follows (see "Liveness is not a
@@ -623,7 +623,7 @@ half of them to clients that dropped them unread (`Game.EFFECTS_UNHELD`, now nea
 5-8** (fireball and icicle blasts, bomb fuse and blast) are drawn on a cell and go through
 `Multiplayer.effectAt` (`sendAt`) to connections on the effect's layer with the cell's centre
 inside the 500 box around their viewpoint or within its leave radius (which reaches past the
-box only for Periscope: 13 rings is up to 585 units east-west). **Fireball and icicle blasts go on the
+box only for Periscope: 12 rings at vision 10 is up to 540 units east-west). **Fireball and icicle blasts go on the
 projectile's layer**, not the thrower's (`63d8947`): a thrower who hopped a portal during the
 flight used to send the blast to the wrong layer. Effects are not fogged inside the 500 box
 (#48 rejected hiding them; Nick accepted): a blast or bomb in the dark is sent and drawn.
@@ -921,7 +921,7 @@ rebuilt only when the camera's own cell changes. Two things about it are load-be
 
 **Fog of war is enforced by the server since #48** (shipped 2026-10-03; drawn by
 `src/objects/fog.ts`, decision #36). Cells within the robot's `vision` rings (the mirrored
-`utils/archetypes.ts`: 6 for every robot but Periscope, 11 for Periscope since #43, 8 before;
+`utils/archetypes.ts`: 6 for every robot but Periscope, 10 for Periscope (Nick, 2026-10-03, for the tick; 11 from #43), 8 before;
 null = no fog) are visible, cells seen before on that layer this run are explored, the rest
 unknown. The server sends units, pickups, projectiles and StoneWall stones only within
 `vision` + 1 rings and keeps them to + 2 (see "Who gets what"), so the client's fog draws what
@@ -1102,7 +1102,7 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
   `!destroyed`. That was the `stepping.spec.ts` "population never filled" (82 vs 81) flake,
   closed in hex-cells P4.
 - **Units, pickups and gates are indexed by cell** (`World.UNITS`, `PICKUPS`, `GATES`, and
-  `INTEREST` for players by `World.INTEREST_BUCKET` (630-unit) bucket; `utils/cellindex.ts`). Server code adds and
+  `INTEREST` for players by `World.INTEREST_BUCKET` (585-unit) bucket; `utils/cellindex.ts`). Server code adds and
   removes through `World.addUnit`/`removeUnitAt`, `World.PICKUPS.push`/`removeAt`/`remove`
   and `World.addObstacle`/`removeObstacleAt`/`removeObstacle`, never on the lists directly.
   A unit refiles itself from the `position`/`tag` setters (`GameObject.placed`). Specs may
