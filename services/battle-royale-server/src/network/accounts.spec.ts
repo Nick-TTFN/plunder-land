@@ -684,6 +684,34 @@ test('a disconnect or a drain during the retry: no run', async () => {
   }
 })
 
+for (const how of ['disconnect', 'drain'] as const) {
+  test(`a ${how} during the retry of an unknown token: no account is created, no run`, async () => {
+    // The lookup answers "unknown", which leads to a create: only the check
+    // after the lookup keeps a closed or draining connection from making one.
+    const store = new TestStore()
+    store.mode = 'throw'
+    const worlds = makeWorlds(store)
+    const a = connect(worlds, 'a', { token: 'U'.repeat(43) })
+    a.start()
+    await settle()
+    assert.equal(a.connection.account?.persisted, false)
+    endRun(worlds, a)
+    await settle()
+    assert.equal(store.creates, 0, 'created while offline')
+    store.mode = 'ok'
+    let release!: () => void
+    store.resolveGate = new Promise((resolve) => { release = resolve })
+    a.start()
+    await settle()
+    if (how === 'disconnect') a.socket.conn.close()
+    else worlds.draining = true
+    release()
+    await settle()
+    assert.equal(store.creates, 0, `${how}: an account was created for a connection that ${how === 'disconnect' ? 'closed' : 'is draining'}`)
+    assert.equal(a.events('hello').length, 1, `${how}: a run started`)
+  })
+}
+
 // --- the client half (plunder-land-client/src/net/account.ts) ---------------------
 
 function memoryStorage (): TokenStorage & { items: Map<string, string> } {
