@@ -4,8 +4,9 @@ import { type RunResult, runXp } from './xp'
 
 /**
  * A run's part in progression (decision #48 step 3): the kills it is credited
- * with, split the way the XP formula pays them, and the one grant it is due.
- * Kept here, keyed by the player object, so `Player` carries nothing for it.
+ * with, split the way the XP formula pays them. Kept here, keyed by the player
+ * object, so `Player` carries nothing for it. (That the run is granted once is
+ * `Player.runOver`, set where the run ends, `Multiplayer.destroy`.)
  */
 interface Tally {
   playerKills: number
@@ -13,8 +14,6 @@ interface Tally {
 }
 
 const tallies = new WeakMap<Player, Tally>()
-/** Runs whose XP has been claimed: a run is granted once, whatever ends it. */
-const claimed = new WeakSet<Player>()
 
 /** `player` was credited with killing `victim` (`Player.onKill`). */
 export function countKill (player: Player, victim: GameObject): void {
@@ -52,15 +51,4 @@ export function runResultOf (player: Player, seconds: number, deepestLayer: numb
 export function earnedXp (player: Player, offline: boolean, seconds: number, deepestLayer: number): number {
   if (player.bot !== undefined || offline) return 0
   return runXp(runResultOf(player, seconds, deepestLayer))
-}
-
-/**
- * True the first time it is asked for `player`, false after: the run's grant
- * goes out once even if its end is reported twice (an exited player destroyed
- * again by a disconnect before the flush that lets it go).
- */
-export function claimGrant (player: Player): boolean {
-  if (claimed.has(player)) return false
-  claimed.add(player)
-  return true
 }

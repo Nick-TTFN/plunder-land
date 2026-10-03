@@ -1438,12 +1438,18 @@ export default class Multiplayer {
       obj.knownBy.clear()
     }
 
-    if (obj.type === ObjectType.Player) {
-      const own = this.connectionOf(obj as Player)
+    // The run's end, once (`Player.runOver`): flagged before anything below
+    // can throw, so a second destroy of the same run (a disconnect after an
+    // extraction, an `exit` that threw before `exited`) writes no stats, sends
+    // no `run_end` and grants no XP again.
+    if (obj.type === ObjectType.Player && !(obj as Player).runOver) {
+      const player = obj as Player
+      player.runOver = true
+      const own = this.connectionOf(player)
       if (own !== undefined) {
-        this.updateStats(obj as Player).catch(Multiplayer.logStatsFailure)
-        const xp = Multiplayer.sendRunEnd(obj as Player)
-        this.runEnded?.(own, obj as Player, xp)
+        this.updateStats(player).catch(Multiplayer.logStatsFailure)
+        const xp = Multiplayer.sendRunEnd(player)
+        this.runEnded?.(own, player, xp)
       }
     }
 
@@ -1780,11 +1786,11 @@ export default class Multiplayer {
     // Not a player that is already gone. One killed between ticks (a skill
     // runs from its socket handler) is still here until the next flush,
     // and destroying it again freed its id twice and counted the run twice.
-    // Nor one that extracted (`exit` never sets `destroyed`): the flush that
-    // lets it go is skipped when the world's tick throws after the
-    // extraction, and a disconnect before the next good flush ended the run
-    // a second time (stats, banked loot and `run_end` twice, the id freed
-    // twice).
+    // Nor one that extracted (`exit` never sets `destroyed`, and frees the id
+    // itself): the flush that lets it go is skipped when the world's tick
+    // throws after the extraction, and destroying it again on a disconnect
+    // before the next good flush freed its id twice. (The run's end itself,
+    // stats, `run_end` and XP, is kept single by `Player.runOver`.)
     const player = connection.player
     if (player != null && !player.destroyed && !player.exited) player.destroy()
     this.forget(connection)

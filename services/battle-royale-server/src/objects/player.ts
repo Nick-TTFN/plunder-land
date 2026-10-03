@@ -45,6 +45,14 @@ export default class Player extends Unit {
    */
   extracted = false
   /**
+   * The run has been ended: set by `Multiplayer.destroy` the first time it
+   * sees this player, before its stats write, `run_end` and XP grant, which
+   * it skips on any later destroy. A run ends once however its end is
+   * reported (an extraction, then a disconnect before the flush; an `exit`
+   * that threw before setting `exited`). Never set from a constructor.
+   */
+  runOver = false
+  /**
    * A bot's brain (decision #47), undefined for a human. A bot has no
    * connection, writes no stats and sends no analytics; it counts nowhere a
    * world counts its humans (`Worlds.activePlayers`).

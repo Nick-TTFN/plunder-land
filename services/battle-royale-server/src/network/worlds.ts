@@ -8,7 +8,6 @@ import BotFill from '../bots/fill'
 import { type Account, type AccountStore, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
 import { NotReadyError } from '../db/pgstore'
 import type Player from '../objects/player'
-import { claimGrant } from '../progress/run'
 import { standingOf } from '../progress/xp'
 
 export interface WorldsOptions {
@@ -312,8 +311,8 @@ export default class Worlds {
   /**
    * A run ended (`Multiplayer.destroy`: a death, an extraction, a disconnect,
    * a drain's cut-off) and earned `xp` (`earnedXp`, 0 for an offline run).
-   * Granted once per run (`claimGrant`), only to the persisted account the
-   * run was played under, never to a bot; one atomic add in the store. Then
+   * Called once per run (`Player.runOver`); granted only to the persisted
+   * account the run was played under, never to a bot; one atomic add. Then
    * `progress { gained, xp, level, levelAt, nextAt, levelUp }` goes to the
    * client, unless its socket closed or it has started another run since
    * (that card is gone; the totals reach the lobby with the next `account`).
@@ -324,7 +323,6 @@ export default class Worlds {
   grant (connection: Connection, player: Player, xp: number): void {
     const account = connection.account
     if (player.bot !== undefined || account === undefined || !account.persisted || account.publicId !== player.playerId) return
-    if (!claimGrant(player)) return
     this.bounded(this.accounts.grant(account.publicId, xp)).then((total) => {
       Worlds.accountSuccess()
       account.xp = total
