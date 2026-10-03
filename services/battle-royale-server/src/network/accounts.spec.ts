@@ -112,7 +112,12 @@ class TestStore implements AccountStore {
   readonly inner = new MemoryAccountStore()
   resolves = 0
   creates = 0
+  grants: Array<[string, number]> = []
   mode: 'ok' | 'throw' | 'hang' | 'not-ready' = 'ok'
+  /** Fail grants only (the lookup and creation still work). */
+  grantMode: 'ok' | 'throw' | 'hang' = 'ok'
+  /** Holds `grant` until released. */
+  grantGate: Promise<void> | undefined
   /** Resolves `create` only when released (for "while pending" tests). */
   gate: Promise<void> | undefined
   /** Holds `resolve` until it settles: resolves to go on, rejects to fail. */
@@ -138,7 +143,22 @@ class TestStore implements AccountStore {
     return await this.inner.create()
   }
 
+  async grant (publicId: string, xp: number): Promise<number> {
+    this.grants.push([publicId, xp])
+    if (this.grantGate !== undefined) await this.grantGate
+    if (this.grantMode === 'hang') return await new Promise(() => {})
+    if (this.grantMode === 'throw') throw new Error('connection refused (stub)')
+    if (this.mode !== 'ok') return await this.fail()
+    return await this.inner.grant(publicId, xp)
+  }
+
   async close (): Promise<void> {}
+}
+
+/** An `account` message without the standing (decision #48 step 3), which `standing` tests check. */
+function bare (message: unknown): unknown {
+  const { xp, level, levelAt, nextAt, ...rest } = message as Record<string, unknown>
+  return rest
 }
 
 // --- the flow ----------------------------------------------------------------
@@ -158,7 +178,8 @@ test('no token: account { id, token } arrives before hello, and the run and its 
   assert.ok(account !== undefined, 'no account event')
   assert.match(account.id, PUBLIC_ID_SHAPE)
   assert.match(account.token, TOKEN_SHAPE)
-  assert.equal(Object.keys(account).sort().join(), 'id,token')
+  assert.equal(Object.keys(account).sort().join(), 'id,level,levelAt,nextAt,token,xp')
+  assert.deepEqual(bare(account), { id: account.id, token: account.token })
   assert.ok(a.order.indexOf('account') < a.order.indexOf('hello'), `account after hello: ${a.order.join(' ')}`)
   assert.equal(a.order.filter((e) => e === 'hello').length, 1)
   assert.equal(store.creates, 1)
@@ -188,7 +209,7 @@ test('reconnecting with the token: account { id } with the same id on connect, n
 
   const again = connect(worlds, 'again', { token: issued.token })
   await settle()
-  assert.deepEqual(again.events('account'), [{ id: issued.id }], 'announced on connect, before any start')
+  assert.deepEqual(again.events('account').map(bare), [{ id: issued.id }], 'announced on connect, before any start')
   assert.equal(store.resolves, 1)
   again.start('fedcba')
   await settle()
@@ -328,7 +349,7 @@ test('READY while a known token\'s lookup is in flight: the known account, no ne
   assert.equal(a.connection.player, undefined, 'started before the lookup answered')
   release()
   await settle()
-  assert.deepEqual(a.events('account'), [{ id: known.account.publicId }], 'a second account (and token) was issued')
+  assert.deepEqual(a.events('account').map(bare), [{ id: known.account.publicId }], 'a second account (and token) was issued')
   assert.equal(store.creates, 0)
   assert.equal(a.events('hello').length, 1)
   assert.equal(a.connection.player?.playerId, known.account.publicId)
@@ -459,7 +480,7 @@ test('a lookup that fails: offline at once, announced on connect, and the store 
 
 test('an issued id without ID_SHAPE is never played under', async () => {
   const store = new TestStore()
-  store.inner.create = async () => ({ account: { publicId: 'stats-*', persisted: true }, token: 'T'.repeat(43) })
+  store.inner.create = async () => ({ account: { publicId: 'stats-*', persisted: true, xp: 0 }, token: 'T'.repeat(43) })
   const worlds = makeWorlds(store)
   const a = connect(worlds, 'a')
   a.start()
@@ -486,6 +507,183 @@ test('bots join with bot-N ids and never touch the store', async (t) => {
   assert.equal(store.resolves, 0)
 })
 
+// --- an offline connection tries again at its next start (48-1 review) -----------
+
+/** End the connection's run and flush, so it may start another on the same socket. */
+function endRun (worlds: Worlds, client: Client): void {
+  const player = client.connection.player
+  assert.ok(player !== undefined, 'no run to end')
+  World.run(worlds.worldFor(client.connection) as World, () => { player.exit() })
+  worlds.tickAll(250)
+}
+
+test('offline after a failed creation: the next start creates the account, sends its token, and plays under it', async () => {
+  const store = new TestStore()
+  store.mode = 'throw'
+  const writes: string[] = []
+  const worlds = makeWorlds(store, writes)
+  const a = connect(worlds, 'a')
+  a.start()
+  await settle()
+  const [offline] = a.events('account') as Array<{ id: string, offline?: boolean }>
+  assert.equal(offline.offline, true)
+  assert.equal(a.connection.player?.playerId, offline.id)
+  endRun(worlds, a)
+  await settle()
+
+  store.mode = 'ok'
+  writes.length = 0
+  a.start()
+  await settle()
+  const accounts = a.events('account') as Array<{ id: string, token?: string, offline?: boolean }>
+  assert.equal(accounts.length, 2)
+  assert.equal(accounts[1].offline, undefined)
+  assert.match(accounts[1].token ?? '', TOKEN_SHAPE)
+  assert.equal(a.connection.account?.persisted, true)
+  assert.equal(a.connection.player?.playerId, accounts[1].id)
+  assert.ok(a.order.lastIndexOf('account') < a.order.lastIndexOf('hello'), 'the account after the run\'s hello')
+  assert.equal(store.creates, 2)
+  // Its run writes stats again.
+  endRun(worlds, a)
+  await settle()
+  assert.ok(writes.includes(`hincrby stats-${accounts[1].id}`), writes.join())
+})
+
+test('offline after a failed lookup of a known token: the next start finds the same account, and creates none', async () => {
+  const store = new TestStore()
+  const known = await store.inner.create()
+  store.mode = 'throw'
+  const worlds = makeWorlds(store)
+  const a = connect(worlds, 'a', { token: known.token })
+  a.start()
+  await settle()
+  assert.equal(a.connection.account?.persisted, false)
+  endRun(worlds, a)
+  await settle()
+
+  store.mode = 'ok'
+  a.start()
+  await settle()
+  const accounts = a.events('account') as Array<{ id: string, token?: string }>
+  assert.deepEqual(bare(accounts[accounts.length - 1]), { id: known.account.publicId }, 'not the known account, or a token was sent')
+  assert.equal(store.creates, 0, 'a stored token was replaced by a new account')
+  assert.equal(a.connection.player?.playerId, known.account.publicId)
+})
+
+test('still failing at the next start: the run plays offline under the same id, no token, one Sentry report per stretch', async () => {
+  const store = new TestStore()
+  store.mode = 'throw'
+  const worlds = makeWorlds(store)
+  const a = connect(worlds, 'a')
+  a.start()
+  await settle()
+  const id = a.connection.account?.publicId
+  for (let i = 0; i < 3; i++) {
+    endRun(worlds, a)
+    await settle()
+    a.start()
+    await settle()
+    assert.equal(a.events('hello').length, i + 2, 'the run did not start')
+    assert.equal(a.connection.account?.publicId, id)
+    assert.equal(a.connection.player?.playerId, id)
+  }
+  assert.equal(store.creates, 4, 'the store was not tried again at each start')
+  assert.equal(a.events('account').length, 1, 'announced again while still offline')
+  assert.equal(reported.length, 1)
+})
+
+test('a retry whose lookup is in flight: a second start is ignored, and no account is created before the lookup answers', async () => {
+  const store = new TestStore()
+  const known = await store.inner.create()
+  store.mode = 'throw'
+  const worlds = makeWorlds(store)
+  const a = connect(worlds, 'a', { token: known.token })
+  a.start()
+  await settle()
+  endRun(worlds, a)
+  await settle()
+
+  store.mode = 'ok'
+  let release!: () => void
+  store.resolveGate = new Promise((resolve) => { release = resolve })
+  a.start()
+  await settle()
+  a.start()
+  await settle()
+  assert.equal(a.connection.starting, true)
+  assert.equal(store.creates, 0, 'created while the lookup was in flight')
+  assert.equal(a.events('hello').length, 1, 'a run started before the retry answered')
+  release()
+  await settle()
+  assert.equal(store.creates, 0)
+  assert.equal(a.events('hello').length, 2)
+  assert.equal(a.connection.player?.playerId, known.account.publicId)
+})
+
+test('a retry whose lookup times out keeps the stored token: offline again, nothing created', async () => {
+  const store = new TestStore()
+  const known = await store.inner.create()
+  store.mode = 'hang'
+  const worlds = makeWorlds(store, undefined, 30)
+  const a = connect(worlds, 'a', { token: known.token })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  // Offline from connect, so this start is already a retry, and waits it out.
+  a.start()
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  await settle()
+  endRun(worlds, a)
+  await settle()
+  a.start()
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  await settle()
+  assert.equal(store.creates, 0, 'a stored token was replaced while its lookup hung')
+  assert.equal(a.connection.account?.persisted, false)
+  assert.equal(a.events('hello').length, 2)
+  for (const message of a.events('account') as Array<{ token?: string }>) assert.equal(message.token, undefined)
+})
+
+test('a retry that finds the token unknown creates an account, as a first play does', async () => {
+  const store = new TestStore()
+  store.mode = 'throw'
+  const worlds = makeWorlds(store)
+  const a = connect(worlds, 'a', { token: 'Q'.repeat(43) })
+  a.start()
+  await settle()
+  endRun(worlds, a)
+  await settle()
+  store.mode = 'ok'
+  a.start()
+  await settle()
+  const all = a.events('account') as Array<{ token?: string }>
+  assert.match(all[all.length - 1].token ?? '', TOKEN_SHAPE)
+  assert.equal(store.creates, 1)
+})
+
+test('a disconnect or a drain during the retry: no run', async () => {
+  for (const how of ['disconnect', 'drain'] as const) {
+    const store = new TestStore()
+    const known = await store.inner.create()
+    store.mode = 'throw'
+    const worlds = makeWorlds(store)
+    const a = connect(worlds, 'a', { token: known.token })
+    a.start()
+    await settle()
+    endRun(worlds, a)
+    await settle()
+    store.mode = 'ok'
+    let release!: () => void
+    store.resolveGate = new Promise((resolve) => { release = resolve })
+    a.start()
+    await settle()
+    if (how === 'disconnect') a.socket.conn.close()
+    else worlds.draining = true
+    release()
+    await settle()
+    assert.equal(a.events('hello').length, 1, `${how}: a run started`)
+    assert.equal(store.creates, 0)
+  }
+})
+
 // --- the client half (plunder-land-client/src/net/account.ts) ---------------------
 
 function memoryStorage (): TokenStorage & { items: Map<string, string> } {
@@ -504,7 +702,7 @@ test('client: a token from account is stored, sent in every handshake after, and
   a.start()
   await settle()
   const [message] = a.events('account')
-  assert.deepEqual(onAccount(message, storage), { id: (message as { id: string }).id, offline: false })
+  assert.deepEqual(onAccount(message, storage), { id: (message as { id: string }).id, offline: false, standing: { xp: 0, level: 1, levelAt: 0, nextAt: 40 } })
   const token = storage.items.get(TOKEN_KEY) as string
   assert.match(token, TOKEN_SHAPE)
   assert.deepEqual(read(), { token }, 'the next handshake carries it')
@@ -512,12 +710,12 @@ test('client: a token from account is stored, sent in every handshake after, and
   // The server knows it: same id, nothing new stored.
   const b = connect(worlds, 'b', read())
   await settle()
-  assert.deepEqual(b.events('account'), [{ id: (message as { id: string }).id }])
+  assert.deepEqual(b.events('account').map(bare), [{ id: (message as { id: string }).id }])
   assert.equal(onAccount(b.events('account')[0], storage)?.id, (message as { id: string }).id)
   assert.equal(storage.items.get(TOKEN_KEY), token)
 
   // Offline: nothing stored, so the real token survives the outage.
-  assert.deepEqual(onAccount({ id: 'ffffffffffffffff', token: 'B'.repeat(43), offline: true }, storage), { id: 'ffffffffffffffff', offline: true })
+  assert.deepEqual(onAccount({ id: 'ffffffffffffffff', token: 'B'.repeat(43), offline: true }, storage), { id: 'ffffffffffffffff', offline: true, standing: undefined })
   assert.equal(storage.items.get(TOKEN_KEY), token)
   // Malformed: ignored.
   assert.equal(onAccount(null, storage), undefined)

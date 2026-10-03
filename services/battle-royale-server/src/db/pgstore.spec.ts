@@ -14,7 +14,7 @@ import { storeContract } from './storecontract'
  * (a spec that passes without running is a guard that can't fire). For
  * example:
  *
- *   docker run -d --name plunder-pg-spec -p 5439:5432 -e POSTGRES_PASSWORD=spec postgres:17-alpine
+ *   docker run -d --name plunder-pg-spec -p 5439:5432 -e POSTGRES_PASSWORD=spec postgres:18-alpine
  *   TEST_DATABASE_URL=postgres://postgres:spec@127.0.0.1:5439/postgres \
  *     node --test --require ts-node/register src/db/pgstore.spec.ts
  *
@@ -176,4 +176,58 @@ pgTest('the store migrates itself in the background, and a dead database never t
   } finally {
     await dead.close()
   }
+})
+
+pgTest('XP: account_progress (migration 2), grants add up atomically, resolve reads them, and a new store sees them', async () => {
+  const store = new PgAccountStore({ connectionString: URL as string })
+  let token: string
+  let publicId: string
+  try {
+    await assert.rejects(store.grant('0123456789abcdef', 1), NotReadyError)
+    await store.migrateOnce()
+    store.ready = true
+    const created = await store.create()
+    token = created.token
+    publicId = created.account.publicId
+    assert.equal(created.account.xp, 0)
+    // No progress row yet: resolve reads 0 and makes none.
+    assert.equal((await store.resolve(token))?.xp, 0)
+    assert.equal((await store.pool.query('SELECT count(*)::int AS n FROM account_progress')).rows[0].n, 0)
+    // More concurrent grants than the pool has clients: every one counts.
+    const totals = await Promise.all(Array.from({ length: 25 }, async () => await store.grant(publicId, 7)))
+    assert.equal(Math.max(...totals), 175)
+    assert.equal(new Set(totals).size, 25)
+    const row = (await store.pool.query('SELECT p.xp, p.updated_at FROM account_progress p JOIN accounts a ON a.id = p.account_id WHERE a.public_id = $1', [publicId])).rows[0]
+    assert.equal(Number(row.xp), 175)
+    // The CHECK backs the total.
+    await assert.rejects(store.pool.query('UPDATE account_progress SET xp = -1'))
+    // The query the previous release runs still works on this schema (additive only).
+    const old = await store.pool.query('UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING public_id', [hashToken(token)])
+    assert.equal(old.rows[0].public_id, publicId)
+  } finally {
+    await store.close()
+  }
+  const again = new PgAccountStore({ connectionString: URL as string })
+  try {
+    await again.migrateOnce()
+    again.ready = true
+    assert.deepEqual(await again.resolve(token), { publicId, persisted: true, xp: 175 })
+  } finally {
+    await again.close()
+  }
+})
+
+pgTest('close waits for every grant in flight, queued ones included, before ending the pool', async () => {
+  const store = new PgAccountStore({ connectionString: URL as string })
+  await store.migrateOnce()
+  store.ready = true
+  const { account } = await store.create()
+  // A drain's cut-off grants every live run at once: far more than 5 clients.
+  const grants = Array.from({ length: 40 }, async () => await store.grant(account.publicId, 3))
+  await store.close()
+  const settled = await Promise.allSettled(grants)
+  assert.deepEqual(settled.filter((r) => r.status === 'rejected'), [], 'a grant was lost at close')
+  await assert.rejects(store.grant(account.publicId, 1), 'a grant after close')
+  const total = await withClient(async (client) => (await client.query('SELECT xp FROM account_progress')).rows[0].xp)
+  assert.equal(Number(total), 120)
 })
