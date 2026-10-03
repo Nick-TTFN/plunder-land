@@ -59,6 +59,27 @@ function bots (world: World): number {
   return world.PLAYERS.filter((p) => p.bot !== undefined && !p.destroyed && !p.exited && !p.bot.leaving).length
 }
 
+/**
+ * Bots that can't be killed in a spec's lifetime, like the humans, for the
+ * tests that count them: in 300 runs of the cap test, 7 had a bot die within
+ * its 10 s (to another bot's scuffle, a mob, a breath after a portal down),
+ * and the count came up one short; 1 in 300 of the displacement test lost its
+ * staying bot the same way. Nor do they head out of their own accord: in
+ * 1200 more runs of that test, a staying bot reached its loot goal on layer
+ * 03 and extracted in the last 2 s, before the fill could replace it. Their
+ * deaths and exits are play, not what these tests are about. Call after every
+ * tick: the fill adds bots in it.
+ */
+function sturdy (world: World): void {
+  for (const p of world.PLAYERS) {
+    if (p.bot !== undefined && p.maxHp < 60000) {
+      p.maxHp = 60000
+      p.hp = 60000
+      Object.assign(p.bot, { lootGoal: Infinity, deadline: Infinity })
+    }
+  }
+}
+
 function clock (t: TestContext): (ms: number) => void {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   return (ms) => { t.mock.timers.tick(ms) }
@@ -74,10 +95,11 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
   const a = human(worlds, 'a')
   await a.start()
   worlds.tickAll(250)
+  sturdy(world)
   assert.equal(bots(world), 1, 'the first at once')
-  for (let i = 0; i < 4; i++) { tick(250); worlds.tickAll(250) }
+  for (let i = 0; i < 4; i++) { tick(250); worlds.tickAll(250); sturdy(world) }
   assert.equal(bots(world), 1, 'the next waits 2 s')
-  for (let i = 0; i < 40; i++) { tick(250); worlds.tickAll(250) }
+  for (let i = 0; i < 40; i++) { tick(250); worlds.tickAll(250); sturdy(world) }
   assert.equal(bots(world), 3, 'humans + bots = 4')
   assert.equal(Worlds.activePlayers(world), 1, 'bots are not humans')
   assert.equal(worlds.drained, false)
@@ -88,15 +110,16 @@ test('a human over the target displaces a bot, which heads out and is gone withi
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now() })
   const world = worlds.worlds[0]
   await human(worlds, 'a').start()
-  for (let i = 0; i < 40; i++) { worlds.tickAll(250); tick(250) }
+  for (let i = 0; i < 40; i++) { worlds.tickAll(250); sturdy(world); tick(250) }
   assert.equal(bots(world), 2)
 
   await human(worlds, 'b').start()
   worlds.tickAll(250)
+  sturdy(world)
   assert.equal(bots(world), 1, 'one bot is leaving')
   const leaving = world.PLAYERS.find((p) => p.bot?.leaving === true)
   assert.ok(leaving !== undefined)
-  for (let elapsed = 0; elapsed <= LEAVE_GRACE_MS + 1000; elapsed += 250) { tick(250); worlds.tickAll(250) }
+  for (let elapsed = 0; elapsed <= LEAVE_GRACE_MS + 1000; elapsed += 250) { tick(250); worlds.tickAll(250); sturdy(world) }
   assert.ok(leaving.exited || leaving.destroyed, 'out, by extracting or at the grace')
   assert.equal(bots(world), 1, 'and not replaced while the humans fill the rest')
 })
@@ -106,7 +129,7 @@ test('bots never count as humans: world choice, idle and drain ignore them', asy
   const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now() })
   const a = human(worlds, 'a')
   await a.start()
-  for (let i = 0; i < 40; i++) { worlds.tickAll(250); tick(250) }
+  for (let i = 0; i < 40; i++) { worlds.tickAll(250); sturdy(worlds.worlds[0]); tick(250) }
   assert.ok(bots(worlds.worlds[0]) >= 5)
   // cap 1 counts humans only: the second human opens a second world, bots or not.
   await human(worlds, 'b').start()
@@ -180,8 +203,13 @@ test('bots leave a human alone for the first 10 s of the run', async (t) => {
   const full = me.hp + me.armor
   for (let i = 0; i < 36; i++) { tick(250); worlds.tickAll(250) }
   assert.equal(me.hp + me.armor, full, 'untouched at 9 s')
+  // On to 10.25 s, past the grace, before putting it back: put back at 9 s,
+  // its next think still saw a human in its grace, so it wandered, and on
+  // layer 01 a quarter of its wanders head for a portal down. In 400 runs 3
+  // bots were on layer 02 within 0.75 s and spent the window there.
+  for (let i = 0; i < 5; i++) { tick(250); worlds.tickAll(250) }
   // It wandered off meanwhile, maybe through a portal: beside the human
-  // again, on its layer, as the grace ends.
+  // again, on its layer, now the grace is over.
   World.run(world, () => {
     bot.stop()
     if (bot.tag !== me.tag) bot.changeLayer(me.tag)
