@@ -25,6 +25,12 @@ export class RunRecord {
   progress: ProgressInfo | undefined
   /** The open card's, to show the XP when it lands. */
   onProgress: ((progress: ProgressInfo) => void) | undefined
+  /**
+   * A card already waited `PROGRESS_WAIT_MS` for the XP and said UNAVAILABLE:
+   * a card reopened for this run (RUN CARD while spectating) says so at once
+   * rather than waiting again. A `progress` landing later still shows.
+   */
+  progressGaveUp = false
   /** Deepest layer reached, as a layer number (1 = layer 01). */
   deepest = 0
   kills = 0
@@ -40,6 +46,7 @@ export class RunRecord {
     this.durationMs = 0
     this.robot = (robot ?? 'robot').toUpperCase()
     this.progress = undefined
+    this.progressGaveUp = false
   }
 
   setProgress (progress: ProgressInfo): void {
@@ -111,11 +118,16 @@ export class RunSummaryCard extends Container {
       panel.body.addChild(l, v)
       if (label === 'XP') this._xp = v
     })
-    this.showXp(run, false)
-    const onProgress = (): void => { this.showXp(run, false) }
+    this.showXp(run)
+    const onProgress = (): void => { this.showXp(run) }
     if (run.progress === undefined) {
       run.onProgress = onProgress
-      this._wait = setTimeout(() => { this.showXp(run, true) }, PROGRESS_WAIT_MS)
+      if (!run.progressGaveUp) {
+        this._wait = setTimeout(() => {
+          run.progressGaveUp = true
+          this.showXp(run)
+        }, PROGRESS_WAIT_MS)
+      }
     }
 
     const button = this.button('PLAY AGAIN', inner, () => { this.again() })
@@ -150,10 +162,10 @@ export class RunSummaryCard extends Container {
     })
   }
 
-  private showXp (run: RunRecord, waited: boolean): void {
+  private showXp (run: RunRecord): void {
     const v = this._xp
     if (v === undefined) return
-    const [text, tone] = xpLine(run.progress, waited, ACCOUNT.info?.offline === true)
+    const [text, tone] = xpLine(run.progress, run.progressGaveUp, ACCOUNT.info?.offline === true)
     v.text = text
     v.style.fill = tone === 'accent' ? THEME.accent : tone === 'text' ? THEME.text : THEME.muted
     if (run.progress !== undefined) clearTimeout(this._wait)
