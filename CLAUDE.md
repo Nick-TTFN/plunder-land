@@ -1116,6 +1116,10 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
   from a portal moving a mob, which it no longer does). Clear `World.OBSTACLES`/`BLOCKED`/
   `MOBS` after building the world unless the test is about the map, and assert only what
   holds wherever the gates land when it is (`layers.spec.ts`).
+  Three more rules from the 2026-10-03 flake hunt (`a69af95`): a spec that moves a unit by hand
+  keeps it on the map (an east step from the last column was clamped back into its own cell); a
+  spec that counts bots keeps them alive and in play (`sturdy` in `bots.spec.ts`); a spec that
+  checks what a player picked up allows for refilled natural loot and other players taking it.
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`.** A rejected
   `void` promise is an unhandled rejection, which ends the process, and no try/catch around
   the tick can see it. With Redis down, every disconnect used to kill the server that way.
