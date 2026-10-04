@@ -190,9 +190,18 @@ stats write is caught and logged, throttled to one line a minute (`stats write f
 and the world keeps running. Stats are simply lost, so that log line is the symptom to look
 for. (The `MISCONF` path is covered by the same catch but wasn't run; a dead Redis port was.)
 
-The stats.js performance overlay (fps, socket bytes) shows only with `?stats=1` since
-`hud-rebuild`: it sat on top of the HUD's status panel for every player. Since the SDK
-cleanup (2026-10-02) it is a separate chunk loaded only then.
+The stats.js performance overlay (fps, socket bytes) shows only with `?stats=1` or the
+settings' PERFORMANCE OVERLAY since `hud-rebuild`: it sat on top of the HUD's status panel for
+every player. Since the SDK cleanup (2026-10-02) it is a separate chunk loaded only then.
+
+**Settings** (L3 without sound, 2026-10-04): `net/settings.ts` (pixi-free, localStorage
+`plunderland_settings`, every field falls back alone, a clash falls back to the default keys) and
+`ui/settings/settingspanel.ts` (DOM, `st-` classes), from the lobby's SETTINGS and Escape in game;
+while open it takes every key (the lobby's handler steps aside). Skill keys (Q W E R) and item keys
+(1-5) rebind, single characters only, Enter/Space/Escape reserved, a key in use swaps; mid-run the
+cards rekey with cooldowns kept (`HUD.rekey`). Resolution auto/1x/2x (`densityFor`) applies at once;
+ROBOT SHADOWS (`RobotSprite`'s cast pass) from the next run. SOUND is a greyed row until there are
+sounds. The old S key toggled an unused `Game.simulate`: removed.
 
 The client's server address is baked in at build time from **`SERVER_URL`**
 (`webpack.config.js` → `src/config.ts`). A production build **fails without it**, so a deploy
@@ -743,6 +752,18 @@ Live runs play out; it stops when none is left or at `DRAIN_MAX_MS` (default 570
 Railway's 600 s `drainingSeconds`), and waits for the disconnects' stats writes before quitting
 Redis. SIGINT is still an immediate stop.
 
+**Burst capacity** (2026-10-04, `burst-capacity`, both off by default). **`WORKERS`** > 1:
+`src/cluster.ts` forks that many servers on the one port (websocket-only, so no sticky sessions);
+one that exits is re-forked (after 5 s if it lived under 10 s); SIGTERM reaches every worker, each
+drains as above, and the primary exits after the last. `WORLD_CAP`, `MAX_PLAYERS` and `/stats`'
+cache are per worker. **`MAX_PLAYERS`**: humans in runs per process (bots don't count); a start
+over it is sent **`full { retryMs: 2000 }`** and its transport closed (as `redirect`), before the
+account or the play, so nothing is spent. Soft by the starts already waiting on the database. The
+client (`net/full.ts`) shows SERVER FULL · RETRYING IN Ns by READY and presses READY itself after
+doubling backoff from 1 s to 15 s (never under `retryMs`, +-30% jitter); `hello` or its cross
+clears it. An older client just lands back in the lobby: no PROTOCOL bump. The cap's value needs a
+load test on Railway.
+
 **`hello`** is emitted once on join: `{ tick, map, interest, layers, skills }`; `skills` is the run's 4 skill ids, Q W E R, as the server resolved them (#48 step 4), and the client resets `Session.skills` on every hello. Nothing on the client
 may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, top (01) first;
 the client builds one plane per entry when `hello` lands (it precedes the join's first
@@ -839,7 +860,8 @@ table, deprecated and never sent, because indices are append-only. The client st
 it for older servers. A uint16 loot over 65,535 threw inside `World.update`, so the tick's
 catch skipped `flushAll` and **the whole world froze**, every tick, because loot stayed
 dirty. Any uint16/uint8 field fed by an unbounded value can do the same. Audit notes: effect
-lifetime is an int8 of ms/100, so a 12.8 s effect would throw; ids are uint16 but recycled a
+lifetime is an int8 of ms/100, clamped to 12.7 s since 2026-10-04 (`Multiplayer.effectLifetime`; a
+12.8 s effect threw); ids are uint16 but recycled a
 second after release, and a 200-bot stress run peaked at id 2,610.
 
 **`kills` (21)** is a player's credited kills this run, a uint16 saturated at 65,535, for the
@@ -981,7 +1003,9 @@ in a 720p frame shrunk to 240p; plate text does not.
 
 **A run ends in a card** (`ui/popups/runsummary.ts`, `run-summary-card`): outcome, time, loot
 banked or lost, kills (`kills`, 21), deepest layer and robot, from `Game.RUN`. Its PLAY
-AGAIN (or Enter / Space) calls `Game.start`; there is no longer a 2 s automatic restart.
+AGAIN (or Enter / Space) calls `Game.start`; there is no longer a 2 s automatic restart. A
+level-up's XP line is followed by what it opened (`unlockedBetween` in `ui/lobby/locks.ts`, from the
+same mirrored rows as the locks; the level before comes from the lobby's last standing).
 
 **The canvas renders at the screen's density** (`index.ts`: `resolution` = devicePixelRatio
 capped at 2, `autoDensity`, re-read on resize). pixi's default of 1 gave a Retina screen a
@@ -1011,6 +1035,25 @@ the player in under the HUD. With the hitArea in place, "target is the stage" me
 Movement is click-to-move only. The on-screen joystick is gone — it was a second way to say the
 same thing, it aimed at a cell five out rather than at a destination, and its
 `pointerDown` flag was a hidden gate on the world's own click handler.
+
+**A HUD button takes the press on its container, not its background** (`SkillCard`, inventory
+slots): pixi hit-tests every child, so a press on the icon or label hit that child and bubbled past
+a listener on the background sibling. Until 2026-10-04 only a card's empty edges cast.
+
+**Touch** (L9 part, 2026-10-04). `assets/index.html` has a viewport meta (without it a phone laid
+the page out 980 px wide, zoomed out) and `touch-action: none` on the canvas. A tap moves, as a
+click does. **Aiming on touch** (`skills/touchaim.ts`, Claude's design): a tap on an aimed skill's
+card (`Skill.aims`: ranged, fireball, icicle, ice breath) arms it (TAP TARGET, a ring); the next
+world tap casts at that cell instead of moving; the card again casts along facing; it disarms after
+4 s. Other skills cast on the tap. Items (the bomb too) use along facing. **Phone HUD**
+(`HUD.phone()`, either side under 520 px): the leaderboard opens and closes from the clock, the fog
+legend isn't drawn. **Lobby under 500 px tall** (a phone held sideways): three columns, no cards row
+(the arrows switch robots); under 720 px wide PRIVACY sits under READY.
+
+**Ranged charges on the press** (2026-10-04): your own robot's eye shot starts on the key press
+(`RangedAttackEffect.pressed`), the server's effect no longer restarts it (the shot overlay dedupes
+like actions, `RETRIGGER_S`), and the beam waits only for what is left of `SHOT.fire` since the press.
+Defend stays on arrival: its protection starts at the server.
 
 `GameObject.DEBUG_COLLIDERS` is off. It draws a magenta disc the size of the collider under
 every object; the `// return` that used to switch it off had been commented out, so the
