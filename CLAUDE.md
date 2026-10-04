@@ -106,8 +106,8 @@ same.
 `utils/archetypes.ts` `stats`** and its row takes them from there (`robot()`, robot-select #42), so
 the lobby and the server read one table; `damageScale` multiplies every skill's damage through
 `Skill.dealt` (`robotselect.spec.ts` fails on a hit that skips it). A join picks the robot by
-`start_requested.robot` (a key), only from `SELECTABLE_ROBOTS` (all five robots since 2026-10-01), else peep
-(`World.robotFor`). The rest of a row:
+`start_requested.robot` (a key), only from `SELECTABLE_ROBOTS` and only one the account's level has opened (`unlockLevel` on the mirrored row: Peep 1, Magnet 3, Periscope 5, Hopper 8, Waddle 12; #48 step 5), else peep
+(`lockedStart` in `progress/unlocks.ts`, from `Multiplayer.startRequested`; never in `World.robotFor`, so bots ignore locks). The rest of a row:
 body, HP, speed, loot, contact damage with its cooldown and range in rings (`contact.rings`,
 1 for every mob), kill-stat keys, skills with per-archetype overrides, and AI routines with
 their parameters. `body` is the wire's `radius` and is drawing only: since hex-cells P1-P3
@@ -468,17 +468,17 @@ colour-free layer can't copy) and it fails above 24. Light above 1x (up to 1.36 
 is dropped, because a tint can't brighten; Nick accepted it. The colours and patterns are
 `utils/finishes.ts`, mirrored like `items.ts`: the ten colours of the drop's six presets
 (Claude's pick, Nick may change it), patterns none/zebra/checker/camo with the opacity fixed per
-pattern (camo 0.45), and ids append-only. All are free until meta-progression. They are picked in the lobby.
+pattern (camo 0.45), and ids append-only. Each colour and pattern has an `unlockLevel` (#48 step 5, Dez v1): MINT, CREAM and SAND and PLAIN and ZEBRA at 1, OLIVE 2, CAMO 3, ICE 4, SKY 5, PEACH 6, CORAL and CHECKER 7, VIOLET 9, BONE 10; the presets open at MINT 1, FIELD and WILD 3, ARCTIC 5, SUNSET 7, ARCADE 10. A join wears `lockFinish` of what it asked for: per group, a locked colour or pattern becomes that group's `DEFAULT_FINISH` part. `finishFromBytes` never locks, because it also decodes other players' finishes. They are picked in the lobby.
 
 **The lobby replaced the enter popup** (lobby-rework, #42; mockup in the project memory,
 `ideas/lobby-mockup-2026-09-30.png`). `ui/lobby/lobby.ts`: pixi draws the backdrop, the platform
 and the robots (the chosen one large, aiming at the pointer, the next one dimmed); DOM over the
 canvas (`lobbystyle.ts`, all `lb-` classes, placeholder chrome) carries the name pill, robot cards
-(stills rendered from the rigs; all five pickable since 2026-10-01, `ui/lobby/roster.ts`,
+(stills rendered from the rigs; pickable from their unlock level since 2026-10-01, `ui/lobby/roster.ts`,
 whose class lines and taglines other than Peep's are placeholder copy), stat bars read from the
 mirrored `stats`, CUSTOMIZE (head/body/limbs rows of the presets' swatches, or MIX for any colour
 and pattern) and READY UP. Keys: left/right, E, Enter. It remembers robot, finish and name
-(`plunderland_player_robot`, `_finish`, `_name`). Not done: the hangar background (art), the
+(`plunderland_player_robot`, `_finish`, `_name`). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art), the
 COLLECTION tab, the title (PLUNDERLAND here; the mockup says SCAVENGERS). `assets/index.html`
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the
 bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out as mojibake.
@@ -697,7 +697,7 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 3 since skill loadouts** (#48 step 4, 2026-10-04; 2 was guest accounts): an older client sends the `skill` slot as an index into eight.
+tabs left open across a release. **`PROTOCOL` is 4 since robot and finish locks** (#48 step 5, 2026-10-04: an older client offers every robot and finish, which the server would now silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
 
 **`account`** (server → client, text; framed clients decode text events; #48): `{ id }` on
 connect for a known handshake token, `{ id, token }` on a connection's first play without one
@@ -715,7 +715,7 @@ PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
 
 **`save_loadout { robot, index, skills }`** (client → server, text, in the lobby or mid-run, effective
 at the next join) is answered by **`loadout_saved { robot, index, ok, skills, busy? }`**. Refused
-unless the account is persisted, the robot selectable, the index one the level has and
+unless the account is persisted, the robot selectable and unlocked at the account's level, the index one the level has and
 `checkLoadout` passes; a refusal or failure answers with `kitFor`'s current answer so the lobby
 snaps back. One write in flight per connection (a second meanwhile answers `busy`); the account in
 memory changes only after the write resolves; one landing after the 3 s timeout is stored but
@@ -750,7 +750,7 @@ inviter's code (sessionStorage `plunderland_join`; `ui/lobby/party.ts`, pixi-fre
 `party.spec.ts`). Free-for-all all the same. Additive: an old server ignores it.
 
 **Client → server `start_requested` is `{ id, name, finish, robot, party, loadout }`** (`loadout` the robot's loadout index, raw; `kitFor` checks it; absent = 0) (`robot` the picked
-robot's key; anything not selectable plays Peep; until the lobby, the client sends `?robot=` or
+robot's key; anything not selectable, or not yet opened by the account's level, plays Peep with Peep's loadout; a locked colour or pattern plays as the group's default; never refused; no account (non-strict specs only) has no locks, an offline account has level 1's; until the lobby, the client sends `?robot=` or
 `peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
 the default, never a refused join; a client from before finishes sends none; `party`, see
@@ -1247,7 +1247,7 @@ start.loadout)` (`progress/loadouts.ts`): the stored row, checked against `level
 (never `Unit.level`) at every join, because a curve change can lock what was valid when saved;
 otherwise the whole start kit. A join is never refused. The server builds the 4 with `buildKit`
 over `SKILL_SPECS` (`archetypes.ts`); robots carry no skills and `Player`'s default kit is the
-start kit, so a path that forgets the kit fails closed. The 4 reach the client in `hello.skills`;
+start kit, so a path that forgets the kit fails closed. Robot and finish locks (#48 step 5) use `joinLevel` (`progress/unlocks.ts`): `levelOf(xp)`, 1 for an offline account, `Infinity` for no account (only non-strict specs reach it). `loadoutsFor` keeps locked robots and their stored rows: the account is sent only on connect, and a row saved before locks is what the robot plays once it opens. The 4 reach the client in `hello.skills`;
 the client builds only its own player's skills (`Player.equip`, `skills/catalog.ts`). With no
 `hello.skills` (a server from before loadouts) it plays the legacy eight on q-i; delete
 `LEGACY_SLOTS`/`LEGACY_KEYS` (`net/loadout.ts`) in the release after.
