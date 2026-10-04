@@ -12,6 +12,7 @@ import Analytics from '../analytics'
 import type { Account } from '../db/accounts'
 import { earnedXp } from '../progress/run'
 import { kitFor } from '../progress/loadouts'
+import { lockedStart } from '../progress/unlocks'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -379,14 +380,19 @@ export default class Multiplayer {
       : (!World.strict ? start.id : undefined)
     if (playerId === undefined) return
     connection.started = true
+    // Robot and finish locks (decision #48 step 5), applied once, here: a
+    // robot the account's level hasn't opened plays Peep, a locked colour or
+    // pattern the group's default; the join is never refused. Not in
+    // `World.robotFor` / `createPlayer`, which bots join through: bots ignore
+    // locks. No account (non-strict specs only) has no locks (`joinLevel`).
+    const { robot, finish } = lockedStart(connection.account, start.robot, start.finish)
     // The run's skills (decision #48 step 4): the account's loadout `loadout`
-    // for the robot this join really plays (a forged robot plays Peep, with
-    // Peep's loadout), checked against the account's level now. A start
-    // without `loadout` (a client from before loadouts) is loadout 0; no
+    // for the robot this join really plays (a forged or locked robot plays
+    // Peep, with Peep's loadout), checked against the account's level now. A
+    // start without `loadout` (a client from before loadouts) is loadout 0; no
     // account (single-world specs) is the start kit.
-    const robot = World.robotFor(start.robot)
-    const kit = kitFor(connection.account, robot.key, 'loadout' in start ? start.loadout : 0)
-    this.onStart(connection, playerId, start.name, start.finish, start.robot, kit)
+    const kit = kitFor(connection.account, robot, 'loadout' in start ? start.loadout : 0)
+    this.onStart(connection, playerId, start.name, finish, robot, kit)
   }
 
   onConnect (socket: Socket): void {

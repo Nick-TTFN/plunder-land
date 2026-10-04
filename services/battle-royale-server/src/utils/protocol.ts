@@ -18,5 +18,8 @@
  * eight, which this server reads as an index into the player's 4: Q, W and E
  * would still work with the start kit, but R would fire whatever is in slot 3
  * and T to I would do nothing. That silent misbehaviour is why it is bumped.
+ * 4: robot and finish locks (#48 step 5). An older client offers every robot
+ * and finish; this server plays a locked one as Peep or the group's default
+ * without saying so.
  */
-export const PROTOCOL = 3
+export const PROTOCOL = 4

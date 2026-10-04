@@ -11,6 +11,10 @@ import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
 import { ACCOUNT } from '../../net/account'
 import { LoadoutPanel } from './loadoutpanel'
+import {
+  type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
+  reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
+} from './locks'
 
 const ID_KEY = 'plunderland_player_id'
 const NAME_KEY = 'plunderland_player_name'
@@ -62,9 +66,6 @@ const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floo
 
 /** `finish` as its wire bytes, `robot` an archetype key. */
 export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number) => Promise<void>
-
-/** A group's finish as one swatch: colour and pattern. */
-interface Swatch { colour: number, pattern: number }
 
 /**
  * The CSS for a swatch: the palette colour with the pattern drawn over it in
@@ -125,8 +126,10 @@ function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, 
  * `lobbystyle.ts`) until the screen gets its art. The hangar background in the
  * mockup is art and is not here.
  *
- * Locked robots (no art yet) show as cards that can't be picked. The choice of
- * robot, finish and name is remembered in localStorage.
+ * Robots, colours and patterns the account's level hasn't opened (#48 step 5,
+ * `locks.ts`) show disabled with an `LV n` badge; the remembered robot and
+ * finish are the player's wish, shown and sent as the level allows. The choice
+ * of robot, finish and name is remembered in localStorage.
  *
  * Keys: left/right switch robot, E opens and closes customize, L the skill
  * loadouts (`loadoutpanel.ts`, decision #48 step 4), Enter is READY
@@ -135,7 +138,15 @@ function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, 
 export default class Lobby extends Container {
   private readonly playerId: string
   private index: number
+  /**
+   * The stored finish and robot are the player's wish (#48 step 5): what is
+   * shown, drawn and sent is the wish as the account's level allows it
+   * (`locks.ts`). `picked` is the robot the player chose in this lobby, if any;
+   * only then does READY overwrite the stored robot.
+   */
   private finish: Finish
+  private readonly robotWish: string | null
+  private picked: RosterEntry | undefined
   private mixMode = false
   private started = false
   /** This browser's party code, and the invite this tab was opened with (party.ts). */
@@ -170,7 +181,7 @@ export default class Lobby extends Container {
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
   private readonly onResize = (): void => { this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
-  private readonly onAccount = (): void => { this.renderLevel() }
+  private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel() }
   /** `teardown` ran: it can be reached twice (`destroy` also emits `removed`). */
   private tornDown = false
   /** The account's level in the name pill (decision #48 step 3); hidden until the server says. */
@@ -180,8 +191,8 @@ export default class Lobby extends Container {
     super()
     this.playerId = Lobby.loadId()
     this.finish = finishFromBytes(Lobby.loadJson(FINISH_KEY))
-    const remembered = readStorage(ROBOT_KEY)
-    this.index = Math.max(0, PICKABLE.findIndex((r) => r.key === remembered))
+    this.robotWish = readStorage(ROBOT_KEY)
+    this.index = PICKABLE.indexOf(shownRobot(this.robotWish, this.accountLevel))
     this.ownParty = Lobby.loadParty()
     this.invite = Lobby.loadInvite()
 
@@ -263,12 +274,15 @@ export default class Lobby extends Container {
         card.title = 'Coming soon'
         card.append(el('div', 'lb-soon', 'SOON'))
       } else {
-        card.onclick = () => { this.select(PICKABLE.indexOf(entry)) }
+        // Its lock badge, shown by `renderCards` while the level hasn't opened it.
+        card.append(el('div', 'lb-soon lb-hidden'))
+        card.onclick = () => { this.pick(entry) }
       }
       cards.append(card)
       this.cards.push(card)
     }
     this.root.append(cards)
+    this.renderCards()
 
     this.customize = el('div', 'lb-custom lb-hidden')
     const head = el('div', 'lb-customhead')
@@ -419,8 +433,57 @@ export default class Lobby extends Container {
     return PICKABLE[this.index]
   }
 
+  /** The account's level, 1 offline or before the server says (as `LoadoutPanel.level`, and the server's offline lock). */
+  private get accountLevel (): number {
+    return ACCOUNT.info?.standing?.level ?? 1
+  }
+
+  /** Left/right: over the robots the level has opened only. */
   private step (by: number): void {
-    this.select((this.index + by + PICKABLE.length) % PICKABLE.length)
+    const next = stepRobot(this.entry, by, this.accountLevel)
+    // Nothing to step to (level 1, or before the account arrives): not a
+    // pick, or READY would store Peep over the player's wish (48-5 review).
+    if (next === this.entry) return
+    this.pick(next)
+  }
+
+  /** The player chose `entry` (a card, left/right); a locked one is ignored. */
+  private pick (entry: RosterEntry): void {
+    if (robotLock(entry, this.accountLevel) !== undefined) return
+    this.picked = entry
+    this.select(PICKABLE.indexOf(entry))
+  }
+
+  /**
+   * The level changed (the account or a run's progress landed while the lobby
+   * is open): the shown robot re-resolved (the stored wish if the player hasn't
+   * picked here, else the pick, Peep if it became locked), and the cards,
+   * customize and robots drawn again with the finish the level allows.
+   */
+  private applyLevel (): void {
+    if (this.tornDown) return
+    const level = this.accountLevel
+    const shown = reshownRobot(this.picked, this.robotWish, level)
+    this.renderCards()
+    this.renderCustomize()
+    this.select(PICKABLE.indexOf(shown))
+    void this.renderThumbnails()
+  }
+
+  /** Cards of robots the level hasn't opened: disabled, `lb-locked`, an `LV n` badge. */
+  private renderCards (): void {
+    const level = this.accountLevel
+    ROSTER.forEach((entry, i) => {
+      if (entry.robot === undefined) return
+      const card = this.cards[i]
+      const badge = card.querySelector('.lb-soon') as HTMLDivElement
+      const lock = robotLock(entry, level)
+      card.disabled = lock !== undefined
+      card.classList.toggle('lb-locked', lock !== undefined)
+      card.title = lock !== undefined ? lockTitle(lock) : ''
+      badge.classList.toggle('lb-hidden', lock === undefined)
+      badge.textContent = lock !== undefined ? lockBadge(lock) : ''
+    })
   }
 
   private select (index: number): void {
@@ -440,10 +503,16 @@ export default class Lobby extends Container {
     this.buildRobots()
   }
 
+  /** The finish shown, drawn and sent: the wish as the level allows it. */
+  private get shownFinish (): Finish {
+    return shownFinish(this.finish, this.accountLevel)
+  }
+
+  /** A new wish; the robots wear what the level allows of it. */
   private setFinish (finish: Finish): void {
     this.finish = finish
-    this.robot?.setFinish(finish)
-    this.neighbour?.setFinish(finish)
+    this.robot?.setFinish(this.shownFinish)
+    this.neighbour?.setFinish(this.shownFinish)
     this.renderCustomize()
   }
 
@@ -469,8 +538,13 @@ export default class Lobby extends Container {
     const name = this.nameInput.value.trim()
     // An empty name is remembered too, so clearing the field sticks.
     writeStorage(NAME_KEY, name)
+    // The wishes are stored; what is sent is what is shown (#48 step 5). The
+    // robot is stored only if picked here, so a fallback to Peep (an outage,
+    // the account not yet announced) never overwrites a stored Waddle.
     writeStorage(FINISH_KEY, JSON.stringify(finishToBytes(this.finish)))
-    writeStorage(ROBOT_KEY, this.entry.key)
+    const store = robotToStore(this.picked, this.entry)
+    if (store !== undefined) writeStorage(ROBOT_KEY, store)
+    const sent = finishToBytes(this.shownFinish)
     const robot = this.entry.robot ?? 'peep'
     const loadout = this.loadout.indexFor(robot)
     // A loadout change still saving goes first (at most `SETTLE_MAX_MS`), or
@@ -478,7 +552,7 @@ export default class Lobby extends Container {
     void this.loadout.settle().then(() => {
       // Taken down meanwhile (a reconnect clears the popups): no start.
       if (this.tornDown) return
-      void this.start(this.playerId, name, finishToBytes(this.finish), robot, this.party, loadout)
+      void this.start(this.playerId, name, sent, robot, this.party, loadout)
       this.parent?.removeChild(this)
     })
   }
@@ -507,29 +581,36 @@ export default class Lobby extends Container {
 
   private renderCustomize (): void {
     this.mixButton.textContent = this.mixMode ? 'PRESETS' : 'MIX COLOUR + PATTERN'
+    const level = this.accountLevel
+    const shown = this.shownFinish
     for (const group of FINISH_GROUPS) {
       const row = this.rows[group]
       if (row === undefined) continue
-      const now = this.finish[group]
+      // What is shown, never a hidden locked part of the wish (#48 step 5).
+      const now = shown[group]
       row.current.textContent = swatchName(now)
       row.swatches.replaceChildren()
       if (!this.mixMode) {
         for (const s of presetSwatches(group)) {
-          row.swatches.append(this.swatchButton(s, s.colour === now.colour && s.pattern === now.pattern, () => { this.paint(group, s) }))
+          const b = this.swatchButton(s, s.colour === now.colour && s.pattern === now.pattern, () => { this.paint(group, s) })
+          Lobby.lock(b, swatchLock(s, level))
+          row.swatches.append(b)
         }
       } else {
         const colours = el('div', 'lb-colours')
         for (const c of PALETTE) {
           const s = { colour: c.id, pattern: 0 }
-          const b = this.swatchButton(s, c.id === now.colour, () => { this.paint(group, { colour: c.id, pattern: now.pattern }) })
+          const b = this.swatchButton(s, c.id === now.colour, () => { this.setFinish(mixColour(this.finish, this.accountLevel, group, c.id)) })
           b.classList.add('lb-small')
           b.title = c.label
+          Lobby.lock(b, colourLock(c.id, level))
           colours.append(b)
         }
         const patterns = el('div', 'lb-patterns')
         for (const p of PATTERNS) {
           const b = el('button', p.id === now.pattern ? 'lb-chip lb-sel' : 'lb-chip', p.label)
-          b.onclick = () => { this.paint(group, { colour: now.colour, pattern: p.id }) }
+          b.onclick = () => { this.setFinish(mixPattern(this.finish, this.accountLevel, group, p.id)) }
+          Lobby.lock(b, patternLock(p.id, level))
           patterns.append(b)
         }
         row.swatches.append(colours, patterns)
@@ -546,7 +627,21 @@ export default class Lobby extends Container {
   }
 
   private paint (group: FinishGroup, s: Swatch): void {
-    this.setFinish({ ...this.finish, [group]: { colour: s.colour, pattern: s.pattern } })
+    this.setFinish(paintWish(this.finish, group, s))
+  }
+
+  /**
+   * A swatch or chip locked at `lock` (undefined: open): disabled, so it never
+   * paints, titled with its level, and badged `LV n` (a chip in its text,
+   * anything else in a span; `.lb-small .lb-lock` sizes it on MIX swatches).
+   */
+  private static lock (b: HTMLButtonElement, lock: number | undefined): void {
+    if (lock === undefined) return
+    b.disabled = true
+    b.title = lockTitle(lock)
+    b.classList.add('lb-locked')
+    if (b.classList.contains('lb-chip')) b.textContent = `${b.textContent ?? ''} ${lockBadge(lock)}`
+    else b.append(el('span', 'lb-lock', lockBadge(lock)))
   }
 
   // --------------------------------------------------------------- pixi
@@ -561,11 +656,13 @@ export default class Lobby extends Container {
       if (rig === undefined || !RobotSprite.ready(rig)) return undefined
       // Drawn several times its in-game size: the lobby sheet when it's there.
       const sprite = new RobotSprite(this, rig, RobotSprite.ready(rig, true))
-      sprite.setFinish(this.finish)
+      sprite.setFinish(this.shownFinish)
       return sprite
     }
     this.robot = make(this.entry)
-    if (PICKABLE.length > 1) this.neighbour = make(PICKABLE[(this.index + 1) % PICKABLE.length])
+    // The next robot the level has opened, if there is another.
+    const next = stepRobot(this.entry, 1, this.accountLevel)
+    if (next !== this.entry) this.neighbour = make(next)
     if (this.neighbour !== undefined) {
       this.neighbour.alpha = 0.35
       this.stage.addChild(this.neighbour)
@@ -661,7 +758,7 @@ export default class Lobby extends Container {
       }
       const host = new Container()
       const sprite = new RobotSprite(host, rig, RobotSprite.ready(rig, true))
-      sprite.setFinish(this.finish)
+      sprite.setFinish(this.shownFinish)
       sprite.scale.set(2)
       sprite.update(0)
       host.addChild(sprite)

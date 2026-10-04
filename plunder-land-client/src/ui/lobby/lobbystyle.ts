@@ -66,6 +66,9 @@ export const LOBBY_CSS = `
 .lb-custom { position: absolute; top: 88px; right: 28px; width: 400px; padding: 18px 20px; border-radius: 10px;
   background: rgba(11,18,32,.94); border: 1px solid #3a6e7e; box-shadow: 0 0 24px rgba(61,224,208,.18); pointer-events: auto; z-index: 2; }
 .lb-hidden { display: none; }
+.lb-lock { position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); font-size: 9px; letter-spacing: .06em; padding: 0 3px;
+  border-radius: 3px; background: #1A2533; color: #8FA3B5; white-space: nowrap; pointer-events: none; }
+.lb-small .lb-lock { bottom: -10px; font-size: 8px; }
 .lb-customhead { display: flex; justify-content: space-between; align-items: center; font-size: 22px; letter-spacing: .18em;
   padding-bottom: 12px; border-bottom: 1px solid #1E3344; }
 .lb-close { background: none; border: 0; color: #E6EEF5; font-size: 28px; }

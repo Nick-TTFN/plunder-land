@@ -67,6 +67,15 @@ export interface ArchetypeInfo {
   readonly rangedCells: number | null
   /** Robots only; null for mobs, whose stats live only on the server. */
   readonly stats: RobotStats | null
+  /**
+   * The account level (not `Unit.level`) at which a player may pick it (#48
+   * step 5, Dez's v1 in `ideas/meta-progression-numbers.md` section 3); null
+   * for mobs. A tunable: a retune needs both deploys, client first; deployed
+   * apart, the lobby shows a lock the server doesn't enforce or the other way
+   * round, and the server's answer always wins (it plays a locked robot as
+   * Peep). Bots ignore it.
+   */
+  readonly unlockLevel: number | null
 }
 
 // Robot ids by the brief's order: peep 1, periscope 2, magnet 3, hopper 4,
@@ -74,34 +83,41 @@ export interface ArchetypeInfo {
 // with #16's stats and #43's standard vision.
 export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Object.freeze({
   peep: Object.freeze({
-    id: 1, key: 'peep', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 1, key: 'peep', kind: 'robot', unlockLevel: 1, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 100, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   periscope: Object.freeze({
-    id: 2, key: 'periscope', kind: 'robot', passesObstacles: false, vision: 10, rangedCells: 6,
+    id: 2, key: 'periscope', kind: 'robot', unlockLevel: 5, passesObstacles: false, vision: 10, rangedCells: 6,
     stats: Object.freeze({ maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   magnet: Object.freeze({
-    id: 3, key: 'magnet', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 3, key: 'magnet', kind: 'robot', unlockLevel: 3, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 25, speed: 140, pickupReach: 3, damageScale: 1 })
   }),
   // Its trait, passing through obstacle cells (#15), is flagged but not built.
   hopper: Object.freeze({
-    id: 4, key: 'hopper', kind: 'robot', passesObstacles: true, vision: 6, rangedCells: 6,
+    id: 4, key: 'hopper', kind: 'robot', unlockLevel: 8, passesObstacles: true, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   // HP and armor paid for in speed (#16).
   waddle: Object.freeze({
-    id: 5, key: 'waddle', kind: 'robot', passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 5, key: 'waddle', kind: 'robot', unlockLevel: 12, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 130, armor: 100, speed: 120, pickupReach: 1, damageScale: 1 })
   }),
-  grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null, stats: null }),
-  boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', passesObstacles: false, vision: null, rangedCells: null, stats: null }),
-  gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', passesObstacles: false, vision: null, rangedCells: 6, stats: null })
+  grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', unlockLevel: null, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
+  boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', unlockLevel: null, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
+  gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', unlockLevel: null, passesObstacles: false, vision: null, rangedCells: 6, stats: null })
 })
 
 /** The robots a player may pick at join, by key, in the lobby's order. */
 export const SELECTABLE_ROBOTS: readonly ArchetypeKey[] = Object.freeze(['peep', 'periscope', 'magnet', 'hopper', 'waddle'])
+
+/** Whether an account of `level` may play `key`: a selectable robot whose `unlockLevel` is at most `level`. */
+export function robotUnlocked (key: unknown, level: number): boolean {
+  if (typeof key !== 'string' || !(SELECTABLE_ROBOTS as readonly string[]).includes(key)) return false
+  const unlock = ARCHETYPE_INFO[key as ArchetypeKey].unlockLevel
+  return unlock !== null && unlock <= level
+}
 
 /** The entry with this wire id, or undefined for 0 and for any id this build doesn't know. */
 export function archetypeById (id: number | undefined): ArchetypeInfo | undefined {

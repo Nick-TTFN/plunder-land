@@ -4,8 +4,9 @@ import { ARCHETYPE_INFO, SELECTABLE_ROBOTS, type RobotStats } from '../../utils/
  * The five robots the lobby shows (lobby-rework, decision #42), in the brief's
  * order. Lobby copy only: what a robot *does* is the mirrored archetype table,
  * whose `stats` the stat bars read, so the lobby can't show a number the
- * server doesn't play. All five are playable since 2026-10-01 (Hopper and
- * Waddle last; until then they were shown locked).
+ * server doesn't play. All five are pickable since 2026-10-01 (Hopper and
+ * Waddle last; until then they were shown locked), each from the account level
+ * on its archetype row (`unlockLevel`, #48 step 5; `locks.ts`).
  *
  * The class lines and taglines other than Peep's (the mockup's) are Claude's
  * placeholder copy, 2026-10-01; Nick may replace them.
