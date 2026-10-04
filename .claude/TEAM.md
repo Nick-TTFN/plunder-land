@@ -79,7 +79,7 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   `update` header, the 4-byte `pointer` input, and `hello`.
 - The `standings` record (`[0][uint16 rank]` after the name): server `Multiplayer.rankStandings`
   / `StandingsBoard`, client `src/ui/components/standings.ts` (`decodeStanding`, `pickShown`).
-- `utils/skills.ts` (mirrored; ids append-only), `hello.skills` and the `skill` slot as an index into it, `start_requested.loadout`, `save_loadout`/`loadout_saved`, and `account.loadouts` (#48 step 4); the `season` event and `/season` (#48 step 6; server `network/worlds.ts`, `progress/seasons.ts`, `db/pgstore.ts` `RANK_ORDER`; client `net/season.ts`; `/season` rows carry sanitised names with public ids); `start_requested.robot`/`.finish` played as the account's level allows and `save_loadout` refusing a locked robot (#48 step 5; server `progress/unlocks.ts`, `multiplayer.ts` `startRequested`, `progress/loadouts.ts` `parseSave`; client `ui/lobby/locks.ts`, `lobby.ts`) (step 4: server `progress/loadouts.ts`, `network/worlds.ts`, `multiplayer.ts`; client `net/loadout.ts`, `net/session.ts`, `net/account.ts`, `ui/lobby/loadoutpanel.ts`).
+- `utils/skills.ts` (mirrored; ids append-only), `hello.skills` and the `skill` slot as an index into it, `start_requested.loadout`, `save_loadout`/`loadout_saved`, and `account.loadouts` (#48 step 4); `account.energy`, the `energy` event and `start_refused` (#48 step 7; server `network/worlds.ts` `admit`/`refundRun`, `progress/energy.ts`; client `net/energy.ts`, `game.ts` `onStartRefused`, `ui/lobby/lobby.ts`); the `season` event and `/season` (#48 step 6; server `network/worlds.ts`, `progress/seasons.ts`, `db/pgstore.ts` `RANK_ORDER`; client `net/season.ts`; `/season` rows carry sanitised names with public ids); `start_requested.robot`/`.finish` played as the account's level allows and `save_loadout` refusing a locked robot (#48 step 5; server `progress/unlocks.ts`, `multiplayer.ts` `startRequested`, `progress/loadouts.ts` `parseSave`; client `ui/lobby/locks.ts`, `lobby.ts`) (step 4: server `progress/loadouts.ts`, `network/worlds.ts`, `multiplayer.ts`; client `net/loadout.ts`, `net/session.ts`, `net/account.ts`, `ui/lobby/loadoutpanel.ts`).
 - `utils/hex.ts` and `utils/path.ts`, byte-identical in both packages; `mirror.spec.ts`
   enforces it.
 - `LocalPlayer._step` (client) mirrors `Unit.update` (server). If one changes, so does the other.
@@ -88,7 +88,7 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   duplicated on both sides by hand. Also its standing fields (`xp, level, levelAt, nextAt`) and
   the `progress` event (#48 step 3; server `network/worlds.ts` `grant`, `progress/xp.ts`
   `standingOf`; client `net/account.ts`, `index.ts`, `ui/popups/runsummary.ts`, `ui/lobby/lobby.ts`).
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 4 since #48 step 5): bump it with any change an older
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 5 since #48 step 7): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
 - **Who is sent what is a contract too, though no byte changes** (server fog, #48):
   `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what

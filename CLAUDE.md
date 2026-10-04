@@ -697,7 +697,7 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 4 since robot and finish locks** (#48 step 5, 2026-10-04: an older client offers every robot and finish, which the server would now silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
+tabs left open across a release. **`PROTOCOL` is 5 since energy** (#48 step 7, 2026-10-04: a start can be refused with `start_refused`, which an older client never hears, so its READY would leave it on an empty screen); 4 was robot and finish locks (an older client offers every robot and finish, which the server would silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
 
 **`account`** (server → client, text; framed clients decode text events; #48): `{ id }` on
 connect for a known handshake token, `{ id, token }` on a connection's first play without one
@@ -712,6 +712,13 @@ levelUp }` once a run's grant is written, a database round trip after the run's 
 before its own destroy reaches the client). Never sent after the next run's `hello` (`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; then the new standing goes as a mid-run `account { id, xp, level, levelAt, nextAt }` instead, which moves only the lobby badge; the run card's
 XP row says UNAVAILABLE after `PROGRESS_WAIT_MS` (6 s) without it, at once offline. Additive, no
 PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
+
+**`energy`** (server → client, JSON, #48 step 7): `{ stock, cap, nextInMs, regenMs }`
+(`nextInMs` relative, null at or above the cap), after each spend (the run began) and each refund;
+also `account.energy` on connect and creation (not on the grant's mid-run `account`). **`start_refused
+{ reason: 'energy', energy }`**: no play left; no run began, the connection is free to ask again,
+and the client goes back to the lobby (`Game.onStartRefused`). An offline account is sent neither
+(it plays free). See "Energy".
 
 **`season`** (server → client, JSON, #48 step 6): `SeasonView` after `account` for a persisted account and after each grant; additive, no PROTOCOL bump (older clients have no handler). **`GET /season`**: see "Weekly seasons".
 
@@ -1263,7 +1270,28 @@ names are sanitised and public, and the ids link them to `/stats` (disclosed on 
 Nick 2026-10-04). **Deleting a player's season data** (privacy requests, by hand through `railway
 connect`): find the account by `season_entries.name` (names aren't unique: confirm by id or dates),
 then `DELETE FROM season_payouts WHERE account_id = $1; DELETE FROM season_entries WHERE account_id =
-$1;` (both reference `accounts`, so they go before any account row).
+$1;` (both reference `accounts`, so they go before any account row; so do `energy`, `loadouts` and
+`account_progress`).
+
+**Energy** (#48 step 7, `progress/energy.ts`; numbers are `ENERGY` in `progress/xp.ts`, Nick's #48:
+1 play per 30 min, cap 3, a new account starts with 6, nothing regenerates above the cap). A run
+costs a play, spent in `Worlds.admit` before the run begins by one atomic check-and-spend
+(`AccountStore.spend`; pg: a transaction holding the `energy` row `FOR UPDATE`, after an `INSERT …
+ON CONFLICT DO NOTHING` of the start stock, so two starts at once with one play left get one run).
+None left: `start_refused`. Given back (`refundRun`) on an extraction or a run the server cut short
+(`closeAll` sets `Connection.cutOff`: a drain's deadline, Nick's #48 build call 8), never on a death
+or the player's own disconnect; once per run (`runEnded` is). A play spent for a run that then
+doesn't start (the socket closed or a drain began during the spend, the join threw) is given back.
+**Fail open** (build call 9): an offline account, or a spend that fails or takes over
+`accountTimeoutMs`, plays free and refunds nothing; a spend the timeout gave up on may still land, so
+that play is lost (needs a 3 s database stall; accepted like a lost grant). Bots never spend (they
+never reach `Worlds.start`). Migration 5, `energy (account_id, stock, as_of)`: regeneration is lazy
+(`energyAt`), never a timer; no row reads as 6, so accounts from before it start full. **Kept on
+purpose (Nick, 2026-10-04: "greedy baseline with occasional fair surprise"):** a refund is +1 whatever the stock, so a run spent at the cap and extracted after more
+than 30 minutes ends at cap + 1 (never higher: above the cap no clock runs). The lobby shows the
+plays under READY (`net/energy.ts` `energyLine`, counted forward on the client) and disables READY
+at 0 until the next play is due; the server decides regardless. Every start now waits one database
+round trip (a transaction of four statements) before its `hello`.
 
 ## Skills
 
