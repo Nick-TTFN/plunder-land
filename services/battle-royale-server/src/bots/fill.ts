@@ -1,8 +1,8 @@
 import World from '../objects/world'
 import type Player from '../objects/player'
-import { FINISH_PRESETS, finishToBytes } from '../utils/finishes'
+import { FINISH_GROUPS, FINISH_PRESETS, type Finish, PALETTE, PATTERNS, finishToBytes } from '../utils/finishes'
 import { SELECTABLE_ROBOTS } from '../utils/archetypes'
-import BotBrain, { botKit } from './brain'
+import BotBrain, { kitOf, pickTemperament } from './brain'
 
 /**
  * Keeps one world's humans + bots at `target` (decision #47), and only while
@@ -72,8 +72,14 @@ export default class BotFill {
     if (this.random() < 0.4) name += String(10 + Math.floor(this.random() * 90))
     // Not hex, so never a real player's id (Multiplayer.ID_SHAPE); bots write no stats anyway.
     const id = `bot-${++this.seq}`
-    const player = World.createPlayer(id, name, finishToBytes(pick(FINISH_PRESETS).finish), pick(SELECTABLE_ROBOTS), botKit(this.random))
-    player.bot = new BotBrain(player, now, this.random)
+    // A temperament (brain.ts) sets its kit and how it plays; a preset finish,
+    // or a third of the time any colour and pattern per group, as MIX would.
+    const temperament = pickTemperament(this.random)
+    const finish: Finish = this.random() < 0.33
+      ? Object.fromEntries(FINISH_GROUPS.map((g) => [g, { colour: pick(PALETTE).id, pattern: pick(PATTERNS).id }])) as unknown as Finish
+      : pick(FINISH_PRESETS).finish
+    const player = World.createPlayer(id, name, finishToBytes(finish), pick(SELECTABLE_ROBOTS), kitOf(temperament, this.random))
+    player.bot = new BotBrain(player, now, this.random, temperament)
     player.addAIRoutine(player.bot)
     return player
   }

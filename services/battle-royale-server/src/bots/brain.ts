@@ -42,6 +42,60 @@ export function botKit (random: () => number): number[] {
   return [...BOT_KIT_BASE, random() < 0.5 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id]
 }
 
+/**
+ * A bot's temperament (Nick, 2026-10-04: "introduce some variation"; Claude's
+ * numbers, provisional), picked when it joins (`pickTemperament`), so a world
+ * of bots isn't eight copies of one. Each shifts the brain's numbers and its
+ * kit; `steady` is the bot as it was before.
+ * - `brawler`: engages a ring further, scuffles with bots and mobs up to 3
+ *   rings, dashes in on a player 3-6 rings away, heads out only below 15% hp,
+ *   carries less out and leaves sooner. Kit: melee, ranged, dash, a throw.
+ * - `looter`: engages 2 rings closer, scuffles only on top of it, carries
+ *   more, heads out below 45% hp, and walls off a chaser on its way out
+ *   (StoneWall goes behind it). Kit: ranged, defend, stone wall, a throw.
+ * - `diver`: takes portals down two and a half times as often, stays longer.
+ *   Kit as steady.
+ * The throw is still only used on 02-03 (`fight`). Bots have no account and
+ * aren't level-checked: a looter's StoneWall (a level-6 skill) is used only
+ * when running away.
+ */
+export type Temperament = 'steady' | 'brawler' | 'looter' | 'diver'
+
+interface TemperamentSpec {
+  /** Added to the layer's `engageRings` (never under 2). */
+  engage: number
+  /** How close another bot or a mob has to be before it fights it. */
+  scuffle: number
+  /** Times the layer's `descend` chance. */
+  descend: number
+  /** Loot goal: `min` plus up to `span`. */
+  loot: readonly [number, number]
+  /** Run deadline in seconds: `min` plus up to `span`. */
+  deadlineS: readonly [number, number]
+  /** Below this share of hp, with no medkit, it heads out. */
+  fleeAt: number
+  /** Its 4 skills, given the throw it rolled. */
+  kit: (throwId: number) => number[]
+}
+
+export const TEMPERAMENTS: Readonly<Record<Temperament, TemperamentSpec>> = Object.freeze({
+  steady: { engage: 0, scuffle: 2, descend: 1, loot: [1500, 2500], deadlineS: [180, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t] },
+  brawler: { engage: 1, scuffle: 3, descend: 1, loot: [1000, 1500], deadlineS: [150, 240], fleeAt: 0.15, kit: (t: number) => [SKILL_INFO.melee.id, SKILL_INFO.ranged.id, SKILL_INFO.dash.id, t] },
+  looter: { engage: -2, scuffle: 1, descend: 0.6, loot: [2500, 3000], deadlineS: [200, 300], fleeAt: 0.45, kit: (t: number) => [SKILL_INFO.ranged.id, SKILL_INFO.defend.id, SKILL_INFO.stoneWall.id, t] },
+  diver: { engage: 0, scuffle: 2, descend: 2.5, loot: [2000, 2500], deadlineS: [240, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t] }
+})
+
+/** Steady 40%, the other three 20% each. */
+export function pickTemperament (random: () => number): Temperament {
+  const r = random()
+  return r < 0.4 ? 'steady' : r < 0.6 ? 'brawler' : r < 0.8 ? 'looter' : 'diver'
+}
+
+/** A temperament's kit, with fireball or icicle half the time each. */
+export function kitOf (temperament: Temperament, random: () => number): number[] {
+  return TEMPERAMENTS[temperament].kit(random() < 0.5 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id)
+}
+
 /** The medkit's inventory slot (utils/items.ts). */
 const MEDKIT = 0
 
@@ -50,8 +104,6 @@ const MEDKIT = 0
  * 2026-10-02): a bot was on a fresh player 20 s in, armor already gone.
  */
 export const SPAWN_GRACE_MS = 10_000
-/** How close another bot (or a mob) has to be before a bot fights it. */
-const BOT_SCUFFLE_RINGS = 2
 const LOOT_SIGHT = 7
 const WANDER_MIN = 4
 const WANDER_MAX = 9
@@ -66,14 +118,17 @@ export default class BotBrain implements IAIRoutine {
   /** The cell its current route was asked for, so an unchanged order isn't searched again. */
   private target: Vector | undefined
 
-  constructor (readonly owner: Player, now: number = Date.now(), private readonly random: () => number = Math.random) {
+  private readonly spec: TemperamentSpec
+
+  constructor (readonly owner: Player, now: number = Date.now(), private readonly random: () => number = Math.random, readonly temperament: Temperament = 'steady') {
+    this.spec = TEMPERAMENTS[temperament]
     // Runs of a few minutes, like a player's (the GTM's 5-10): time decides,
     // not loot. Natural loot refills every tick, so a bot that always walks to
     // the nearest pickup carried 400-1200 within 20-100 s (measured
     // 2026-10-02); a 60-200 goal churned bots through the world every 30 s.
     // Provisional (Nick/Dez): a bot this loaded tops the leaderboard.
-    this.lootGoal = 1500 + Math.floor(random() * 2500)
-    this.deadline = now + (180 + random() * 300) * 1000
+    this.lootGoal = this.spec.loot[0] + Math.floor(random() * this.spec.loot[1])
+    this.deadline = now + (this.spec.deadlineS[0] + random() * this.spec.deadlineS[1]) * 1000
   }
 
   update (): void {
@@ -96,9 +151,9 @@ export default class BotBrain implements IAIRoutine {
     if (health < 0.5 && (me.inventory[MEDKIT] ?? 0) > 0) me.tryUseItem(MEDKIT)
 
     const out = this.leaving || me.loot >= this.lootGoal || now >= this.deadline ||
-      (health < 0.3 && (me.inventory[MEDKIT] ?? 0) === 0)
+      (health < this.spec.fleeAt && (me.inventory[MEDKIT] ?? 0) === 0)
 
-    const enemy = this.enemy(cell, skill.engageRings)
+    const enemy = this.enemy(cell, Math.max(2, skill.engageRings + this.spec.engage))
     if (enemy !== undefined) {
       const distance = Hex.distance(cell, enemy.cell)
       // On the way out, it shoots back at what is close and keeps going.
@@ -106,6 +161,9 @@ export default class BotBrain implements IAIRoutine {
         this.fight(enemy, distance, skill, health, out)
         if (!out) return
       }
+      // A looter on its way out puts a wall between it and what chases it
+      // (StoneWall lands behind the caster). Nothing when the kit has none.
+      if (out && distance <= 4) this.press(SKILL_INFO.stoneWall.id)
     }
 
     if (out) {
@@ -124,7 +182,7 @@ export default class BotBrain implements IAIRoutine {
 
     if (me.path.length > 0) return // still walking somewhere
     const layer = World.TAGS.indexOf(me.tag)
-    if (this.random() < skill.descend && layer < World.TAGS.length - 1) {
+    if (this.random() < skill.descend * this.spec.descend && layer < World.TAGS.length - 1) {
       const deeper = World.TAGS[layer + 1]
       const portal = this.nearestGate(cell, ObjectType.Portal, (gate) => (gate as { to?: number }).to === deeper)
       if (portal !== undefined) {
@@ -151,7 +209,7 @@ export default class BotBrain implements IAIRoutine {
     if (human !== undefined) return human
     // Another bot or a mob, never a human: one in its grace matched here once,
     // and was hit 0.75 s into its run.
-    return World.NEAREST_IN_CELLS(cell, BOT_SCUFFLE_RINGS, me.tag, ObjectType.Player | ObjectType.Mob, (u) => live(u) && !isHuman(u))
+    return World.NEAREST_IN_CELLS(cell, this.spec.scuffle, me.tag, ObjectType.Player | ObjectType.Mob, (u) => live(u) && !isHuman(u))
   }
 
   /**
@@ -179,8 +237,11 @@ export default class BotBrain implements IAIRoutine {
     // Close in on a player to shooting range; otherwise stand and fight. A bot
     // that kept walking its old route (a wander, a portal) fired a shot or two
     // as it went and was out of range within a second or two.
-    if (enemy.type === ObjectType.Player && distance > 4) this.go(enemy.cell)
-    else if (me.path.length > 0) {
+    if (enemy.type === ObjectType.Player && distance > 4) {
+      this.go(enemy.cell)
+      // A brawler closes the gap with Dash along that route (only its kit has it).
+      if (distance <= 6 && this.random() < 0.5) this.press(SKILL_INFO.dash.id)
+    } else if (me.path.length > 0) {
       me.stop()
       this.target = undefined
     }

@@ -1208,7 +1208,7 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
 
 ## Bots
 
-**Bots fill worlds** (decision #47, `src/bots/`). A bot's kit is melee, ranged and defend plus fireball or icicle (half each, `botKit`); it has no account and is not level-checked, and the brain presses by skill id through `Player.slotOf`, never by slot number. A bot is an ordinary `Player` from
+**Bots fill worlds** (decision #47, `src/bots/`). **Each bot has a temperament** (2026-10-04, Nick: "introduce some variation"; Claude's numbers, provisional; `TEMPERAMENTS` in `brain.ts`): steady 40% (as before: melee, ranged, defend plus fireball or icicle, `botKit`), brawler 20% (engages a ring further, scuffles to 3 rings, dashes in on a player 3-6 rings out, leaves late; melee, ranged, dash, throw), looter 20% (engages 2 closer, carries more, leaves below 45% hp, StoneWall at a chaser on the way out; ranged, defend, stone wall, throw), diver 20% (descends 2.5x as often, stays longer). A third of bots wear a random MIX finish, the rest a preset. A bot has no account and is not level-checked, and the brain presses by skill id through `Player.slotOf`, never by slot number. A bot is an ordinary `Player` from
 `World.createPlayer` with no connection and a `BotBrain` as an AI routine (`player.bot`), playing
 through the entry points a human's input reaches: `setWaypoints`, `tryExecuteSkill`, `tryUseItem`.
 `BotFill` (one per world, run by `Worlds.tickAll` before the world's update) tops humans + bots up

@@ -11,7 +11,7 @@ import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
 import { LEAVE_GRACE_MS } from './fill'
-import BotBrain, { BOT_KIT_BASE, botKit } from './brain'
+import BotBrain, { BOT_KIT_BASE, TEMPERAMENTS, botKit, kitOf, pickTemperament } from './brain'
 
 /**
  * Bots (decision #47): a world with a human is topped up to the target, a
@@ -260,10 +260,14 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
     assert.deepEqual(errors, [], 'no tick error')
     assert.ok(extracted.length > 0, 'some bot found an exit and extracted')
     assert.ok(looted > list.length / 2, 'most bots pick up loot')
-    // Every bot's kit (#48 step 4), and both throws turn up.
-    const kits = new Set(list.map((p) => p.skillIds.join()))
-    for (const kit of kits) assert.ok(kit === '2,3,4,6' || kit === '2,3,4,7', `a bot played kit ${kit}`)
-    assert.equal(kits.size, 2, `${list.length} bots and only one kit`)
+    // Every bot's kit is its temperament's (#48 step 4, temperaments 2026-10-04), and both throws turn up.
+    for (const p of list) {
+      const t = (p.bot as BotBrain).temperament
+      const kit = p.skillIds.join()
+      assert.ok(kit === TEMPERAMENTS[t].kit(6).join() || kit === TEMPERAMENTS[t].kit(7).join(), `a ${t} bot played kit ${kit}`)
+    }
+    assert.ok(list.some((p) => p.skillIds.includes(6)) && list.some((p) => p.skillIds.includes(7)), 'only one throw turned up')
+    assert.ok(new Set(list.map((p) => (p.bot as BotBrain).temperament)).size >= 3, `${list.length} bots and fewer than three temperaments`)
   } finally {
     console.error = realError
   }
@@ -317,6 +321,70 @@ test('the brain presses by skill: melee, ranged and defend at their slots, the t
       assert.ok(slot >= 0 && slot < 4, `pressed slot ${slot}`)
       assert.notEqual(me.skillIds[slot], 0, 'pressed an empty slot')
     }
+  }
+  world.close()
+})
+
+// --- temperaments (2026-10-04) -------------------------------------------------
+
+test('temperaments: steady 40%, the others 20% each; each kit is 4 known skills with a throw, steady\'s as before', () => {
+  const counts: Record<string, number> = {}
+  for (let i = 0; i < 100; i++) {
+    const t = pickTemperament(() => i / 100)
+    counts[t] = (counts[t] ?? 0) + 1
+  }
+  assert.deepEqual(counts, { steady: 40, brawler: 20, looter: 20, diver: 20 })
+  assert.deepEqual(kitOf('steady', () => 0), botKit(() => 0), 'steady is the bot as it was')
+  assert.deepEqual(kitOf('brawler', () => 0.9), [2, 3, 1, 7])
+  assert.deepEqual(kitOf('looter', () => 0), [3, 4, 5, 6])
+  for (const t of ['steady', 'brawler', 'looter', 'diver'] as const) {
+    const spec = TEMPERAMENTS[t]
+    assert.equal(spec.kit(6).length, 4)
+    assert.ok(spec.loot[0] > 0 && spec.deadlineS[0] >= 150 && spec.fleeAt > 0 && spec.fleeAt < 1, t)
+  }
+})
+
+test('a brawler dashes in on a player out of shooting range; a steady bot never presses dash', () => {
+  World.strict = false
+  void new Multiplayer(250, redisStub())
+  const world = new World(4000)
+  World.MOBS.length = 0
+  World.OBSTACLES.length = 0
+  for (const t of ['brawler', 'steady'] as const) {
+    const me = World.createPlayer(`bot-${t}`, 'b', undefined, 'peep', kitOf(t, () => 0))
+    const brain = new BotBrain(me, Date.now(), () => 0, t)
+    const pressed: number[] = []
+    me.skills.forEach((skill, slot) => { if (skill !== null) skill.execute = () => { pressed.push(me.skillIds[slot]); return true } })
+    const fight = (brain as unknown as { fight: (enemy: unknown, distance: number, skill: unknown, health: number, fleeing: boolean) => void }).fight.bind(brain)
+    let far = me.cell
+    for (let i = 0; i < 5; i++) far = Hex.neighbour(far, 0)
+    fight({ cell: far, type: me.type }, 5, { aimMiss: 0 }, 1, false)
+    assert.equal(pressed.includes(1), t === 'brawler', `${t}: pressed ${pressed.join()}`)
+  }
+  world.close()
+})
+
+test('a looter on its way out walls off what chases it; a steady bot has no wall to press', () => {
+  World.strict = false
+  void new Multiplayer(250, redisStub())
+  const world = new World(4000)
+  World.MOBS.length = 0
+  World.OBSTACLES.length = 0
+  for (const t of ['looter', 'steady'] as const) {
+    const me = World.createPlayer(`bot-${t}`, 'b', undefined, 'peep', kitOf(t, () => 0))
+    const brain = new BotBrain(me, Date.now(), () => 0, t)
+    brain.leaving = true
+    const pressed: number[] = []
+    me.skills.forEach((skill, slot) => { if (skill !== null) skill.execute = () => { pressed.push(me.skillIds[slot]); return true } })
+    // A human chaser 3 rings away, past its spawn grace.
+    let at = me.cell
+    for (let i = 0; i < 3; i++) at = Hex.neighbour(at, 0)
+    const chaser = World.createPlayer('c0ffee', 'h', undefined, 'peep')
+    chaser.position = Hex.toPosition(at)
+    chaser.createdAt = Date.now() - 60_000
+    ;(brain as unknown as { think: (now: number, skill: unknown) => void }).think(Date.now(), { reactionMs: 300, aimMiss: 0, engageRings: 6, descend: 0 })
+    assert.equal(pressed.includes(5), t === 'looter', `${t}: pressed ${pressed.join()}`)
+    chaser.destroy()
   }
   world.close()
 })
