@@ -12,6 +12,7 @@ import { LOBBY_CSS } from './lobbystyle'
 import { ACCOUNT, localTokenStorage } from '../../net/account'
 import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
 import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
+import { SettingsPanel } from '../settings/settingspanel'
 import { LoadoutPanel } from './loadoutpanel'
 import {
   type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
@@ -257,6 +258,10 @@ export default class Lobby extends Container {
     this.inviteButton.title = 'Copy a link that puts a friend in your world'
     this.inviteButton.onclick = () => { this.copyInvite() }
     this.root.querySelector('.lb-top')?.append(this.inviteButton)
+    // Settings (L3): key bindings and graphics, a panel over the lobby.
+    const settings = el('button', 'lb-invite lb-settings', 'SETTINGS')
+    settings.onclick = () => { SettingsPanel.show() }
+    this.root.querySelector('.lb-top')?.append(settings)
     this.joinBanner = el('div', 'lb-join')
     this.root.append(this.joinBanner)
     this.renderJoin()
@@ -595,7 +600,8 @@ export default class Lobby extends Container {
   }
 
   private key (e: KeyboardEvent): void {
-    if (this.started || !this.visible) return
+    // The settings panel takes every key while it is open.
+    if (this.started || !this.visible || SettingsPanel.open !== undefined) return
     const typing = e.target === this.nameInput
     let handled = true
     if (e.key === 'Enter') this.ready()

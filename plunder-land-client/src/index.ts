@@ -16,30 +16,54 @@ import { decideWelcome, KEY, readPending } from './net/protocol'
 import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
 import { onEnergy, setEnergy } from './net/energy'
-import { parseSaved } from './net/loadout'
+import { parseSaved, slotsFor } from './net/loadout'
+import { SETTINGS, densityFor, loadSettings } from './net/settings'
+import { Session } from './net/session'
 
 initErrorReporting()
+// Before anything reads them: the renderer's density, the HUD's keys.
+loadSettings(localTokenStorage())
 
-// The stats.js developer overlay (fps, socket bytes), only with ?stats=1. It
-// sat on top of the HUD's status panel for every player (hud-rebuild, M2), so
-// it is now loaded on demand and is not in the main bundle.
+// The stats.js developer overlay (fps, socket bytes), with ?stats=1 or the
+// settings' PERFORMANCE OVERLAY. It sat on top of the HUD's status panel for
+// every player (hud-rebuild, M2), so it is loaded on demand and is not in the
+// main bundle.
 let stats: Stats | undefined
 let socketPanel: Stats.Panel | undefined
-if (new URLSearchParams(window.location.search).get('stats') === '1') {
+let statsLoading = false
+const statsByQuery = new URLSearchParams(window.location.search).get('stats') === '1'
+function showStats (show: boolean): void {
+  if (stats !== undefined) {
+    stats.dom.style.display = show ? '' : 'none'
+    return
+  }
+  if (!show || statsLoading) return
+  statsLoading = true
   void import('stats.js').then(({ default: StatsJs }) => {
     stats = new StatsJs()
     socketPanel = stats.addPanel(new StatsJs.Panel('b/s', '#ff8', '#221'))
     stats.showPanel(3) // 0: fps, 1: ms, 2: mb, 3+: custom
     document.body.appendChild(stats.dom)
+    stats.dom.style.display = statsByQuery || SETTINGS.value.perfOverlay ? '' : 'none'
   })
 }
+showStats(statsByQuery || SETTINGS.value.perfOverlay)
+
 /**
- * The screen's device pixels per CSS pixel, capped at 2: a 3x phone would
- * otherwise fill 9x the pixels of a 1x screen for little visible gain.
+ * The render density: the screen's device pixels per CSS pixel, capped at 2
+ * (a 3x phone would otherwise fill 9x the pixels of a 1x screen for little
+ * visible gain), or 1x or 2x as the settings say.
  */
 function density (): number {
-  return Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+  return densityFor(SETTINGS.value.density, window.devicePixelRatio)
 }
+
+// A change in settings is in force at once: density, the overlay, the HUD's skill keys.
+SETTINGS.listeners.add(() => {
+  onResize()
+  showStats(statsByQuery || SETTINGS.value.perfOverlay)
+  if (Session.skills !== undefined) Game.hud?.rekey(slotsFor(Session.skills, SETTINGS.value.skillKeys).keys)
+})
 
 // Render at the screen's density. With pixi's default resolution of 1 a Retina
 // screen got a half-resolution canvas stretched 2x by the browser, and every

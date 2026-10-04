@@ -7,6 +7,8 @@ import { SkillPanel, type SkillCard } from './skillpanel'
 import { LayersPanel, FogLegend } from './layerspanel'
 import { Leaderboard } from './leaderboard'
 import { Game } from '../../game'
+import { SETTINGS, normaliseKey } from '../../net/settings'
+import { SettingsPanel } from '../settings/settingspanel'
 
 const MINIMAP = 200
 
@@ -166,13 +168,29 @@ export class HUD extends Container {
   }
 
   onKeyDown (e: { key: string }): void {
-    // Keys 1-5 use an item (the mockup), slot 0-4.
-    const slot = '12345'.indexOf(e.key)
-    if (e.key.length === 1 && slot >= 0) {
+    // Escape opens and closes settings (`SettingsPanel`, which takes every key while open).
+    if (e.key === 'Escape') {
+      SettingsPanel.toggle()
+      return
+    }
+    const key = normaliseKey(e.key)
+    // The item keys (1-5 by default, settings), slot 0-4.
+    const slot = SETTINGS.value.itemKeys.indexOf(key)
+    if (slot >= 0) {
       this.status?.inventory.use(slot)
       return
     }
-    this.invokeKeyBoundSkill(e.key)
+    this.invokeKeyBoundSkill(key)
+  }
+
+  /** New skill keys from settings, mid-run: each card takes its slot's key, cooldowns kept. */
+  rekey (keys: readonly string[]): void {
+    if (this.skills === undefined) return
+    this.controlsMap.clear()
+    this.skills.cards.forEach((card, i) => {
+      if (keys[i] !== undefined) card.setKey(keys[i])
+      if (card.skill !== null) this.controlsMap.set(card.key, card)
+    })
   }
 
   invokeKeyBoundSkill (value: string): void {

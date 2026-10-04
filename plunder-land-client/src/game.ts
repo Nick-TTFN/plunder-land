@@ -50,6 +50,7 @@ import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
 import { slotsFor } from './net/loadout'
 import { onRefused, setEnergy } from './net/energy'
+import { SETTINGS } from './net/settings'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
@@ -633,7 +634,7 @@ export class Game extends Container {
       Game.hud.setupStats()
       // The 4 the server built for this run (`hello.skills`, which precedes
       // this create), on Q W E R; the legacy eight from an older server.
-      const slots = slotsFor(Session.skills)
+      const slots = slotsFor(Session.skills, SETTINGS.value.skillKeys)
       Game.hud.setupSkills(Game.PLAYER.equip(slots.ids), slots.keys)
       Game.hud.setupInventory()
       if (Array.isArray(data.inventory)) Game.hud.updateInventory(data.inventory)

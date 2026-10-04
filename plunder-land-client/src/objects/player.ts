@@ -13,6 +13,7 @@ import { type Finish } from '../utils/finishes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { Walls } from './walls'
+import { SETTINGS } from '../net/settings'
 
 export default class Player extends Unit {
   skills: Skill[]
@@ -130,7 +131,8 @@ export default class Player extends Unit {
     const look = lookFor('robot', this.archetype)
     const rig = look.rig !== undefined ? ROBOT_RIGS[look.rig] : undefined
     if (rig !== undefined && RobotSprite.ready(rig)) {
-      this.robot = new RobotSprite(this, rig, false, true)
+      // Its cast shadow unless settings turned shadows off (a render pass per robot).
+      this.robot = new RobotSprite(this, rig, false, SETTINGS.value.shadows)
       this.robot.y = Player.PEEP_FEET_Y
       this.addChild(this.robot)
       return

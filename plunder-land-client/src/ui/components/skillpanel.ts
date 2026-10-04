@@ -18,9 +18,10 @@ export class SkillCard extends Container {
   private readonly _status: Text
   private readonly _icon: Sprite | undefined
   private _shown = ''
+  private readonly _keyText: Text
 
   /** `skill` null is an empty slot: its key and EMPTY, dimmed, not pressable. */
-  constructor (readonly skill: Skill | null, readonly key: string) {
+  constructor (readonly skill: Skill | null, private _key: string) {
     super()
     const bg = new Graphics()
       .beginFill(0x101A28, 1)
@@ -33,7 +34,7 @@ export class SkillCard extends Container {
       .lineStyle(1, THEME.muted, 1)
       .drawRoundedRect(6, 6, 22, 22, 3)
     this.addChild(keyBox)
-    const keyText = Panel.text(key.toUpperCase(), THEME.smallSize, THEME.text)
+    const keyText = this._keyText = Panel.text(_key.toUpperCase(), THEME.smallSize, THEME.text)
     keyText.anchor.set(0.5, 0.5)
     keyText.x = 17
     keyText.y = 17
@@ -81,6 +82,16 @@ export class SkillCard extends Container {
     this._status.x = CARD_W / 2
     this._status.y = CARD_H - 6
     this.addChild(this._status)
+  }
+
+  get key (): string {
+    return this._key
+  }
+
+  /** A new key from settings, mid-run: the card keeps its cooldown. */
+  setKey (key: string): void {
+    this._key = key
+    this._keyText.text = key.toUpperCase()
   }
 
   invoke (): void {

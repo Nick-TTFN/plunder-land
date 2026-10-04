@@ -22,12 +22,13 @@ export const LEGACY_SLOTS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8]
 export const LEGACY_KEYS: readonly string[] = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i']
 
 /**
- * The HUD's slots: the skill id in each (0 = empty) and its key. Slot i sends
- * index i. With no kit from the server, the legacy eight.
+ * The HUD's slots: the skill id in each (0 = empty) and its key (`keys`, the
+ * settings' skill keys; Q W E R by default). Slot i sends index i. With no kit
+ * from the server, the legacy eight on their fixed keys.
  */
-export function slotsFor (skills: readonly number[] | undefined): { ids: number[], keys: string[] } {
+export function slotsFor (skills: readonly number[] | undefined, keys: readonly string[] = SKILL_KEYS): { ids: number[], keys: string[] } {
   if (skills === undefined) return { ids: [...LEGACY_SLOTS], keys: [...LEGACY_KEYS] }
-  return { ids: skills.slice(0, LOADOUT_SIZE), keys: SKILL_KEYS.slice(0, Math.min(LOADOUT_SIZE, skills.length)) }
+  return { ids: skills.slice(0, LOADOUT_SIZE), keys: keys.slice(0, Math.min(LOADOUT_SIZE, skills.length)) }
 }
 
 /** `hello.skills`: `LOADOUT_SIZE` whole numbers, else undefined (a server from before loadouts). */
