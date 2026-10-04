@@ -79,7 +79,7 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   `update` header, the 4-byte `pointer` input, and `hello`.
 - The `standings` record (`[0][uint16 rank]` after the name): server `Multiplayer.rankStandings`
   / `StandingsBoard`, client `src/ui/components/standings.ts` (`decodeStanding`, `pickShown`).
-- `utils/skills.ts` (mirrored; ids append-only), `hello.skills` and the `skill` slot as an index into it, `start_requested.loadout`, `save_loadout`/`loadout_saved`, and `account.loadouts` (#48 step 4); `start_requested.robot`/`.finish` played as the account's level allows and `save_loadout` refusing a locked robot (#48 step 5; server `progress/unlocks.ts`, `multiplayer.ts` `startRequested`, `progress/loadouts.ts` `parseSave`; client `ui/lobby/locks.ts`, `lobby.ts`) (step 4: server `progress/loadouts.ts`, `network/worlds.ts`, `multiplayer.ts`; client `net/loadout.ts`, `net/session.ts`, `net/account.ts`, `ui/lobby/loadoutpanel.ts`).
+- `utils/skills.ts` (mirrored; ids append-only), `hello.skills` and the `skill` slot as an index into it, `start_requested.loadout`, `save_loadout`/`loadout_saved`, and `account.loadouts` (#48 step 4); the `season` event and `/season` (#48 step 6; server `network/worlds.ts`, `progress/seasons.ts`, `db/pgstore.ts` `RANK_ORDER`; client `net/season.ts`; `/season` rows carry sanitised names with public ids); `start_requested.robot`/`.finish` played as the account's level allows and `save_loadout` refusing a locked robot (#48 step 5; server `progress/unlocks.ts`, `multiplayer.ts` `startRequested`, `progress/loadouts.ts` `parseSave`; client `ui/lobby/locks.ts`, `lobby.ts`) (step 4: server `progress/loadouts.ts`, `network/worlds.ts`, `multiplayer.ts`; client `net/loadout.ts`, `net/session.ts`, `net/account.ts`, `ui/lobby/loadoutpanel.ts`).
 - `utils/hex.ts` and `utils/path.ts`, byte-identical in both packages; `mirror.spec.ts`
   enforces it.
 - `LocalPlayer._step` (client) mirrors `Unit.update` (server). If one changes, so does the other.
@@ -109,9 +109,9 @@ cd services/battle-royale-server && npm test            # node --test over src/*
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
 CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-10-03,
-after 48-3b: client 22, server 0, 754 tests with 7 pg skips.)
+after 48-6: client 22, server 0, 825 tests with 13 pg skips.)
 
-`src/db/pgstore.spec.ts` needs `TEST_DATABASE_URL` and otherwise reports 5 skips. It drops the
+`src/db/pgstore.spec.ts` needs `TEST_DATABASE_URL`; without it the suite reports 13 pg skips. It drops the
 `public` schema, so it refuses any host but localhost; use a throwaway `postgres:18-alpine`
 container on a spare port, removed by name (command in CLAUDE.md, "Verification path"). Never
 point it at Railway.
@@ -203,7 +203,7 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`. Dez states values in the spec and Beck applies them.
+  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`. Dez states values in the spec and Beck applies them.
 - **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See CLAUDE.md,
   Known-unfixed.
 - Art is Nick's boundary. Every unit and two player clips are still missing (the arena pass of

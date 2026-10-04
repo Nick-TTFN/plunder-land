@@ -59,7 +59,7 @@ cd services/battle-royale-server && npm test          # node --test via ts-node
 The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typechecked**. A
 type error in a spec only shows up if ts-node trips over it at run time.
 
-**`src/db/pgstore.spec.ts` runs only with `TEST_DATABASE_URL`** and otherwise reports 5 skips.
+**`src/db/pgstore.spec.ts` runs only with `TEST_DATABASE_URL`** and otherwise the suite reports 13 pg skips.
 It drops and recreates the `public` schema, so it refuses (fails, not skips) any host but
 127.0.0.1, localhost or ::1 (`isLocalDatabase`). Use a throwaway container on the same major as
 Railway, removed by name afterwards:
@@ -713,6 +713,8 @@ before its own destroy reaches the client). Never sent after the next run's `hel
 XP row says UNAVAILABLE after `PROGRESS_WAIT_MS` (6 s) without it, at once offline. Additive, no
 PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
 
+**`season`** (server → client, JSON, #48 step 6): `SeasonView` after `account` for a persisted account and after each grant; additive, no PROTOCOL bump (older clients have no handler). **`GET /season`**: see "Weekly seasons".
+
 **`save_loadout { robot, index, skills }`** (client → server, text, in the lobby or mid-run, effective
 at the next join) is answered by **`loadout_saved { robot, index, ok, skills, busy? }`**. Refused
 unless the account is persisted, the robot selectable and unlocked at the account's level, the index one the level has and
@@ -1235,6 +1237,33 @@ change re-levels everyone (Nick, #48). One grant per run at its end, from `Multi
 the end is reported), as one atomic upsert; offline runs and bots earn nothing; a failed grant is logged and
 reported, never retried. `PgAccountStore.close` waits for grants in flight. The account level is
 not `Unit.level`, which stays 1 (skill damage reads it). `Multiplayer.drop` still never destroys an extracted player again (`!player.exited`), because `exit` frees the id itself and a second destroy freed it twice. **A kill credited after the run's XP was computed** (a fireball landing after its caster extracted) counts in `kills` but not in XP: XP is fixed at the run's end, by design (48-3b review).
+
+**Weekly seasons** (#48 step 6, `progress/seasons.ts`; numbers are `SEASON` in `progress/xp.ts`, Dez's
+v1, pinned by `seasons.spec.ts`). A season runs Monday 00:00 UTC to the next and is named by its
+start date; a run counts in the season of its end (`Worlds`' `now()`). Score: banked loot of
+extractions, at most `creditCap` 6,000 a run (`creditOf`). Ranked: 3 runs, 1 extraction and some
+loot banked. Ties go to whoever reached the score first (`banked_at`, the run's end time passed in),
+then the older account (`compareEntries` = pg `RANK_ORDER`, held equal by the store contract). Paid
+at end + 10 min: the top `max(1, floor(0.01 N))` / `floor(0.10 N)` / `floor(0.25 N)` places
+(cumulative, `tierPlaces`) get 1,000 / 500 / 250 XP, each at most the season's run XP. Migration 4
+adds `season_entries` (with `name`, the sanitised name of the run that last credited it), `seasons`
+(a row only once paid) and `season_payouts`. The credit rides in the run's grant statement, so it
+lands exactly when the XP does: once per run, never offline, never for a bot (a bot has no
+connection, so it never reaches `grant`); a paid season takes no more entries. Each server's
+`SeasonPayer` (a plain unref'd timer: store work, not world work; stopped before `accounts.close()`)
+calls `payDue` 30 s after boot and every 5 min. A payout is one transaction per season, guarded five
+ways: `payAll` lists only unpaid seasons, `pg_try_advisory_xact_lock(SEASON_LOCK)`, a paid check
+inside the lock, the `seasons` primary key (a 23505 there is logged, `seasons: … already paid`, and
+counts as paid) and `season_payouts`' key; `close` waits for one in flight, and a killed one rolls
+back whole. The client hears `season` (`SeasonView`, relative `endsInMs`) after `account` and after
+each grant; the lobby shows a line under the name pill and the last payout once per season
+(`plunderland_season_seen`). A payout's XP shows at the next connect or after the next run, not live.
+`GET /season`: the top 10 as `{ rank, name, id, banked }`, the ranked count and places, cached 30 s;
+names are sanitised and public, and the ids link them to `/stats` (disclosed on the privacy page,
+Nick 2026-10-04). **Deleting a player's season data** (privacy requests, by hand through `railway
+connect`): find the account by `season_entries.name` (names aren't unique: confirm by id or dates),
+then `DELETE FROM season_payouts WHERE account_id = $1; DELETE FROM season_entries WHERE account_id =
+$1;` (both reference `accounts`, so they go before any account row).
 
 ## Skills
 
