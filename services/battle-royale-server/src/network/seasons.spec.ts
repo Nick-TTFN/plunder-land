@@ -256,10 +256,14 @@ test('bots never appear: minutes of play with 8 bots credit only the human; the 
     await settle()
     const world = worlds.worldFor(client.connection) as World
     const human = client.connection.player as Player
-    // No mobs or exits: the human's run lasts, so the world keeps its bots.
+    // No mobs or exits, and a human the bots can't kill in 40 s (they fought
+    // it to death in about 1 run in 5, leaving it unranked): the human's run
+    // lasts, so the world keeps its bots.
     World.run(world, () => {
       World.MOBS.length = 0
       World.OBSTACLES.length = 0
+      human.maxHp = 60000
+      human.hp = 60000
     })
     for (let i = 0; i < 160; i++) { t.mock.timers.tick(250); worlds.tickAll(250) }
     // Some bots end their runs, both ways, every round.
