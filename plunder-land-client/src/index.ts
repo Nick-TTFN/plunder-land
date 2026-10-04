@@ -255,14 +255,6 @@ function onConnect (): void {
     app.stage.on('pointermove', onPointerMove)
     app.stage.on('pointerleave', () => { Aim.clear() })
 
-    window.addEventListener(
-      'keydown',
-      (e) => {
-        if (e.key === 's') Game.simulate = !Game.simulate
-      },
-      false
-    )
-
     window.addEventListener('resize', onResize)
 
     window.requestAnimationFrame(frame)
@@ -278,8 +270,6 @@ function onConnect (): void {
   app.stage.addChild(Game.popups)
 
   Game.Instance.start()
-
-  Game.simulate = true
 
   onResize()
 }

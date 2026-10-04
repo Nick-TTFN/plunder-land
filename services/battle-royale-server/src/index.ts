@@ -6,11 +6,19 @@ import Worlds from './network/worlds'
 import { openAccountStore } from './db/open'
 import { NotReadyError } from './db/pgstore'
 import { BOARD_SIZE, type SeasonBoard, SeasonPayer } from './progress/seasons'
+import cluster from 'node:cluster'
+import { runPrimary } from './cluster'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
 initErrorReporting()
-startGame()
+
+// WORKERS > 1: a primary that forks that many servers sharing the port, one
+// core each (burst-capacity, src/cluster.ts). Unset or 1: this process is the
+// server, exactly as before.
+const workers = parseInt(process.env.WORKERS ?? '1') || 1
+if (workers > 1 && cluster.isPrimary) runPrimary(workers)
+else startGame()
 
 function startGame (): void {
   // Nothing downstream may assume this value: it is sent to the client in the
@@ -41,7 +49,9 @@ function startGame (): void {
     // Bots top each world with a human up to this many players (decision #47).
     bots: parseInt(process.env.BOT_TARGET ?? '8'),
     redis,
-    accounts
+    accounts,
+    // Runs this process takes before it sends `full` (burst-capacity); unset, no cap.
+    maxPlayers: parseInt(process.env.MAX_PLAYERS ?? '0') || 0
   })
 
   // A deploy (decision #46): the host starts the new server, routes new
@@ -143,7 +153,7 @@ function startGame (): void {
     return { ...board, endsInMs: Math.max(0, board.endsInMs - (now - at)) }
   }
   httpserver.listen(process.env.PORT, () => {
-    console.log(`listening to ${process.env.PORT}..`)
+    console.log(`listening to ${process.env.PORT}..${cluster.isWorker ? ` (worker ${process.pid})` : ''}`)
   })
 
   // WebSocket compression (permessage-deflate; bandwidth review, 2026-09-27).

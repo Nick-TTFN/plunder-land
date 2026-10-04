@@ -126,6 +126,7 @@ export const LOBBY_CSS = `
 .lb-join { position: absolute; top: calc(14% + 112px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
   padding: 6px 8px 6px 14px; font-size: 13px; letter-spacing: .12em; color: #0b1622; background: #5fe0cf; border-radius: 6px;
   pointer-events: auto; white-space: nowrap; z-index: 1; }
+.lb-full { top: auto; left: auto; right: 44px; bottom: 140px; transform: none; background: #ffc45e; }
 .lb-join-x { border: 0; background: transparent; color: #0b1622; font-size: 14px; cursor: pointer; padding: 0 4px; }
 .lb-keys kbd { display: inline-block; min-width: 18px; padding: 3px 6px; margin: 0 4px 0 8px; border: 1px solid #3a5266; border-radius: 4px;
   font-family: inherit; color: #E6EEF5; text-align: center; }
@@ -157,6 +158,7 @@ export const LOBBY_CSS = `
   .lb-privacy { left: auto; bottom: auto; right: 104px; top: 19px; }
   .lb-invite { right: 16px; padding: 6px 10px; font-size: 12px; }
   .lb-settings { right: 96px; }
+  .lb-full { right: auto; bottom: auto; left: 50%; top: 150px; transform: translateX(-50%); }
   /* Under READY: the header has no room left beside SETTINGS and INVITE. */
   .lb-privacy { right: auto; top: auto; left: 50%; transform: translateX(-50%); bottom: 4px; font-size: 10px; }
   .lb-join { top: 164px; font-size: 11px; }
@@ -197,6 +199,7 @@ export const LOBBY_CSS = `
   .lb-ready { left: auto; right: 16px; bottom: 16px; padding: 12px 22px; font-size: 18px; }
   .lb-custom { top: 50px; bottom: 8px; right: 8px; left: auto; width: min(400px, calc(100% - 16px)); max-height: none; overflow-y: auto;
     border-radius: 10px; }
+  .lb-full { left: auto; top: auto; right: 16px; bottom: 76px; transform: none; font-size: 11px; }
   .lb-editing .lb-ready { display: none; }
 }
 `

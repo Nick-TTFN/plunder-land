@@ -31,7 +31,17 @@ export interface WorldsOptions {
   accounts?: AccountStore
   /** How long a lookup or creation may take before the connection plays offline. */
   accountTimeoutMs?: number
+  /**
+   * Active human runs this process takes across all its worlds
+   * (`MAX_PLAYERS`, burst-capacity). A start over it is sent `full` and its
+   * transport closed, so the client reconnects, perhaps to another worker or
+   * replica. Absent or 0: no cap.
+   */
+  maxPlayers?: number
 }
+
+/** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
+export const FULL_RETRY_MS = 2000
 
 /**
  * Every world in this process (worlds-per-process, decision #39), and the one
@@ -104,6 +114,7 @@ export default class Worlds {
   private readonly connections = new Set<Connection>()
   readonly accounts: AccountStore
   private readonly accountTimeoutMs: number
+  private readonly maxPlayers: number
   /** Each connection's account creation while it may still land (`create`). */
   private readonly creating = new WeakMap<Connection, Promise<{ account: Account, token: string }>>()
   /** Connections with a loadout save in flight (`saveLoadout`): at most one each. */
@@ -140,6 +151,7 @@ export default class Worlds {
     this.botTarget = options.bots ?? 0
     this.accounts = options.accounts ?? new MemoryAccountStore()
     this.accountTimeoutMs = options.accountTimeoutMs ?? 3000
+    this.maxPlayers = options.maxPlayers ?? 0
     World.strict = true
     this.open()
   }
@@ -539,6 +551,10 @@ export default class Worlds {
       Worlds.redirect(connection)
       return
     }
+    if (this.full) {
+      Worlds.refuseFull(connection)
+      return
+    }
     if (connection.account?.persisted === true) {
       this.admit(connection, start, data)
       return
@@ -751,6 +767,27 @@ export default class Worlds {
       this.fills.set(world, fill)
     }
     return fill
+  }
+
+  /**
+   * This process has `maxPlayers` runs in progress (none: no cap). Checked
+   * when a start arrives, so it is soft by the starts already waiting on the
+   * account or their play (a database round trip each).
+   */
+  get full (): boolean {
+    return this.maxPlayers > 0 && Worlds.activeRuns(this) >= this.maxPlayers
+  }
+
+  /**
+   * `full { retryMs }`, then the transport closed as `redirect` does: the
+   * client reconnects (a new connection is the only way to reach another
+   * worker or replica) and asks again after `retryMs` plus its own backoff
+   * (`net/full.ts`). An older client has no handler and simply lands back in
+   * the lobby. Nothing is spent: the check comes before the account and the play.
+   */
+  static refuseFull (connection: Connection): void {
+    connection.socket.emit('full', { retryMs: FULL_RETRY_MS })
+    Worlds.redirect(connection)
   }
 
   /** Runs in progress across every world. */

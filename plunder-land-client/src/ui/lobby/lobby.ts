@@ -13,6 +13,7 @@ import { ACCOUNT, localTokenStorage } from '../../net/account'
 import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
 import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
 import { SettingsPanel } from '../settings/settingspanel'
+import { clearFull, fullLine, retryDue } from '../../net/full'
 import { LoadoutPanel } from './loadoutpanel'
 import {
   type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
@@ -157,6 +158,9 @@ export default class Lobby extends Container {
   private invite: Invite | undefined
   private readonly inviteButton: HTMLButtonElement
   private readonly joinBanner: HTMLDivElement
+  private readonly fullBanner: HTMLDivElement
+  private readonly fullTimer: ReturnType<typeof setInterval>
+  private fullShown: string | undefined = '-'
 
   private readonly backdrop = new Sprite()
   private readonly platform = new Graphics()
@@ -265,6 +269,11 @@ export default class Lobby extends Container {
     this.joinBanner = el('div', 'lb-join')
     this.root.append(this.joinBanner)
     this.renderJoin()
+    // Server full (burst-capacity, net/full.ts): a countdown, then READY by itself.
+    this.fullBanner = el('div', 'lb-join lb-full')
+    this.root.append(this.fullBanner)
+    this.fullTimer = setInterval(() => { this.renderFull() }, 250)
+    this.renderFull()
 
     this.prev = el('button', 'lb-arrow lb-prev', '\u2039')
     this.next = el('button', 'lb-arrow lb-next', '\u203A')
@@ -427,6 +436,29 @@ export default class Lobby extends Container {
   /** The code this player's runs carry: the inviter's, else its own. */
   private get party (): string {
     return this.invite?.code ?? this.ownParty
+  }
+
+  /** The server-full countdown; at zero, READY as if pressed (the player can cancel with the cross). */
+  private renderFull (): void {
+    const now = performance.now()
+    if (retryDue(now) && !this.started && !this.tornDown && Game.socket?.connected === true) {
+      this.ready()
+      return
+    }
+    const line = fullLine(now)
+    if (line === this.fullShown) return
+    this.fullShown = line
+    this.fullBanner.replaceChildren()
+    this.fullBanner.style.display = line === undefined ? 'none' : ''
+    if (line === undefined) return
+    this.fullBanner.append(el('span', 'lb-join-text', line))
+    const cancel = el('button', 'lb-join-x', '\u2715')
+    cancel.title = 'Stop retrying'
+    cancel.onclick = () => {
+      clearFull()
+      this.renderFull()
+    }
+    this.fullBanner.append(cancel)
   }
 
   private renderJoin (): void {
@@ -871,6 +903,7 @@ export default class Lobby extends Container {
     clearInterval(this.seasonTimer)
     ENERGY.listeners.delete(this.onEnergy)
     clearInterval(this.energyTimer)
+    clearInterval(this.fullTimer)
     this.loadout.dispose()
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)

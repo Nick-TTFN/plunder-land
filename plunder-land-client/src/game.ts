@@ -51,6 +51,7 @@ import { LocalPlayer } from './net/localplayer'
 import { slotsFor } from './net/loadout'
 import { onRefused, setEnergy } from './net/energy'
 import { SETTINGS } from './net/settings'
+import { clearFull, onFull } from './net/full'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
@@ -109,7 +110,6 @@ export class Game extends Container {
   /** The layer whose plane is shown, so following a spectated player fades only on a change. */
   private shownTag: number | undefined
   static Instance: Game
-  static simulate: boolean
   static loader: any
 
   /**
@@ -315,6 +315,7 @@ export class Game extends Container {
     Game.socket.off('standings')
     Game.socket.off('spectate')
     Game.socket.off('start_refused')
+    Game.socket.off('full')
     Leaderboard.Instance?.setStandings([], undefined)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
@@ -330,6 +331,9 @@ export class Game extends Container {
     Game.socket.on('standings', this.onStandings.bind(this))
     Game.socket.on('spectate', this.onSpectate.bind(this))
     Game.socket.on('start_refused', this.onStartRefused.bind(this))
+    // Server full (burst-capacity): the transport closes next, socket.io
+    // reconnects, and the lobby that comes back retries (net/full.ts).
+    Game.socket.on('full', (data: unknown) => { onFull(data, performance.now()) })
     // `{ id, name, finish }`: the server plays under this connection's guest
     // account (decision #48, net/account.ts) and ignores `id`, which is sent
     // for one more release only because an older server refuses a start
@@ -370,6 +374,8 @@ export class Game extends Container {
    */
   onHello (data: Parameters<typeof Session.onHello>[0]): void {
     Session.onHello(data)
+    // A run began: no server-full retry is pending any more.
+    clearFull()
     Game.MAP.setVoids(Session.layers, Session.voids)
     Game.MAP.setWalls(Session.layers, Session.walls)
     // A later hello (a new run, or a reconnect to a restarted server) may
