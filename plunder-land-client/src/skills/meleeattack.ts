@@ -1,5 +1,5 @@
 import { type GameObject } from '../objects/gameobject'
-import { Skill } from './skill'
+import { type Aimed, Skill } from './skill'
 import { Texture } from 'pixi.js'
 import Unit from '../objects/unit'
 
@@ -11,8 +11,8 @@ export class MeleeAttack extends Skill {
     this.cooldown = 1
   }
 
-  execute () {
-    super.execute()
+  execute (aim?: Aimed): void {
+    super.execute(aim)
     const rnd = Math.floor(Math.random() * 4) + 1
     this.owner.animation?.playClip(`player/melee_${rnd}/attack`)
     // At once, rather than on the server's effect a tick or so later, which

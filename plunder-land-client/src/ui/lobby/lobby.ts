@@ -723,12 +723,17 @@ export default class Lobby extends Container {
     const w = window.innerWidth
     const h = window.innerHeight
     this.paintBackdrop(w, h)
-    const narrow = w < 720
+    // A phone held sideways (`lobbystyle.ts`, max-height 500): the pill is in
+    // the left column, so the robot has from the top bar down, standing low
+    // enough to leave its name plate room above the bottom edge.
+    const short = h < 500
+    const narrow = w < 720 && !short
     // On a phone the stats and cards take the lower half, so the robot stands higher.
-    const feetY = h * (narrow ? -0.12 : -0.02)
+    const feetY = short ? h * 0.12 : h * (narrow ? -0.12 : -0.02)
     // A tall robot (Periscope, drawn 1.35x) is capped to the room between the
     // name pill and its feet, so its head never reaches the pill.
-    const room = h / 2 + feetY - this.pill.getBoundingClientRect().bottom - 16
+    const above = short ? 44 : this.pill.getBoundingClientRect().bottom
+    const room = h / 2 + feetY - above - 16
     const stand = (this.robot?.standHeight ?? RobotSprite.PEEP_HEIGHT)
     const scale = Math.min(this.scaleFor(h) * (narrow ? 0.8 : 1), room > 0 ? room / stand : Infinity)
     const glow = this.platform
@@ -751,7 +756,7 @@ export default class Lobby extends Container {
     this.prev.style.left = `${Math.round(w / 2 - rx - 70)}px`
     this.next.style.left = `${Math.round(w / 2 + rx + 10)}px`
     if (this.neighbour !== undefined) {
-      this.neighbour.visible = !narrow
+      this.neighbour.visible = !narrow && !short
       this.neighbour.scale.set(scale * 0.62)
       this.neighbour.position.set(w * 0.30, feetY - 0.06 * h)
     }

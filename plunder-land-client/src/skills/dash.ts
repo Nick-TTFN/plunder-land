@@ -1,4 +1,4 @@
-import { Skill } from './skill'
+import { type Aimed, Skill } from './skill'
 import { Texture } from 'pixi.js'
 import { type GameObject } from '../objects/gameobject'
 import { Game } from '../game'
@@ -11,10 +11,10 @@ export class Dash extends Skill {
     this.cooldown = 2
   }
 
-  execute (): void {
+  execute (aim?: Aimed): void {
     // Sent first, so the server has the press before the next input packet,
     // which carries a standing dash's new destination.
-    super.execute()
+    super.execute(aim)
 
     // Predicted (decision #34): the same stretch of route at the same speed
     // as the server's `Unit.dash`, so a dash no longer shows as a correction.

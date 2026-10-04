@@ -25,6 +25,7 @@ export class StoneWall extends Skill {
 export class ThrowFireball extends Skill {
   constructor (owner: GameObject) {
     super(owner)
+    this.aims = true
     this.name = 'Throw Fireball'
     this.uiTexture = Texture.from(ICON.throwFireball)
     this.cooldown = 4
@@ -34,6 +35,7 @@ export class ThrowFireball extends Skill {
 export class ThrowIcicle extends Skill {
   constructor (owner: GameObject) {
     super(owner)
+    this.aims = true
     this.name = 'Throw Icicle'
     this.uiTexture = Texture.from(ICON.throwIcicle)
     this.cooldown = 4
@@ -43,6 +45,7 @@ export class ThrowIcicle extends Skill {
 export class IceBreath extends Skill {
   constructor (owner: GameObject) {
     super(owner)
+    this.aims = true
     this.name = 'Ice Breath'
     this.uiTexture = Texture.from(ICON.iceBreath)
     this.cooldown = 3

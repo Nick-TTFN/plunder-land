@@ -176,4 +176,27 @@ export const LOBBY_CSS = `
   .lb-swatch { width: 44px; height: 44px; }
   .lb-editing .lb-ready { display: none; }
 }
+/* A phone held sideways (and any screen under 500 px tall): three columns, robot in the middle.
+   Pill and stats on the left, READY on the right, the cards row gone (the arrows switch robots),
+   the panels scroll. After the narrow rules, so it wins on a short narrow phone too. */
+@media (max-height: 500px) {
+  .lb-top { height: 44px; padding: 0 16px; }
+  .lb-brand { font-size: 15px; letter-spacing: .2em; }
+  .lb-tabs, .lb-heading, .lb-keys, .lb-season, .lb-cards, .lb-tagline, .lb-join { display: none; }
+  .lb-invite { right: 16px; padding: 5px 10px; font-size: 12px; }
+  .lb-settings { right: 96px; }
+  .lb-privacy { left: 16px; right: auto; top: auto; bottom: 6px; transform: none; font-size: 10px; }
+  .lb-pill { top: 52px; left: 16px; transform: none; padding: 4px 12px; }
+  .lb-pill .lb-name { width: 140px; font-size: 15px; }
+  .lb-stats { left: 16px; right: auto; top: 100px; bottom: auto; width: 210px; padding: 8px 12px; gap: 4px; }
+  .lb-stat { font-size: 10px; grid-template-columns: 54px 1fr 56px; }
+  .lb-robot { font-size: 28px; }
+  .lb-kind { font-size: 10px; }
+  .lb-namerow { gap: 8px; }
+  .lb-arrow { width: 44px; height: 44px; font-size: 26px; }
+  .lb-ready { left: auto; right: 16px; bottom: 16px; padding: 12px 22px; font-size: 18px; }
+  .lb-custom { top: 50px; bottom: 8px; right: 8px; left: auto; width: min(400px, calc(100% - 16px)); max-height: none; overflow-y: auto;
+    border-radius: 10px; }
+  .lb-editing .lb-ready { display: none; }
+}
 `

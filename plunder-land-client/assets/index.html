@@ -4,6 +4,8 @@
 
     <head>
   <meta charset="utf-8">
+  <!-- Without it a phone lays the page out 980 px wide and zooms out: a tiny HUD and taps that miss. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
         <style>
         
         @font-face {
@@ -17,6 +19,10 @@
         src: url('/res/fonts/JetBrainsMono-Regular.woff2') format('woff2');
         font-weight: 400;
         }
+
+        /* The game takes every touch: no double-tap zoom, pull-to-refresh or page scroll under a finger. */
+        html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+        canvas { touch-action: none; display: block; }
         
         </style>
     </head>

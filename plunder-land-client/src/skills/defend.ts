@@ -1,5 +1,5 @@
 import { type GameObject } from '../objects/gameobject'
-import { Skill } from './skill'
+import { type Aimed, Skill } from './skill'
 import { Texture } from 'pixi.js'
 
 export class Defend extends Skill {
@@ -10,8 +10,8 @@ export class Defend extends Skill {
     this.cooldown = 8
   }
 
-  execute (): void {
-    super.execute()
+  execute (aim?: Aimed): void {
+    super.execute(aim)
     // 'player/magic/frame' is not in the atlas, so asking for it only logged an
     // error. Restore the call once the clip exists.
   }

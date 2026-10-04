@@ -12,6 +12,8 @@ import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
+import { TouchAim } from './skills/touchaim'
+import { SkillCard } from './ui/components/skillpanel'
 import { decideWelcome, KEY, readPending } from './net/protocol'
 import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
@@ -289,6 +291,13 @@ function onPointerDown (event: { shiftKey?: boolean, target?: unknown, data: { b
   // one tap, two unrelated things. The stage is the target only when nothing
   // interactive was hit, which is exactly the world.
   if (event.target !== undefined && event.target !== app.stage) return
+
+  // A skill armed on touch (`TouchAim`) takes this tap as its target, not a move.
+  const armed = TouchAim.take(performance.now())
+  if (armed instanceof SkillCard && Game.CONTAINER !== undefined) {
+    armed.invoke({ cell: Aim.cellAt(Game.CONTAINER.toLocal(new Point(event.data.global.x, event.data.global.y))) })
+    return
+  }
 
   // Shift-click appends a leg instead of replacing the route, so a way round
   // something can be built up click by click. Only on the press: dragging with

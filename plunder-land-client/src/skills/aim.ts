@@ -58,7 +58,12 @@ export class Aim {
     if (Aim._screen === undefined || Game.CONTAINER === undefined || Game.PLAYER === undefined) return undefined
 
     // The same transform click-to-move uses: the container carries the camera.
-    const world = Game.CONTAINER.toLocal(Aim._screen)
+    return Aim.cellAt(Game.CONTAINER.toLocal(Aim._screen))
+  }
+
+  /** The aim cell for a world point (a tap on touch): the same off-map and own-cell rules as `cell`. */
+  static cellAt (world: IPointData): Vector | undefined {
+    if (Game.PLAYER === undefined) return undefined
     const cell = Hex.toCell(new Vector(world.x, world.y))
     if (!Hex.onMap(cell.x, cell.y, Session.mapSize)) return undefined
 

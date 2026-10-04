@@ -65,6 +65,9 @@ export class HUD extends Container {
     }
     if (this.clock === undefined) {
       this.clock = new RunClock()
+      // On a phone the leaderboard opens and closes from the clock.
+      this.clock.eventMode = 'static'
+      this.clock.on('pointertap', () => { this.toggleBoard() })
       this.addChild(this.clock)
     }
     this.clock.start()
@@ -102,11 +105,31 @@ export class HUD extends Container {
     this.updateLayout()
   }
 
+  /**
+   * A phone (either side under 520 px): the leaderboard is hidden until the
+   * clock is tapped, and the fog legend isn't drawn, so the robot and the
+   * ground round it stay in view. Touch controls, L9 (Claude's layout).
+   */
+  static phone (): boolean {
+    return Math.min(window.innerWidth, window.innerHeight) < 520
+  }
+
+  /** On a phone, whether the clock's tap has the leaderboard open. */
+  boardOpen = false
+
+  toggleBoard (): void {
+    if (!HUD.phone()) return
+    this.boardOpen = !this.boardOpen
+    this.updateLayout()
+  }
+
   updateLayout (): void {
     const s = HUD.scale()
     const m = HUD.MARGIN
     const W = window.innerWidth
     const H = window.innerHeight
+    const phone = HUD.phone()
+    this.legend.renderable = !phone
     const place = (c: Container | undefined, x: number, y: number): void => {
       if (c === undefined) return
       c.scale.set(s, s)
@@ -131,7 +154,8 @@ export class HUD extends Container {
     // under the status panel instead.
     const board = Leaderboard.Instance
     let rightTop = Math.max(m, clockBottom + m)
-    if (board !== undefined) {
+    if (board !== undefined) board.visible = !phone || this.boardOpen
+    if (board !== undefined && board.visible) {
       const boardW = board.panelWidth * s
       const beside = W - boardW - m >= statusRight + m && clockBottom === 0
       board.scale.set(s, s)

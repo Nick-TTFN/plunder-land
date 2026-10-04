@@ -40,9 +40,11 @@ export class Inventory extends Container {
         .lineStyle(1, THEME.panelBorder, 1)
         .drawRoundedRect(0, 0, SLOT, SLOT, 5)
         .endFill()
-      bg.eventMode = 'static'
-      bg.cursor = 'pointer'
-      bg.on('pointertap', () => { this.use(slot) })
+      // On the slot, not its background: a press on the item's icon or count
+      // hit those and bubbled past the background (as on the skill cards).
+      card.eventMode = 'static'
+      card.cursor = 'pointer'
+      card.on('pointertap', () => { this.use(slot) })
       card.addChild(bg)
 
       const tab = new Graphics()
