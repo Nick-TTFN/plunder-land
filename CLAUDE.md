@@ -131,6 +131,15 @@ out of 20 against the swc build (0 of 20 at ES2022, which keeps the regexes nati
 run through ts-node (tsc, `ESNext`, define semantics), and define semantics are pinned in
 `.swcrc` so the two agree on class fields. **The server runs Node 24** (`.node-version`, pinned 2026-10-02: Railway's Railpack had picked its LTS default, 24.21, and docker compose ran an end-of-life 18; now `node:24-alpine`). The server has no `dotenv` since then: Railway and compose inject the environment, and a bare local run is `node --env-file=.env dist/index.js`.
 
+**Railway is defined in `.railway/railway.ts`** (infrastructure as code, 2026-10-04; Railway's
+`railway.json` config-as-code is deprecated with a cutoff of 2026-12-01, and this project never had
+one: the settings had been set through `railway api`). Imported with `railway config pull`; `railway
+config plan` previews (read-only, said "already up to date" when committed), `railway config apply`
+changes Railway. Variables are `preserve()`, so no secret is in the file. It needs the `railway` SDK
+(`railway/iac`), the repo root's only package (`package.json`, exact version, lockfile committed); the
+game's packages don't depend on it. A change to the server's settings (replicas, draining, `WORKERS`)
+goes in that file and through `plan` first.
+
 ### Client typecheck baseline (22 errors, re-measured 2026-10-03; 36 on 2026-09-08)
 
 The client is **not** at zero and fixing it to zero is not expected. Known-benign:

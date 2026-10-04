@@ -1,0 +1,9 @@
+{
+  "name": "plunder-land-infra",
+  "private": true,
+  "description": "Railway infrastructure as code (.railway/railway.ts): `railway config plan` / `apply`. Only the IaC SDK lives here; the game is in plunder-land-client and services.",
+  "type": "module",
+  "devDependencies": {
+    "railway": "3.12.0"
+  }
+}
