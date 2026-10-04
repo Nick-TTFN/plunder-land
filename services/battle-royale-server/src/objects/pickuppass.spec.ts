@@ -11,6 +11,8 @@ import type Player from './player'
 import { type GameObject, ObjectType } from './gameobject'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import { buildKit } from '../archetypes/archetypes'
+import { SKILL_INFO } from '../utils/skills'
 
 /**
  * The pickup pass (`World.pickupPass`, `Multiplayer.pickupViews`) brings
@@ -57,7 +59,17 @@ function footprint (connections: Connection[], pickup: GameObject): string {
 }
 
 function skillIndex (player: Player, name: string): number {
-  return (player.skills ?? []).findIndex((skill) => skill.constructor.name === name)
+  return (player.skills ?? []).findIndex((skill) => skill?.constructor.name === name)
+}
+
+/**
+ * A kit holding Dash and StoneWall, which this test presses: a join gets the
+ * start kit (`START_KIT`, #48 step 4), which has no StoneWall, and an empty
+ * slot is null (`skillIndex` reads `skill?.constructor`).
+ */
+function giveKit (player: Player): void {
+  player.skillIds = Object.freeze([SKILL_INFO.dash.id, SKILL_INFO.stoneWall.id, SKILL_INFO.melee.id, SKILL_INFO.ranged.id])
+  player.skills = buildKit(player, player.skillIds)
 }
 
 test('the pickup pass leaves nothing for an every-pickup update to do', () => {
@@ -75,7 +87,9 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
   const players: Player[] = []
   let joined = 0
   const joinOne = (): void => {
-    players.push(join(multiplayer, `abcd${(joined++).toString(16).padStart(4, '0')}`, robots[joined % robots.length]))
+    const player = join(multiplayer, `abcd${(joined++).toString(16).padStart(4, '0')}`, robots[joined % robots.length])
+    giveKit(player)
+    players.push(player)
   }
   for (let i = 0; i < 30; i++) joinOne()
   // One viewer with no vision: it sees by the 500 box and its exit margin.
@@ -101,6 +115,9 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
   let dashes = 0
   let walls = 0
   const hops = new Set<number>()
+  // StoneWall's own stones (the scattered ones last 600 s): a press counted in
+  // `walls` places none when the slot is empty or every cell behind is taken.
+  const placedStones = new Set<GameObject>()
   for (let tick = 0; tick < 400; tick++) {
     for (const player of players) {
       if (player.destroyed || player.exited) continue
@@ -137,6 +154,7 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
     }
     world.update(0.25)
     for (const player of players) if (player.tag !== World.TAGS[0]) hops.add(player.id)
+    for (const obj of World.OBSTACLES) if (!Multiplayer.isTerrain(obj) && obj.lifetime !== 600_000) placedStones.add(obj)
 
     for (const pickup of [...World.CONSUMABLES, ...World.ITEMS, ...World.OBSTACLES.filter((o) => !Multiplayer.isTerrain(o))]) {
       if (Multiplayer.gone(pickup)) continue
@@ -156,9 +174,10 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
     left: counts.left - before.left
   }
   // It exercised what it claims to.
-  console.log(`pickup pass: ${JSON.stringify(ran)}, ${checked} checked, ${deaths} deaths, ${dashes} dashes, ${walls} walls`)
+  console.log(`pickup pass: ${JSON.stringify(ran)}, ${checked} checked, ${deaths} deaths, ${dashes} dashes, ${walls} walls, ${placedStones.size} stones placed`)
   assert.ok(checked > 100_000, `only ${checked} pickups checked`)
   assert.ok(deaths > 5 && dashes > 50 && walls > 25, `deaths ${deaths}, dashes ${dashes}, walls ${walls}`)
+  assert.ok(placedStones.size > 25, `StoneWall placed only ${placedStones.size} stones`)
   assert.ok(hops.size > 0, 'nobody came through a portal')
   assert.ok(connections.some((c) => c.spectating !== undefined), 'nobody spectates')
   // Every join is settled whole once (40 here); dashes, deaths and portals add some.
