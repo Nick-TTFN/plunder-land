@@ -15,6 +15,7 @@ import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
 import { applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
+import { onEnergy, setEnergy } from './net/energy'
 import { parseSaved } from './net/loadout'
 
 initErrorReporting()
@@ -115,6 +116,7 @@ function setup (): void {
     // (its standing too) until it does. Nothing arrives before `connect`.
     setAccountInfo(undefined)
     setSeason(undefined, Date.now())
+    setEnergy(undefined, Date.now())
     onConnect()
   })
   Game.socket.on('welcome', onWelcome)
@@ -122,6 +124,16 @@ function setup (): void {
   Game.socket.on('account', (data: unknown) => {
     const info = onAccount(data, localTokenStorage())
     if (info !== undefined) setAccountInfo(info)
+    // Plays left (decision #48 step 7): only on connect and creation; the
+    // grant's mid-run `account` carries none, and `energy` follows each change.
+    const energy = onEnergy((data as { energy?: unknown } | null)?.energy)
+    if (energy !== undefined) setEnergy(energy, Date.now())
+  })
+  // After each spend (the run began) and each refund (an extraction, a run
+  // the server cut short), a database round trip later.
+  Game.socket.on('energy', (data: unknown) => {
+    const energy = onEnergy(data)
+    if (energy !== undefined) setEnergy(energy, Date.now())
   })
   // Every loadout save's answer, here rather than in the lobby's panel: one
   // that lands after READY's wait gave up (the panel is gone by then) must

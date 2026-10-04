@@ -11,6 +11,7 @@ import { ObjectType } from '../objects/gameobject'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
+import type { EnergyRecord } from '../progress/energy'
 import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { runXp, standingOf } from '../progress/xp'
 import { earnedXp } from '../progress/run'
@@ -119,6 +120,8 @@ class GrantStore implements AccountStore {
   async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
   async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
   async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
+  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> { return await this.inner.spend(publicId, nowMs) }
+  async refund (publicId: string, nowMs: number): Promise<EnergyRecord> { return await this.inner.refund(publicId, nowMs) }
   async close (): Promise<void> {}
 }
 
@@ -459,7 +462,7 @@ test('the account event carries the standing of a known account', async () => {
   const client = new Client('a', { token: known.token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
-  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[1, 2, 3, 0]], periscope: [[1, 2, 3, 0]], magnet: [[1, 2, 3, 0]], hopper: [[1, 2, 3, 0]], waddle: [[1, 2, 3, 0]] } }])
+  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[1, 2, 3, 0]], periscope: [[1, 2, 3, 0]], magnet: [[1, 2, 3, 0]], hopper: [[1, 2, 3, 0]], waddle: [[1, 2, 3, 0]] }, energy: { stock: 6, cap: 3, nextInMs: null, regenMs: 1_800_000 } }])
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).

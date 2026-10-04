@@ -42,6 +42,11 @@ export class Connection {
   /** The socket disconnected: a start still waiting on the account is dropped. */
   closed: boolean = false
   /**
+   * The server closed this connection to stop (`Worlds.closeAll`: a drain's
+   * deadline): a run it cuts short gets its play back (decision #48 step 7).
+   */
+  cutOff: boolean = false
+  /**
    * The party code of this connection's last start (decision #47): a friend's
    * invite link carries the inviter's, so both runs go to the same world
    * (`Worlds.choose`). Random per browser, never the player id.

@@ -49,6 +49,7 @@ import { Exit } from './objects/exit'
 import { Session } from './net/session'
 import { LocalPlayer } from './net/localplayer'
 import { slotsFor } from './net/loadout'
+import { onRefused, setEnergy } from './net/energy'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
@@ -312,6 +313,7 @@ export class Game extends Container {
     Game.socket.off('destroy')
     Game.socket.off('standings')
     Game.socket.off('spectate')
+    Game.socket.off('start_refused')
     Leaderboard.Instance?.setStandings([], undefined)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
@@ -326,6 +328,7 @@ export class Game extends Container {
     Game.socket.on('destroy', this.onObjectsDestroyed.bind(this))
     Game.socket.on('standings', this.onStandings.bind(this))
     Game.socket.on('spectate', this.onSpectate.bind(this))
+    Game.socket.on('start_refused', this.onStartRefused.bind(this))
     // `{ id, name, finish }`: the server plays under this connection's guest
     // account (decision #48, net/account.ts) and ignores `id`, which is sent
     // for one more release only because an older server refuses a start
@@ -341,6 +344,19 @@ export class Game extends Container {
     Game.socket.emit('start_requested', { id: playerId, name, finish, robot, party, loadout })
 
     Game.hud.setupGameUI()
+  }
+
+  /**
+   * The server refused the start (decision #48 step 7: no play left). No run
+   * began, so back to the lobby, whose READY line now says when the next play
+   * comes. A refusal for a reason this client doesn't know does the same.
+   */
+  onStartRefused (data: unknown): void {
+    const refusal = onRefused(data)
+    if (refusal?.energy !== undefined) setEnergy(refusal.energy, Date.now())
+    if (Game.PLAYER !== undefined) return
+    Game.hud.clearGameUI()
+    this.start()
   }
 
   /**

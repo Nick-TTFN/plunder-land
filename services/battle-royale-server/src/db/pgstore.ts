@@ -6,7 +6,8 @@ import {
   dueStarts, type LastPayout, type PaidSeason, type SeasonBoard, type SeasonCredit, seasonEndMs, seasonPayouts,
   seasonStart, type SeasonView, seasonView, type Tier, tierPlaces
 } from '../progress/seasons'
-import { SEASON } from '../progress/xp'
+import { ENERGY, SEASON } from '../progress/xp'
+import { energyAt, type EnergyRecord, refundAt, spendAt } from '../progress/energy'
 import { ThrottledLog } from '../network/multiplayer'
 
 /**
@@ -140,21 +141,88 @@ export class PgAccountStore implements AccountStore {
 
   async resolve (token: string): Promise<Account | null> {
     if (!this.ready) throw new NotReadyError()
-    // One round trip: the account, its XP (no progress row yet reads as 0)
-    // and its saved loadouts (none reads as []).
+    // One round trip: the account, its XP (no progress row yet reads as 0),
+    // its saved loadouts (none reads as []) and its energy (none reads as null).
     const result = await this.pool.query(
       `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
-       SELECT a.public_id, COALESCE(p.xp, 0) AS xp,
+       SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
          COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
                    FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
-       FROM a LEFT JOIN account_progress p ON p.account_id = a.id`,
+       FROM a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id`,
       [hashToken(token)]
     )
-    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[] } | undefined
+    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null } | undefined
     if (row === undefined) return null
     // Raw as stored: `kitFor` checks every row at the join.
     const loadouts = Array.isArray(row.loadouts) ? row.loadouts.map((l) => ({ robot: l.robot, index: Number(l.index), skills: l.skills })) : []
-    return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts }
+    const energy = row.stock === null || row.as_of_ms === null ? null : { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
+    return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy }
+  }
+
+  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> {
+    const { written, record } = await this.energyTx(publicId, nowMs, (stored) => {
+      const spent = spendAt(stored, nowMs)
+      return spent.ok ? spent.record : undefined
+    })
+    return { ok: written, energy: record }
+  }
+
+  async refund (publicId: string, nowMs: number): Promise<EnergyRecord> {
+    return (await this.energyTx(publicId, nowMs, (stored) => refundAt(stored, nowMs))).record
+  }
+
+  private async energyTx (publicId: string, nowMs: number, change: (record: EnergyRecord) => EnergyRecord | undefined): Promise<{ written: boolean, record: EnergyRecord }> {
+    if (!this.ready) throw new NotReadyError()
+    if (this.closed) throw new Error('accounts: store closed')
+    const pending = this.energyWrite(publicId, nowMs, change)
+    this.grants.add(pending)
+    try {
+      return await pending
+    } finally {
+      this.grants.delete(pending)
+    }
+  }
+
+  private async energyWrite (publicId: string, nowMs: number, change: (record: EnergyRecord) => EnergyRecord | undefined): Promise<{ written: boolean, record: EnergyRecord }> {
+    const client: PoolClient = await this.pool.connect()
+    const onError = (e: unknown): void => { this.onError(e) }
+    client.on('error', onError)
+    let failed: Error | undefined
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `INSERT INTO energy (account_id, stock, as_of)
+         SELECT id, $2, to_timestamp($3::double precision / 1000.0) FROM accounts WHERE public_id = $1
+         ON CONFLICT (account_id) DO NOTHING`,
+        [publicId, ENERGY.start, nowMs]
+      )
+      const found = await client.query(
+        `SELECT e.account_id, e.stock, round(extract(epoch FROM e.as_of) * 1000)::bigint AS as_of_ms
+         FROM energy e JOIN accounts a ON a.id = e.account_id WHERE a.public_id = $1 FOR UPDATE OF e`,
+        [publicId]
+      )
+      const row = found.rows[0] as { account_id: string, stock: number, as_of_ms: string } | undefined
+      if (row === undefined) throw new Error('accounts: energy for an unknown account')
+      const stored = { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
+      const next = change(stored)
+      if (next === undefined) {
+        await client.query('ROLLBACK')
+        return { written: false, record: energyAt(stored, nowMs) }
+      }
+      await client.query(
+        'UPDATE energy SET stock = $2, as_of = to_timestamp($3::double precision / 1000.0), updated_at = now() WHERE account_id = $1',
+        [row.account_id, next.stock, next.asOfMs]
+      )
+      await client.query('COMMIT')
+      return { written: true, record: next }
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {})
+      failed = e instanceof Error ? e : new Error(String(e))
+      throw e
+    } finally {
+      client.removeListener('error', onError)
+      client.release(failed)
+    }
   }
 
   /**
@@ -188,7 +256,7 @@ export class PgAccountStore implements AccountStore {
       const publicId = newPublicId()
       try {
         await this.pool.query('INSERT INTO accounts (public_id, token_hash) VALUES ($1, $2)', [publicId, hashToken(token)])
-        return { account: { publicId, persisted: true, xp: 0, loadouts: [] }, token }
+        return { account: { publicId, persisted: true, xp: 0, loadouts: [], energy: null }, token }
       } catch (e) {
         if ((e as { code?: string }).code !== '23505' || attempt >= 3) throw e
       }

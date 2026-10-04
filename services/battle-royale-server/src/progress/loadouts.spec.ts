@@ -22,7 +22,7 @@ import {
  */
 
 function account (xp: number, loadouts: Account['loadouts'] = []): Account {
-  return { publicId: '0123456789abcdef', persisted: true, xp, loadouts }
+  return { publicId: '0123456789abcdef', persisted: true, xp, loadouts, energy: null }
 }
 
 /** The total XP at the start of `level`. */

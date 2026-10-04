@@ -131,3 +131,19 @@ export function standingOf (xp: number): Standing {
   const level = levelOf(xp)
   return { xp, level, levelAt: xpToReach(level), nextAt: xpToReach(level + 1) }
 }
+
+/**
+ * Energy (decision #48 step 7): a run costs one play, an extraction gives it
+ * back, and plays come back one per `regenMs` while below `cap`. Nick's
+ * numbers in #48, checked by Dez (`ideas/meta-progression-numbers.md`
+ * section 5: ~9 runs, ~25 min on day 1 at a 65% death rate). Pinned by
+ * `progress/energy.spec.ts`. Change a number here, nowhere else.
+ */
+export const ENERGY = Object.freeze({
+  /** One play comes back every 30 minutes ... */
+  regenMs: 30 * 60_000,
+  /** ... while the stock is below this; nothing regenerates above it. */
+  cap: 3,
+  /** A new account's stock (above the cap, so it doesn't regenerate until it falls below). */
+  start: 6
+})

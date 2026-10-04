@@ -9,6 +9,7 @@ import Worlds from './worlds'
 import World from '../objects/world'
 import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore, PUBLIC_ID_SHAPE, TOKEN_SHAPE } from '../db/accounts'
+import type { EnergyRecord } from '../progress/energy'
 import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { NotReadyError } from '../db/pgstore'
 import { onAccount, readToken, handshakeAuth, TOKEN_KEY, type TokenStorage } from '../../../../plunder-land-client/src/net/account'
@@ -157,13 +158,22 @@ class TestStore implements AccountStore {
   async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
   async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
   async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
+  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> {
+    if (this.mode !== 'ok') return await this.fail()
+    return await this.inner.spend(publicId, nowMs)
+  }
+
+  async refund (publicId: string, nowMs: number): Promise<EnergyRecord> {
+    if (this.mode !== 'ok') return await this.fail()
+    return await this.inner.refund(publicId, nowMs)
+  }
   async close (): Promise<void> {}
 }
 
 /** An `account` message without the standing (decision #48 step 3), which `standing` tests check. */
 function bare (message: unknown): unknown {
-  // The standing (#48 step 3) and the loadouts (step 4) are checked in progress.spec.ts and loadouts.spec.ts.
-  const { xp, level, levelAt, nextAt, loadouts, ...rest } = message as Record<string, unknown>
+  // The standing (#48 step 3), the loadouts (step 4) and the energy (step 7) are checked in progress.spec.ts, loadouts.spec.ts and energy.spec.ts.
+  const { xp, level, levelAt, nextAt, loadouts, energy, ...rest } = message as Record<string, unknown>
   return rest
 }
 
@@ -184,7 +194,7 @@ test('no token: account { id, token } arrives before hello, and the run and its 
   assert.ok(account !== undefined, 'no account event')
   assert.match(account.id, PUBLIC_ID_SHAPE)
   assert.match(account.token, TOKEN_SHAPE)
-  assert.equal(Object.keys(account).sort().join(), 'id,level,levelAt,loadouts,nextAt,token,xp')
+  assert.equal(Object.keys(account).sort().join(), 'energy,id,level,levelAt,loadouts,nextAt,token,xp')
   assert.deepEqual(bare(account), { id: account.id, token: account.token })
   assert.ok(a.order.indexOf('account') < a.order.indexOf('hello'), `account after hello: ${a.order.join(' ')}`)
   assert.equal(a.order.filter((e) => e === 'hello').length, 1)
@@ -222,14 +232,17 @@ test('reconnecting with the token: account { id } with the same id on connect, n
   assert.equal(again.connection.player?.playerId, issued.id)
   assert.equal(store.creates, 1, 'a second account was created')
   assert.equal(again.events('account').length, 1, 'announced again at the start')
-  // Its next run on the same connection is synchronous: the account is known.
+  // Its next run on the same connection needs no lookup: the account is
+  // known. It waits only for its play to be spent (#48 step 7).
   const player = again.connection.player
   const world = worlds.worldFor(again.connection) as World
   assert.ok(player !== undefined)
   World.run(world, () => { player.destroy() })
   worlds.tickAll(250)
   again.start()
-  assert.notEqual(again.connection.player, player, 'the next run did not start at once')
+  await settle()
+  assert.equal(store.resolves, 1, 'looked up again')
+  assert.notEqual(again.connection.player, player, 'the next run did not start')
   assert.equal(again.connection.player?.playerId, issued.id)
 })
 
@@ -486,7 +499,7 @@ test('a lookup that fails: offline at once, announced on connect, and the store 
 
 test('an issued id without ID_SHAPE is never played under', async () => {
   const store = new TestStore()
-  store.inner.create = async () => ({ account: { publicId: 'stats-*', persisted: true, xp: 0, loadouts: [] }, token: 'T'.repeat(43) })
+  store.inner.create = async () => ({ account: { publicId: 'stats-*', persisted: true, xp: 0, loadouts: [], energy: null }, token: 'T'.repeat(43) })
   const worlds = makeWorlds(store)
   const a = connect(worlds, 'a')
   a.start()

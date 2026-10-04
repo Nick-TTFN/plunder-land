@@ -113,6 +113,9 @@ export const LOBBY_CSS = `
   color: #1a1206; background: linear-gradient(#ffc45e, #f2a12e); border: 2px solid #ffd58a; border-radius: 10px;
   box-shadow: 0 0 22px rgba(255,181,71,.45); }
 .lb-ready:hover { filter: brightness(1.08); }
+.lb-ready-sub { display: block; margin-top: 4px; font-size: 11px; font-weight: 600; letter-spacing: .12em; }
+.lb-ready-sub[hidden] { display: none; }
+.lb-ready:disabled { filter: grayscale(1) brightness(.7); box-shadow: none; cursor: not-allowed; }
 .lb-keys { position: absolute; left: 44px; bottom: 50px; font-size: 13px; letter-spacing: .1em; color: #a9bccd; }
 .lb-privacy { position: absolute; left: 52px; bottom: 18px; font-size: 11px; letter-spacing: .12em; color: #7f95a8; text-decoration: none; pointer-events: auto; }
 .lb-privacy:hover { color: #5fe0cf; }

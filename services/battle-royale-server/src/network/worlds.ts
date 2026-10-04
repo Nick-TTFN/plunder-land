@@ -11,6 +11,7 @@ import type Player from '../objects/player'
 import { levelOf, standingOf } from '../progress/xp'
 import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
 import { creditOf } from '../progress/seasons'
+import { type EnergyView, energyView } from '../progress/energy'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -67,6 +68,9 @@ export interface WorldsOptions {
  * The run's season credit (#48 step 6, `creditOf`) rides in the same store
  * call, so it lands exactly when the XP does; a `season` event follows.
  *
+ * **A run costs a play** (decision #48 step 7, `admit`), spent before it
+ * begins; an extraction or a server cut-off gives it back (`refundRun`).
+ *
  * **Everything runs inside `World.run`** for the world it belongs to: each
  * world's tick and flush, and every socket handler, inside `guarded`. The
  * server sets `World.strict`, so between those no world is current and a stray
@@ -104,6 +108,8 @@ export default class Worlds {
   private readonly creating = new WeakMap<Connection, Promise<{ account: Account, token: string }>>()
   /** Connections with a loadout save in flight (`saveLoadout`): at most one each. */
   private readonly saving = new WeakSet<Connection>()
+  /** Runs that spent a play (`admit`), and the account that paid; an extraction gives it back (`refundRun`). */
+  private readonly paid = new WeakMap<Player, Account>()
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
@@ -141,7 +147,10 @@ export default class Worlds {
   /** A new world with its own Multiplayer, not left current. */
   open (): World {
     const multiplayer = new Multiplayer(this.tickLengthMs, this.redis)
-    multiplayer.runEnded = (connection, player, xp) => { this.grant(connection, player, xp) }
+    multiplayer.runEnded = (connection, player, xp) => {
+      this.grant(connection, player, xp)
+      this.refundRun(connection, player)
+    }
     const world = World.build(this.mapSize, { multiplayer })
     this.worlds.push(world)
     return world
@@ -280,7 +289,7 @@ export default class Worlds {
       token = undefined
     }
     connection.account = account
-    const message: { id: string, token?: string, offline?: boolean, xp?: number, level?: number, levelAt?: number, nextAt?: number, loadouts?: Record<string, number[][]> } = { id: account.publicId }
+    const message: { id: string, token?: string, offline?: boolean, xp?: number, level?: number, levelAt?: number, nextAt?: number, loadouts?: Record<string, number[][]>, energy?: EnergyView } = { id: account.publicId }
     if (!account.persisted) message.offline = true
     else {
       if (token !== undefined) message.token = token
@@ -291,6 +300,9 @@ export default class Worlds {
       // Only here: the mid-run `account` from `grant` carries none, and the
       // client keeps the last ones it had for the same id.
       message.loadouts = loadoutsFor(account)
+      // Plays left and when the next comes back (#48 step 7). Only here and
+      // in `energy`: an offline account spends nothing and is sent none.
+      message.energy = energyView(account.energy, this.now())
     }
     connection.socket.emit('account', message)
     if (account.persisted) this.sendSeason(connection, account)
@@ -509,8 +521,9 @@ export default class Worlds {
    * `start_requested`. A malformed one, or one while a run is in progress or
    * waiting on the account, moves nothing. Otherwise, once the connection has
    * an account (`accountFor`; at once on its later runs, unless the account
-   * is offline, when `retryAccount` tries the store again first), it goes to
-   * `choose()`'s world, leaving its old one first if that is another, and
+   * is offline, when `retryAccount` tries the store again first) and, for a
+   * persisted account, once its play is spent (`admit`, #48 step 7), it goes
+   * to `choose()`'s world, leaving its old one first if that is another, and
    * the run starts there.
    *
    * Asynchronous around the account. After the wait no world is current, so
@@ -527,7 +540,7 @@ export default class Worlds {
       return
     }
     if (connection.account?.persisted === true) {
-      this.begin(connection, start, data)
+      this.admit(connection, start, data)
       return
     }
     connection.starting = true
@@ -541,7 +554,7 @@ export default class Worlds {
           Worlds.redirect(connection)
           return
         }
-        this.begin(connection, start, data)
+        this.admit(connection, start, data)
       })
     }).catch((e) => {
       connection.starting = false
@@ -549,7 +562,99 @@ export default class Worlds {
     })
   }
 
-  /** The run itself: `start` once the connection has its account. */
+  /**
+   * Energy (decision #48 step 7), between the account and the run: a
+   * persisted account spends one play first, in one atomic check-and-spend
+   * (`AccountStore.spend`), and the run begins only once it is spent. With
+   * none left the client is sent `start_refused { reason: 'energy', energy }`
+   * and nothing else happens: the connection can ask again. A spent play is
+   * remembered with the run (`paid`) and announced in `energy`.
+   *
+   * **Fail open (Nick, #48 build call 9):** an offline account, or a store
+   * that fails or takes longer than `accountTimeoutMs`, plays the run free.
+   * (A spend the timeout gave up on may still land; that play is then lost,
+   * as a grant's XP is. It needs a database stall over 3 s.) A play spent for
+   * a run that then doesn't start (the socket closed, a drain began, the join
+   * threw) is given back.
+   */
+  private admit (connection: Connection, start: { party?: string }, data: unknown): void {
+    const account = connection.account
+    if (account === undefined || !account.persisted) {
+      this.begin(connection, start, data)
+      return
+    }
+    connection.starting = true
+    this.bounded(this.accounts.spend(account.publicId, this.now())).then((spent) => {
+      Worlds.accountSuccess()
+      account.energy = spent.energy
+      Multiplayer.guarded(() => {
+        connection.starting = false
+        if (!spent.ok) {
+          if (!connection.closed) connection.socket.emit('start_refused', { reason: 'energy', energy: energyView(spent.energy, this.now()) })
+          return
+        }
+        if (connection.closed || this.draining || connection.account !== account) {
+          this.refund(account)
+          if (!connection.closed && this.draining) Worlds.redirect(connection)
+          return
+        }
+        let player: Player | undefined
+        try {
+          this.begin(connection, start, data)
+          if (connection.started && connection.player?.playerId === account.publicId) player = connection.player
+        } finally {
+          if (player !== undefined) {
+            this.paid.set(player, account)
+            connection.socket.emit('energy', energyView(spent.energy, this.now()))
+          } else {
+            this.refund(account, connection)
+          }
+        }
+      })
+    }, (e) => {
+      Worlds.accountFailure(e)
+      Multiplayer.guarded(() => {
+        connection.starting = false
+        if (connection.closed) return
+        if (this.draining) {
+          Worlds.redirect(connection)
+          return
+        }
+        this.begin(connection, start, data)
+      })
+    })
+  }
+
+  /**
+   * A run ended: give its play back if it spent one (`admit`) and it
+   * extracted, or the server cut it short (`closeAll`: a drain's deadline,
+   * Nick's #48 build call 8). A death or the player's own disconnect keeps
+   * it spent: only a loss costs a play. Once per run (`runEnded` is).
+   */
+  refundRun (connection: Connection, player: Player): void {
+    const account = this.paid.get(player)
+    if (account === undefined) return
+    this.paid.delete(player)
+    if (player.extracted || connection.cutOff) this.refund(account, connection)
+  }
+
+  /**
+   * One play back to `account`, then `energy` to `connection` while it is
+   * open and still on that account. Bounded and reported like every store
+   * call; a failed refund is not retried.
+   */
+  private refund (account: Account, connection?: Connection): void {
+    this.bounded(this.accounts.refund(account.publicId, this.now())).then((record) => {
+      Worlds.accountSuccess()
+      account.energy = record
+      Multiplayer.guarded(() => {
+        if (connection === undefined || connection.closed || connection.account !== account) return
+        connection.socket.emit('energy', energyView(record, this.now()))
+      })
+    }).catch((e) => { Worlds.accountFailure(e) })
+  }
+
+  /** The run itself: `start` once the connection has its account and, if it pays, its play (`admit`). */
   private begin (connection: Connection, start: { party?: string }, data: unknown): void {
     connection.party = start.party
     const target = this.choose(start.party)
@@ -666,7 +771,11 @@ export default class Worlds {
    * on any disconnect) and its client reconnects to the next server.
    */
   closeAll (): void {
-    for (const connection of [...this.connections]) Worlds.redirect(connection)
+    for (const connection of [...this.connections]) {
+      // Not the player's loss: a run cut here gets its play back (`refundRun`).
+      connection.cutOff = true
+      Worlds.redirect(connection)
+    }
   }
 
   /**

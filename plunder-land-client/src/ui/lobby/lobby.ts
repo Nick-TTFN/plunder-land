@@ -11,6 +11,7 @@ import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
 import { ACCOUNT, localTokenStorage } from '../../net/account'
 import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
+import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
 import { LoadoutPanel } from './loadoutpanel'
 import {
   type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
@@ -197,6 +198,16 @@ export default class Lobby extends Container {
   private readonly onSeason = (): void => { this.renderSeason() }
   /** Re-renders the season countdown once a minute. */
   private readonly seasonTimer: ReturnType<typeof setInterval>
+  /**
+   * READY, and the plays left under it (decision #48 step 7): with none left
+   * it is disabled until the next comes back. The server decides all the
+   * same (`start_refused`); this only saves a press that would be refused.
+   */
+  private readonly readyButton: HTMLButtonElement
+  private readonly playsLine: HTMLSpanElement
+  private readonly onEnergy = (): void => { this.renderEnergy() }
+  /** Re-renders the plays countdown every 10 s, so READY comes back within seconds of the play. */
+  private readonly energyTimer: ReturnType<typeof setInterval>
 
   constructor (private readonly start: LobbyStart) {
     super()
@@ -330,9 +341,14 @@ export default class Lobby extends Container {
     this.loadout = new LoadoutPanel(() => { this.toggleLoadout(false) })
     this.root.append(this.loadout.root)
 
-    const ready = el('button', 'lb-ready', 'READY UP \u203A')
+    const ready = this.readyButton = el('button', 'lb-ready')
+    this.playsLine = el('span', 'lb-ready-sub')
+    ready.append(el('span', undefined, 'READY UP \u203A'), this.playsLine)
     ready.onclick = () => { this.ready() }
     this.root.append(ready)
+    ENERGY.listeners.add(this.onEnergy)
+    this.energyTimer = setInterval(this.onEnergy, 10_000)
+    this.renderEnergy()
     // Portals ask for it, and it is what the game collects (decision #46).
     this.root.append(Object.assign(el('a', 'lb-privacy'), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'PRIVACY' }))
     this.root.append(Object.assign(el('div', 'lb-keys'), {
@@ -553,6 +569,8 @@ export default class Lobby extends Container {
     // Enter and a click can both land; a second start would register every
     // socket listener twice.
     if (this.started) return
+    // No play left (Enter bypasses the disabled button).
+    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt)) return
     this.started = true
     const name = this.nameInput.value.trim()
     // An empty name is remembered too, so clearing the field sticks.
@@ -823,12 +841,25 @@ export default class Lobby extends Container {
     this.seasonText.textContent = seasonLine(view, Date.now() - SEASON.receivedAt)
   }
 
+  /** The plays line under READY from the last energy view, counted forward; hidden with none (offline plays free). */
+  private renderEnergy (): void {
+    const view = ENERGY.view
+    const elapsed = Date.now() - ENERGY.receivedAt
+    this.playsLine.hidden = view === undefined
+    this.playsLine.textContent = view === undefined ? '' : energyLine(view, elapsed)
+    const out = outOfPlays(view, elapsed)
+    this.readyButton.disabled = out
+    this.readyButton.title = out ? 'A run costs a play; extracting gives it back' : ''
+  }
+
   private teardown (): void {
     if (this.tornDown) return
     this.tornDown = true
     ACCOUNT.listeners.delete(this.onAccount)
     SEASON.listeners.delete(this.onSeason)
     clearInterval(this.seasonTimer)
+    ENERGY.listeners.delete(this.onEnergy)
+    clearInterval(this.energyTimer)
     this.loadout.dispose()
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { type EnergyRecord, refundAt, spendAt } from '../progress/energy'
 import {
   compareEntries, dueStarts, eligible, type LastPayout, type PaidSeason, type SeasonBoard, type SeasonCredit,
   type SeasonEntry, seasonEndMs, seasonPayouts, seasonStart, type SeasonView, seasonView, tierPlaces
@@ -33,6 +34,13 @@ export interface Account {
    * what was valid when saved. `[]` for a new or offline account.
    */
   loadouts: StoredLoadout[]
+  /**
+   * The play stock (decision #48 step 7) as last read or written, `null` for
+   * an account with no row yet (it reads as `ENERGY.start`) and for an
+   * offline account, which spends nothing. Regenerated lazily
+   * (`progress/energy.ts`); the store's is the truth, this is for showing.
+   */
+  energy: EnergyRecord | null
 }
 
 /** One saved loadout: a robot's key, its loadout index, and 4 skill ids. */
@@ -77,6 +85,15 @@ export interface AccountStore {
    * no such account.
    */
   saveLoadout: (publicId: string, robot: string, index: number, skills: number[]) => Promise<void>
+  /**
+   * Spend one play at `nowMs` (decision #48 step 7, `spendAt`), as one atomic
+   * check-and-spend: two starts at once with one play left get one run.
+   * `ok: false` (nothing written) with none left; either way the record as
+   * it now stands. Throws when the store fails or knows no such account.
+   */
+  spend: (publicId: string, nowMs: number) => Promise<{ ok: boolean, energy: EnergyRecord }>
+  /** Give one play back at `nowMs` (`refundAt`), atomically; the record after. Throws as `spend`. */
+  refund: (publicId: string, nowMs: number) => Promise<EnergyRecord>
   /** Waits for grants and saves in flight, then lets go of the store. */
   close: () => Promise<void>
 }
@@ -104,7 +121,7 @@ export function newPublicId (): string {
 
 /** An account for one connection while the store is failing (fail open). */
 export function offlineAccount (): Account {
-  return { publicId: newPublicId(), persisted: false, xp: 0, loadouts: [] }
+  return { publicId: newPublicId(), persisted: false, xp: 0, loadouts: [], energy: null }
 }
 
 /**
@@ -130,6 +147,8 @@ export class MemoryAccountStore implements AccountStore {
   private readonly ids = new Set<string>()
   /** Total XP by public id; an account with none yet has 0. */
   private readonly xp = new Map<string, number>()
+  /** Play stocks by public id; none is a new account's (`ENERGY.start`). */
+  private readonly energy = new Map<string, EnergyRecord>()
   /** Saved loadouts by public id, then by `robot/index`. */
   private readonly loadouts = new Map<string, Map<string, StoredLoadout>>()
   /** Each account's key in creation order: stands in for pg's `account_id` in the ranking. */
@@ -148,7 +167,23 @@ export class MemoryAccountStore implements AccountStore {
     const loadouts = [...(this.loadouts.get(publicId)?.values() ?? [])]
       .map((l) => ({ robot: l.robot, index: l.index, skills: copyOf(l.skills) }))
       .sort((a, b) => a.robot < b.robot ? -1 : a.robot > b.robot ? 1 : a.index - b.index)
-    return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts }
+    const energy = this.energy.get(publicId)
+    return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy } }
+  }
+
+  /** Synchronous from start to end (no `await`), so two at once can't both spend the last play. */
+  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: spend for an unknown account')
+    const { ok, record } = spendAt(this.energy.get(publicId) ?? null, nowMs)
+    if (ok) this.energy.set(publicId, record)
+    return { ok, energy: { ...record } }
+  }
+
+  async refund (publicId: string, nowMs: number): Promise<EnergyRecord> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: refund for an unknown account')
+    const record = refundAt(this.energy.get(publicId) ?? null, nowMs)
+    this.energy.set(publicId, record)
+    return { ...record }
   }
 
   async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> {
@@ -168,7 +203,7 @@ export class MemoryAccountStore implements AccountStore {
     this.ids.add(publicId)
     this.keys.set(publicId, this.keys.size + 1)
     this.byHash.set(hashToken(token).toString('hex'), publicId)
-    return { account: { publicId, persisted: true, xp: 0, loadouts: [] }, token }
+    return { account: { publicId, persisted: true, xp: 0, loadouts: [], energy: null }, token }
   }
 
   async grant (publicId: string, xp: number, credit?: SeasonCredit): Promise<number> {

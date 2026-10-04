@@ -9,6 +9,7 @@ import Worlds from './worlds'
 import World from '../objects/world'
 import type Player from '../objects/player'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
+import type { EnergyRecord } from '../progress/energy'
 import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { SKILL_SPECS } from '../archetypes/archetypes'
 import { ARCHETYPE_INFO, type ArchetypeKey, SELECTABLE_ROBOTS } from '../utils/archetypes'
@@ -99,6 +100,8 @@ class SaveStore implements AccountStore {
   async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
   async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
   async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
+  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> { return await this.inner.spend(publicId, nowMs) }
+  async refund (publicId: string, nowMs: number): Promise<EnergyRecord> { return await this.inner.refund(publicId, nowMs) }
   async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> {
     this.saves.push([publicId, robot, index, skills])
     if (this.gate !== undefined) await this.gate
@@ -273,6 +276,8 @@ test('no account (a single-world join through onConnect) and an offline account 
     season: async () => { throw new Error('down') },
     seasonBoard: async () => { throw new Error('down') },
     payDue: async () => { throw new Error('down') },
+    spend: async () => { throw new Error('down') },
+    refund: async () => { throw new Error('down') },
     close: async () => {}
   }
   const worlds = makeWorlds(down)
@@ -527,9 +532,9 @@ test('account carries loadoutsFor for a persisted account, none offline; the cli
 
 // --- PROTOCOL (criterion 9) ----------------------------------------------------------------
 
-test('PROTOCOL is 4, and welcome sends it', async () => {
-  assert.equal(PROTOCOL, 4)
+test('PROTOCOL is 5, and welcome sends it', async () => {
+  assert.equal(PROTOCOL, 5)
   const client = new Client('a')
   makeWorlds(new SaveStore()).onConnection(client.socket)
-  assert.deepEqual(client.events('welcome'), [{ protocol: 4 }])
+  assert.deepEqual(client.events('welcome'), [{ protocol: 5 }])
 })

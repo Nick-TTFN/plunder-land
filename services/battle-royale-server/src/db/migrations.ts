@@ -125,5 +125,24 @@ export const MIGRATIONS: readonly Migration[] = [
         PRIMARY KEY (season_start, account_id)
       )
     `
+  },
+  {
+    version: 5,
+    name: 'energy',
+    // Plays (decision #48 step 7, progress/energy.ts): the stock and when it
+    // was true; regeneration is computed on read, never written by a timer.
+    // No row is a new account's stock (`ENERGY.start`), so accounts made
+    // before this migration start full too. Written only inside a
+    // transaction holding the row (`PgAccountStore.spend` / `refund`). A new
+    // table only: the step-6 server runs unchanged on this schema during
+    // overlap and drain (and charges nothing).
+    sql: `
+      CREATE TABLE energy (
+        account_id bigint      PRIMARY KEY REFERENCES accounts(id),
+        stock      int         NOT NULL CHECK (stock >= 0),
+        as_of      timestamptz NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `
   }
 ]

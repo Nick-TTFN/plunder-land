@@ -10,6 +10,7 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
+import type { EnergyRecord } from '../progress/energy'
 import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import type Player from '../objects/player'
 
@@ -54,6 +55,8 @@ class CountingStore implements AccountStore {
   async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
   async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
   async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
+  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> { return await this.inner.spend(publicId, nowMs) }
+  async refund (publicId: string, nowMs: number): Promise<EnergyRecord> { return await this.inner.refund(publicId, nowMs) }
   async close (): Promise<void> {}
 }
 

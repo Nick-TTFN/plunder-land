@@ -110,7 +110,7 @@ test('finishFromBytes never locks: ARCADE decodes as ARCADE whoever is looking',
 // --- the join's level ------------------------------------------------------------------
 
 test('joinLevel: the account\'s level; an offline one is 1 whatever its XP; no account has no locks', () => {
-  const account = (xp: number, persisted = true): Account => ({ publicId: '0123456789abcdef', persisted, xp, loadouts: [] })
+  const account = (xp: number, persisted = true): Account => ({ publicId: '0123456789abcdef', persisted, xp, loadouts: [], energy: null })
   assert.equal(joinLevel(account(0)), 1)
   assert.equal(joinLevel(account(xpToReach(5))), 5)
   assert.equal(joinLevel(account(xpToReach(5) - 1)), 4)

@@ -16,7 +16,7 @@ export async function storeContract (store: AccountStore): Promise<void> {
   const found = await store.resolve(token)
   assert.equal(account.xp, 0, 'a new account has XP')
   assert.deepEqual(account.loadouts, [], 'a new account has loadouts')
-  assert.deepEqual(found, { publicId: account.publicId, persisted: true, xp: 0, loadouts: [] }, 'create then resolve gave another account')
+  assert.deepEqual(found, { publicId: account.publicId, persisted: true, xp: 0, loadouts: [], energy: null }, 'create then resolve gave another account')
   assert.equal(await store.resolve(newToken()), null, 'an unknown token resolved')
 
   const other = await store.create()
@@ -29,7 +29,7 @@ export async function storeContract (store: AccountStore): Promise<void> {
   assert.equal(await store.grant(account.publicId, 87), 87)
   assert.equal(await store.grant(account.publicId, 0), 87, 'a grant of 0')
   assert.equal(await store.grant(account.publicId, 5), 92)
-  assert.deepEqual(await store.resolve(token), { publicId: account.publicId, persisted: true, xp: 92, loadouts: [] })
+  assert.deepEqual(await store.resolve(token), { publicId: account.publicId, persisted: true, xp: 92, loadouts: [], energy: null })
   assert.equal((await store.resolve(other.token))?.xp, 0, 'another account\'s XP moved')
   // Concurrent grants all count (one atomic step each).
   const totals = await Promise.all(Array.from({ length: 10 }, async () => await store.grant(other.account.publicId, 3)))
@@ -61,6 +61,52 @@ export async function storeContract (store: AccountStore): Promise<void> {
   assert.ok(written.some((skills) => JSON.stringify(skills) === JSON.stringify(rows[0].skills)), 'the row holds a value nobody wrote')
 
   await seasonContract(store)
+  await energyContract(store)
+}
+
+/**
+ * Energy (decision #48 step 7): a new account reads as no record (6), a spend
+ * is one atomic check-and-spend (two at once with one play left: one run),
+ * refunds add back, and resolve reads the stock back.
+ */
+async function energyContract (store: AccountStore): Promise<void> {
+  const t = Date.parse('2025-09-01T10:00:00.000Z')
+  const min = 60_000
+  const { account, token } = await store.create()
+  assert.equal(account.energy, null, 'a new account has an energy record')
+  assert.equal((await store.resolve(token))?.energy, null, 'a new account resolves with an energy record')
+  for (let i = 1; i <= 6; i++) {
+    const spent = await store.spend(account.publicId, t + i)
+    // At or above the cap the record is as of the spend; the spend that takes
+    // it below the cap (the 4th, to 2) starts the clock, which later ones keep.
+    assert.deepEqual(spent, { ok: true, energy: { stock: 6 - i, asOfMs: t + Math.min(i, 4) } }, `spend ${i}`)
+  }
+  const refused = await store.spend(account.publicId, t + 10 * min)
+  assert.deepEqual(refused, { ok: false, energy: { stock: 0, asOfMs: t + 4 } }, 'a seventh spend')
+  assert.deepEqual((await store.resolve(token))?.energy, { stock: 0, asOfMs: t + 4 }, 'a refused spend wrote')
+  // 30 minutes after the clock started, one play is back.
+  assert.equal((await store.spend(account.publicId, t + 4 + 30 * min - 1)).ok, false)
+  assert.deepEqual(await store.spend(account.publicId, t + 4 + 30 * min), { ok: true, energy: { stock: 0, asOfMs: t + 4 + 30 * min } })
+  assert.deepEqual(await store.refund(account.publicId, t + 4 + 40 * min), { stock: 1, asOfMs: t + 4 + 30 * min })
+  assert.deepEqual((await store.resolve(token))?.energy, { stock: 1, asOfMs: t + 4 + 30 * min })
+
+  // Two spends at once with one play left: exactly one run.
+  const race = await Promise.all([store.spend(account.publicId, t + 41 * min), store.spend(account.publicId, t + 41 * min)])
+  assert.deepEqual(race.map((r) => r.ok).sort(), [false, true], 'two concurrent spends of the last play')
+  assert.equal((await store.resolve(token))?.energy?.stock, 0)
+  // Many at once on a new account (no row yet): exactly 6.
+  const fresh = await store.create()
+  const many = await Promise.all(Array.from({ length: 9 }, async () => await store.spend(fresh.account.publicId, t)))
+  assert.equal(many.filter((r) => r.ok).length, 6, 'nine concurrent spends on a new account')
+  assert.equal((await store.resolve(fresh.token))?.energy?.stock, 0)
+  // A refund on a new account (no row): 6 + 1. Concurrent refunds all count.
+  const other = await store.create()
+  await Promise.all(Array.from({ length: 4 }, async () => await store.refund(other.account.publicId, t)))
+  assert.equal((await store.resolve(other.token))?.energy?.stock, 10, 'concurrent refunds')
+  assert.equal((await store.resolve(token))?.energy?.stock, 0, 'another account\'s stock moved')
+
+  await assert.rejects(store.spend('0123456789abcdef', t), 'a spend for an unknown account')
+  await assert.rejects(store.refund('0123456789abcdef', t), 'a refund for an unknown account')
 }
 
 /** A credit for a run ending at `atMs`: banked > 0 means an extraction (`extracted` forces one). */

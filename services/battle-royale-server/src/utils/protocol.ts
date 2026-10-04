@@ -22,5 +22,7 @@
  * and finish; this server plays a locked one as Peep or the group's default
  * without saying so.
  * 48-6 (seasons) needed none: a new `season` event, which older clients ignore.
+ * 5: energy (#48 step 7). A start can now be refused (`start_refused`), which
+ * an older client never hears: its READY would leave it on an empty screen.
  */
-export const PROTOCOL = 4
+export const PROTOCOL = 5
