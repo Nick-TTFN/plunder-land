@@ -389,7 +389,10 @@ function join () {
   socket = io(serverUrl, { transports: ['websocket'], reconnectionDelay: 100, reconnectionDelayMax: 200 })
   socket.on('connect', () => {
     results.joins++
-    socket.emit('start_requested', `archetype-bot-${label}-${results.joins}`)
+    // An object since #48 (the bare string is ignored): the server plays under
+    // a new guest account per connection; `id` is ignored but an older server
+    // still wants one.
+    socket.emit('start_requested', { id: 'abcdef', name: `bot-${label}-${results.joins}`.slice(0, 16) })
   })
   socket.on('hello', (h) => { results.hello = h; tickMs = h.tick })
   socket.on('create', onCreate)

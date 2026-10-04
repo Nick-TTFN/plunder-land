@@ -1526,6 +1526,17 @@ export default class Multiplayer {
   }
 
   /**
+   * An effect's lifetime as the wire's int8 of tenths of a second, clamped to
+   * 0..127 (12.7 s). Unclamped, a lifetime of 12.8 s or more threw
+   * `ERR_OUT_OF_RANGE` inside the tick (an old audit note; no effect is that
+   * long today), and a negative one did too.
+   */
+  static effectLifetime (lifetime: number): number {
+    const tenths = Math.floor(lifetime / 100)
+    return Number.isFinite(tenths) ? Math.max(0, Math.min(127, tenths)) : 0
+  }
+
+  /**
    * `[int8 type][uint16 originator id][int8 lifetime / 100]`, then, only for an
    * aimed effect, `[int16 q][int16 r]` (big-endian): the cell the effect points
    * at. For a ranged shot that is the aimed cell; for a breath it is the tip of
@@ -1554,7 +1565,7 @@ export default class Multiplayer {
     const data = Buffer.alloc(aimCell === undefined ? 4 : 8)
     data.writeInt8(type)
     data.writeUInt16BE(originator.id, 1)
-    data.writeInt8(Math.floor(lifetime / 100), 3)
+    data.writeInt8(Multiplayer.effectLifetime(lifetime), 3)
     if (aimCell !== undefined) {
       data.writeInt16BE(aimCell.x, 4)
       data.writeInt16BE(aimCell.y, 6)
@@ -1587,7 +1598,7 @@ export default class Multiplayer {
     const data = Buffer.alloc(8)
     data.writeInt8(type)
     data.writeUInt16BE(originatorId, 1)
-    data.writeInt8(Math.floor(lifetime / 100), 3)
+    data.writeInt8(Multiplayer.effectLifetime(lifetime), 3)
     data.writeInt16BE(cell.x, 4)
     data.writeInt16BE(cell.y, 6)
 
