@@ -584,18 +584,25 @@ other four events.
 2026-10-03).** Terrain (portals, exits and any untimed obstacle: `Multiplayer.isTerrain`; the
 valleys and walls go in `hello`) goes to every connection on its layer, whatever the distance:
 the client routes the whole layer. **StoneWall stones are not terrain since #38** and are
-**fogged like pickups since #48** (Nick, 2026-10-03): brought into and out of view by
-`World.pickupPass`, because layer-wide they were 41-52% of every client's bandwidth. A client
+**fogged like pickups since #48** (Nick, 2026-10-03): brought into and out of view like
+pickups, because layer-wide they were 41-52% of every client's bandwidth. A client
 can route through a stone it hasn't been sent; the server corrects it and the client re-routes
 when the stone arrives (`Game.block`). **Units, pickups, projectiles and stones go only to
 connections whose client is on their layer (`Connection.layer`) and whose viewpoint sees them**
 (`Multiplayer.viewOf`), counted in hex rings from the cell under the viewpoint's centre to the
 cell under the object's: a `create` once within the robot's `vision` + `VIEW_MARGIN_RINGS` (1)
-rings (from `Multiplayer.update`, whichever side moved; pickups and stones get an update from
-the pass at the end of `World.update`), deltas while held, and a destroy with only `id` once
+rings (from `Multiplayer.update`, whichever side moved, for units and projectiles), deltas while held, and a destroy with only `id` once
 beyond `VIEW_EXIT_RINGS` (1) more, or off the layer. Peep and the other vision-6 robots: in at 7,
 out beyond 8; Periscope (vision 10): in at 11, out beyond 12. So a modified client can know at most
-`vision` + 2 rings (accepted by Nick, 2026-10-03). The viewpoint is `Multiplayer.viewpoint`:
+`vision` + 2 rings (accepted by Nick, 2026-10-03). **Pickups and stones never move, so they come into and out of a
+view only when its viewpoint changes cell** (`Multiplayer.pickupViews`, from `World.pickupPass` at
+the end of `World.update`, pickup-pass 2026-10-04): a connection whose viewpoint is on the cell
+where the pass last left it is skipped; after a move of one or two rings it looks only at the outer
+rings round its new cell and at what it holds; anything else (first pass, layer change, new
+viewpoint, a longer move, no vision) walks the lists. A pickup or stone that is new since the last
+pass, or dirty, gets its own `update` first. `pickuppass.spec.ts` holds it to the old rule: after
+every pass, every pickup's `update` queues nothing and changes no holder. The pass cost
+0.47-0.56 ms a tick at 400 players before, about 0.2 after (tickbench, mixed robots). The viewpoint is `Multiplayer.viewpoint`:
 the watched player for a spectator, who sees by that robot's vision, not its own dead robot's.
 A viewpoint with no `vision` (none today) falls back to the old box: strictly inside
 `INTEREST_RADIUS` (500), out beyond `+ EXIT_MARGIN` (2 cells). Who holds what is
@@ -1059,7 +1066,7 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
 
 - **Several worlds per process, behind a current world** (worlds-per-process, decision #39,
   2026-09-28). Every mutable piece of world state is an instance field of `World` (the lists,
-  `UNIT_SOURCES`, the cell indexes, `BLOCKED`, `VOIDS`, `VOID_RUNS`, `STEPS`, `MOVED_BUCKETS`,
+  `UNIT_SOURCES`, the cell indexes, `BLOCKED`, `VOIDS`, `VOID_RUNS`, `STEPS`,
   `FINISHED`, `mapSize`), and so are its `Timers` queue (`world.timers`), its id pool
   (`world.ids`: ids are per world) and its `Multiplayer` (`world.multiplayer`). The static
   names (`World.PLAYERS`, `Timers.schedule`, `GameObject.id`, `Multiplayer.Instance`) are
