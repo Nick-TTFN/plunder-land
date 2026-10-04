@@ -88,11 +88,35 @@ export class RangedAttackEffect {
       return
     }
     const target = hit >= 0 ? candidates[hit] : undefined
-    new TWEEN.Tween({}).to({}, SHOT.fire * 1000).onComplete(() => {
+    new TWEEN.Tween({}).to({}, RangedAttackEffect.holdMs(owner)).onComplete(() => {
       const now = new Vector(owner.x, owner.y)
       const to = target !== undefined && !target.killed ? new Vector(target.x, target.y) : end
       RangedAttackEffect.fire(owner, layer, now, to, struck, crossed, true)
     }).start()
+  }
+
+  /**
+   * When your own robot's charge started on the key press (`pressed`), not
+   * on this effect's arrival a round trip later, so the charge the player saw
+   * begin on the press is the one the beam leaves (latency on instant
+   * skills, Nick's first remote play, #46). How long the beam still waits:
+   * the rest of `SHOT.fire` after the press, nothing if the effect came later
+   * than that, and the whole `SHOT.fire` for anyone else's shot or a press
+   * more than a second old (not this effect's).
+   */
+  private static readonly pressedAt = new WeakMap<GameObject, number>()
+
+  /** Your own shot's charge started now (`skills/rangedattack.ts`). */
+  static pressed (owner: GameObject, now = performance.now()): void {
+    RangedAttackEffect.pressedAt.set(owner, now)
+  }
+
+  private static holdMs (owner: GameObject, now = performance.now()): number {
+    const full = SHOT.fire * 1000
+    const at = RangedAttackEffect.pressedAt.get(owner)
+    RangedAttackEffect.pressedAt.delete(owner)
+    if (at === undefined || now - at > full + 1000) return full
+    return Math.max(0, full - (now - at))
   }
 
   /** The beam, the cells it lit, and (for a sprite without a rig) a muzzle flash. */

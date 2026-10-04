@@ -374,6 +374,12 @@ export class RobotSprite extends Container {
     if (current?.name === 'fall_apart') return
     // Over a loop that moves (running, or Hopper's hop) the shot is the eye's alone.
     if (name === 'shoot' && this.loopClip(this.base) !== 'idle' && current === undefined) {
+      // A press and the server's effect for it: one shot, as for an action below.
+      if (this.shot !== undefined && this.shot.t < RobotSprite.RETRIGGER_S) {
+        if (aim !== undefined) this.shot.aim = aim
+        if (facing !== undefined) this.shot.facing = facing
+        return
+      }
       this.shot = { name, t: 0, aim, facing }
       return
     }
