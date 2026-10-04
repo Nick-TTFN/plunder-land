@@ -10,6 +10,8 @@ import World from './objects/world'
 import Mob from './objects/mob'
 import { ARCHETYPES } from './archetypes/archetypes'
 import Analytics, { payload } from './analytics'
+import { MemoryAccountStore } from './db/accounts'
+import { xpToReach } from './progress/xp'
 
 /**
  * The game events sent to GA4 (decision #46): what each run sends, and that
@@ -58,11 +60,11 @@ function redisStub (): Redis {
   }) as unknown as Redis
 }
 
-function client (worlds: Worlds, id: string): { connection: Connection, start: () => void } {
+function client (worlds: Worlds, id: string, token?: string): { connection: Connection, start: () => void } {
   const handlers: Record<string, (data?: unknown) => void> = {}
   const socket = {
     id,
-    handshake: { query: { frames: '1' } },
+    handshake: { query: { frames: '1' }, auth: token === undefined ? undefined : { token } },
     on: (event: string, cb: (data?: unknown) => void) => { handlers[event] = cb },
     emit: () => true,
     conn: { write: () => {}, close: () => { handlers.disconnect?.() } }
@@ -81,8 +83,12 @@ function events (): Array<{ name: string, params: Record<string, unknown> }> {
 }
 
 test('a run sends run_start, first_loot and run_end, to the EU endpoint, as one GA session', async () => {
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => 0 })
-  const a = client(worlds, 'a')
+  // An account at level 3, where Magnet opens (#48 step 5): a new one would play Peep.
+  const accounts = new MemoryAccountStore()
+  const { account, token } = await accounts.create()
+  await accounts.grant(account.publicId, xpToReach(3))
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => 0, accounts })
+  const a = client(worlds, 'a', token)
   a.start()
   await settle()
   const player = a.connection.player

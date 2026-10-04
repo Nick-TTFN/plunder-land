@@ -109,7 +109,7 @@ test('kitFor: the stored row checked at the account\'s level now, else the whole
   assert.deepEqual([...START_KIT], [1, 2, 3, 0], 'kitFor handed out START_KIT itself')
 })
 
-test('parseSave: a selectable robot, an index the level has, and checkLoadout', () => {
+test('parseSave: a selectable robot the level has unlocked, an index the level has, and checkLoadout', () => {
   assert.deepEqual(parseSave({ robot: 'peep', index: 0, skills: [4, 1, 2, 3] }, 2), { robot: 'peep', index: 0, skills: [4, 1, 2, 3] })
   assert.deepEqual(parseSave({ robot: 'waddle', index: 3, skills: [8, 7, 6, 5] }, 20), { robot: 'waddle', index: 3, skills: [8, 7, 6, 5] })
   const refused: Array<[unknown, number]> = [
@@ -124,6 +124,10 @@ test('parseSave: a selectable robot, an index the level has, and checkLoadout', 
     [{ robot: 'peep', index: 0, skills: [1, 1, 2, 3] }, 20]
   ]
   for (const [data, level] of refused) assert.equal(parseSave(data, level), undefined, JSON.stringify(data))
+  // A robot the level hasn't unlocked (#48 step 5): Hopper opens at 8.
+  assert.equal(parseSave({ robot: 'hopper', index: 0, skills: [5, 4, 0, 1] }, 7), undefined, 'Hopper at level 7')
+  assert.deepEqual(parseSave({ robot: 'hopper', index: 0, skills: [5, 4, 0, 1] }, 8), { robot: 'hopper', index: 0, skills: [5, 4, 0, 1] })
+  assert.equal(parseSave({ robot: 'waddle', index: 0, skills: [1, 2, 3, 0] }, 11), undefined, 'Waddle at level 11')
 })
 
 test('loadoutsFor: every selectable robot, as many loadouts as the level has, each kitFor\'s answer', () => {
@@ -137,6 +141,12 @@ test('loadoutsFor: every selectable robot, as many loadouts as the level has, ea
   assert.deepEqual(out.peep, [[1, 2, 3, 0], [4, 6, 0, 1]])
   assert.deepEqual(out.magnet, [[1, 2, 3, 0], [1, 2, 3, 0]])
   assert.deepEqual(loadoutsFor(account(0)).hopper, [[1, 2, 3, 0]])
+  // Locked robots stay, with their stored rows (#48 step 5): at level 1 all
+  // five, and a Waddle row saved before locks is what Waddle will play once
+  // it opens, not the start kit.
+  const early = loadoutsFor(account(0, [{ robot: 'waddle', index: 0, skills: [2, 1, 0, 0] }]))
+  assert.deepEqual(Object.keys(early), [...SELECTABLE_ROBOTS])
+  assert.deepEqual(early.waddle, [[2, 1, 0, 0]])
 })
 
 // --- the client's half (net/loadout.ts) --------------------------------------------------

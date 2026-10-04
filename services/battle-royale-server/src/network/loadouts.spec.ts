@@ -10,9 +10,9 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
 import { SKILL_SPECS } from '../archetypes/archetypes'
-import { SELECTABLE_ROBOTS } from '../utils/archetypes'
+import { ARCHETYPE_INFO, type ArchetypeKey, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { PROTOCOL } from '../utils/protocol'
-import { START_KIT, skillById } from '../utils/skills'
+import { SKILL_LIST, START_KIT, loadoutSlotsAt, skillById } from '../utils/skills'
 import { xpToReach } from '../progress/xp'
 import { Session } from '../../../../plunder-land-client/src/net/session'
 import { slotsFor } from '../../../../plunder-land-client/src/net/loadout'
@@ -162,26 +162,34 @@ function expectKit (client: Client, player: Player, kit: readonly number[], why:
 // --- which loadout a join plays (criteria 2, 3) ------------------------------------
 
 test('forged loadouts, per robot: every one plays exactly the start kit, and the join is never refused', async () => {
-  const L10 = 10
-  const forgedRows: Array<[string, number, unknown]> = [
-    ['locked: Defend at level 1', 1, [4, 1, 2, 3]],
-    ['locked: IceBreath at level 10', L10, [8, 1, 2, 3]],
-    ['a duplicate', L10, [1, 1, 3, 0]],
-    ['an unknown id 9', L10, [9, 1, 2, 0]],
-    ['an unknown id 255', L10, [255, 1, 2, 0]],
-    ['3 entries', L10, [1, 2, 3]],
-    ['5 entries', L10, [1, 2, 3, 0, 0]],
-    ['a non-integer', L10, [1.5, 2, 3, 0]],
-    ['a string id', L10, ['1', 2, 3, 0]],
-    ['a negative', L10, [-1, 2, 3, 0]],
-    ['all empty', L10, [0, 0, 0, 0]],
-    ['not an array', L10, { 0: 4 }],
-    ['a string', L10, '4,1,2,3']
-  ]
+  // Each robot at the lowest level that has unlocked it (#48 step 5): below
+  // that, the join plays Peep, which the lock tests in unlocks.spec.ts cover.
+  const at = (robot: ArchetypeKey, level: number): number => Math.max(level, ARCHETYPE_INFO[robot].unlockLevel ?? 1)
   // One store and one world for every join here: building a world per join is slow.
   const store = new SaveStore()
   const worlds = makeWorlds(store, 1000)
   for (const robot of SELECTABLE_ROBOTS) {
+    const low = at(robot, 1)
+    const L10 = at(robot, 10)
+    // The first skill still locked at the robot's lowest level, and IceBreath
+    // (11) at level 10. Waddle opens at 12, when every skill is open, so it
+    // has neither case.
+    const lockedLow = SKILL_LIST.find((info) => info.unlockLevel > low)
+    const forgedRows: Array<[string, number, unknown]> = [
+      ...(lockedLow === undefined ? [] : [[`locked: ${lockedLow.key} at level ${low}`, low, [lockedLow.id, 1, 2, 3]] as [string, number, unknown]]),
+      ...(L10 >= 11 ? [] : [['locked: IceBreath at level 10', L10, [8, 1, 2, 3]] as [string, number, unknown]]),
+      ['a duplicate', L10, [1, 1, 3, 0]],
+      ['an unknown id 9', L10, [9, 1, 2, 0]],
+      ['an unknown id 255', L10, [255, 1, 2, 0]],
+      ['3 entries', L10, [1, 2, 3]],
+      ['5 entries', L10, [1, 2, 3, 0, 0]],
+      ['a non-integer', L10, [1.5, 2, 3, 0]],
+      ['a string id', L10, ['1', 2, 3, 0]],
+      ['a negative', L10, [-1, 2, 3, 0]],
+      ['all empty', L10, [0, 0, 0, 0]],
+      ['not an array', L10, { 0: 4 }],
+      ['a string', L10, '4,1,2,3']
+    ]
     // A stored row that fails checkLoadout, at loadout 0.
     for (const [why, level, skills] of forgedRows) {
       const { token } = await accountAt(store, level, [[robot, 0, skills]])
@@ -189,9 +197,11 @@ test('forged loadouts, per robot: every one plays exactly the start kit, and the
       assert.equal(player.archetype.key, robot)
       expectKit(client, player, START_KIT, `${robot}: ${why}`)
     }
-    // A valid row, but a forged `start.loadout`.
+    // A valid row, but a forged `start.loadout`. The first index the level
+    // lacks: 1 at level 9, 2 for Waddle (12).
+    const L9 = at(robot, 9)
     const forgedIndex: Array<[string, number, unknown]> = [
-      ['index 1 at level 9', 9, 1],
+      [`index ${loadoutSlotsAt(L9)} at level ${L9}`, L9, loadoutSlotsAt(L9)],
       ['index -1', 20, -1],
       ['index 1.5', 20, 1.5],
       ['index "0"', 20, '0'],
@@ -200,18 +210,18 @@ test('forged loadouts, per robot: every one plays exactly the start kit, and the
       ['index null', 20, null]
     ]
     for (const [why, level, index] of forgedIndex) {
-      const { token } = await accountAt(store, level, [[robot, 0, [4, 1, 2, 3]], [robot, 1, [4, 1, 2, 3]]])
+      const { token } = await accountAt(store, level, [[robot, 0, [4, 1, 2, 3]], [robot, 1, [4, 1, 2, 3]], [robot, 2, [4, 1, 2, 3]]])
       const { client, player } = await join(worlds, token, { robot, loadout: index })
       expectKit(client, player, START_KIT, `${robot}: ${why}`)
     }
     // And the valid row plays exactly itself, at a level that allows it.
-    const { token } = await accountAt(store, 11, [[robot, 0, [8, 6, 4, 1]]])
+    const { token } = await accountAt(store, at(robot, 11), [[robot, 0, [8, 6, 4, 1]]])
     const { client, player } = await join(worlds, token, { robot, loadout: 0 })
     expectKit(client, player, [8, 6, 4, 1], `${robot}: a valid loadout`)
     // Loadout 1 at level 10, with no `loadout` key meaning 0.
-    const { token: token2 } = await accountAt(store, 10, [[robot, 0, [2, 0, 0, 0]], [robot, 1, [3, 6, 0, 4]]])
+    const { token: token2 } = await accountAt(store, L10, [[robot, 0, [2, 0, 0, 0]], [robot, 1, [3, 6, 0, 4]]])
     const second = await join(worlds, token2, { robot, loadout: 1 })
-    expectKit(second.client, second.player, [3, 6, 0, 4], `${robot}: loadout 1 at level 10`)
+    expectKit(second.client, second.player, [3, 6, 0, 4], `${robot}: loadout 1 at level ${L10}`)
     const third = await join(worlds, token2, { robot }, 'b')
     expectKit(third.client, third.player, [2, 0, 0, 0], `${robot}: no loadout key is loadout 0`)
   }
@@ -408,10 +418,21 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
   assert.deepEqual((await store.inner.resolve(token))?.loadouts, [{ robot: 'peep', index: 0, skills: [2, 3, 0, 0] }])
 })
 
-test('save_loadout: a valid save is stored, answered ok, and played by the next join on that connection', async () => {
+test('save_loadout: a save for a locked robot is refused; a valid save is stored, answered ok, and played by the next join on that connection', async () => {
   const store = new SaveStore()
   const worlds = makeWorlds(store)
-  const { token, publicId } = await accountAt(store, 6)
+  // Hopper opens at level 8 (#48 step 5): at 7 the same save is refused and writes nothing.
+  const seven = await accountAt(store, 7)
+  const early = new Client('early', { token: seven.token })
+  early.connection = worlds.onConnection(early.socket)
+  await settle()
+  early.handlers.save_loadout({ robot: 'hopper', index: 0, skills: [5, 4, 0, 1] })
+  await settle()
+  assert.deepEqual(early.last('loadout_saved'), { robot: 'hopper', index: 0, ok: false, skills: [1, 2, 3, 0] })
+  assert.deepEqual(store.saves, [], 'a save for a locked robot reached the store')
+  assert.deepEqual((await store.inner.resolve(seven.token))?.loadouts, [])
+
+  const { token, publicId } = await accountAt(store, 8)
   const client = new Client('a', { token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
@@ -499,9 +520,9 @@ test('account carries loadoutsFor for a persisted account, none offline; the cli
 
 // --- PROTOCOL (criterion 9) ----------------------------------------------------------------
 
-test('PROTOCOL is 3, and welcome sends it', async () => {
-  assert.equal(PROTOCOL, 3)
+test('PROTOCOL is 4, and welcome sends it', async () => {
+  assert.equal(PROTOCOL, 4)
   const client = new Client('a')
   makeWorlds(new SaveStore()).onConnection(client.socket)
-  assert.deepEqual(client.events('welcome'), [{ protocol: 3 }])
+  assert.deepEqual(client.events('welcome'), [{ protocol: 4 }])
 })

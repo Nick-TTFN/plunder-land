@@ -382,7 +382,8 @@ export default class Worlds {
   /**
    * `save_loadout { robot, index, skills }` (decision #48 step 4), answered
    * with `loadout_saved { robot, index, ok, skills, busy? }`. Written only for
-   * a persisted account, a selectable robot, a loadout index the account's
+   * a persisted account, a selectable robot the account's level has unlocked
+   * (#48 step 5), a loadout index the account's
    * level has, and skills that pass `checkLoadout` at that level
    * (`parseSave`); anything else is refused and nothing is written. On ok,
    * `skills` is what was stored; on a refusal or a failed write, what a join

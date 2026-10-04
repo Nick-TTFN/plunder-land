@@ -1,5 +1,5 @@
 import { type Account } from '../db/accounts'
-import { SELECTABLE_ROBOTS } from '../utils/archetypes'
+import { SELECTABLE_ROBOTS, robotUnlocked } from '../utils/archetypes'
 import { START_KIT, checkLoadout, loadoutSlotsAt } from '../utils/skills'
 import { levelOf } from './xp'
 
@@ -43,13 +43,14 @@ export interface LoadoutSave {
 
 /**
  * A `save_loadout` payload (`{ robot, index, skills }`) for an account of
- * `level`, or undefined: `robot` a key in `SELECTABLE_ROBOTS`, `index` a
- * loadout the level has, and `skills` passing `checkLoadout`.
+ * `level`, or undefined: `robot` a key in `SELECTABLE_ROBOTS` that the level
+ * has unlocked (`robotUnlocked`, #48 step 5), `index` a loadout the level has,
+ * and `skills` passing `checkLoadout`.
  */
 export function parseSave (data: unknown, level: number): LoadoutSave | undefined {
   if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined
   const { robot, index, skills } = data as { robot?: unknown, index?: unknown, skills?: unknown }
-  if (typeof robot !== 'string' || !(SELECTABLE_ROBOTS as readonly string[]).includes(robot)) return undefined
+  if (typeof robot !== 'string' || !robotUnlocked(robot, level)) return undefined
   if (!indexOk(index, level)) return undefined
   const checked = checkLoadout(skills, level)
   if (checked === undefined) return undefined
@@ -60,6 +61,13 @@ export function parseSave (data: unknown, level: number): LoadoutSave | undefine
  * What the lobby is told (`account.loadouts`): for every selectable robot and
  * every loadout the account's level has, what a join would really play
  * (`kitFor`), so the lobby never shows a loadout the server won't run.
+ *
+ * **Locked robots are included, with their stored rows** (#48 step 5): the
+ * account is sent only on connect, so leaving them out would hide a robot
+ * unlocked mid-connection until the next one; and a row saved before locks
+ * existed is what a join plays once the robot opens, so showing the start kit
+ * instead would show a loadout the server won't run. A locked robot's card
+ * can't be picked in the lobby, and `parseSave` refuses a new row for it.
  */
 export function loadoutsFor (account: Account): Record<string, number[][]> {
   const slots = loadoutSlotsAt(levelOf(account.xp))

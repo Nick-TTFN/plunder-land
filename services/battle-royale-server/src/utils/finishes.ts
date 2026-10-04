@@ -15,6 +15,17 @@
  *
  * **Colour and pattern ids are append-only**, like field indices: never reuse
  * or renumber one. Colour id 0 is never valid; pattern 0 is "none".
+ *
+ * **Each colour and pattern opens at an account level** (`unlockLevel`, #48
+ * step 5; Dez's v1, `ideas/meta-progression-numbers.md` section 3, accepted as
+ * a draft): 3 colours and 2 patterns at level 1, among them every part of
+ * `DEFAULT_FINISH`, so the default is never locked. A later colour or pattern
+ * is appended with its own level (Nick: more unusual ones unlock later). The
+ * levels are tunables: a retune needs both deploys, client first; deployed
+ * apart, the lobby shows a lock the server doesn't enforce or the other way
+ * round, and the server's answer always wins. Locks apply only where the server
+ * takes a join (`lockFinish`), never in `finishFromBytes`, which also decodes
+ * other players' finishes.
  */
 
 export type FinishGroup = 'head' | 'body' | 'limbs'
@@ -25,20 +36,22 @@ export const FINISH_GROUPS: readonly FinishGroup[] = Object.freeze(['head', 'bod
 export interface PaletteColour {
   readonly id: number
   readonly label: string
+  /** The account level at which it may be worn (#48 step 5). */
+  readonly unlockLevel: number
   readonly rgb: readonly [number, number, number]
 }
 
 export const PALETTE: readonly PaletteColour[] = Object.freeze([
-  Object.freeze({ id: 1, label: 'MINT', rgb: Object.freeze([54, 201, 183]) as readonly [number, number, number] }),
-  Object.freeze({ id: 2, label: 'CREAM', rgb: Object.freeze([239, 233, 212]) as readonly [number, number, number] }),
-  Object.freeze({ id: 3, label: 'OLIVE', rgb: Object.freeze([123, 149, 82]) as readonly [number, number, number] }),
-  Object.freeze({ id: 4, label: 'SAND', rgb: Object.freeze([225, 202, 154]) as readonly [number, number, number] }),
-  Object.freeze({ id: 5, label: 'ICE', rgb: Object.freeze([191, 218, 235]) as readonly [number, number, number] }),
-  Object.freeze({ id: 6, label: 'SKY', rgb: Object.freeze([188, 223, 255]) as readonly [number, number, number] }),
-  Object.freeze({ id: 7, label: 'PEACH', rgb: Object.freeze([225, 155, 105]) as readonly [number, number, number] }),
-  Object.freeze({ id: 8, label: 'CORAL', rgb: Object.freeze([248, 160, 132]) as readonly [number, number, number] }),
-  Object.freeze({ id: 9, label: 'VIOLET', rgb: Object.freeze([149, 117, 211]) as readonly [number, number, number] }),
-  Object.freeze({ id: 10, label: 'BONE', rgb: Object.freeze([239, 233, 225]) as readonly [number, number, number] })
+  Object.freeze({ id: 1, label: 'MINT', unlockLevel: 1, rgb: Object.freeze([54, 201, 183]) as readonly [number, number, number] }),
+  Object.freeze({ id: 2, label: 'CREAM', unlockLevel: 1, rgb: Object.freeze([239, 233, 212]) as readonly [number, number, number] }),
+  Object.freeze({ id: 3, label: 'OLIVE', unlockLevel: 2, rgb: Object.freeze([123, 149, 82]) as readonly [number, number, number] }),
+  Object.freeze({ id: 4, label: 'SAND', unlockLevel: 1, rgb: Object.freeze([225, 202, 154]) as readonly [number, number, number] }),
+  Object.freeze({ id: 5, label: 'ICE', unlockLevel: 4, rgb: Object.freeze([191, 218, 235]) as readonly [number, number, number] }),
+  Object.freeze({ id: 6, label: 'SKY', unlockLevel: 5, rgb: Object.freeze([188, 223, 255]) as readonly [number, number, number] }),
+  Object.freeze({ id: 7, label: 'PEACH', unlockLevel: 6, rgb: Object.freeze([225, 155, 105]) as readonly [number, number, number] }),
+  Object.freeze({ id: 8, label: 'CORAL', unlockLevel: 7, rgb: Object.freeze([248, 160, 132]) as readonly [number, number, number] }),
+  Object.freeze({ id: 9, label: 'VIOLET', unlockLevel: 9, rgb: Object.freeze([149, 117, 211]) as readonly [number, number, number] }),
+  Object.freeze({ id: 10, label: 'BONE', unlockLevel: 10, rgb: Object.freeze([239, 233, 225]) as readonly [number, number, number] })
 ])
 
 export type PatternKey = 'none' | 'zebra' | 'checker' | 'camo'
@@ -49,13 +62,15 @@ export interface PatternInfo {
   readonly label: string
   /** How strongly it lies over the colour, 0-1. */
   readonly opacity: number
+  /** The account level at which it may be worn (#48 step 5). */
+  readonly unlockLevel: number
 }
 
 export const PATTERNS: readonly PatternInfo[] = Object.freeze([
-  Object.freeze({ id: 0, key: 'none', label: 'PLAIN', opacity: 0 }),
-  Object.freeze({ id: 1, key: 'zebra', label: 'ZEBRA', opacity: 1 }),
-  Object.freeze({ id: 2, key: 'checker', label: 'CHECKER', opacity: 1 }),
-  Object.freeze({ id: 3, key: 'camo', label: 'CAMO', opacity: 0.45 })
+  Object.freeze({ id: 0, key: 'none', label: 'PLAIN', opacity: 0, unlockLevel: 1 }),
+  Object.freeze({ id: 1, key: 'zebra', label: 'ZEBRA', opacity: 1, unlockLevel: 1 }),
+  Object.freeze({ id: 2, key: 'checker', label: 'CHECKER', opacity: 1, unlockLevel: 7 }),
+  Object.freeze({ id: 3, key: 'camo', label: 'CAMO', opacity: 0.45, unlockLevel: 3 })
 ] as PatternInfo[])
 
 export interface GroupFinish {
@@ -133,4 +148,38 @@ export function finishFromBytes (bytes: unknown): Finish {
     })
   }
   return Object.freeze({ head: group('head', 0), body: group('body', 1), limbs: group('limbs', 2) })
+}
+
+/** Whether an account of `level` may wear colour `id`: a known colour whose `unlockLevel` is at most `level`. */
+export function colourUnlocked (id: number, level: number): boolean {
+  const c = colourById(id)
+  return c !== undefined && c.unlockLevel <= level
+}
+
+/** Whether an account of `level` may wear pattern `id`: a known pattern whose `unlockLevel` is at most `level`. */
+export function patternUnlocked (id: number, level: number): boolean {
+  const p = patternById(id)
+  return p !== undefined && p.unlockLevel <= level
+}
+
+/** The level a colour + pattern swatch opens at: the higher of the two (undefined for an unknown id). */
+export function swatchLevel (colour: number, pattern: number): number | undefined {
+  const c = colourById(colour)
+  const p = patternById(pattern)
+  if (c === undefined || p === undefined) return undefined
+  return Math.max(c.unlockLevel, p.unlockLevel)
+}
+
+/**
+ * `f` as an account of `level` may wear it: per group, a locked colour becomes
+ * that group's `DEFAULT_FINISH` colour and a locked pattern that group's
+ * `DEFAULT_FINISH` pattern, independently. Unlocked parts are kept as they are.
+ * Applied where the server takes a join and in the lobby, never when decoding.
+ */
+export function lockFinish (f: Finish, level: number): Finish {
+  const group = (g: FinishGroup): GroupFinish => Object.freeze({
+    colour: colourUnlocked(f[g].colour, level) ? f[g].colour : DEFAULT_FINISH[g].colour,
+    pattern: patternUnlocked(f[g].pattern, level) ? f[g].pattern : DEFAULT_FINISH[g].pattern
+  })
+  return Object.freeze({ head: group('head'), body: group('body'), limbs: group('limbs') })
 }
