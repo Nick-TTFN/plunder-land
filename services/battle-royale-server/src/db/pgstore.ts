@@ -7,12 +7,20 @@ import {
   seasonStart, type SeasonView, seasonView, type Tier, tierPlaces
 } from '../progress/seasons'
 import { SEASON } from '../progress/xp'
+import { ThrottledLog } from '../network/multiplayer'
 
 /**
  * The advisory lock a season payout takes, per transaction ("seasons" in
  * ASCII hex). Distinct from `MIGRATION_LOCK` (pgstore.spec.ts pins it).
  */
 export const SEASON_LOCK = '0x736561736f6e73'
+
+/**
+ * Says when `payOne`'s last guard, the `seasons` primary key, fires: it should
+ * never be reached while the lock and the paid check are in place. Not an
+ * error (the season counts as paid), so it logs and is not reported.
+ */
+export const SEASON_PAID_LOG = new ThrottledLog('seasons', 60_000, undefined, console.log)
 
 /**
  * The ranking order in SQL: `compareEntries` (progress/seasons.ts) exactly.
@@ -387,7 +395,10 @@ export class PgAccountStore implements AccountStore {
       // last guard, reached only if the other two were gone): paid, so this
       // call pays nothing, as when the lock or the check says so.
       const pg = e as { code?: string, constraint?: string }
-      if (pg.code === '23505' && pg.constraint === 'seasons_pkey') return undefined
+      if (pg.code === '23505' && pg.constraint === 'seasons_pkey') {
+        SEASON_PAID_LOG.report(`${start} already paid by another server (primary key); counted as paid, nothing paid here`)
+        return undefined
+      }
       failed = e instanceof Error ? e : new Error(String(e))
       throw e
     } finally {
