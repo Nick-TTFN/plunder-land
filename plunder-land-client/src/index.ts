@@ -14,6 +14,7 @@ import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
 import { applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
+import { onSeason, setSeason } from './net/season'
 import { parseSaved } from './net/loadout'
 
 initErrorReporting()
@@ -113,6 +114,7 @@ function setup (): void {
     // A new connection announces its own account: the last one's is stale
     // (its standing too) until it does. Nothing arrives before `connect`.
     setAccountInfo(undefined)
+    setSeason(undefined, Date.now())
     onConnect()
   })
   Game.socket.on('welcome', onWelcome)
@@ -137,6 +139,12 @@ function setup (): void {
     if (progress === undefined) return
     applyProgress(progress)
     Game.RUN.setProgress(progress)
+  })
+  // This account's season (decision #48 step 6, net/season.ts): after
+  // `account`, and after each run's `progress`. A malformed one is ignored.
+  Game.socket.on('season', (data: unknown) => {
+    const view = onSeason(data)
+    if (view !== undefined) setSeason(view, Date.now())
   })
 }
 

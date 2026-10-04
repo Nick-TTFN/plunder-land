@@ -9,7 +9,8 @@ import {
 } from '../../utils/finishes'
 import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
-import { ACCOUNT } from '../../net/account'
+import { ACCOUNT, localTokenStorage } from '../../net/account'
+import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
 import { LoadoutPanel } from './loadoutpanel'
 import {
   type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
@@ -186,6 +187,16 @@ export default class Lobby extends Container {
   private tornDown = false
   /** The account's level in the name pill (decision #48 step 3); hidden until the server says. */
   private readonly level: HTMLSpanElement
+  /** The season line under the pill (decision #48 step 6), and the last payout's notice above it. */
+  private readonly season: HTMLDivElement
+  private readonly seasonText: HTMLDivElement
+  private readonly seasonNotice: HTMLDivElement
+  /** The view whose notice was decided, and that notice: shown for this lobby, marked seen once. */
+  private noticeFor: SeasonView | undefined
+  private notice: string | undefined
+  private readonly onSeason = (): void => { this.renderSeason() }
+  /** Re-renders the season countdown once a minute. */
+  private readonly seasonTimer: ReturnType<typeof setInterval>
 
   constructor (private readonly start: LobbyStart) {
     super()
@@ -221,6 +232,14 @@ export default class Lobby extends Container {
     // The account is announced on connect, which may be before or after this.
     ACCOUNT.listeners.add(this.onAccount)
     this.renderLevel()
+    this.season = el('div', 'lb-season')
+    this.seasonNotice = el('div', 'lb-season-notice')
+    this.seasonText = el('div', 'lb-season-line')
+    this.season.append(this.seasonNotice, this.seasonText)
+    this.root.append(this.season)
+    SEASON.listeners.add(this.onSeason)
+    this.seasonTimer = setInterval(this.onSeason, 60_000)
+    this.renderSeason()
 
     // Invites (decision #47): the link puts a friend in this player's world.
     this.inviteButton = el('button', 'lb-invite', 'INVITE')
@@ -786,10 +805,30 @@ export default class Lobby extends Container {
     this.level.style.setProperty('--lb-level-fill', String(Math.min(1, Math.max(0, (standing.xp - standing.levelAt) / Math.max(1, standing.nextAt - standing.levelAt)))))
   }
 
+  /**
+   * The season line from the last `season` view, with its countdown; hidden
+   * with none. The last payout's notice shows in this lobby while this
+   * browser hasn't shown that season's (`lastNotice` marks it shown).
+   */
+  private renderSeason (): void {
+    const view = SEASON.view
+    this.season.hidden = view === undefined
+    if (view === undefined) return
+    if (this.noticeFor !== view) {
+      this.noticeFor = view
+      this.notice = lastNotice(view, localTokenStorage()) ?? this.notice
+    }
+    this.seasonNotice.hidden = this.notice === undefined
+    this.seasonNotice.textContent = this.notice ?? ''
+    this.seasonText.textContent = seasonLine(view, Date.now() - SEASON.receivedAt)
+  }
+
   private teardown (): void {
     if (this.tornDown) return
     this.tornDown = true
     ACCOUNT.listeners.delete(this.onAccount)
+    SEASON.listeners.delete(this.onSeason)
+    clearInterval(this.seasonTimer)
     this.loadout.dispose()
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)

@@ -35,6 +35,10 @@ export const LOBBY_CSS = `
 .lb-level::after { content: ''; position: absolute; left: 8px; bottom: 2px; height: 2px; width: calc((100% - 16px) * var(--lb-level-fill, 0));
   background: #3DE0D0; }
 .lb-level[hidden] { display: none; }
+.lb-season { position: absolute; top: calc(14% + 56px); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column;
+  align-items: center; gap: 4px; font-size: 12px; letter-spacing: .12em; color: #a9bccd; white-space: nowrap; pointer-events: none; }
+.lb-season-notice { padding: 3px 10px; border-radius: 6px; color: #0b1622; background: #3DE0D0; }
+.lb-season[hidden], .lb-season-notice[hidden] { display: none; }
 .lb-arrow { position: absolute; top: 44%; width: 60px; height: 60px; border-radius: 50%; font-size: 34px; line-height: 1;
   color: #E6EEF5; background: rgba(11,18,32,.75); border: 1px solid #2A4A5E; }
 .lb-arrow:hover { border-color: #3DE0D0; }
@@ -115,7 +119,7 @@ export const LOBBY_CSS = `
 .lb-invite { position: absolute; right: 44px; top: 50%; transform: translateY(-50%); padding: 8px 18px; font-size: 14px; letter-spacing: .14em;
   color: #5fe0cf; background: rgba(61,224,208,.08); border: 1px solid #3a6e7e; border-radius: 6px; cursor: pointer; }
 .lb-invite:hover { background: rgba(61,224,208,.16); }
-.lb-join { position: absolute; top: calc(14% + 64px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+.lb-join { position: absolute; top: calc(14% + 112px); left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
   padding: 6px 8px 6px 14px; font-size: 13px; letter-spacing: .12em; color: #0b1622; background: #5fe0cf; border-radius: 6px;
   pointer-events: auto; white-space: nowrap; z-index: 1; }
 .lb-join-x { border: 0; background: transparent; color: #0b1622; font-size: 14px; cursor: pointer; padding: 0 4px; }
@@ -123,7 +127,8 @@ export const LOBBY_CSS = `
   font-family: inherit; color: #E6EEF5; text-align: center; }
 @media (max-width: 1300px) {
   .lb-pill { top: 168px; }
-  .lb-join { top: 232px; }
+  .lb-season { top: 224px; }
+  .lb-join { top: 280px; }
 }
 @media (max-height: 850px) {
   .lb-cards { bottom: 92px; }
@@ -147,8 +152,9 @@ export const LOBBY_CSS = `
   .lb-heading, .lb-arrow, .lb-keys { display: none; }
   .lb-privacy { left: auto; bottom: auto; right: 104px; top: 19px; }
   .lb-invite { right: 16px; padding: 6px 10px; font-size: 12px; }
-  .lb-join { top: 116px; font-size: 11px; }
+  .lb-join { top: 164px; font-size: 11px; }
   .lb-pill { top: 64px; }
+  .lb-season { top: 116px; font-size: 10px; white-space: normal; text-align: center; width: calc(100% - 32px); }
   .lb-plate { width: 100%; }
   .lb-robot { font-size: 34px; }
   .lb-tagline { font-size: 14px; }
