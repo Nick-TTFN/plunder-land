@@ -3,6 +3,7 @@ import { Panel } from '../components/panel'
 import { THEME, two } from '../theme'
 import { HUD } from '../components/hud'
 import { ACCOUNT, PROGRESS_WAIT_MS, type ProgressInfo, xpLine } from '../../net/account'
+import { unlockedBetween } from '../lobby/locks'
 
 /** How a run ended, from the own player's destroy record. */
 export type RunOutcome = 'extracted' | 'dead'
@@ -23,6 +24,8 @@ export class RunRecord {
   startedAt = 0
   /** The XP this run earned, once the server has written it. */
   progress: ProgressInfo | undefined
+  /** The account level before this run's XP landed (`setProgress`). */
+  levelBefore: number | undefined
   /** The open card's, to show the XP when it lands. */
   onProgress: ((progress: ProgressInfo) => void) | undefined
   /**
@@ -49,8 +52,12 @@ export class RunRecord {
     this.progressGaveUp = false
   }
 
-  setProgress (progress: ProgressInfo): void {
+  setProgress (progress: ProgressInfo, levelBefore?: number): void {
     this.progress = progress
+    // The level before this run's XP: the lobby's last standing, else one
+    // below (a level-up with no standing known; a run of two levels then
+    // names only the last one's unlocks).
+    this.levelBefore = progress.levelUp ? Math.min(levelBefore ?? progress.level - 1, progress.level - 1) : progress.level
     this.onProgress?.(progress)
   }
 
@@ -88,6 +95,10 @@ export class RunSummaryCard extends Container {
   private _done = false
   private _watch: Container | undefined
   private _xp: Text | undefined
+  /** What a level-up opened (`unlockedBetween`), under the rows; empty until then. */
+  private _unlocked: Text | undefined
+  private _buttons: Container[] = []
+  private _buttonsY = 0
   private _wait: ReturnType<typeof setTimeout> | undefined
 
   /**
@@ -118,6 +129,11 @@ export class RunSummaryCard extends Container {
       panel.body.addChild(l, v)
       if (label === 'XP') this._xp = v
     })
+    const unlocked = this._unlocked = Panel.text('', THEME.bodySize, THEME.accent)
+    unlocked.style.wordWrap = true
+    unlocked.style.wordWrapWidth = inner
+    unlocked.y = rows.length * ROW
+    panel.body.addChild(unlocked)
     this.showXp(run)
     const onProgress = (): void => { this.showXp(run) }
     if (run.progress === undefined) {
@@ -131,13 +147,15 @@ export class RunSummaryCard extends Container {
     }
 
     const button = this.button('PLAY AGAIN', inner, () => { this.again() })
-    button.y = rows.length * ROW + 12
+    this._buttonsY = rows.length * ROW + 12
+    this._buttons.push(button)
     panel.body.addChild(button)
     if (onWatch !== undefined) {
       const watch = this._watch = this.button('WATCH', inner, onWatch, true)
-      watch.y = button.y + 48
+      this._buttons.push(watch)
       panel.body.addChild(watch)
     }
+    this.placeButtons()
     // Fitted with WATCH in place (pixi leaves invisible children out of the
     // bounds), so the panel has its room when it appears.
     panel.fit(WIDTH)
@@ -169,6 +187,34 @@ export class RunSummaryCard extends Container {
     v.text = text
     v.style.fill = tone === 'accent' ? THEME.accent : tone === 'text' ? THEME.text : THEME.muted
     if (run.progress !== undefined) clearTimeout(this._wait)
+    this.showUnlocked(run)
+  }
+
+  /**
+   * "UNLOCKED MAGNET, CAMO" under the rows once a level-up's XP lands, and the
+   * buttons moved down to make room; nothing when nothing opened.
+   */
+  private showUnlocked (run: RunRecord): void {
+    const t = this._unlocked
+    const p = run.progress
+    if (t === undefined || p === undefined || !p.levelUp || t.text !== '') return
+    const opened = unlockedBetween(run.levelBefore ?? p.level - 1, p.level)
+    if (opened.length === 0) return
+    t.text = `UNLOCKED  ${opened.join(', ')}`
+    this.placeButtons()
+    const panel = this._panel
+    const watchHidden = this._watch !== undefined && !this._watch.visible
+    if (this._watch !== undefined) this._watch.visible = true
+    panel.fit(WIDTH)
+    if (this._watch !== undefined && watchHidden) this._watch.visible = false
+    panel.x = -panel.panelWidth / 2
+    panel.y = -panel.panelHeight / 2
+  }
+
+  /** PLAY AGAIN and WATCH under the rows and the unlock line. */
+  private placeButtons (): void {
+    const extra = this._unlocked === undefined || this._unlocked.text === '' ? 0 : this._unlocked.height + 8
+    this._buttons.forEach((b, i) => { b.y = this._buttonsY + extra + i * 48 })
   }
 
   /** Show WATCH once the server says whom this player spectates; hide it when nobody is left. */

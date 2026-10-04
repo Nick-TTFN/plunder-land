@@ -13,7 +13,7 @@ import { Leaderboard } from './ui/components/leaderboard'
 import { SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
-import { applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
+import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
 import { onEnergy, setEnergy } from './net/energy'
 import { parseSaved } from './net/loadout'
@@ -149,8 +149,10 @@ function setup (): void {
   Game.socket.on('progress', (data: unknown) => {
     const progress = onProgress(data)
     if (progress === undefined) return
+    // Before the standing moves: the run card names what the level-up opened.
+    const levelBefore = ACCOUNT.info?.standing?.level
     applyProgress(progress)
-    Game.RUN.setProgress(progress)
+    Game.RUN.setProgress(progress, levelBefore)
   })
   // This account's season (decision #48 step 6, net/season.ts): after
   // `account`, and after each run's `progress`. A malformed one is ignored.

@@ -1,7 +1,8 @@
 import { ARCHETYPE_INFO, robotUnlocked } from '../../utils/archetypes'
 import {
-  type Finish, type FinishGroup, colourById, lockFinish, patternById, swatchLevel
+  type Finish, type FinishGroup, PALETTE, PATTERNS, colourById, lockFinish, patternById, swatchLevel
 } from '../../utils/finishes'
+import { LOADOUT_SLOTS, SKILL_LIST } from '../../utils/skills'
 import { PICKABLE, type RosterEntry } from './roster'
 
 /**
@@ -102,4 +103,21 @@ export function colourLock (id: number, level: number): number | undefined {
 export function patternLock (id: number, level: number): number | undefined {
   const at = patternById(id)?.unlockLevel
   return at !== undefined && at > level ? at : undefined
+}
+
+/**
+ * What opened between account levels `from` (exclusive) and `to` (inclusive),
+ * for the run card's level-up line: robots, skills, loadout slots, colours
+ * and patterns, in that order, read from the same mirrored rows the locks
+ * use. Empty when nothing opened (or `to <= from`).
+ */
+export function unlockedBetween (from: number, to: number): string[] {
+  const opened = (level: number | null | undefined): boolean => level != null && level > from && level <= to
+  const out: string[] = []
+  for (const entry of PICKABLE) if (entry.robot !== undefined && opened(ARCHETYPE_INFO[entry.robot].unlockLevel)) out.push(entry.name)
+  for (const skill of SKILL_LIST) if (opened(skill.unlockLevel)) out.push(skill.label.toUpperCase())
+  for (const row of LOADOUT_SLOTS) if (opened(row.level)) out.push(`LOADOUT ${row.slots}`)
+  for (const colour of PALETTE) if (opened(colour.unlockLevel)) out.push(colour.label)
+  for (const pattern of PATTERNS) if (opened(pattern.unlockLevel)) out.push(pattern.label)
+  return out
 }

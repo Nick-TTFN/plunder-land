@@ -22,7 +22,7 @@ import { decodeRecord } from '../../../../plunder-land-client/src/net/records'
 import { PICKABLE, ROSTER } from '../../../../plunder-land-client/src/ui/lobby/roster'
 import {
   colourLock, mixColour, mixPattern, paintWish, patternLock, reshownRobot, robotLock,
-  robotToStore, shownFinish, shownRobot, stepRobot, swatchLock, unlockedEntries
+  robotToStore, shownFinish, shownRobot, stepRobot, swatchLock, unlockedBetween, unlockedEntries
 } from '../../../../plunder-land-client/src/ui/lobby/locks'
 
 /**
@@ -309,3 +309,22 @@ test('lobby: painting from the shown group never resurrects a hidden locked part
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).
 void Multiplayer
+
+// --- the run card's level-up line (unlockedBetween) ------------------------------
+
+test('client: a level-up names exactly what opened, robots first, from the same rows the locks read', () => {
+  assert.deepEqual(unlockedBetween(1, 2), ['DEFEND', 'OLIVE'])
+  assert.deepEqual(unlockedBetween(2, 3), ['MAGNET', 'CAMO'])
+  assert.deepEqual(unlockedBetween(4, 5), ['PERISCOPE', 'SKY'])
+  assert.deepEqual(unlockedBetween(9, 10), ['LOADOUT 2', 'BONE'])
+  assert.deepEqual(unlockedBetween(12, 14), [], 'nothing opens at 13 or 14')
+  assert.deepEqual(unlockedBetween(3, 3), [], 'no level-up')
+  // Two levels at once name both levels' unlocks.
+  assert.deepEqual(unlockedBetween(1, 3), ['MAGNET', 'DEFEND', 'OLIVE', 'CAMO'])
+  // Level by level adds up to the whole range: nothing named twice or missed.
+  const all = unlockedBetween(1, 20)
+  assert.equal(new Set(all).size, all.length)
+  const stepwise: string[] = []
+  for (let l = 1; l < 20; l++) stepwise.push(...unlockedBetween(l, l + 1))
+  assert.deepEqual([...stepwise].sort(), [...all].sort())
+})
