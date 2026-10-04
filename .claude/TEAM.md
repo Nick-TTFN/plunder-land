@@ -150,8 +150,9 @@ rules 1–3 in every Beck brief, and follow 4–6 at every hand-back.
 7. **One suite at a time across all lanes.** On 2026-10-03/04 several Becks, an Archie and the
    lead ran `npm test` loops at once; the load average reached 60, a 3 s accounts spec hung for
    925 s, and Becks stalled on the watchdog four times. A Beck that has stalled twice carries a
-   huge context and tends to stall again: finish its small remaining fixes from the lead session
-   instead of resuming it.
+   huge context and tends to stall again, often at once on resume: commit its work-in-progress
+   from the lead session (`WIP` commit), then either finish small fixes there or start a fresh
+   Beck from that commit (48-5 finished that way on 2026-10-04).
 
 And check any value, pattern or count before putting it in a brief. An example gets built
 literally: an id pattern given as "for example" would have locked out every real client.
