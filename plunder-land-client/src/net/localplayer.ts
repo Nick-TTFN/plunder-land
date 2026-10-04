@@ -213,8 +213,31 @@ export class LocalPlayer {
     return this.path.slice(this.pathIndex)
   }
 
+  /**
+   * A click made while we stand on a portal's cell waiting for the server's
+   * new tag (`awaitingHop`), routed on the new layer when it lands
+   * (`changeLayer`). Planned at once it would be on the old layer, from the
+   * portal, and sent to a server already on the new one from the arrival cell:
+   * the two disagree until the tag lands, and the stop that follows shows as a
+   * correction. The latest click wins.
+   */
+  private _held: { x: number, y: number } | undefined
+
+  /**
+   * On a portal's cell that leads to another layer: the server has hopped us,
+   * or does at the end of this tick, and its tag is on the way.
+   */
+  get awaitingHop (): boolean {
+    const here = this.cell
+    return this._stopsOn(here.x, here.y)
+  }
+
   /** Route to a world position, replacing whatever route we were on. */
   setDestination (worldX: number, worldY: number): void {
+    if (this.awaitingHop) {
+      this._held = { x: worldX, y: worldY }
+      return
+    }
     const cell = Hex.toCell(new Vector(worldX, worldY))
 
     // Only skip the search while we are still walking to that cell. The
@@ -237,6 +260,11 @@ export class LocalPlayer {
    * what makes it a continuation instead of a replacement.
    */
   appendDestination (worldX: number, worldY: number): void {
+    // Waiting for a hop: held like a click (a leg on the old layer means nothing after it).
+    if (this.awaitingHop) {
+      this._held = { x: worldX, y: worldY }
+      return
+    }
     const cell = Hex.toCell(new Vector(worldX, worldY))
 
     const last = this.waypoints[this.waypoints.length - 1]
@@ -376,6 +404,7 @@ export class LocalPlayer {
     this.pathIndex = 0
     this.waypoints = []
     this.dashLeft = 0
+    this._held = undefined
   }
 
   /**
@@ -410,7 +439,10 @@ export class LocalPlayer {
       this._offsetX = 0
       this._offsetY = 0
     }
+    // A click made while we waited: routed now, on this layer, from the arrival cell.
+    const held = this._held
     this.stop()
+    if (held !== undefined) this.setDestination(held.x, held.y)
   }
 
   /**

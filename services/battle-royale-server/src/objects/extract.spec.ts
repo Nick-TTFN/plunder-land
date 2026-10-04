@@ -348,6 +348,8 @@ interface Local {
   dash: () => boolean
   reconcile: (x: number, y: number) => void
   changeLayer: (tag: number) => void
+  setDestination: (x: number, y: number) => void
+  awaitingHop: boolean
 }
 
 /**
@@ -587,6 +589,60 @@ for (const delay of [1, 2, 3]) for (const route of HOP_ROUTES) {
     assertHop(track, delay, local)
   })
 }
+
+for (const delay of [1, 2, 3]) {
+  test(`mirror: a click while the hop's tag is on its way (${delay} tick${delay > 1 ? 's' : ''} late) is routed on the new layer, and both sides walk it alike`, () => {
+    portalOn(TOP, MIDDLE)
+    const player = playerOn(TOP, new Vector(26, 40))
+    const local = localFor(player)
+    routeBoth(player, local, EXIT_CELL)
+    // On layer 02, east of the arrival cell: a cell the old layer's route would never have aimed at from there.
+    const target = new Vector(EXIT_CELL.x + 4, EXIT_CELL.y + 1)
+    const at = Hex.toPosition(target)
+    let clicked = -1
+    let sent: Vector[] | undefined
+    let landed = -1
+    const track = run(player, local, 30, delay, (n) => {
+      // The click: the first tick the client stands waiting on the portal.
+      if (clicked < 0 && local.awaitingHop && local.tag === TOP) {
+        clicked = n
+        local.setDestination(at.x, at.y)
+        assert.equal(local.waypoints.length <= 1 && (local.waypoints[0] === undefined || (local.waypoints[0].x === EXIT_CELL.x && local.waypoints[0].y === EXIT_CELL.y)), true, 'a held click changed the route on the old layer')
+      }
+      // What the next input packet carries once the route changed: the server gets it a tick later.
+      if (landed < 0 && local.tag === MIDDLE) {
+        landed = n
+        sent = local.waypoints.map((c) => new Vector(c.x, c.y))
+        player.setWaypoints(sent)
+      }
+    })
+    assert.ok(clicked >= 0, 'the client never waited on the portal')
+    assert.ok(landed >= 0, 'the tag never landed')
+    assert.deepEqual(sent?.map((c) => [c.x, c.y]), [[target.x, target.y]], 'the held click was not routed after the hop')
+    // The client plans as the tag lands; the server gets the route with the next input, one tick behind, as for any click.
+    const end = track.server.length - 1
+    assert.ok(same(track.server[end], at), `server ended at (${track.server[end].x}, ${track.server[end].y})`)
+    assert.ok(same(track.client[end], at), `client ended at (${track.client[end].x}, ${track.client[end].y})`)
+    for (let i = landed + 1; i <= end; i++) {
+      assert.ok(same(track.server[i], track.client[i - 1]), `tick ${i + 1}: server (${track.server[i].x}, ${track.server[i].y}) is not where the client was a tick earlier (${track.client[i - 1].x}, ${track.client[i - 1].y})`)
+    }
+    assert.equal(local.tag, MIDDLE)
+    assert.equal(player.tag, MIDDLE)
+  })
+}
+
+test('a held click is dropped by a stop, so it never survives into the next run', () => {
+  portalOn(TOP, MIDDLE)
+  const player = playerOn(TOP, EXIT_CELL)
+  const local = localFor(player)
+  assert.equal(local.awaitingHop, true)
+  const at = Hex.toPosition(new Vector(EXIT_CELL.x + 3, EXIT_CELL.y))
+  local.setDestination(at.x, at.y)
+  assert.deepEqual(local.waypoints, [], 'planned on the old layer')
+  local.reset(player.position.x, player.position.y, MIDDLE, player.maxVelocity)
+  local.changeLayer(BOTTOM)
+  assert.deepEqual(local.waypoints, [], 'a held click survived a reset')
+})
 
 // --- Dash (decision #34): 3 cells of route at 2.5x, predicted -------------------
 //
