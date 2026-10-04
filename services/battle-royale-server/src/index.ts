@@ -4,6 +4,8 @@ import http from 'http'
 import Multiplayer from './network/multiplayer'
 import Worlds from './network/worlds'
 import { openAccountStore } from './db/open'
+import { NotReadyError } from './db/pgstore'
+import { BOARD_SIZE, type SeasonBoard, SeasonPayer } from './progress/seasons'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
@@ -21,6 +23,13 @@ function startGame (): void {
   // Guest accounts (decision #48): Postgres when DATABASE_URL is set, migrated
   // in the background (boot never waits for it), else in memory.
   const accounts = openAccountStore()
+
+  // Weekly seasons (decision #48 step 6): every server checks for a season to
+  // pay (30 s after boot, then every 5 min); the store pays each once however
+  // many check. Store work, not world work, so a plain unref'd timer. A store
+  // not migrated yet is not a failure; anything else is an account failure.
+  const payer = new SeasonPayer(accounts, (e) => { if (!(e instanceof NotReadyError)) Worlds.accountFailure(e) })
+  payer.start()
 
   // Several worlds in this one process (worlds-per-process, decision #39): a
   // run goes to the fullest world with fewer than WORLD_CAP active players,
@@ -66,7 +75,10 @@ function startGame (): void {
         setTimeout(quitWhenClosed, 50)
         return
       }
-      // The account pool and Sentry's queue too, inside the same 5 s.
+      // The account pool and Sentry's queue too, inside the same 5 s. The
+      // payer first, so no payout starts as the pool closes; one in flight is
+      // waited for by `close`.
+      payer.stop()
       Promise.allSettled([redis.quit(), accounts.close(), flushErrors(2000)]).finally(() => process.exit(0))
     }
     quitWhenClosed()
@@ -94,9 +106,42 @@ function startGame (): void {
       return
     }
 
+    if (req.method === 'GET' && req.url === '/season') {
+      seasonBoard().then((data) => {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        })
+        res.end(JSON.stringify(data))
+      }).catch((e) => {
+        console.error('season', e)
+        res.writeHead(500)
+        res.end()
+      })
+      return
+    }
+
     res.writeHead(404)
     res.end()
   })
+
+  // `/season` (decision #48 step 6): the current season's top `BOARD_SIZE`
+  // (rank, sanitised name, public id, banked), its ranked count and places,
+  // read from the store outside every world and cached 30 s. `endsInMs` is
+  // re-derived per answer, so a cached board doesn't count down wrong.
+  let boardCache: { at: number, board: Promise<SeasonBoard> } | undefined
+  async function seasonBoard (): Promise<SeasonBoard> {
+    const now = Date.now()
+    if (boardCache === undefined || now - boardCache.at >= 30_000) {
+      const board = accounts.seasonBoard(now, BOARD_SIZE)
+      boardCache = { at: now, board }
+      // A failure isn't cached: the next request asks again.
+      board.catch(() => { if (boardCache?.board === board) boardCache = undefined })
+    }
+    const at = boardCache.at
+    const board = await boardCache.board
+    return { ...board, endsInMs: Math.max(0, board.endsInMs - (now - at)) }
+  }
   httpserver.listen(process.env.PORT, () => {
     console.log(`listening to ${process.env.PORT}..`)
   })

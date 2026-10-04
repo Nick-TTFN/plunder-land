@@ -9,6 +9,7 @@ import Worlds from './worlds'
 import World from '../objects/world'
 import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore, PUBLIC_ID_SHAPE, TOKEN_SHAPE } from '../db/accounts'
+import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { NotReadyError } from '../db/pgstore'
 import { onAccount, readToken, handshakeAuth, TOKEN_KEY, type TokenStorage } from '../../../../plunder-land-client/src/net/account'
 
@@ -143,16 +144,19 @@ class TestStore implements AccountStore {
     return await this.inner.create()
   }
 
-  async grant (publicId: string, xp: number): Promise<number> {
+  async grant (publicId: string, xp: number, credit?: SeasonCredit): Promise<number> {
     this.grants.push([publicId, xp])
     if (this.grantGate !== undefined) await this.grantGate
     if (this.grantMode === 'hang') return await new Promise(() => {})
     if (this.grantMode === 'throw') throw new Error('connection refused (stub)')
     if (this.mode !== 'ok') return await this.fail()
-    return await this.inner.grant(publicId, xp)
+    return await this.inner.grant(publicId, xp, credit)
   }
 
   async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> { await this.inner.saveLoadout(publicId, robot, index, skills) }
+  async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
+  async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
+  async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
   async close (): Promise<void> {}
 }
 

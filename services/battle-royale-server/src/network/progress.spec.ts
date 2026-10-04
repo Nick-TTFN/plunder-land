@@ -11,6 +11,7 @@ import { ObjectType } from '../objects/gameobject'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
+import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { runXp, standingOf } from '../progress/xp'
 import { earnedXp } from '../progress/run'
 import { applyProgress, onAccount, onProgress, PROGRESS_WAIT_MS, setAccountInfo, ACCOUNT, standingOf as clientStanding, xpLine } from '../../../../plunder-land-client/src/net/account'
@@ -106,15 +107,18 @@ class GrantStore implements AccountStore {
     return await this.inner.create()
   }
 
-  async grant (publicId: string, xp: number): Promise<number> {
+  async grant (publicId: string, xp: number, credit?: SeasonCredit): Promise<number> {
     this.grants.push([publicId, xp])
     if (this.gate !== undefined) await this.gate
     if (this.mode === 'hang') return await new Promise(() => {})
     if (this.mode === 'throw') throw new Error('connection refused (stub)')
-    return await this.inner.grant(publicId, xp)
+    return await this.inner.grant(publicId, xp, credit)
   }
 
   async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> { await this.inner.saveLoadout(publicId, robot, index, skills) }
+  async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
+  async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
+  async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
   async close (): Promise<void> {}
 }
 

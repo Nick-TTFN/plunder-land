@@ -79,5 +79,51 @@ export const MIGRATIONS: readonly Migration[] = [
         PRIMARY KEY (account_id, robot, slot_index)
       )
     `
+  },
+  {
+    version: 4,
+    name: 'seasons',
+    // Weekly seasons (decision #48 step 6, progress/seasons.ts). One entry per
+    // season and account, written by the run's XP grant in the same statement
+    // (`PgAccountStore.grant`); `xp` is the season's run XP, the payout's cap
+    // (payout XP is not counted in it); `banked_at` is the end time of the run
+    // that last raised `banked`, passed in by the server, not `now()`, so both
+    // stores break ties alike. A `seasons` row is written only by the payout,
+    // so its existence means "paid", and its primary key is the last guard
+    // against paying twice. `name` is the sanitised name (Player.displayName,
+    // never a raw one) of the run that last credited the entry, shown on the
+    // public `/season` board (decision #48, 2026-10-04); kept as long as the
+    // entry. Its CHECK is a loose backstop (sanitised names are at most 16
+    // code points): too tight, it would fail the grant and lose the XP. New tables only: the step-5 server runs unchanged
+    // on this schema during overlap and drain.
+    sql: `
+      CREATE TABLE season_entries (
+        season_start date        NOT NULL,
+        account_id   bigint      NOT NULL REFERENCES accounts(id),
+        banked       bigint      NOT NULL DEFAULT 0 CHECK (banked >= 0),
+        runs         int         NOT NULL DEFAULT 0 CHECK (runs >= 0),
+        extractions  int         NOT NULL DEFAULT 0 CHECK (extractions >= 0),
+        xp           bigint      NOT NULL DEFAULT 0 CHECK (xp >= 0),
+        banked_at    timestamptz,
+        name         text        CHECK (char_length(name) BETWEEN 1 AND 64),
+        updated_at   timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (season_start, account_id)
+      );
+      CREATE INDEX season_entries_rank ON season_entries (season_start, banked DESC, banked_at, account_id);
+      CREATE TABLE seasons (
+        start   date        PRIMARY KEY,
+        paid_at timestamptz NOT NULL DEFAULT now(),
+        ranked  int         NOT NULL,
+        paid    int         NOT NULL
+      );
+      CREATE TABLE season_payouts (
+        season_start date     NOT NULL REFERENCES seasons(start),
+        account_id   bigint   NOT NULL REFERENCES accounts(id),
+        rank         int      NOT NULL,
+        tier         smallint NOT NULL CHECK (tier IN (1, 10, 25)),
+        xp           int      NOT NULL CHECK (xp > 0),
+        PRIMARY KEY (season_start, account_id)
+      )
+    `
   }
 ]

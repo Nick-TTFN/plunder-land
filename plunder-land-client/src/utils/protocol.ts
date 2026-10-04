@@ -21,5 +21,6 @@
  * 4: robot and finish locks (#48 step 5). An older client offers every robot
  * and finish; this server plays a locked one as Peep or the group's default
  * without saying so.
+ * 48-6 (seasons) needed none: a new `season` event, which older clients ignore.
  */
 export const PROTOCOL = 4

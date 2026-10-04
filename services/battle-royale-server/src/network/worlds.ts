@@ -10,6 +10,7 @@ import { NotReadyError } from '../db/pgstore'
 import type Player from '../objects/player'
 import { levelOf, standingOf } from '../progress/xp'
 import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
+import { creditOf } from '../progress/seasons'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -63,6 +64,8 @@ export interface WorldsOptions {
  * **XP is granted here at each run's end** (decision #48 step 3, `grant`):
  * once per run, whatever ended it, to a persisted account only (an offline
  * run and a bot earn nothing), and the client is told in a `progress` event.
+ * The run's season credit (#48 step 6, `creditOf`) rides in the same store
+ * call, so it lands exactly when the XP does; a `season` event follows.
  *
  * **Everything runs inside `World.run`** for the world it belongs to: each
  * world's tick and flush, and every socket handler, inside `guarded`. The
@@ -290,6 +293,24 @@ export default class Worlds {
       message.loadouts = loadoutsFor(account)
     }
     connection.socket.emit('account', message)
+    if (account.persisted) this.sendSeason(connection, account)
+  }
+
+  /**
+   * `season` (decision #48 step 6): the account's view of the current season
+   * (`SeasonView`), after `account` on connect or creation and after each
+   * grant's `progress`. Read like every store call, bounded; a failure is an
+   * account failure and sends nothing (the lobby hides the line). Only for a
+   * persisted account still on this connection, and never to a closed socket.
+   */
+  private sendSeason (connection: Connection, account: Account): void {
+    this.bounded(this.accounts.season(account.publicId, this.now())).then((view) => {
+      Worlds.accountSuccess()
+      Multiplayer.guarded(() => {
+        if (connection.closed || connection.account !== account) return
+        connection.socket.emit('season', view)
+      })
+    }).catch((e) => { Worlds.accountFailure(e) })
   }
 
   /**
@@ -361,7 +382,10 @@ export default class Worlds {
   grant (connection: Connection, player: Player, xp: number): void {
     const account = connection.account
     if (player.bot !== undefined || account === undefined || !account.persisted || account.publicId !== player.playerId) return
-    this.bounded(this.accounts.grant(account.publicId, xp)).then((total) => {
+    // The run's season credit rides in the same statement (decision #48 step
+    // 6): its end time picks the season; `player.extracted`, `loot` and the
+    // sanitised `name` are still the run's here.
+    this.bounded(this.accounts.grant(account.publicId, xp, creditOf(player, xp, this.now()))).then((total) => {
       Worlds.accountSuccess()
       account.xp = total
       Multiplayer.guarded(() => {
@@ -372,9 +396,10 @@ export default class Worlds {
           // `progress` (the client would put it on the new run). The lobby's
           // standing still moves: `account` carries it, mid-run too.
           connection.socket.emit('account', { id: account.publicId, ...standing })
-          return
+        } else {
+          connection.socket.emit('progress', { gained: xp, ...standing, levelUp: standing.level > standingOf(total - xp).level })
         }
-        connection.socket.emit('progress', { gained: xp, ...standing, levelUp: standing.level > standingOf(total - xp).level })
+        this.sendSeason(connection, account)
       })
     }).catch((e) => { Worlds.accountFailure(e) })
   }

@@ -45,6 +45,31 @@ export const PROGRESSION = Object.freeze({
   curve: Object.freeze({ first: 40, step: 140 })
 })
 
+/**
+ * Weekly seasons (decision #48 step 6): Dez's v1, accepted by Nick on
+ * 2026-10-02 (`ideas/meta-progression-numbers.md` section 4), pinned by
+ * `progress/seasons.spec.ts`. A season runs Monday 00:00 UTC to the next; its
+ * score is the banked loot of its extractions; the top places by share of the
+ * ranked players are paid in XP at its end (`progress/seasons.ts`). Change a
+ * number here, nowhere else.
+ */
+export const SEASON = Object.freeze({
+  /** Ranked: at least this many runs in the season (any outcome) ... */
+  minRuns: 3,
+  /** ... and at least this many extractions ... */
+  minExtractions: 1,
+  /** ... and some banked loot (Dez: "a player with 0 banked loot can't place anyway"). */
+  minBanked: 1,
+  /** Season credit per run: banked loot on an extraction, capped (a run padded by an alt's drops). */
+  creditCap: 6000,
+  /** Highest tier first; places counted from rank 1. A player gets their highest tier only. */
+  tiers: Object.freeze([
+    Object.freeze({ top: 1 as const, share: 0.01, xp: 1000 }),
+    Object.freeze({ top: 10 as const, share: 0.10, xp: 500 }),
+    Object.freeze({ top: 25 as const, share: 0.25, xp: 250 })
+  ])
+})
+
 /** What a run's XP is computed from: the values `run_end` reports. */
 export interface RunResult {
   extracted: boolean

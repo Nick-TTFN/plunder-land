@@ -10,6 +10,7 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
+import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import type Player from '../objects/player'
 
 /**
@@ -44,12 +45,15 @@ class CountingStore implements AccountStore {
   grants = 0
   async resolve (token: string): Promise<Account | null> { return await this.inner.resolve(token) }
   async create (): Promise<{ account: Account, token: string }> { return await this.inner.create() }
-  async grant (publicId: string, xp: number): Promise<number> {
+  async grant (publicId: string, xp: number, credit?: SeasonCredit): Promise<number> {
     this.grants++
-    return await this.inner.grant(publicId, xp)
+    return await this.inner.grant(publicId, xp, credit)
   }
 
   async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> { await this.inner.saveLoadout(publicId, robot, index, skills) }
+  async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
+  async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
+  async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
   async close (): Promise<void> {}
 }
 

@@ -9,6 +9,7 @@ import Worlds from './worlds'
 import World from '../objects/world'
 import type Player from '../objects/player'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
+import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { SKILL_SPECS } from '../archetypes/archetypes'
 import { ARCHETYPE_INFO, type ArchetypeKey, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { PROTOCOL } from '../utils/protocol'
@@ -94,7 +95,10 @@ class SaveStore implements AccountStore {
 
   async resolve (token: string): Promise<Account | null> { return await this.inner.resolve(token) }
   async create (): Promise<{ account: Account, token: string }> { return await this.inner.create() }
-  async grant (publicId: string, xp: number): Promise<number> { return await this.inner.grant(publicId, xp) }
+  async grant (publicId: string, xp: number, credit?: SeasonCredit): Promise<number> { return await this.inner.grant(publicId, xp, credit) }
+  async season (publicId: string, atMs: number): Promise<SeasonView> { return await this.inner.season(publicId, atMs) }
+  async seasonBoard (atMs: number, limit: number): Promise<SeasonBoard> { return await this.inner.seasonBoard(atMs, limit) }
+  async payDue (nowMs: number): Promise<PaidSeason[]> { return await this.inner.payDue(nowMs) }
   async saveLoadout (publicId: string, robot: string, index: number, skills: number[]): Promise<void> {
     this.saves.push([publicId, robot, index, skills])
     if (this.gate !== undefined) await this.gate
@@ -266,6 +270,9 @@ test('no account (a single-world join through onConnect) and an offline account 
     create: async () => { throw new Error('down') },
     grant: async () => { throw new Error('down') },
     saveLoadout: async () => { throw new Error('down') },
+    season: async () => { throw new Error('down') },
+    seasonBoard: async () => { throw new Error('down') },
+    payDue: async () => { throw new Error('down') },
     close: async () => {}
   }
   const worlds = makeWorlds(down)

@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { Client } from 'pg'
 import { hashToken } from './accounts'
-import { PgAccountStore, NotReadyError } from './pgstore'
-import { migrate } from './migrate'
+import { PgAccountStore, NotReadyError, SEASON_LOCK } from './pgstore'
+import { migrate, MIGRATION_LOCK } from './migrate'
+import { PAYOUT_DELAY_MS, seasonEndMs, seasonStart } from '../progress/seasons'
 import { MIGRATIONS, type Migration } from './migrations'
 import { storeContract } from './storecontract'
 
@@ -241,7 +242,7 @@ pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v
     await v2.close()
   }
   const before = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [3])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 3))), [3])
   const after = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
   assert.deepEqual(after, before, 'migration 3 changed an existing row')
 
@@ -307,4 +308,172 @@ pgTest('close waits for every grant in flight, queued ones included, before endi
   await assert.rejects(store.grant(account.publicId, 1), 'a grant after close')
   const total = await withClient(async (client) => (await client.query('SELECT xp FROM account_progress')).rows[0].xp)
   assert.equal(Number(total), 120)
+})
+
+// --- seasons (decision #48 step 6) --------------------------------------------
+
+test('the payout\'s advisory lock is not the migration runner\'s (no database needed)', () => {
+  assert.notEqual(BigInt(SEASON_LOCK), BigInt(MIGRATION_LOCK))
+})
+
+pgTest('seasons (migration 4): added to a v3 database it keeps every row, and the step-3 grant and step-4 resolve still run', async () => {
+  const v3 = MIGRATIONS.filter((m) => m.version <= 3)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, v3)), [1, 2, 3])
+  const old = new PgAccountStore({ connectionString: URL as string, migrations: v3 })
+  const made: Array<{ token: string, publicId: string }> = []
+  try {
+    old.ready = true
+    for (let i = 0; i < 3; i++) {
+      const { account, token } = await old.create()
+      await old.grant(account.publicId, 10 * (i + 1))
+      await old.saveLoadout(account.publicId, 'peep', 0, [1, 2, 3, i])
+      made.push({ token, publicId: account.publicId })
+    }
+  } finally {
+    await old.close()
+  }
+  const snapshot = async (): Promise<unknown[]> => await withClient(async (client) => (await client.query(
+    'SELECT a.public_id, a.token_hash, p.xp, l.robot, l.slot_index, l.skills FROM accounts a JOIN account_progress p ON p.account_id = a.id JOIN loadouts l ON l.account_id = a.id ORDER BY a.id')).rows)
+  const before = await snapshot()
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4])
+  assert.deepEqual(await snapshot(), before, 'migration 4 changed an existing row')
+
+  const store = new PgAccountStore({ connectionString: URL as string })
+  try {
+    store.ready = true
+    // The step-3 grant (no credit), as the old server runs it during overlap: no entry.
+    const granted = await store.pool.query(V2_GRANT, [made[1].publicId, 5])
+    assert.equal(Number(granted.rows[0].xp), 25)
+    assert.equal(await store.grant(made[1].publicId, 1), 26, 'this release\'s grant without a credit')
+    assert.deepEqual(await store.resolve(made[2].token), { publicId: made[2].publicId, persisted: true, xp: 30, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 2] }] })
+    assert.equal(Number((await store.pool.query('SELECT count(*) AS n FROM season_entries')).rows[0].n), 0)
+    // And a credit on an account from before it.
+    const at = Date.parse('2026-10-07T12:00:00.000Z')
+    assert.equal(await store.grant(made[0].publicId, 50, { season: seasonStart(at), atMs: at, banked: 700, extracted: true, xp: 50, name: 'ROOK-42' }), 60)
+    const row = (await store.pool.query('SELECT season_start::text AS s, banked, runs, extractions, xp, banked_at, name FROM season_entries')).rows[0]
+    assert.deepEqual([row.s, Number(row.banked), row.runs, row.extractions, Number(row.xp), (row.banked_at as Date).getTime(), row.name], ['2026-10-05', 700, 1, 1, 50, at, 'ROOK-42'])
+  } finally {
+    await store.close()
+  }
+})
+
+/** A migrated, ready store on the spec's database. */
+async function readyStore (): Promise<PgAccountStore> {
+  const store = new PgAccountStore({ connectionString: URL as string })
+  await store.migrateOnce()
+  store.ready = true
+  return store
+}
+
+/** `n` new accounts, each ranked in the season holding `at` (3 runs, 1 extraction, distinct banked). */
+async function fillSeason (store: PgAccountStore, at: number, n: number): Promise<string[]> {
+  const ids: string[] = []
+  for (let i = 0; i < n; i++) {
+    const { account } = await store.create()
+    for (let run = 0; run < 3; run++) {
+      const banked = run === 2 ? 1000 * (n - i) : 0
+      await store.grant(account.publicId, 400, { season: seasonStart(at), atMs: at + run, banked, extracted: banked > 0, xp: 400, name: `P${i}` })
+    }
+    ids.push(account.publicId)
+  }
+  return ids
+}
+
+async function count (sql: string, values: unknown[] = []): Promise<number> {
+  return await withClient(async (client) => Number((await client.query(sql, values)).rows[0].n))
+}
+
+pgTest('two servers racing: every due season paid exactly once, over 20 rounds', async () => {
+  const one = await readyStore()
+  const two = new PgAccountStore({ connectionString: URL as string })
+  two.ready = true
+  try {
+    const first = Date.parse('2025-01-08T12:00:00.000Z')
+    for (let round = 0; round < 20; round++) {
+      const at = first + round * 7 * 86_400_000
+      const start = seasonStart(at)
+      const ids = await fillSeason(one, at, 10)
+      const now = seasonEndMs(start) + PAYOUT_DELAY_MS
+      const [a, b] = await Promise.all([one.payDue(now), two.payDue(now)])
+      const paid = [...a, ...b]
+      assert.deepEqual(paid, [{ start, ranked: 10, paid: 2 }], `round ${round}: paid ${JSON.stringify(paid)}`)
+      assert.equal(await count('SELECT count(*) AS n FROM seasons WHERE start = $1::date', [start]), 1)
+      assert.equal(await count('SELECT count(*) AS n FROM season_payouts WHERE season_start = $1::date', [start]), 2)
+      // Rank 1 (ids[0]) 1,000 capped at its 1,200 season XP: 1,000; rank 2 250.
+      const xp = await withClient(async (client) => (await client.query('SELECT a.public_id, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id WHERE a.public_id = ANY($1)', [ids])).rows)
+      const byId = new Map(xp.map((r) => [r.public_id as string, Number(r.xp)]))
+      assert.deepEqual(ids.map((id) => byId.get(id)), [2200, 1450, ...Array(8).fill(1200)], `round ${round}`)
+    }
+    assert.equal(await count('SELECT count(*) AS n FROM seasons'), 20)
+    assert.equal(await count('SELECT count(*) AS n FROM (SELECT season_start, account_id FROM season_payouts GROUP BY 1, 2 HAVING count(*) > 1) d'), 0)
+  } finally {
+    await one.close()
+    await two.close()
+  }
+})
+
+pgTest('drain mid-payout: close waits for a payout in flight, which pays every due season once', async () => {
+  const store = await readyStore()
+  const at = Date.parse('2025-02-05T12:00:00.000Z')
+  await fillSeason(store, at, 4)
+  await fillSeason(store, at + 7 * 86_400_000, 4)
+  let entered: () => void = () => {}
+  const inside = new Promise<void>((resolve) => { entered = resolve })
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let held = 0
+  store.payoutHook = async () => {
+    if (held++ === 0) {
+      entered()
+      await gate
+    }
+  }
+  const paying = store.payDue(seasonEndMs(seasonStart(at + 7 * 86_400_000)) + PAYOUT_DELAY_MS)
+  await inside
+  let closed = false
+  const closing = store.close().then(() => { closed = true })
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert.equal(closed, false, 'close did not wait for the payout')
+  await assert.rejects(store.payDue(Date.now()), 'a payout started after close')
+  release()
+  await closing
+  assert.deepEqual((await paying).map((p) => p.start), [seasonStart(at), seasonStart(at + 7 * 86_400_000)])
+  assert.equal(await count('SELECT count(*) AS n FROM seasons'), 2)
+  assert.equal(await count('SELECT count(*) AS n FROM season_payouts'), 2)
+})
+
+pgTest('a payout whose backend is killed mid-transaction pays nothing, and the next pays once', async () => {
+  const errors: unknown[] = []
+  const store = new PgAccountStore({ connectionString: URL as string, onError: (e) => { errors.push(e) } })
+  await store.migrateOnce()
+  store.ready = true
+  const at = Date.parse('2025-03-12T12:00:00.000Z')
+  const ids = await fillSeason(store, at, 10)
+  const xpOf = async (): Promise<number[]> => await withClient(async (client) => {
+    const rows = (await client.query('SELECT a.public_id, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id')).rows
+    const byId = new Map(rows.map((r) => [r.public_id as string, Number(r.xp)]))
+    return ids.map((id) => byId.get(id) ?? -1)
+  })
+  const before = await xpOf()
+  store.payoutHook = async (_start, pid) => {
+    await withClient(async (client) => { await client.query('SELECT pg_terminate_backend($1)', [pid]) })
+  }
+  const now = seasonEndMs(seasonStart(at)) + PAYOUT_DELAY_MS
+  try {
+    await assert.rejects(store.payDue(now), 'a payout on a killed backend succeeded')
+  } finally {
+    await store.close()
+  }
+  assert.equal(await count('SELECT count(*) AS n FROM seasons'), 0)
+  assert.equal(await count('SELECT count(*) AS n FROM season_payouts'), 0)
+  assert.deepEqual(await xpOf(), before, 'XP moved on a killed payout')
+  const next = await readyStore()
+  try {
+    assert.deepEqual(await next.payDue(now), [{ start: seasonStart(at), ranked: 10, paid: 2 }])
+    assert.deepEqual(await next.payDue(now), [])
+  } finally {
+    await next.close()
+  }
+  const after = await xpOf()
+  assert.deepEqual(after.map((xp, i) => xp - before[i]), [1000, 250, ...Array(8).fill(0)])
 })
