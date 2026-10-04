@@ -440,7 +440,11 @@ export default class Lobby extends Container {
 
   /** Left/right: over the robots the level has opened only. */
   private step (by: number): void {
-    this.pick(stepRobot(this.entry, by, this.accountLevel))
+    const next = stepRobot(this.entry, by, this.accountLevel)
+    // Nothing to step to (level 1, or before the account arrives): not a
+    // pick, or READY would store Peep over the player's wish (48-5 review).
+    if (next === this.entry) return
+    this.pick(next)
   }
 
   /** The player chose `entry` (a card, left/right); a locked one is ignored. */
@@ -589,7 +593,7 @@ export default class Lobby extends Container {
       if (!this.mixMode) {
         for (const s of presetSwatches(group)) {
           const b = this.swatchButton(s, s.colour === now.colour && s.pattern === now.pattern, () => { this.paint(group, s) })
-          Lobby.lock(b, swatchLock(s, level), true)
+          Lobby.lock(b, swatchLock(s, level))
           row.swatches.append(b)
         }
       } else {
@@ -599,14 +603,14 @@ export default class Lobby extends Container {
           const b = this.swatchButton(s, c.id === now.colour, () => { this.setFinish(mixColour(this.finish, this.accountLevel, group, c.id)) })
           b.classList.add('lb-small')
           b.title = c.label
-          Lobby.lock(b, colourLock(c.id, level), true)
+          Lobby.lock(b, colourLock(c.id, level))
           colours.append(b)
         }
         const patterns = el('div', 'lb-patterns')
         for (const p of PATTERNS) {
           const b = el('button', p.id === now.pattern ? 'lb-chip lb-sel' : 'lb-chip', p.label)
           b.onclick = () => { this.setFinish(mixPattern(this.finish, this.accountLevel, group, p.id)) }
-          Lobby.lock(b, patternLock(p.id, level), true)
+          Lobby.lock(b, patternLock(p.id, level))
           patterns.append(b)
         }
         row.swatches.append(colours, patterns)
@@ -628,16 +632,16 @@ export default class Lobby extends Container {
 
   /**
    * A swatch or chip locked at `lock` (undefined: open): disabled, so it never
-   * paints, titled with its level, and badged `LV n` when `badge` (the small
-   * MIX colours have room for the title only).
+   * paints, titled with its level, and badged `LV n` (a chip in its text,
+   * anything else in a span; `.lb-small .lb-lock` sizes it on MIX swatches).
    */
-  private static lock (b: HTMLButtonElement, lock: number | undefined, badge: boolean): void {
+  private static lock (b: HTMLButtonElement, lock: number | undefined): void {
     if (lock === undefined) return
     b.disabled = true
     b.title = lockTitle(lock)
     b.classList.add('lb-locked')
-    if (badge && b.classList.contains('lb-chip')) b.textContent = `${b.textContent ?? ''} ${lockBadge(lock)}`
-    else if (badge) b.append(el('span', 'lb-lock', lockBadge(lock)))
+    if (b.classList.contains('lb-chip')) b.textContent = `${b.textContent ?? ''} ${lockBadge(lock)}`
+    else b.append(el('span', 'lb-lock', lockBadge(lock)))
   }
 
   // --------------------------------------------------------------- pixi
