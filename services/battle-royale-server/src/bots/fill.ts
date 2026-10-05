@@ -2,7 +2,7 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import { FINISH_GROUPS, FINISH_PRESETS, type Finish, PALETTE, PATTERNS, finishToBytes } from '../utils/finishes'
 import { SELECTABLE_ROBOTS } from '../utils/archetypes'
-import BotBrain, { kitOf, pickTemperament } from './brain'
+import BotBrain, { botCargo, kitOf, pickTemperament } from './brain'
 
 /**
  * Keeps one world's humans + bots at `target` (decision #47), and only while
@@ -81,6 +81,9 @@ export default class BotFill {
     const player = World.createPlayer(id, name, finishToBytes(finish), pick(SELECTABLE_ROBOTS), kitOf(temperament, this.random))
     player.bot = new BotBrain(player, now, this.random, temperament)
     player.addAIRoutine(player.bot)
+    // A quarter carry one T1 item (49-6). After `bot` is set, so it goes in the bag.
+    const cargo = botCargo(this.random)
+    if (cargo !== undefined) player.addGear(cargo)
     return player
   }
 }

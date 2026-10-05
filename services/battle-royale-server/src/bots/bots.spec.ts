@@ -10,8 +10,9 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
-import { LEAVE_GRACE_MS } from './fill'
-import BotBrain, { BOT_KIT_BASE, TEMPERAMENTS, botKit, kitOf, pickTemperament } from './brain'
+import { NO_GEAR_EFFECT } from '../utils/gear'
+import BotFill, { LEAVE_GRACE_MS } from './fill'
+import BotBrain, { BOT_CARGO, BOT_KIT_BASE, TEMPERAMENTS, botCargo, botKit, kitOf, pickTemperament } from './brain'
 
 /**
  * Bots (decision #47): a world with a human is topped up to the target, a
@@ -386,6 +387,95 @@ test('a looter on its way out walls off what chases it; a steady bot has no wall
     assert.equal(pressed.includes(5), t === 'looter', `${t}: pressed ${pressed.join()}`)
     chaser.destroy()
   }
+  world.close()
+})
+
+// --- cargo (decision #49, 49-6) ------------------------------------------------
+
+/**
+ * A seeded generator (mulberry32), so the population is the same every run.
+ * Not a plain LCG: one (seed 496) gave 124 carriers in 400, 2.8 sd out, from
+ * the fixed lags between a spawn's draws. Over 8 seeds each, mulberry32 gave
+ * 89-116 carriers, an LCG 82-112 and Math.random 90-112 (measured 2026-10-05).
+ */
+function seeded (seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 0x1_0000_0000
+  }
+}
+
+test('cargo: 1 bot in 4 joins with one rowless T1 item in its bag, about 30% skill items; no gear slot, no stat changed', () => {
+  World.strict = false
+  void new Multiplayer(250, redisStub())
+  const world = new World(4000)
+  World.MOBS.length = 0
+  const fill = new BotFill(1000, 2000, seeded(7919))
+  const spawned: Player[] = []
+  for (let i = 0; i < 400; i++) spawned.push(fill.spawn(1_000_000))
+  const carriers = spawned.filter((p) => p.bag.length > 0)
+  const share = carriers.length / spawned.length
+  assert.ok(share >= 0.20 && share <= 0.30, `${carriers.length} of 400 carry`)
+  const skills = carriers.filter((p) => p.bag[0].skill !== 0).length
+  assert.ok(skills / carriers.length >= 0.20 && skills / carriers.length <= 0.40, `${skills} of ${carriers.length} carry a skill item`)
+  // Every robot's stats, by key: a carrier's must be its robot's like everyone else's.
+  const statsOf = (p: Player): string => [p.maxHp, p.maxArmor, p.maxVelocity, p.pickupReach, p.damageScale].join()
+  const byRobot = new Map<string, Set<string>>()
+  for (const p of spawned) {
+    assert.ok(p.bag.length <= 1, `a bot carries ${p.bag.length}`)
+    for (const item of p.bag) {
+      assert.equal(item.tier, 1)
+      assert.equal(item.rowId, undefined, 'cargo has no stash row')
+      assert.equal(item.rolls.length, item.skill === 0 ? 0 : 1)
+    }
+    assert.deepEqual(p.gear, [null, null], 'a bot filled a gear slot')
+    assert.equal(p.gearEffect, NO_GEAR_EFFECT, 'a bot\'s gear changed a stat')
+    const key = (p.archetype as { key: string }).key
+    const set = byRobot.get(key) ?? new Set<string>()
+    set.add(statsOf(p))
+    byRobot.set(key, set)
+  }
+  for (const [key, set] of byRobot) assert.equal(set.size, 1, `${key} bots differ: ${[...set].join(' | ')}`)
+  assert.ok(carriers.some((p) => p.bag[0].skill !== 0) && carriers.some((p) => p.bag[0].skill === 0), 'only one kind of cargo turned up')
+  world.close()
+})
+
+test('cargo: botCargo is BOT_CARGO\'s chance and mix', () => {
+  assert.deepEqual({ ...BOT_CARGO }, { chance: 0.25, skillShare: 0.3, tier: 1 })
+  assert.equal(botCargo(() => 0.25), undefined, 'at the chance: none')
+  const part = botCargo(seq([0.24, 0.3]))
+  assert.deepEqual(part, { tier: 1, skill: 0, rolls: [] })
+  const skill = botCargo(seq([0, 0.29, 0, 0, 0]))
+  assert.ok(skill !== undefined && skill.skill !== 0 && skill.tier === 1 && skill.rolls.length === 1)
+})
+
+function seq (values: number[]): () => number {
+  let i = 0
+  return () => values[Math.min(i++, values.length - 1)]
+}
+
+test('cargo: a killed cargo bot drops its item on the ground, and a skill item rode in the bag, not a slot', () => {
+  World.strict = false
+  void new Multiplayer(250, redisStub())
+  const world = new World(4000)
+  World.MOBS.length = 0
+  // random 0: carries (0 < 0.25), a skill item (0 < 0.3).
+  const bot = new BotFill(8, 2000, () => 0).spawn(1_000_000)
+  assert.equal(bot.bag.length, 1)
+  const cargo = bot.bag[0]
+  assert.notEqual(cargo.skill, 0, 'not a skill item')
+  assert.deepEqual(bot.gear, [null, null])
+  assert.equal(bot.gearSkill(0), null)
+  bot.hit(1e6)
+  world.update(0.25)
+  const drop = World.GEAR.find((g) => g.instance === cargo)
+  assert.ok(drop !== undefined && !drop.destroyed, 'the cargo is not on the ground')
+  assert.equal(drop.cache, false)
+  assert.ok(Hex.distance(Hex.toCell(drop.position), bot.cell) <= World.DROP_RINGS)
   world.close()
 })
 

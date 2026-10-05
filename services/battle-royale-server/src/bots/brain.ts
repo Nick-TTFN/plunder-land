@@ -6,6 +6,8 @@ import type { Unit } from '../objects/unit'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { SKILL_INFO } from '../utils/skills'
+import { rollGear } from '../archetypes/archetypes'
+import type { GearInstance, GearTier } from '../utils/gear'
 
 /**
  * A bot's play (decision #47): a Player with no connection, driven through the
@@ -94,6 +96,23 @@ export function pickTemperament (random: () => number): Temperament {
 /** A temperament's kit, with fireball or icicle half the time each. */
 export function kitOf (temperament: Temperament, random: () => number): number[] {
   return TEMPERAMENTS[temperament].kit(random() < 0.5 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id)
+}
+
+/**
+ * Cargo (decision #49, spec section 3 and Q13): a quarter of bots join
+ * carrying one rowless T1 item in the **bag** (`Player.addGear` bags
+ * everything for a bot, so no slot fills and no stat changes), a part 70% of
+ * the time and a skill item 30%, rolled by `rollGear`. A bot is a gear source
+ * like any player: it drops what it carries on death. The brain never casts
+ * it (keys 3-4) and doesn't seek gear on purpose. Given by `BotFill.spawn`.
+ * Tunables (TEAM.md, at accept).
+ */
+export const BOT_CARGO: Readonly<{ chance: number, skillShare: number, tier: GearTier }> = Object.freeze({ chance: 0.25, skillShare: 0.3, tier: 1 })
+
+/** The cargo a joining bot carries, or undefined (3 in 4). No `rowId`: it comes from no stash. */
+export function botCargo (random: () => number): GearInstance | undefined {
+  if (random() >= BOT_CARGO.chance) return undefined
+  return rollGear(BOT_CARGO.tier, random() < BOT_CARGO.skillShare ? 'skill' : 'part', random)
 }
 
 /** The medkit's inventory slot (utils/items.ts). */
