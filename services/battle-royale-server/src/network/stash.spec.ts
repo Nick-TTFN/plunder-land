@@ -385,27 +385,38 @@ test('a dropped stash item expiring deletes its row', async () => {
   assert.equal(ledger.holds(a.ids[1]), true)
 })
 
-test('two worlds: closing one deletes the stash rows left in it and leaves the other\'s alone', async () => {
+test('several worlds: closing one deletes the stash rows left in it, on the ground or on a corpse, and leaves the others alone', async () => {
   const store = new Store()
   const ledger = await ledgerOn(store)
   const worlds = makeWorlds(store, ledger, { cap: 1 })
   const a = await accountWith(store, ledger, BRING_LEVEL, [item(1, FIREBALL), item(1, ICICLE)])
   const b = await accountWith(store, ledger, BRING_LEVEL, [item(1, STONEWALL)])
+  const c = await accountWith(store, ledger, BRING_LEVEL, [item(2, FIREBALL)])
   const ca = await connect(worlds, a.token, 'a')
   const cb = await connect(worlds, b.token, 'b')
+  const cc = await connect(worlds, c.token, 'c')
   const runA = await play(worlds, ca, a.ids)
   const runB = await play(worlds, cb, b.ids)
-  assert.notEqual(runA.world, runB.world, 'not two worlds')
+  const runC = await play(worlds, cc, c.ids)
+  assert.equal(new Set([runA.world, runB.world, runC.world]).size, 3, 'not three worlds')
   const guard = World.wrongWorld
 
-  // One on the ground (a death drop), one carried by a corpse not yet swept.
+  // A's on the ground (a death drop, swept); B's still on its corpse (not swept).
   World.run(runA.world, () => { runA.player.hit(1e6) })
-  worlds.tickAll(250)
+  World.run(runB.world, () => { runB.player.hit(1e6) })
+  World.run(runA.world, () => { runA.world.update(0.25) })
+  assert.equal(onGround(runA.world, a.ids).length, 2)
+  assert.equal(World.run(runB.world, () => World.PLAYERS.includes(runB.player)), true, 'B was swept')
   ca.socket.conn.close()
+  cb.socket.conn.close()
   await settle()
   worlds.close(runA.world)
   await settle()
-  assert.deepEqual(store.rows(), { [b.ids[0]]: `${b.publicId}:carried` })
+  assert.deepEqual(store.rows(), { [b.ids[0]]: `${b.publicId}:carried`, [c.ids[0]]: `${c.publicId}:carried` })
+  worlds.close(runB.world)
+  await settle()
+  assert.deepEqual(store.rows(), { [c.ids[0]]: `${c.publicId}:carried` })
+  assert.deepEqual(ledger.heldIds(), [c.ids[0]])
   assert.equal(World.wrongWorld, guard)
 })
 
@@ -466,6 +477,20 @@ test('a row another tab already carries leaves its slot empty; the other slot st
   const { player } = await play(worlds, client, a.ids)
   assert.equal(player.gear[0], null)
   assert.equal(player.gear[1]?.rowId, a.ids[1])
+})
+
+test('a carried row the run can\'t equip (a skill this build doesn\'t know) goes back to the stash; the other is played', async () => {
+  const store = new Store()
+  const ledger = await ledgerOn(store)
+  const worlds = makeWorlds(store, ledger)
+  const a = await accountWith(store, ledger, BRING_LEVEL, [item(1, 250), item(1, ICICLE)])
+  const client = await connect(worlds, a.token, 'a')
+  const { player } = await play(worlds, client, a.ids)
+  await settle()
+  assert.equal(player.gear[0], null)
+  assert.equal(player.gear[1]?.rowId, a.ids[1])
+  assert.deepEqual(store.rows(), { [a.ids[0]]: `${a.publicId}:stashed`, [a.ids[1]]: `${a.publicId}:carried` })
+  assert.deepEqual(ledger.heldIds(), [a.ids[1]])
 })
 
 for (const how of ['disconnect', 'drain'] as const) {
