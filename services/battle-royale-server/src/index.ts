@@ -51,6 +51,9 @@ function startGame (): void {
     ? undefined
     : new GearLedger(gearStore, { timeoutMs: accountTimeoutMs, report: (e) => { if (!(e instanceof NotReadyError)) Worlds.accountFailure(e) } })
   ledger?.start()
+  // Both shipped stores implement GearStore; without it every run plays with
+  // no stash and nothing else would say so.
+  if (ledger === undefined) console.warn('gear: the account store has no stash methods; runs play without a stash')
 
   // Several worlds in this one process (worlds-per-process, decision #39): a
   // run goes to the fullest world with fewer than WORLD_CAP active players,
