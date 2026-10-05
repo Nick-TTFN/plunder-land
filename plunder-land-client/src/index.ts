@@ -18,6 +18,7 @@ import { decideWelcome, KEY, readPending } from './net/protocol'
 import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
 import { onEnergy, setEnergy } from './net/energy'
+import { onStash, setStash } from './net/stash'
 import { parseSaved, slotsFor } from './net/loadout'
 import { SETTINGS, densityFor, loadSettings } from './net/settings'
 import { Session } from './net/session'
@@ -143,6 +144,7 @@ function setup (): void {
     setAccountInfo(undefined)
     setSeason(undefined, Date.now())
     setEnergy(undefined, Date.now())
+    setStash(undefined)
     onConnect()
   })
   Game.socket.on('welcome', onWelcome)
@@ -185,6 +187,17 @@ function setup (): void {
   Game.socket.on('season', (data: unknown) => {
     const view = onSeason(data)
     if (view !== undefined) setSeason(view, Date.now())
+  })
+  // The stash (decision #49, net/stash.ts): after `account` for a persisted
+  // account, after a start that carried gear, and after an extraction's
+  // settle, that one with `run` (what was kept), for the run card. It can
+  // land before or after the own destroy; `Game.RUN` keeps it either way. The
+  // server sends none after a death, offline or when the settle failed.
+  Game.socket.on('stash', (data: unknown) => {
+    const view = onStash(data)
+    if (view === undefined) return
+    setStash(view)
+    if (view.run !== undefined) Game.RUN.setStashRun(view.run)
   })
 }
 

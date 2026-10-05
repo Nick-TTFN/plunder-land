@@ -4,6 +4,7 @@ import { THEME, two } from '../theme'
 import { HUD } from '../components/hud'
 import { ACCOUNT, PROGRESS_WAIT_MS, type ProgressInfo, xpLine } from '../../net/account'
 import { unlockedBetween } from '../lobby/locks'
+import { type GearTone, type StashRun, gearLine } from '../../net/stash'
 
 /** How a run ended, from the own player's destroy record. */
 export type RunOutcome = 'extracted' | 'dead'
@@ -41,9 +42,19 @@ export class RunRecord {
   /**
    * Gear items carried (both slots and the bag) as of the last `carried` the
    * server sent (decision #49): at the end, what was taken out, or lost on a
-   * death. 49-4 adds what is kept.
+   * death.
    */
   gear = 0
+  /**
+   * What an extraction's settle kept (49-4): the `stash` event's `run`,
+   * which can land before or after the own destroy. Undefined until then,
+   * and for a death or an offline run, which send none.
+   */
+  stashRun: StashRun | undefined
+  /** The open card's, to show it when it lands. */
+  onStashRun: (() => void) | undefined
+  /** As `progressGaveUp`, for the gear row. */
+  stashGaveUp = false
   robot = ''
   durationMs = 0
 
@@ -57,6 +68,13 @@ export class RunRecord {
     this.robot = (robot ?? 'robot').toUpperCase()
     this.progress = undefined
     this.progressGaveUp = false
+    this.stashRun = undefined
+    this.stashGaveUp = false
+  }
+
+  setStashRun (run: StashRun): void {
+    this.stashRun = run
+    this.onStashRun?.()
   }
 
   setProgress (progress: ProgressInfo, levelBefore?: number): void {
@@ -112,6 +130,9 @@ export class RunSummaryCard extends Container {
   private _buttons: Container[] = []
   private _buttonsY = 0
   private _wait: ReturnType<typeof setTimeout> | undefined
+  /** The gear row's label and value, and its wait for the settle (`showGear`). */
+  private _gear: [Text, Text] | undefined
+  private _gearWait: ReturnType<typeof setTimeout> | undefined
 
   /**
    * `onWatch`, on a death: a WATCH button that puts the card away to spectate
@@ -125,8 +146,8 @@ export class RunSummaryCard extends Container {
     const rows: Array<[string, string, number]> = [
       ['TIME', run.time, THEME.text],
       [extracted ? 'LOOT BANKED' : 'LOOT LOST', run.loot.toLocaleString('en-US'), run.loot === 0 ? THEME.text : extracted ? THEME.loot : THEME.danger],
-      // Gear (decision #49): what was carried at the end, out or lost.
-      [extracted ? 'GEAR CARRIED' : 'GEAR LOST', String(run.gear), run.gear === 0 ? THEME.text : extracted ? THEME.loot : THEME.danger],
+      // Gear (decision #49): kept in the stash or lost (`showGear`).
+      ['GEAR', '', THEME.text],
       ['KILLS', String(run.kills), THEME.text],
       ['DEEPEST', run.deepest > 0 ? `LAYER ${two(run.deepest)}` : '-', THEME.text],
       ['ROBOT', run.robot, THEME.text],
@@ -142,12 +163,25 @@ export class RunSummaryCard extends Container {
       v.y = i * ROW
       panel.body.addChild(l, v)
       if (label === 'XP') this._xp = v
+      if (label === 'GEAR') this._gear = [l, v]
     })
     const unlocked = this._unlocked = Panel.text('', THEME.bodySize, THEME.accent)
     unlocked.style.wordWrap = true
     unlocked.style.wordWrapWidth = inner
     unlocked.y = rows.length * ROW
     panel.body.addChild(unlocked)
+    this.showGear(run, extracted)
+    const onStashRun = (): void => { this.showGear(run, extracted) }
+    if (run.stashRun === undefined) {
+      run.onStashRun = onStashRun
+      // Only an extraction that carried something online has a settle to wait for.
+      if (!run.stashGaveUp && extracted && run.gear > 0 && ACCOUNT.info?.offline !== true) {
+        this._gearWait = setTimeout(() => {
+          run.stashGaveUp = true
+          this.showGear(run, extracted)
+        }, PROGRESS_WAIT_MS)
+      }
+    }
     this.showXp(run)
     const onProgress = (): void => { this.showXp(run) }
     if (run.progress === undefined) {
@@ -188,10 +222,32 @@ export class RunSummaryCard extends Container {
     window.addEventListener('resize', this._onResize)
     this.on('removed', () => {
       if (run.onProgress === onProgress) run.onProgress = undefined
+      if (run.onStashRun === onStashRun) run.onStashRun = undefined
       clearTimeout(this._wait)
+      clearTimeout(this._gearWait)
       window.removeEventListener('keydown', this._onKey)
       window.removeEventListener('resize', this._onResize)
     })
+  }
+
+  /** The gear row (decision #49, `gearLine`): lost, kept, waiting for the settle, or unavailable. */
+  private showGear (run: RunRecord, extracted: boolean): void {
+    if (this._gear === undefined) return
+    const [l, v] = this._gear
+    const [label, value, tone] = gearLine(extracted, run.gear, ACCOUNT.info?.offline === true, run.stashRun, run.stashGaveUp)
+    l.text = label
+    v.text = value
+    v.style.fill = RunSummaryCard.gearColour(tone)
+    if (run.stashRun !== undefined) clearTimeout(this._gearWait)
+  }
+
+  private static gearColour (tone: GearTone): number {
+    switch (tone) {
+      case 'loot': return THEME.loot
+      case 'danger': return THEME.danger
+      case 'text': return THEME.text
+      default: return THEME.muted
+    }
   }
 
   private showXp (run: RunRecord): void {
