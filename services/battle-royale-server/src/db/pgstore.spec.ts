@@ -2,12 +2,13 @@ import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { Client } from 'pg'
-import { hashToken } from './accounts'
+import { hashToken, type MergeRule } from './accounts'
 import { PgAccountStore, NotReadyError, SEASON_LOCK, STASH_LOCK_CLASS } from './pgstore'
 import { migrate, MIGRATION_LOCK } from './migrate'
 import { PAYOUT_DELAY_MS, seasonEndMs, seasonStart } from '../progress/seasons'
 import { MIGRATIONS, type Migration } from './migrations'
-import { gearContract, type GearHooks, PART, storeContract, T1, T2 } from './storecontract'
+import { gearContract, type GearHooks, PART, seeded, storeContract, T1, T2 } from './storecontract'
+import { mergeOutcome } from '../gear/merge'
 
 /**
  * The Postgres store and the migration runner against a real database, only
@@ -612,7 +613,7 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
   }
 })
 
-pgTest('the gear stash contract and dupe races 1-11, against Postgres', async () => {
+pgTest('the gear stash contract, dupe races 1-11, merge and scrap, against Postgres', async () => {
   const store = await readyStore()
   try {
     await gearContract(store, pgGearHooks(store))
@@ -639,6 +640,47 @@ pgTest('race 1 under load: many concurrent spends bringing the same items, each 
       for (const row of rows) {
         const winner = spent.findIndex((s) => (s.carried ?? []).some((c) => c.rowId === row.id))
         assert.equal(row.holder, holders[winner], `round ${round}: row ${row.id as string} held by another than its carrier`)
+      }
+    }
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('race 2 under load (49-5): a merge racing a bring-in of its rows, or another merge, or a scrap: exactly one happens', async () => {
+  const store = await readyStore()
+  const rule = (seed: number): MergeRule => {
+    const random = seeded(seed)
+    return (inputs) => mergeOutcome(inputs, undefined, random)
+  }
+  try {
+    for (let round = 0; round < 24; round++) {
+      const { account } = await store.create()
+      const ids = (await store.settleGear(account.publicId, randomUUID(), [], [T1, T1, T1])).stash.map((r) => r.rowId)
+      const holder = randomUUID()
+      await store.heartbeat(holder, [])
+      // The carry brings one row, or all three in the other order (lock order differs from the merge's).
+      const bring = round % 2 === 0 ? [ids[round % 3]] : [...ids].reverse()
+      const [spent, merged, again, scrapped] = await Promise.allSettled([
+        store.spend(account.publicId, Date.now(), { ids: bring, holder }),
+        store.mergeGear(account.publicId, ids, rule(round)),
+        store.mergeGear(account.publicId, [...ids].reverse(), rule(round + 100)),
+        store.scrapGear(account.publicId, ids[(round + 1) % 3])
+      ])
+      for (const r of [spent, merged, again, scrapped]) assert.equal(r.status, 'fulfilled', `round ${round}: ${r.status === 'rejected' ? String(r.reason) : ''}`)
+      const carried = spent.status === 'fulfilled' ? (spent.value.carried ?? []).length : 0
+      const merges = [merged, again].filter((m) => m.status === 'fulfilled' && m.value.item !== null).length
+      const scraps = scrapped.status === 'fulfilled' && scrapped.value.ok ? 1 : 0
+      assert.ok(merges <= 1, `round ${round}: merged twice`)
+      const stash = await store.loadStash(account.publicId)
+      if (merges === 1) {
+        assert.deepEqual([carried, scraps], [0, 0], `round ${round}: merged and carried or scrapped`)
+        assert.equal(stash.length, 1)
+        assert.equal(stash[0].source, 2)
+      } else {
+        assert.ok(carried + scraps >= 1, `round ${round}: nothing happened`)
+        assert.equal(stash.length, 3 - scraps, `round ${round}: rows lost or made`)
+        assert.equal(stash.filter((r) => r.carried).length, carried)
       }
     }
   } finally {

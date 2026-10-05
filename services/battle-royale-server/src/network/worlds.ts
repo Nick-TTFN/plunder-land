@@ -15,7 +15,8 @@ import { type EnergyView, energyView } from '../progress/energy'
 import { joinLevel } from '../progress/unlocks'
 import type { GearLedger } from '../gear/ledger'
 import { type GearCounts, gearStoreOf, lineageOf, stashEvent, type StashRunResult } from '../gear/stash'
-import type { GearStore, Spent, StashItem } from '../db/accounts'
+import type { GearStore, Spent, StashEdits, StashItem } from '../db/accounts'
+import { mergedItem, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from '../gear/merge'
 import { BRING_LEVEL, type GearInstance } from '../utils/gear'
 
 export interface WorldsOptions {
@@ -137,6 +138,12 @@ export default class Worlds {
   /** The store's gear half (`gearStoreOf`); undefined: no stash. */
   private readonly gear: (AccountStore & GearStore) | undefined
   private readonly ledger: GearLedger | undefined
+  /** The store's merge and scrap (`stashEditsOf`), only beside a gear half; undefined: every merge and scrap answers `store`. */
+  private readonly edits: (AccountStore & StashEdits) | undefined
+  /** Connections with a merge or scrap in flight (`merge`, `scrap`): at most one each. */
+  private readonly stashWriting = new WeakSet<Connection>()
+  /** The merge's random; specs replace it. */
+  static mergeRandom: () => number = Math.random
   /** Each run's stash rows equipped at its start (`admit`), for `run_end`'s `gear_brought`. */
   private readonly brought = new WeakMap<Player, string[]>()
   /**
@@ -178,6 +185,7 @@ export default class Worlds {
     this.maxPlayers = options.maxPlayers ?? 0
     this.gear = gearStoreOf(this.accounts)
     this.ledger = this.gear !== undefined ? options.ledger : undefined
+    this.edits = this.gear !== undefined ? stashEditsOf(this.accounts) : undefined
     World.strict = true
     this.open()
   }
@@ -254,6 +262,13 @@ export default class Worlds {
     // In the lobby or mid-run; needs no world, and takes effect at the next join.
     socket.on('save_loadout', (data) => {
       Multiplayer.guarded(() => { this.saveLoadout(connection, data) })
+    })
+    // Stash edits (49-5): in the lobby or mid-run, stashed rows only.
+    socket.on('merge', (data) => {
+      Multiplayer.guarded(() => { this.merge(connection, data) })
+    })
+    socket.on('scrap', (data) => {
+      Multiplayer.guarded(() => { this.scrap(connection, data) })
     })
     // Applied on arrival, as with one world (`Multiplayer.onConnect`).
     socket.on('pointer', (data) => {
@@ -538,6 +553,108 @@ export default class Worlds {
       // this connection plays. It needs a database stall over 3 s; accepted.
       this.saving.delete(connection)
       Multiplayer.guarded(() => { answer(false, kitFor(account, save.robot, save.index)) })
+    })
+  }
+
+  /**
+   * `merge { ids: [a, b, c], keep? }` (decision #49, task 49-5), answered with
+   * `merged { ok, item?, reason? }` and then, when the store answered, the
+   * account's `stash` read in the same transaction. `item` is the new row in
+   * the `stash` event's item shape. Reasons:
+   * - `busy`: a merge or scrap of this connection is in flight, or its start
+   *   is (`starting`: the start's carry); nothing is written, no `stash`.
+   * - `invalid`: malformed (`parseMerge`), no account yet, or the store
+   *   refused it (a row missing, another account's, carried, or the rule
+   *   said no: `mergeOutcome`); a `stash` follows when the store answered.
+   * - `store`: offline, no stash, or the store failed or took over
+   *   `accountTimeoutMs`; a fresh `stash` is asked for (it may fail too). A
+   *   merge given up on at the timeout may still land: its rows are then
+   *   gone and a retry of the same ids is refused `invalid`, never doubled.
+   *
+   * In the lobby or mid-run: only stashed rows are touched, never anything a
+   * run carries. Persisted accounts only.
+   */
+  merge (connection: Connection, data: unknown): void {
+    const answer = (reply: { ok: boolean, item?: ReturnType<typeof mergedItem>, reason?: 'busy' | 'invalid' | 'store' }): void => {
+      if (!connection.closed) connection.socket.emit('merged', reply)
+    }
+    if (this.stashWriting.has(connection) || connection.starting) {
+      answer({ ok: false, reason: 'busy' })
+      return
+    }
+    const account = connection.account
+    const request = parseMerge(data)
+    if (account === undefined || request === undefined) {
+      answer({ ok: false, reason: 'invalid' })
+      return
+    }
+    const edits = this.edits
+    if (edits === undefined || !account.persisted) {
+      answer({ ok: false, reason: 'store' })
+      return
+    }
+    const random = Worlds.mergeRandom
+    this.stashWriting.add(connection)
+    this.bounded(edits.mergeGear(account.publicId, request.ids, (inputs) => mergeOutcome(inputs, request.keep, random))).then((merged) => {
+      Worlds.accountSuccess()
+      this.stashWriting.delete(connection)
+      Multiplayer.guarded(() => {
+        answer(merged.item !== null ? { ok: true, item: mergedItem(merged.item) } : { ok: false, reason: 'invalid' })
+        this.emitStash(connection, account, merged.stash)
+      })
+    }, (e) => {
+      Worlds.accountFailure(e)
+      this.stashWriting.delete(connection)
+      Multiplayer.guarded(() => {
+        answer({ ok: false, reason: 'store' })
+        this.sendStash(connection, account)
+      })
+    })
+  }
+
+  /**
+   * `scrap { id }` (49-5), answered with `scrapped { id, ok, reason? }` (`id`
+   * as sent when it was a string, cut to 20 characters, else null; `reason`
+   * as for `merged`), then `stash` as after a merge. Deletes the row only if
+   * it is this account's and stashed; nothing is paid for it (loot isn't a
+   * currency, #48/#49). Same gates as `merge`.
+   */
+  scrap (connection: Connection, data: unknown): void {
+    const raw = data !== null && typeof data === 'object' ? (data as { id?: unknown }).id : undefined
+    const echo = typeof raw === 'string' ? raw.slice(0, 20) : null
+    const answer = (ok: boolean, reason?: 'busy' | 'invalid' | 'store'): void => {
+      if (!connection.closed) connection.socket.emit('scrapped', { id: echo, ok, ...(reason !== undefined ? { reason } : {}) })
+    }
+    if (this.stashWriting.has(connection) || connection.starting) {
+      answer(false, 'busy')
+      return
+    }
+    const account = connection.account
+    const id = parseScrap(data)
+    if (account === undefined || id === undefined) {
+      answer(false, 'invalid')
+      return
+    }
+    const edits = this.edits
+    if (edits === undefined || !account.persisted) {
+      answer(false, 'store')
+      return
+    }
+    this.stashWriting.add(connection)
+    this.bounded(edits.scrapGear(account.publicId, id)).then((scrapped) => {
+      Worlds.accountSuccess()
+      this.stashWriting.delete(connection)
+      Multiplayer.guarded(() => {
+        answer(scrapped.ok, scrapped.ok ? undefined : 'invalid')
+        this.emitStash(connection, account, scrapped.stash)
+      })
+    }, (e) => {
+      Worlds.accountFailure(e)
+      this.stashWriting.delete(connection)
+      Multiplayer.guarded(() => {
+        answer(false, 'store')
+        this.sendStash(connection, account)
+      })
     })
   }
 
