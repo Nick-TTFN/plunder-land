@@ -12,17 +12,11 @@ test('memory store: the store contract', async () => {
   await storeContract(new MemoryAccountStore())
 })
 
-test('memory store: the gear stash contract and dupe races 1-11 (decision #49)', async () => {
+test('memory store: the gear stash contract and dupe races 1-11, merge and scrap (decision #49)', async () => {
   let now = Date.parse('2026-10-05T12:00:00.000Z')
   const store = new MemoryAccountStore({ clock: () => now })
   await gearContract(store, {
     age: async (ms) => { now += ms },
-    mergeStashed: async (rowId) => {
-      const row = store.stashRows.get(rowId)
-      if (row === undefined || row.carried) return 0
-      store.stashRows.delete(rowId)
-      return 1
-    },
     allRowIds: async () => [...store.stashRows.keys()]
   })
 })

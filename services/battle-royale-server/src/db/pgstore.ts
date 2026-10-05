@@ -1,8 +1,8 @@
 import { Client, Pool, type PoolClient } from 'pg'
 import {
   type Account, type AccountStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
-  newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Settled, splitFound, type Spent, STALE_CARRY_MS,
-  type StashItem, type StoredLoadout
+  type Merged, mergeIdsOf, type MergeRule, newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Scrapped,
+  type Settled, splitFound, type Spent, STALE_CARRY_MS, type StashEdits, type StashItem, storable, type StoredLoadout
 } from './accounts'
 import { type GearInstance, type GearTier, STASH_MAX } from '../utils/gear'
 import { migrate } from './migrate'
@@ -113,7 +113,7 @@ export interface PgAccountStoreOptions {
  * both 2 s, so a slow database costs a joining player at most a few seconds
  * in the lobby, then an offline run.
  */
-export class PgAccountStore implements AccountStore, GearStore {
+export class PgAccountStore implements AccountStore, GearStore, StashEdits {
   readonly pool: Pool
   ready = false
   private retry: NodeJS.Timeout | undefined
@@ -383,6 +383,59 @@ export class PgAccountStore implements AccountStore, GearStore {
         inserted = added.rowCount ?? 0
       }
       return { kept, inserted, stash: await this.stashOf(client, account) }
+    }))
+  }
+
+  /**
+   * Merge (49-5) in one transaction: the 3 rows locked (`FOR UPDATE`, in id
+   * order) only if this account's and stashed. A carry of one of them either
+   * committed first (the row is `state = 1` once the lock is ours, so fewer
+   * than 3 rows come back and the merge is refused) or waits on the lock,
+   * re-checks `state = 0` after the delete and skips it (race 2).
+   */
+  async mergeGear (publicId: string, ids: readonly string[], rule: MergeRule): Promise<Merged> {
+    this.checkOpen()
+    const wanted = mergeIdsOf(ids)
+    return await this.tracked(this.transaction(async (client) => {
+      const account = await this.accountId(client, publicId, 'merge')
+      if (wanted === undefined) return { item: null, stash: await this.stashOf(client, account) }
+      const locked = await client.query(
+        `SELECT ${STASH_COLUMNS} FROM stash_items
+         WHERE id = ANY($2::bigint[]) AND account_id = $1 AND state = 0
+         ORDER BY id FOR UPDATE`,
+        [account, wanted]
+      )
+      const byId = new Map((locked.rows as StashRowSql[]).map((r) => [r.id, stashItemOfRow(r)]))
+      const inputs = wanted.map((id) => byId.get(id))
+      const outcome = inputs.every((i) => i !== undefined) ? rule(inputs as StashItem[]) : null
+      if (outcome === null || !storable(outcome)) return { item: null, stash: await this.stashOf(client, account) }
+      const deleted = await client.query(
+        'DELETE FROM stash_items WHERE id = ANY($2::bigint[]) AND account_id = $1 AND state = 0',
+        [account, wanted]
+      )
+      // Held under our locks since the SELECT, so all 3 go; anything else is a bug, and rolls back.
+      if (deleted.rowCount !== 3) throw new Error('accounts: a merge deleted other than its 3 rows')
+      const added = await client.query(
+        `INSERT INTO stash_items (account_id, tier, skill, rolls, source)
+         VALUES ($1, $2, $3, $4::smallint[], $5) RETURNING ${STASH_COLUMNS}`,
+        [account, outcome.tier, outcome.skill, `{${flatRolls(outcome.rolls).join(',')}}`, GEAR_SOURCE.merged]
+      )
+      return { item: stashItemOfRow(added.rows[0] as StashRowSql), stash: await this.stashOf(client, account) }
+    }))
+  }
+
+  /** Scrap (49-5): one conditional delete, stashed rows of this account only. */
+  async scrapGear (publicId: string, id: string): Promise<Scrapped> {
+    this.checkOpen()
+    const ids = rowIdsOf([id])
+    return await this.tracked(this.transaction(async (client) => {
+      const account = await this.accountId(client, publicId, 'scrap')
+      let ok = false
+      if (ids.length === 1) {
+        const deleted = await client.query('DELETE FROM stash_items WHERE id = $2::bigint AND account_id = $1 AND state = 0', [account, ids[0]])
+        ok = deleted.rowCount === 1
+      }
+      return { ok, stash: await this.stashOf(client, account) }
     }))
   }
 

@@ -544,7 +544,6 @@ function pgGearHooks (store: PgAccountStore): GearHooks {
       await store.pool.query("UPDATE stash_items SET carried_at = carried_at - $1::double precision * interval '1 millisecond' WHERE carried_at IS NOT NULL", [ms])
       await store.pool.query("UPDATE gear_holders SET seen_at = seen_at - $1::double precision * interval '1 millisecond'", [ms])
     },
-    mergeStashed: async (rowId) => (await store.pool.query('DELETE FROM stash_items WHERE id = $1::bigint AND state = 0', [rowId])).rowCount ?? 0,
     allRowIds: async () => (await store.pool.query('SELECT id::text AS id FROM stash_items ORDER BY id')).rows.map((r) => r.id as string)
   }
 }

@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import {
-  type AccountStore, GEAR_SOURCE, type GearStore, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
-  STALE_CARRY_MS, type StashItem, TOKEN_SHAPE
+  type AccountStore, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
+  STALE_CARRY_MS, type StashEdits, type StashItem, TOKEN_SHAPE
 } from './accounts'
+// The merge rule draws through `rollGear` (archetypes), whose import graph
+// only loads in index.ts's order: enter it through multiplayer, as the world
+// specs do, or a class extends an undefined base.
+import '../network/multiplayer'
+import { mergeOutcome } from '../gear/merge'
 import { PAYOUT_DELAY_MS, type SeasonCredit, seasonEndMs, seasonStart, seasonView } from '../progress/seasons'
 import { type GearInstance, STASH_MAX } from '../utils/gear'
 
@@ -234,17 +239,29 @@ export interface GearHooks {
    * memory advances its clock; pg moves `carried_at` and `seen_at` back.
    */
   age: (ms: number) => Promise<void>
-  /**
-   * What 49-5's merge or scrap does to one row: delete it only while stashed
-   * (`state = 0`); how many went. Merge isn't built yet, so its condition is
-   * stood in for here.
-   */
-  mergeStashed: (rowId: string) => Promise<number>
   /** Every stash row's id in the store, any account, any state. */
   allRowIds: () => Promise<string[]>
 }
 
-type GearTestStore = AccountStore & GearStore
+type GearTestStore = AccountStore & GearStore & StashEdits
+
+/** A seeded 0 <= r < 1 (mulberry32), so a merge's rolls repeat run to run. */
+export function seeded (seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** The real merge rule (`mergeOutcome`) with a seeded random and an optional keep. */
+function rule (seed: number, keep?: string): MergeRule {
+  const random = seeded(seed)
+  return (inputs) => mergeOutcome(inputs, keep, random)
+}
 
 /** A T1 skill item, a T2 skill item and a part, as found. */
 export const T1: GearInstance = { tier: 1, skill: 3, rolls: [{ stat: 1, q: 500 }] }
@@ -300,6 +317,104 @@ export async function gearContract (store: GearTestStore, hooks: GearHooks): Pro
   await carrying(store, hooks)
   await reconcile(store, hooks)
   await races(store, hooks)
+  await mergeAndScrap(store, hooks)
+}
+
+const P2: GearInstance = { tier: 2, skill: 0, rolls: [] }
+const P3: GearInstance = { tier: 3, skill: 0, rolls: [] }
+const T3: GearInstance = { tier: 3, skill: 2, rolls: [{ stat: 1, q: 10 }, { stat: 5, q: 20 }] }
+
+/** One merge that must be refused and change nothing, anywhere. */
+async function refusedMerge (store: GearTestStore, hooks: GearHooks, publicId: string, ids: string[], mergeRule: MergeRule, message: string): Promise<void> {
+  const before = await hooks.allRowIds()
+  const stash = await store.loadStash(publicId)
+  const merged = await store.mergeGear(publicId, ids, mergeRule)
+  assert.equal(merged.item, null, `${message}: merged`)
+  assert.deepEqual(merged.stash, stash, `${message}: the answer's stash differs`)
+  assert.deepEqual(await store.loadStash(publicId), stash, `${message}: the stash changed`)
+  assert.deepEqual(await hooks.allRowIds(), before, `${message}: rows changed`)
+}
+
+/** Merge and scrap (49-5): the store's half; the rule's odds are in gear/merge.spec.ts. */
+async function mergeAndScrap (store: GearTestStore, hooks: GearHooks): Promise<void> {
+  // A mixed merge keeps the chosen skill, a fresh tier-2 roll count, source merged.
+  {
+    const a = await stocked(store, [T1, PART, { ...T1, skill: 6 }, T2])
+    const [x, y, z, t2] = idsOf(a.rows)
+    const before = (await hooks.allRowIds()).length
+    const merged = await store.mergeGear(a.publicId, [x, y, z], rule(7, z))
+    assert.ok(merged.item !== null)
+    assert.match(merged.item.rowId, ROW_ID_SHAPE)
+    assert.deepEqual([merged.item.tier, merged.item.skill, merged.item.rolls.length, merged.item.carried, merged.item.source],
+      [2, 6, 2, false, GEAR_SOURCE.merged], 'the merged row')
+    assert.deepEqual(idsOf(merged.stash), [t2, merged.item.rowId], 'the inputs stayed, or the result is missing')
+    assert.deepEqual(merged.stash, await store.loadStash(a.publicId))
+    await rowCount(hooks, before - 2, 'merge: 3 rows into 1')
+    // Default keep: the first skill item in the order given.
+    const b = await stocked(store, [T1, PART, { ...T1, skill: 6 }])
+    const [bx, by, bz] = idsOf(b.rows)
+    assert.equal((await store.mergeGear(b.publicId, [by, bz, bx], rule(8))).item?.skill, 6, 'the default keep is not the first skill item listed')
+  }
+
+  // Refusals: nothing changes, for any account.
+  {
+    const a = await stocked(store, [T1, T1, T2, PART, T1])
+    const other = await stocked(store, [T1])
+    const [x, y, t2, part, w] = idsOf(a.rows)
+    const o = other.rows[0].rowId
+    await refusedMerge(store, hooks, a.publicId, [x, y, t2], rule(1), 'mixed tiers')
+    await refusedMerge(store, hooks, a.publicId, [x, y], rule(1), '2 rows')
+    await refusedMerge(store, hooks, a.publicId, [x, y, part, w], rule(1), '4 rows')
+    await refusedMerge(store, hooks, a.publicId, [x, x, y], rule(1), 'a row twice')
+    await refusedMerge(store, hooks, a.publicId, [x, y, 'junk'], rule(1), 'a malformed id')
+    await refusedMerge(store, hooks, a.publicId, [x, y, '999999999'], rule(1), 'a missing row')
+    await refusedMerge(store, hooks, a.publicId, [x, y, o], rule(1), 'another account\'s row')
+    assert.deepEqual(idsOf(await store.loadStash(other.publicId)), [o])
+    await refusedMerge(store, hooks, a.publicId, [x, y, part], rule(1, part), 'keep names a part')
+    await refusedMerge(store, hooks, a.publicId, [x, y, part], rule(1, w), 'keep names a row not merged')
+    await refusedMerge(store, hooks, a.publicId, [x, y, part], () => ({ tier: 4, skill: 1, rolls: [] }) as unknown as GearInstance, 'an unstorable outcome')
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, a.publicId, [w], holder), [w])
+    await refusedMerge(store, hooks, a.publicId, [x, y, w], rule(1), 'a carried row')
+    assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [w])
+    await assert.rejects(store.mergeGear('0123456789abcdef', [x, y, part], rule(1)), 'a merge for an unknown account')
+    await store.uncarry(holder, [w])
+  }
+
+  // Tier 3: three parts always make a skill item; anything with a skill item is refused.
+  {
+    const a = await stocked(store, [P3, P3, P3, T3, P3, P3, T3, T3, T3])
+    const ids = idsOf(a.rows)
+    const merged = await store.mergeGear(a.publicId, ids.slice(0, 3), rule(4))
+    assert.deepEqual([merged.item?.tier, (merged.item?.skill ?? 0) > 0, merged.item?.rolls.length], [3, true, 2], '3 T3 parts')
+    await refusedMerge(store, hooks, a.publicId, ids.slice(3, 6), rule(4), 'a T3 mix with a skill item')
+    await refusedMerge(store, hooks, a.publicId, ids.slice(6, 9), rule(4), '3 T3 skill items')
+    // Parts at T2 go up a tier, as a part or a skill item.
+    const b = await stocked(store, [P2, P2, P2])
+    assert.equal((await store.mergeGear(b.publicId, idsOf(b.rows), rule(5))).item?.tier, 3)
+  }
+
+  // Scrap: this account's stashed rows only, and nothing comes back for it.
+  {
+    const a = await stocked(store, [T1, T2, PART])
+    const other = await stocked(store, [T1])
+    const [x, y, part] = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, a.publicId, [y], holder), [y])
+    const scrapped = await store.scrapGear(a.publicId, part)
+    assert.equal(scrapped.ok, true)
+    assert.deepEqual(idsOf(scrapped.stash), [x, y])
+    assert.deepEqual(scrapped.stash, await store.loadStash(a.publicId))
+    const before = await hooks.allRowIds()
+    assert.equal((await store.scrapGear(a.publicId, part)).ok, false, 'scrapped twice')
+    assert.equal((await store.scrapGear(a.publicId, y)).ok, false, 'a carried row was scrapped')
+    assert.equal((await store.scrapGear(a.publicId, other.rows[0].rowId)).ok, false, 'another account\'s row was scrapped')
+    assert.equal((await store.scrapGear(a.publicId, 'junk')).ok, false)
+    assert.deepEqual(await hooks.allRowIds(), before, 'a refused scrap changed rows')
+    assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [y])
+    await assert.rejects(store.scrapGear('0123456789abcdef', x), 'a scrap for an unknown account')
+    await store.uncarry(holder, [y])
+  }
 }
 
 async function stashBasics (store: GearTestStore, hooks: GearHooks): Promise<void> {
@@ -443,17 +558,21 @@ async function races (store: GearTestStore, hooks: GearHooks): Promise<void> {
     assert.equal((await store.loadStash(a.publicId)).length, 2)
   }
 
-  // 2. Merge/scrap vs bring-in: both act only on stashed rows.
+  // 2. Merge/scrap vs bring-in: both act only on stashed rows (the real merge
+  // and scrap since 49-5; 49-3 stood in for them with a conditional delete).
   {
-    const a = await stocked(store, [T1, T2, T1])
-    const [x, y, z] = idsOf(a.rows)
+    const a = await stocked(store, [T1, T1, T1, T1, T1, T1, T1])
+    const [x, y, z, w, v, u, t] = idsOf(a.rows)
     const holder = await liveHolder(store)
-    assert.equal(await hooks.mergeStashed(x), 1)
-    assert.deepEqual(await bring(store, a.publicId, [x, y], holder), [y], 'a merged row was carried')
-    assert.equal(await hooks.mergeStashed(y), 0, 'a carried row was merged')
-    const [carried, merged] = await Promise.all([bring(store, a.publicId, [z], holder), hooks.mergeStashed(z)])
-    assert.equal(carried.length + merged, 1, 'race 2: z both carried and merged, or neither')
-    assert.equal((await store.loadStash(a.publicId)).length, carried.length === 1 ? 2 : 1)
+    const merged = await store.mergeGear(a.publicId, [x, y, z], rule(1))
+    assert.notEqual(merged.item, null)
+    assert.deepEqual(await bring(store, a.publicId, [x, w], holder), [w], 'a merged row was carried')
+    assert.equal((await store.mergeGear(a.publicId, [w, v, u], rule(2))).item, null, 'a carried row was merged')
+    assert.equal((await store.scrapGear(a.publicId, w)).ok, false, 'a carried row was scrapped')
+    const [carried, raced] = await Promise.all([bring(store, a.publicId, [v], holder), store.mergeGear(a.publicId, [v, u, t], rule(3))])
+    assert.equal(carried.length + (raced.item === null ? 0 : 1), 1, 'race 2: v both carried and merged, or neither')
+    // x y z went into one row; w carried; v carried or merged with u t.
+    assert.equal((await store.loadStash(a.publicId)).length, carried.length === 1 ? 5 : 3)
   }
 
   // 3. The extraction's write in flight vs the next READY bringing the same items.

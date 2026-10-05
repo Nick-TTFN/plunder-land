@@ -171,6 +171,55 @@ export interface GearStore {
   releaseHolder: (holder: string) => Promise<number>
 }
 
+/**
+ * A merge's rule (decision #49, task 49-5): what the three locked rows, in
+ * the order the player listed them, become; null refuses the merge. The
+ * store doesn't know the rules: `Worlds` passes `gear/merge.ts`
+ * `mergeOutcome`, so a later reroll can reuse it without store changes.
+ */
+export type MergeRule = (inputs: readonly StashItem[]) => GearInstance | null
+
+/** What a merge did: the new row (null: refused, nothing changed), and the account's rows after, read in the same transaction. */
+export interface Merged {
+  item: StashItem | null
+  stash: StashItem[]
+}
+
+/** What a scrap did: whether the row went, and the account's rows after. */
+export interface Scrapped {
+  ok: boolean
+  stash: StashItem[]
+}
+
+/**
+ * Merge and scrap (decision #49, task 49-5), on **stashed** rows only, so
+ * neither can race a carry into a dupe: a row is carried (`spend`) or merged
+ * or scrapped, never two of those (race 2). Separate from `GearStore` for the
+ * same reason `GearStore` is separate from `AccountStore`: a store without
+ * these answers every merge and scrap `store` (`stashEditsOf`). Both throw
+ * for an unknown account, writing nothing.
+ */
+export interface StashEdits {
+  /**
+   * In one transaction: the rows `ids` (exactly 3 distinct row ids) of this
+   * account, all stashed, locked; their outcome from `rule`, given the rows
+   * in `ids` order; then the 3 deleted and the outcome inserted (source
+   * `GEAR_SOURCE.merged`). Refused, changing nothing, when any of the 3 is
+   * missing, another account's or carried, when `rule` answers null, or when
+   * its answer can't be stored.
+   */
+  mergeGear: (publicId: string, ids: readonly string[], rule: MergeRule) => Promise<Merged>
+  /** Delete the row `id` if it is this account's and stashed. Nothing is paid for it (loot isn't a currency). */
+  scrapGear: (publicId: string, id: string) => Promise<Scrapped>
+}
+
+/** The 3 row ids of a merge, in order, or undefined unless `ids` is exactly 3 distinct well-formed row ids. */
+export function mergeIdsOf (ids: readonly unknown[]): string[] | undefined {
+  if (!Array.isArray(ids) || ids.length !== 3) return undefined
+  const out = rowIdsOf(ids)
+  return out.length === 3 ? out : undefined
+}
+
 /** One stash row as `loadStash` and `settleGear` give it: the instance, its row id, its state and source. */
 export interface StashItem extends GearInstance {
   readonly rowId: string
@@ -322,7 +371,7 @@ export function tokenOf (auth: unknown): string | undefined {
  * production (every deploy forgets every account; `openAccountStore` reports
  * that on Railway).
  */
-export class MemoryAccountStore implements AccountStore, GearStore {
+export class MemoryAccountStore implements AccountStore, GearStore, StashEdits {
   /** The stash's clock (pg's `now()`); specs pass a fake one to age carries and heartbeats. */
   private readonly clock: () => number
 
@@ -450,6 +499,45 @@ export class MemoryAccountStore implements AccountStore, GearStore {
     return n
   }
 
+  /** Synchronous from start to end, so it can't interleave with a carry (pg: row locks). */
+  async mergeGear (publicId: string, ids: readonly string[], rule: MergeRule): Promise<Merged> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: merge for an unknown account')
+    const refused = (): Merged => ({ item: null, stash: this.stashOf(publicId) })
+    const wanted = mergeIdsOf(ids)
+    if (wanted === undefined) return refused()
+    const rows: MemoryStashRow[] = []
+    for (const id of wanted) {
+      const row = this.stashRows.get(id)
+      if (row === undefined || row.owner !== publicId || row.carried) return refused()
+      rows.push(row)
+    }
+    const outcome = rule(rows.map((row) => stashItemOf(row)))
+    if (outcome === null || !storable(outcome)) return refused()
+    for (const row of rows) this.stashRows.delete(row.rowId)
+    const rowId = String(this.nextRowId++)
+    const row: MemoryStashRow = {
+      rowId,
+      owner: publicId,
+      tier: outcome.tier,
+      skill: outcome.skill,
+      rolls: outcome.rolls.map((r) => ({ stat: r.stat, q: r.q })),
+      carried: false,
+      holder: null,
+      carriedAt: null,
+      source: GEAR_SOURCE.merged
+    }
+    this.stashRows.set(rowId, row)
+    return { item: stashItemOf(row), stash: this.stashOf(publicId) }
+  }
+
+  async scrapGear (publicId: string, id: string): Promise<Scrapped> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: scrap for an unknown account')
+    const row = typeof id === 'string' && ROW_ID_SHAPE.test(id) ? this.stashRows.get(id) : undefined
+    const ok = row !== undefined && row.owner === publicId && !row.carried
+    if (ok) this.stashRows.delete(id)
+    return { ok, stash: this.stashOf(publicId) }
+  }
+
   async uncarry (holder: string, rowIds: readonly string[]): Promise<number> {
     checkHolder(holder)
     let n = 0
@@ -494,7 +582,7 @@ export class MemoryAccountStore implements AccountStore, GearStore {
   private stashOf (publicId: string): StashItem[] {
     const out: StashItem[] = []
     for (const row of this.stashRows.values()) {
-      if (row.owner === publicId) out.push({ ...instanceOf(row), carried: row.carried, source: row.source })
+      if (row.owner === publicId) out.push(stashItemOf(row))
     }
     return out.sort(byRowId)
   }
@@ -642,6 +730,10 @@ function stashed (row: MemoryStashRow): void {
 
 function instanceOf (row: MemoryStashRow): GearInstance & { rowId: string } {
   return { tier: row.tier, skill: row.skill, rolls: row.rolls.map((r) => ({ stat: r.stat, q: r.q })), rowId: row.rowId }
+}
+
+function stashItemOf (row: MemoryStashRow): StashItem {
+  return { ...instanceOf(row), carried: row.carried, source: row.source }
 }
 
 /**
