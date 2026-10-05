@@ -655,33 +655,39 @@ pgTest('race 2 under load (49-5): a merge racing a bring-in of its rows, or anot
   }
   try {
     for (let round = 0; round < 24; round++) {
+      // A carry and two merges of the same three rows at once.
       const { account } = await store.create()
       const ids = (await store.settleGear(account.publicId, randomUUID(), [], [T1, T1, T1])).stash.map((r) => r.rowId)
       const holder = randomUUID()
       await store.heartbeat(holder, [])
       // The carry brings one row, or all three in the other order (lock order differs from the merge's).
       const bring = round % 2 === 0 ? [ids[round % 3]] : [...ids].reverse()
-      const [spent, merged, again, scrapped] = await Promise.allSettled([
+      const [spent, merged, again] = await Promise.allSettled([
         store.spend(account.publicId, Date.now(), { ids: bring, holder }),
         store.mergeGear(account.publicId, ids, rule(round)),
-        store.mergeGear(account.publicId, [...ids].reverse(), rule(round + 100)),
-        store.scrapGear(account.publicId, ids[(round + 1) % 3])
+        store.mergeGear(account.publicId, [...ids].reverse(), rule(round + 100))
       ])
-      for (const r of [spent, merged, again, scrapped]) assert.equal(r.status, 'fulfilled', `round ${round}: ${r.status === 'rejected' ? String(r.reason) : ''}`)
+      for (const r of [spent, merged, again]) assert.equal(r.status, 'fulfilled', `round ${round}: ${r.status === 'rejected' ? String(r.reason) : ''}`)
       const carried = spent.status === 'fulfilled' ? (spent.value.carried ?? []).length : 0
       const merges = [merged, again].filter((m) => m.status === 'fulfilled' && m.value.item !== null).length
-      const scraps = scrapped.status === 'fulfilled' && scrapped.value.ok ? 1 : 0
-      assert.ok(merges <= 1, `round ${round}: merged twice`)
+      assert.equal(merges + (carried > 0 ? 1 : 0), 1, `round ${round}: ${merges} merges and ${carried} carried`)
       const stash = await store.loadStash(account.publicId)
       if (merges === 1) {
-        assert.deepEqual([carried, scraps], [0, 0], `round ${round}: merged and carried or scrapped`)
-        assert.equal(stash.length, 1)
-        assert.equal(stash[0].source, 2)
+        assert.deepEqual(stash.map((r) => [r.source, r.carried]), [[2, false]])
       } else {
-        assert.ok(carried + scraps >= 1, `round ${round}: nothing happened`)
-        assert.equal(stash.length, 3 - scraps, `round ${round}: rows lost or made`)
+        assert.equal(stash.length, 3, `round ${round}: rows lost or made`)
         assert.equal(stash.filter((r) => r.carried).length, carried)
       }
+
+      // A carry and a scrap of one row at once.
+      const other = await store.create()
+      const [row] = (await store.settleGear(other.account.publicId, randomUUID(), [], [T1])).stash.map((r) => r.rowId)
+      const [took, scrapped] = await Promise.all([
+        store.spend(other.account.publicId, Date.now(), { ids: [row], holder }),
+        store.scrapGear(other.account.publicId, row)
+      ])
+      assert.equal((took.carried ?? []).length + (scrapped.ok ? 1 : 0), 1, `round ${round}: the row both carried and scrapped, or neither`)
+      assert.equal((await store.loadStash(other.account.publicId)).length, scrapped.ok ? 0 : 1)
     }
   } finally {
     await store.close()
