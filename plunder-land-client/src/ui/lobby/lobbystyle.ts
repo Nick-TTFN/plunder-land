@@ -137,6 +137,32 @@ export const LOBBY_CSS = `
 .lb-st-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; }
 .lb-st-actions .lb-chip { padding: 8px 12px; font-size: 12px; }
 .lb-st-actions .lb-chip:disabled { cursor: default; opacity: .6; }
+.lb-st-tools { display: flex; align-items: center; gap: 10px; padding-top: 12px; }
+.lb-st-tools .lb-chip { padding: 8px 14px; font-size: 12px; }
+.lb-st-tools .lb-chip:disabled { cursor: default; opacity: .45; }
+.lb-st-toolhint { font-size: 11px; letter-spacing: .1em; color: #a9bccd; }
+.lb-st-pickno { position: absolute; top: 3px; left: 4px; min-width: 16px; height: 16px; border-radius: 50%; font-size: 10px; line-height: 16px;
+  text-align: center; background: #3DE0D0; color: #0B1220; font-weight: 700; }
+.lb-st-dim { opacity: .35; }
+.lb-st-mslots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.lb-st-mslot { position: relative; height: 66px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  color: #E6EEF5; background: #101A28; border: 2px solid #2A4A5E; border-radius: 8px; padding: 4px; }
+.lb-st-mslot .lb-st-tier { font-size: 9px; text-align: center; line-height: 1.2; }
+.lb-st-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; }
+.lb-st-keep .lb-chip { padding: 8px 12px; font-size: 12px; }
+.lb-st-keeplabel { font-size: 11px; letter-spacing: .1em; color: #a9bccd; }
+.lb-st-preview { padding-top: 10px; font-size: 12px; letter-spacing: .08em; color: #c9d6e2; }
+.lb-st-why { color: #ffc45e; }
+.lb-st-go { color: #0B1220 !important; background: #3DE0D0 !important; border-color: #3DE0D0 !important; font-weight: 700; }
+.lb-st-danger { color: #ff9a8a; border-color: #6e3a3a; }
+.lb-st-yes { color: #fff; background: #a8352a; border-color: #d4554a; }
+.lb-st-confirm { align-items: center; }
+.lb-st-ask { flex-basis: 100%; font-size: 12px; letter-spacing: .08em; color: #ff9a8a; }
+.lb-st-result { padding-bottom: 8px; font-size: 15px; letter-spacing: .12em; font-weight: 700; color: #3DE0D0; }
+.lb-st-surprise { color: #ffc45e; }
+.lb-st-notice { padding-top: 10px; font-size: 11px; letter-spacing: .08em; color: #a9bccd; }
+.lb-st-notice.lb-st-bad { color: #ff9a8a; }
+.lb-st-notice[hidden] { display: none; }
 .lb-ready { position: absolute; right: 44px; bottom: 44px; padding: 18px 40px; font-size: 26px; font-weight: 800; letter-spacing: .14em;
   color: #1a1206; background: linear-gradient(#ffc45e, #f2a12e); border: 2px solid #ffd58a; border-radius: 10px;
   box-shadow: 0 0 22px rgba(255,181,71,.45); }
@@ -206,6 +232,8 @@ export const LOBBY_CSS = `
   .lb-swatch { width: 44px; height: 44px; }
   .lb-stash { max-height: 70%; }
   .lb-st-cell { height: 56px; }
+  .lb-st-mslot { height: 56px; }
+  .lb-st-actions .lb-chip, .lb-st-keep .lb-chip, .lb-st-tools .lb-chip { min-height: 40px; }
   .lb-editing .lb-ready { display: none; }
 }
 /* A phone held sideways (and any screen under 500 px tall): three columns, robot in the middle.
@@ -233,6 +261,8 @@ export const LOBBY_CSS = `
   .lb-st-kit { padding: 8px 0; }
   .lb-st-key, .lb-st-bring { height: 44px; }
   .lb-st-cell { height: 50px; }
+  .lb-st-mslot { height: 50px; }
+  .lb-st-actions .lb-chip, .lb-st-keep .lb-chip, .lb-st-tools .lb-chip { min-height: 40px; }
   .lb-full { left: auto; top: auto; right: 16px; bottom: 76px; transform: none; font-size: 11px; }
   .lb-editing .lb-ready { display: none; }
 }
