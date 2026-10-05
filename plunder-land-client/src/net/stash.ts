@@ -288,3 +288,169 @@ export function gearLine (extracted: boolean, carried: number, offline: boolean,
   if (waited) return ['GEAR KEPT', 'UNAVAILABLE', 'muted']
   return ['GEAR KEPT', '...', 'pending']
 }
+
+/*
+ * Merge and scrap (decision #49 spec section 5, task 49-5). The server's
+ * messages, all JSON:
+ *
+ * - `merge { ids: [3 row ids], keep?: id | null }` -> `merged { ok, item?,
+ *   reason? }`, then a fresh `stash` (not after `busy`, nor after a refusal
+ *   made before the store: malformed, no account yet).
+ * - `scrap { id }` -> `scrapped { id, ok, reason? }`, then a fresh `stash`.
+ *
+ * The rules mirror the server's `mergeOutcome` (`gear/merge.ts`): 3 stashed
+ * rows of one tier; any skill item among them makes a skill item of the next
+ * tier keeping one input's skill (`keep`, default the first skill item);
+ * three parts make the next tier (T3 parts stay T3, always a skill item);
+ * a T3 merge with a skill item is refused (there is no tier 4). The server
+ * decides; this only keeps the button honest. No odds are copied here: the
+ * chances are the server's tunable (`PART_MERGE_SKILL_CHANCE`).
+ *
+ * An ad-gated reroll of the result (Q11) is OPEN and not built; the result
+ * card keeps an actions row where one could go.
+ */
+
+/** Inputs a merge takes. */
+export const MERGE_INPUTS = 3
+
+/** Why a merge or scrap was refused, as the server says it. */
+export type StashEditReason = 'busy' | 'invalid' | 'store'
+
+/** A `merged` answer. */
+export type MergedAnswer = { ok: true, item: StashItem } | { ok: false, reason: StashEditReason }
+
+/** A `scrapped` answer. */
+export interface ScrappedAnswer {
+  id: string | null
+  ok: boolean
+  reason?: StashEditReason
+}
+
+function reasonOf (value: unknown): StashEditReason | undefined {
+  return value === 'busy' || value === 'invalid' || value === 'store' ? value : undefined
+}
+
+/**
+ * A `merged` event, or undefined for a malformed one. A refusal with a
+ * reason this build doesn't know reads as `store` (something went wrong
+ * server-side; the stash that may follow is the truth). An ok answer whose
+ * item this build can't show is undefined: the following `stash` still lands.
+ */
+export function onMerged (data: unknown): MergedAnswer | undefined {
+  if (data === null || typeof data !== 'object') return undefined
+  const d = data as Record<string, unknown>
+  if (d.ok === true) {
+    const item = itemOf(d.item)
+    return item === undefined ? undefined : { ok: true, item }
+  }
+  if (d.ok === false) return { ok: false, reason: reasonOf(d.reason) ?? 'store' }
+  return undefined
+}
+
+/** A `scrapped` event, or undefined for a malformed one. */
+export function onScrapped (data: unknown): ScrappedAnswer | undefined {
+  if (data === null || typeof data !== 'object') return undefined
+  const d = data as Record<string, unknown>
+  if (typeof d.ok !== 'boolean') return undefined
+  const id = typeof d.id === 'string' ? d.id : null
+  if (d.ok) return { id, ok: true }
+  return { id, ok: false, reason: reasonOf(d.reason) ?? 'store' }
+}
+
+/**
+ * Tap `id` in or out of the merge pick. At most `MERGE_INPUTS`: a fourth tap
+ * changes nothing (drop one first). Order is kept: it is the order sent.
+ */
+export function toggleMergePick (picked: readonly string[], id: string): string[] {
+  if (picked.includes(id)) return picked.filter((p) => p !== id)
+  if (picked.length >= MERGE_INPUTS) return [...picked]
+  return [...picked, id]
+}
+
+/**
+ * The pick as the latest view allows: ids no longer in the stash (merged,
+ * scrapped, or carried out in a run) are dropped, order kept.
+ */
+export function prunePicks (picked: readonly string[], view: StashView | undefined): string[] {
+  return picked.filter((id) => stashItem(view, id) !== undefined)
+}
+
+/** The skill-item inputs a result could keep: one per skill, first input first. */
+export function keepChoices (inputs: readonly StashItem[]): StashItem[] {
+  const out: StashItem[] = []
+  for (const item of inputs) {
+    if (item.skill !== 0 && !out.some((o) => o.skill === item.skill)) out.push(item)
+  }
+  return out
+}
+
+/** The keep that would be sent: `keep` if it is one of the skill inputs, else the first skill input; null with parts only. */
+export function keepFor (inputs: readonly StashItem[], keep: string | null): string | null {
+  const skilled = inputs.filter((item) => item.skill !== 0)
+  if (skilled.length === 0) return null
+  return skilled.some((item) => item.id === keep) ? keep : skilled[0].id
+}
+
+/** What the panel may send for the pick, or why not (a short line for the player). */
+export type MergeCheck =
+  | { ok: true, ids: string[], keep: string | null, inputs: StashItem[], preview: string }
+  | { ok: false, reason: string }
+
+/**
+ * Whether `picked` can merge in `view`, with the line the panel shows: the
+ * server's rules, so a refused merge is refused here first.
+ */
+export function mergeCheck (view: StashView | undefined, picked: readonly string[], keep: string | null): MergeCheck {
+  if (view === undefined) return { ok: false, reason: 'NO STASH' }
+  const inputs: StashItem[] = []
+  for (const id of picked) {
+    const item = stashItem(view, id)
+    if (item !== undefined && !inputs.includes(item)) inputs.push(item)
+  }
+  if (inputs.length < MERGE_INPUTS) {
+    const left = MERGE_INPUTS - inputs.length
+    return { ok: false, reason: inputs.length === 0 ? 'PICK 3 ITEMS OF ONE TIER' : `PICK ${left} MORE OF THE SAME TIER` }
+  }
+  const tier = inputs[0].tier
+  if (!inputs.every((item) => item.tier === tier)) return { ok: false, reason: 'ALL 3 MUST BE THE SAME TIER' }
+  const chosen = keepFor(inputs, keep)
+  if (chosen !== null) {
+    if (tier >= GEAR_TIERS) return { ok: false, reason: `T${GEAR_TIERS} SKILL ITEMS CAN'T MERGE · ONLY T${GEAR_TIERS} PARTS` }
+    const kept = stashItem(view, chosen)
+    const name = (skillById(kept?.skill ?? 0)?.label ?? 'SKILL').toUpperCase()
+    return { ok: true, ids: inputs.map((item) => item.id), keep: chosen, inputs, preview: `MAKES A T${tier + 1} ${name} · FRESH ROLLS` }
+  }
+  const preview = tier >= GEAR_TIERS
+    ? `MAKES A T${GEAR_TIERS} SKILL ITEM · ALWAYS`
+    : `MAKES A T${tier + 1} PART · OR, BY CHANCE, A SKILL ITEM`
+  return { ok: true, ids: inputs.map((item) => item.id), keep: null, inputs, preview }
+}
+
+/**
+ * The `merge` message for a check that passed. `keep` goes only when skill
+ * items are among the inputs (the server refuses a keep with parts only).
+ */
+export function mergeMessage (check: Extract<MergeCheck, { ok: true }>): { ids: string[], keep?: string } {
+  return check.keep === null ? { ids: [...check.ids] } : { ids: [...check.ids], keep: check.keep }
+}
+
+/**
+ * The result card's heading: SURPRISE when parts alone made a skill item,
+ * else NEW and what it is.
+ */
+export function mergeHeading (inputs: readonly GearInstance[], result: GearInstance): string {
+  if (result.skill !== 0 && inputs.every((item) => item.skill === 0)) return 'SURPRISE: SKILL ITEM'
+  const name = result.skill === 0 ? 'PART' : (skillById(result.skill)?.label ?? 'SKILL').toUpperCase()
+  return `NEW: T${result.tier} ${name}`
+}
+
+/** A refused merge or scrap, in plain words. */
+export function stashEditMessage (action: 'merge' | 'scrap', reason: StashEditReason): string {
+  if (reason === 'busy') return 'STILL SAVING THE LAST CHANGE · TRY AGAIN IN A MOMENT'
+  if (reason === 'invalid') return action === 'merge' ? 'THOSE ITEMS CAN\'T MERGE NOW · NOTHING CHANGED' : 'THAT ITEM CAN\'T BE SCRAPPED NOW · NOTHING CHANGED'
+  // Not "nothing changed": a write the server's timeout gave up on may still land; the stash that follows is the truth.
+  return 'COULDN\'T REACH THE STASH · TRY AGAIN LATER'
+}
+
+/** How long the panel waits for an answer before freeing its buttons (the server answers within its 3 s store timeout). */
+export const STASH_EDIT_WAIT_MS = 8000
