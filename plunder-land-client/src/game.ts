@@ -28,6 +28,7 @@ import Mob from './objects/mob'
 import Player from './objects/player'
 import Lobby from './ui/lobby/lobby'
 import { RunRecord, RunSummaryCard } from './ui/popups/runsummary'
+import { type BringPair } from './net/stash'
 
 import { FireBreathEffect } from './vfx/firebreath.effect'
 import { IceBreathEffect } from './vfx/icebreath.effect'
@@ -323,7 +324,7 @@ export class Game extends Container {
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
   }
 
-  async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number): Promise<void> {
+  async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring?: BringPair): Promise<void> {
     Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
@@ -348,7 +349,12 @@ export class Game extends Container {
     // `party`: the invite code (decision #47); a server from before it ignores it.
     // `loadout`: the index of the robot's loadout READY plays (decision #48
     // step 4); the server checks it and plays the start kit for anything else.
-    Game.socket.emit('start_requested', { id: playerId, name, finish, robot, party, loadout })
+    // `bring`: stash row ids for keys 3 and 4 (decision #49, 49-4), only when
+    // the lobby has some to send; a server from before the stash ignores it,
+    // and the server carries only what the account owns and its level allows.
+    Game.socket.emit('start_requested', bring === undefined
+      ? { id: playerId, name, finish, robot, party, loadout }
+      : { id: playerId, name, finish, robot, party, loadout, bring })
 
     Game.hud.setupGameUI()
   }

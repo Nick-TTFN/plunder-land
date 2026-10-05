@@ -109,6 +109,34 @@ export const LOBBY_CSS = `
 .lb-lo-badge { position: absolute; top: 3px; right: 4px; font-size: 9px; padding: 1px 4px; border-radius: 3px; background: #1A2533; color: #a9bccd; }
 .lb-lo-on { background: #3DE0D0; color: #0B1220; }
 .lb-lo-status { font-size: 12px; letter-spacing: .1em; color: #a9bccd; }
+.lb-stash { max-height: calc(100% - 110px); overflow-y: auto; }
+.lb-st-count { font-size: 13px; letter-spacing: .08em; color: #a9bccd; }
+.lb-st-kit { display: grid; grid-template-columns: repeat(4, 1fr) 6px repeat(2, 1.2fr); gap: 6px; padding: 14px 0; border-bottom: 1px solid #1E3344; }
+.lb-st-kit > :nth-child(5) { grid-column: 6; }
+.lb-st-key { position: relative; height: 54px; display: flex; align-items: center; justify-content: center; color: #E6EEF5;
+  background: #101A28; border: 1px solid #1E3344; border-radius: 8px; padding: 12px 2px 4px; opacity: .7; }
+.lb-st-bring { height: 54px; border: 2px dashed #2A4A5E; opacity: 1; }
+.lb-st-bring:disabled { cursor: default; }
+.lb-st-bring.lb-locked { opacity: .55; }
+.lb-st-plus { font-size: 22px; color: #3b4e60; }
+.lb-st-warn { margin-top: 10px; padding: 6px 8px; border-radius: 6px; font-size: 11px; letter-spacing: .08em; line-height: 1.4;
+  color: #1a1206; background: #ffc45e; }
+.lb-st-warn[hidden], .lb-st-over[hidden], .lb-st-grid[hidden] { display: none; }
+.lb-st-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding-top: 12px; }
+.lb-st-cell { position: relative; height: 66px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  color: #E6EEF5; background: #101A28; border: 2px solid #2A4A5E; border-radius: 8px; padding: 4px; }
+.lb-st-cell:hover:not(:disabled) { filter: brightness(1.25); }
+.lb-st-empty { border-style: dashed; border-color: #1E3344; cursor: default; }
+.lb-st-tier { font-size: 10px; letter-spacing: .08em; color: #a9bccd; }
+.lb-st-over { padding-top: 12px; font-size: 11px; letter-spacing: .12em; color: #ffc45e; }
+.lb-st-detail { min-height: 58px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #1E3344; }
+.lb-st-hint { font-size: 12px; letter-spacing: .1em; color: #6b7d8f; text-align: center; padding: 18px 0; }
+.lb-st-card { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border: 2px solid #2A4A5E; border-radius: 8px; background: #101A28; }
+.lb-st-lines { font-size: 12px; line-height: 1.5; color: #c9d6e2; }
+.lb-st-name { font-size: 14px; letter-spacing: .08em; color: #fff; }
+.lb-st-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; }
+.lb-st-actions .lb-chip { padding: 8px 12px; font-size: 12px; }
+.lb-st-actions .lb-chip:disabled { cursor: default; opacity: .6; }
 .lb-ready { position: absolute; right: 44px; bottom: 44px; padding: 18px 40px; font-size: 26px; font-weight: 800; letter-spacing: .14em;
   color: #1a1206; background: linear-gradient(#ffc45e, #f2a12e); border: 2px solid #ffd58a; border-radius: 10px;
   box-shadow: 0 0 22px rgba(255,181,71,.45); }
@@ -176,6 +204,8 @@ export const LOBBY_CSS = `
   .lb-ready { left: 16px; right: 16px; bottom: 20px; padding: 14px; font-size: 20px; }
   .lb-custom { top: auto; bottom: 0; left: 0; right: 0; width: auto; border-radius: 14px 14px 0 0; max-height: 70%; overflow-y: auto; }
   .lb-swatch { width: 44px; height: 44px; }
+  .lb-stash { max-height: 70%; }
+  .lb-st-cell { height: 56px; }
   .lb-editing .lb-ready { display: none; }
 }
 /* A phone held sideways (and any screen under 500 px tall): three columns, robot in the middle.
@@ -199,6 +229,10 @@ export const LOBBY_CSS = `
   .lb-ready { left: auto; right: 16px; bottom: 16px; padding: 12px 22px; font-size: 18px; }
   .lb-custom { top: 50px; bottom: 8px; right: 8px; left: auto; width: min(400px, calc(100% - 16px)); max-height: none; overflow-y: auto;
     border-radius: 10px; }
+  .lb-stash { max-height: none; }
+  .lb-st-kit { padding: 8px 0; }
+  .lb-st-key, .lb-st-bring { height: 44px; }
+  .lb-st-cell { height: 50px; }
   .lb-full { left: auto; top: auto; right: 16px; bottom: 76px; transform: none; font-size: 11px; }
   .lb-editing .lb-ready { display: none; }
 }

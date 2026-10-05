@@ -15,6 +15,9 @@ import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
 import { SettingsPanel } from '../settings/settingspanel'
 import { clearFull, fullLine, retryDue } from '../../net/full'
 import { LoadoutPanel } from './loadoutpanel'
+import { StashPanel } from './stashpanel'
+import { type BringPair } from '../../net/stash'
+import { loadoutOf } from '../../net/loadout'
 import {
   type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
@@ -68,8 +71,8 @@ let _pageId: string | undefined
 
 const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
-/** `finish` as its wire bytes, `robot` an archetype key. */
-export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number) => Promise<void>
+/** `finish` as its wire bytes, `robot` an archetype key, `bring` the stash rows for keys 3 and 4 (49-4), undefined for none. */
+export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring: BringPair | undefined) => Promise<void>
 
 /**
  * The CSS for a swatch: the palette colour with the pattern drawn over it in
@@ -136,8 +139,8 @@ function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, 
  * of robot, finish and name is remembered in localStorage.
  *
  * Keys: left/right switch robot, E opens and closes customize, L the skill
- * loadouts (`loadoutpanel.ts`, decision #48 step 4), Enter is READY
- * UP. Keys typed into the name field are the field's.
+ * loadouts (`loadoutpanel.ts`, decision #48 step 4), S the stash and the
+ * gear brought in (`stashpanel.ts`, decision #49), Enter is READY UP. Keys typed into the name field are the field's.
  */
 export default class Lobby extends Container {
   private readonly playerId: string
@@ -184,6 +187,8 @@ export default class Lobby extends Container {
   private readonly mixButton: HTMLButtonElement
   /** The skill loadouts (decision #48 step 4); one of it and customize is open at a time. */
   private readonly loadout: LoadoutPanel
+  /** The stash and the gear brought on keys 3 and 4 (decision #49, 49-4); one panel open at a time. */
+  private readonly stash: StashPanel
 
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
   private readonly onResize = (): void => { this.layout() }
@@ -291,7 +296,9 @@ export default class Lobby extends Container {
     edit.onclick = () => { this.toggleCustomize() }
     const loadout = el('button', 'lb-edit', 'LOADOUT')
     loadout.onclick = () => { this.toggleLoadout() }
-    nameRow.append(this.nameLine, edit, loadout)
+    const stash = el('button', 'lb-edit', 'STASH')
+    stash.onclick = () => { this.toggleStash() }
+    nameRow.append(this.nameLine, edit, loadout, stash)
     this.tagline = el('div', 'lb-tagline')
     plate.append(this.kindLine, nameRow, this.tagline)
     this.root.append(plate)
@@ -354,6 +361,12 @@ export default class Lobby extends Container {
     this.root.append(this.customize)
     this.loadout = new LoadoutPanel(() => { this.toggleLoadout(false) })
     this.root.append(this.loadout.root)
+    // The kit IN KIT marks are read against: the loadout READY plays.
+    this.stash = new StashPanel(() => { this.toggleStash(false) }, () => {
+      const robot = this.entry.robot ?? 'peep'
+      return loadoutOf(ACCOUNT.info?.loadouts, robot, this.loadout.indexFor(robot))
+    })
+    this.root.append(this.stash.root)
 
     const ready = this.readyButton = el('button', 'lb-ready')
     this.playsLine = el('span', 'lb-ready-sub')
@@ -366,7 +379,7 @@ export default class Lobby extends Container {
     // Portals ask for it, and it is what the game collects (decision #46).
     this.root.append(Object.assign(el('a', 'lb-privacy'), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'PRIVACY' }))
     this.root.append(Object.assign(el('div', 'lb-keys'), {
-      innerHTML: '<kbd>&larr;</kbd><kbd>&rarr;</kbd> SWITCH <kbd>E</kbd> EDIT <kbd>L</kbd> LOADOUT <kbd>ENTER</kbd> READY'
+      innerHTML: '<kbd>&larr;</kbd><kbd>&rarr;</kbd> SWITCH <kbd>E</kbd> EDIT <kbd>L</kbd> LOADOUT <kbd>S</kbd> STASH <kbd>ENTER</kbd> READY'
     }))
 
     this.nameInput.addEventListener('keydown', (e) => {
@@ -572,6 +585,8 @@ export default class Lobby extends Container {
       this.statRows[i].value.textContent = v === null ? '-' : bar.text(v)
     })
     this.loadout.setRobot(entry.robot ?? 'peep')
+    // `select` runs once from the constructor before the stash panel exists.
+    this.stash?.render()
     this.buildRobots()
   }
 
@@ -591,14 +606,32 @@ export default class Lobby extends Container {
   private toggleCustomize (open?: boolean): void {
     const show = open ?? this.customize.classList.contains('lb-hidden')
     this.customize.classList.toggle('lb-hidden', !show)
-    if (show) this.loadout.root.classList.add('lb-hidden')
+    if (show) {
+      this.loadout.root.classList.add('lb-hidden')
+      this.stash.root.classList.add('lb-hidden')
+    }
     this.root.classList.toggle('lb-editing', show)
   }
 
   private toggleLoadout (open?: boolean): void {
     const show = open ?? this.loadout.root.classList.contains('lb-hidden')
     this.loadout.root.classList.toggle('lb-hidden', !show)
-    if (show) this.customize.classList.add('lb-hidden')
+    if (show) {
+      this.customize.classList.add('lb-hidden')
+      this.stash.root.classList.add('lb-hidden')
+    }
+    this.root.classList.toggle('lb-editing', show)
+  }
+
+  private toggleStash (open?: boolean): void {
+    const show = open ?? this.stash.root.classList.contains('lb-hidden')
+    this.stash.root.classList.toggle('lb-hidden', !show)
+    if (show) {
+      this.customize.classList.add('lb-hidden')
+      this.loadout.root.classList.add('lb-hidden')
+      // The loadout may have changed since: the IN KIT marks follow it.
+      this.stash.render()
+    }
     this.root.classList.toggle('lb-editing', show)
   }
 
@@ -621,12 +654,15 @@ export default class Lobby extends Container {
     const sent = finishToBytes(this.shownFinish)
     const robot = this.entry.robot ?? 'peep'
     const loadout = this.loadout.indexFor(robot)
+    // Gear from the stash for keys 3 and 4 (49-4): what the panel shows, if
+    // the level allows; the server carries what it can and says so in `carried`.
+    const bring = this.stash.bring()
     // A loadout change still saving goes first (at most `SETTLE_MAX_MS`), or
     // the join would play the loadout from before it.
     void this.loadout.settle().then(() => {
       // Taken down meanwhile (a reconnect clears the popups): no start.
       if (this.tornDown) return
-      void this.start(this.playerId, name, sent, robot, this.party, loadout)
+      void this.start(this.playerId, name, sent, robot, this.party, loadout, bring)
       this.parent?.removeChild(this)
     })
   }
@@ -642,9 +678,11 @@ export default class Lobby extends Container {
     else if (e.key === 'ArrowRight') this.step(1)
     else if (e.key === 'e' || e.key === 'E') this.toggleCustomize()
     else if (e.key === 'l' || e.key === 'L') this.toggleLoadout()
+    else if (e.key === 's' || e.key === 'S') this.toggleStash()
     else if (e.key === 'Escape') {
       this.toggleCustomize(false)
       this.toggleLoadout(false)
+      this.toggleStash(false)
     }
     else handled = false
     // Skill keys are bound on window: nothing typed here is game input.
@@ -905,6 +943,7 @@ export default class Lobby extends Container {
     clearInterval(this.energyTimer)
     clearInterval(this.fullTimer)
     this.loadout.dispose()
+    this.stash.dispose()
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
     window.removeEventListener('pointermove', this.onMove)
