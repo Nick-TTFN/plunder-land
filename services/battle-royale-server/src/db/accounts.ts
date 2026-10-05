@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { type EnergyRecord, refundAt, spendAt } from '../progress/energy'
+import { type GearInstance, type GearRoll, type GearTier, Q_MAX, STASH_MAX } from '../utils/gear'
 import {
   compareEntries, dueStarts, eligible, type LastPayout, type PaidSeason, type SeasonBoard, type SeasonCredit,
   type SeasonEntry, seasonEndMs, seasonPayouts, seasonStart, type SeasonView, seasonView, tierPlaces
@@ -90,12 +91,192 @@ export interface AccountStore {
    * check-and-spend: two starts at once with one play left get one run.
    * `ok: false` (nothing written) with none left; either way the record as
    * it now stands. Throws when the store fails or knows no such account.
+   *
+   * With `bring` (decision #49, 49-3), a spend that succeeds also carries, in
+   * the same atomic step, those of `bring.ids` that are the account's,
+   * stashed and not parts: they become carried by `bring.holder` and come
+   * back in `carried` (with their `rowId`s, in id order). Fewer than asked is
+   * normal (another tab took one, or it was merged); a refused spend carries
+   * nothing (`carried: []`). Without `bring` the result has no `carried`.
    */
-  spend: (publicId: string, nowMs: number) => Promise<{ ok: boolean, energy: EnergyRecord }>
+  spend: (publicId: string, nowMs: number, bring?: Bring) => Promise<Spent>
   /** Give one play back at `nowMs` (`refundAt`), atomically; the record after. Throws as `spend`. */
   refund: (publicId: string, nowMs: number) => Promise<EnergyRecord>
   /** Waits for grants and saves in flight, then lets go of the store. */
   close: () => Promise<void>
+}
+
+/** What `AccountStore.spend` answers. `carried` only when the spend was asked to bring gear. */
+export interface Spent {
+  ok: boolean
+  energy: EnergyRecord
+  carried?: GearInstance[]
+}
+
+/** Gear to carry into a run with a spend (decision #49): stash row ids and the carrying process's boot id. */
+export interface Bring {
+  ids: readonly string[]
+  holder: string
+}
+
+/**
+ * The gear stash (decision #49, task 49-3). **Not part of `AccountStore` on
+ * purpose:** several specs outside `db/` implement `AccountStore` as
+ * wrappers, and ts-node type-checks a spec when it loads it, so required
+ * methods added there would stop those specs loading. Both stores implement
+ * both; 49-4 joins them where `Worlds` needs them.
+ *
+ * **The invariant every method serves:** a row is stashed or carried, and a
+ * carried row names the process (`holder`, a `GearLedger`'s boot id) whose
+ * memory may hold its in-world copy. A lineage instance (one with a `rowId`)
+ * only ever moves or deletes its own row, conditionally on carried by this
+ * holder; it is never inserted. Only rowless (found) instances are inserted,
+ * once, at the run's end. Under that rule no failure, timeout or race makes
+ * two rows of one item: the worst case is an item lost, or returned to its
+ * last owner.
+ *
+ * Every write is waited for by `close` and bounded by the caller, as every
+ * store call is. Times are the store's own clock (pg's `now()`).
+ */
+export interface GearStore {
+  /**
+   * The account's stash, every row (stashed and carried) in id order, after
+   * first returning to the stash, in the same transaction, every carried row
+   * of the account whose holder hasn't heartbeat within `STALE_CARRY_MS` (a
+   * crashed or vanished process). Throws for an unknown account.
+   */
+  loadStash: (publicId: string) => Promise<StashItem[]>
+  /**
+   * A run's end, in one transaction: every `keep` row carried by `holder`
+   * becomes the account's and stashed (its own brought-in items back, and
+   * someone else's it picked up transferred), then the rowless `found`
+   * instances are inserted (source 1) only while the account holds fewer
+   * than `STASH_MAX` rows of either state, counted in the same transaction
+   * under a per-account lock. A `found` instance that has a `rowId` is a
+   * lineage item and is treated as a keep, never inserted. Throws for an
+   * unknown account (nothing written).
+   */
+  settleGear: (publicId: string, holder: string, keep: readonly string[], found: readonly GearInstance[]) => Promise<Settled>
+  /** Delete the rows carried by `holder` among `rowIds` (a death's loss, an expired drop); how many went. */
+  discardGear: (holder: string, rowIds: readonly string[]) => Promise<number>
+  /** Back to stashed, the rows carried by `holder` among `rowIds` (a run paid for that never began); how many. */
+  uncarry: (holder: string, rowIds: readonly string[]) => Promise<number>
+  /**
+   * `holder` is alive (upsert of its heartbeat), then reconcile: its carried
+   * rows not in `held` and carried more than `RECONCILE_AFTER_MS` ago go back
+   * to stashed (a settle that timed out, a carry given up). How many did.
+   */
+  heartbeat: (holder: string, held: readonly string[]) => Promise<number>
+  /** A clean exit: every row `holder` carries back to stashed, and its heartbeat forgotten. How many rows. */
+  releaseHolder: (holder: string) => Promise<number>
+}
+
+/** One stash row as `loadStash` and `settleGear` give it: the instance, its row id, its state and source. */
+export interface StashItem extends GearInstance {
+  readonly rowId: string
+  readonly carried: boolean
+  readonly source: number
+}
+
+/** What a run's end did: the keep rows moved (id order), how many found items went in, and the stash after. */
+export interface Settled {
+  kept: string[]
+  inserted: number
+  stash: StashItem[]
+}
+
+/** `stash_items.source`. **Append-only**, like field indices. */
+export const GEAR_SOURCE = Object.freeze({ found: 1, merged: 2 })
+
+/**
+ * How long after its holder's last heartbeat a carried row is returned to
+ * the stash (at its owner's next `loadStash`). The spec's 15 minutes,
+ * measured from the **holder's last heartbeat**, never from the carry: from
+ * the carry, a run longer than 15 minutes would have its brought-in item
+ * returned while still in the world, then brought into a second run
+ * (Archie's reading, told to Nick, #49 build plan).
+ */
+export const STALE_CARRY_MS = 15 * 60_000
+
+/**
+ * A heartbeat's reconcile spares rows carried less than this long ago: a
+ * carry issued after the heartbeat's snapshot of `held` (49-3 rule 2).
+ */
+export const RECONCILE_AFTER_MS = 2 * 60_000
+
+/** A stash row id as a store gives it: a positive bigint in decimal. Anything else names no row. */
+export const ROW_ID_SHAPE = /^[1-9][0-9]{0,17}$/
+
+/** A holder (boot id): a lowercase UUID, as `randomUUID` makes it (pg's `uuid` column). */
+export const HOLDER_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** The distinct well-formed row ids in `ids`, first appearance first; the rest name no row. */
+export function rowIdsOf (ids: readonly unknown[]): string[] {
+  const out = new Set<string>()
+  for (const id of ids) if (typeof id === 'string' && ROW_ID_SHAPE.test(id)) out.add(id)
+  return [...out]
+}
+
+/** Throws unless `holder` has the boot id's shape (both stores alike; pg would reject it as a uuid). */
+export function checkHolder (holder: string): void {
+  if (typeof holder !== 'string' || !HOLDER_SHAPE.test(holder)) throw new Error('gear: malformed holder')
+}
+
+/**
+ * Whether `item` fits a stash row: tier 1-3, skill 0-255, at most 8 rolls of
+ * whole stats 0-255 and qualities 0..1000. A found item that doesn't is
+ * dropped by `settleGear` (both stores alike) rather than failing the
+ * transaction, which would also undo the run's keeps.
+ */
+export function storable (item: GearInstance): boolean {
+  if (item === null || typeof item !== 'object') return false
+  if (!Number.isInteger(item.tier) || item.tier < 1 || item.tier > 3) return false
+  if (!Number.isInteger(item.skill) || item.skill < 0 || item.skill > 255) return false
+  if (!Array.isArray(item.rolls) || item.rolls.length > 8) return false
+  return item.rolls.every((r) => r !== null && typeof r === 'object' &&
+    Number.isInteger(r.stat) && r.stat >= 0 && r.stat <= 255 && Number.isInteger(r.q) && r.q >= 0 && r.q <= Q_MAX)
+}
+
+/** Rolls as the `rolls` column holds them: flat `[stat, q, stat, q]`. */
+export function flatRolls (rolls: readonly GearRoll[]): number[] {
+  const flat: number[] = []
+  for (const r of rolls) flat.push(r.stat, r.q)
+  return flat
+}
+
+/** The `rolls` column read back; a trailing odd number is ignored. */
+export function rollsOf (flat: readonly unknown[] | null | undefined): GearRoll[] {
+  const rolls: GearRoll[] = []
+  if (!Array.isArray(flat)) return rolls
+  for (let i = 0; i + 1 < flat.length; i += 2) rolls.push({ stat: Number(flat[i]), q: Number(flat[i + 1]) })
+  return rolls
+}
+
+/** Ascending by numeric row id (a string compare would put 10 before 9). */
+export function byRowId (a: { rowId?: string }, b: { rowId?: string }): number {
+  const x = BigInt(a.rowId ?? '0')
+  const y = BigInt(b.rowId ?? '0')
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+/**
+ * A run end's `keep` and `found` as both stores read them: `keepIds` is the
+ * well-formed row ids, plus the `rowId` of any found instance that has one
+ * (a lineage item is moved, never inserted); `insert` is the rowless found
+ * items a row can hold, in order.
+ */
+export function splitFound (keep: readonly string[], found: readonly GearInstance[]): { keepIds: string[], insert: GearInstance[] } {
+  const lineage: string[] = []
+  const insert: GearInstance[] = []
+  for (const item of found) {
+    if (item === null || typeof item !== 'object') continue
+    if (item.rowId !== undefined) {
+      lineage.push(item.rowId)
+      continue
+    }
+    if (storable(item)) insert.push(item)
+  }
+  return { keepIds: rowIdsOf([...keep, ...lineage]), insert }
 }
 
 /** A token as `newToken` makes it: 32 bytes, base64url, no padding. */
@@ -141,7 +322,22 @@ export function tokenOf (auth: unknown): string | undefined {
  * production (every deploy forgets every account; `openAccountStore` reports
  * that on Railway).
  */
-export class MemoryAccountStore implements AccountStore {
+export class MemoryAccountStore implements AccountStore, GearStore {
+  /** The stash's clock (pg's `now()`); specs pass a fake one to age carries and heartbeats. */
+  private readonly clock: () => number
+
+  constructor (options: { clock?: () => number } = {}) {
+    this.clock = options.clock ?? (() => Date.now())
+  }
+
+  /**
+   * Stash rows by row id, in id order (insertion order). Public for specs
+   * only, as `storedHashes` is: nothing in the server reads it.
+   */
+  readonly stashRows = new Map<string, MemoryStashRow>()
+  private nextRowId = 1
+  /** Each holder's last heartbeat (pg `gear_holders`). */
+  private readonly holders = new Map<string, number>()
   /** Public id by token hash (hex). */
   private readonly byHash = new Map<string, string>()
   private readonly ids = new Set<string>()
@@ -171,12 +367,136 @@ export class MemoryAccountStore implements AccountStore {
     return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy } }
   }
 
-  /** Synchronous from start to end (no `await`), so two at once can't both spend the last play. */
-  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> {
+  /**
+   * Synchronous from start to end (no `await`), so two at once can't both
+   * spend the last play, nor both carry one item.
+   */
+  async spend (publicId: string, nowMs: number, bring?: Bring): Promise<Spent> {
     if (!this.ids.has(publicId)) throw new Error('accounts: spend for an unknown account')
+    if (bring !== undefined) checkHolder(bring.holder)
     const { ok, record } = spendAt(this.energy.get(publicId) ?? null, nowMs)
     if (ok) this.energy.set(publicId, record)
-    return { ok, energy: { ...record } }
+    if (bring === undefined) return { ok, energy: { ...record } }
+    const carried: GearInstance[] = []
+    if (ok) {
+      const at = this.clock()
+      for (const id of rowIdsOf(bring.ids)) {
+        const row = this.stashRows.get(id)
+        // As pg: the account's, stashed, not a part.
+        if (row === undefined || row.owner !== publicId || row.carried || row.skill <= 0) continue
+        row.carried = true
+        row.holder = bring.holder
+        row.carriedAt = at
+        carried.push(instanceOf(row))
+      }
+    }
+    return { ok, energy: { ...record }, carried: carried.sort(byRowId) }
+  }
+
+  /** The stale return, then the account's rows. Synchronous, like every stash method here. */
+  async loadStash (publicId: string): Promise<StashItem[]> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: stash for an unknown account')
+    const now = this.clock()
+    for (const row of this.stashRows.values()) {
+      if (row.owner !== publicId || !row.carried) continue
+      const seen = row.holder === null ? undefined : this.holders.get(row.holder)
+      // pg: `holder NOT IN (SELECT holder FROM gear_holders WHERE seen_at > now() - 15 min)`.
+      if (seen === undefined || !(seen > now - STALE_CARRY_MS)) stashed(row)
+    }
+    return this.stashOf(publicId)
+  }
+
+  async settleGear (publicId: string, holder: string, keep: readonly string[], found: readonly GearInstance[]): Promise<Settled> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: settle for an unknown account')
+    checkHolder(holder)
+    const { keepIds, insert } = splitFound(keep, found)
+    const kept: string[] = []
+    for (const id of keepIds) {
+      const row = this.stashRows.get(id)
+      if (row === undefined || !row.carried || row.holder !== holder) continue
+      row.owner = publicId
+      stashed(row)
+      kept.push(id)
+    }
+    let rows = 0
+    for (const row of this.stashRows.values()) if (row.owner === publicId) rows++
+    const inserted = insert.slice(0, Math.max(0, STASH_MAX - rows))
+    for (const item of inserted) {
+      const rowId = String(this.nextRowId++)
+      this.stashRows.set(rowId, {
+        rowId,
+        owner: publicId,
+        tier: item.tier,
+        skill: item.skill,
+        rolls: item.rolls.map((r) => ({ stat: r.stat, q: r.q })),
+        carried: false,
+        holder: null,
+        carriedAt: null,
+        source: GEAR_SOURCE.found
+      })
+    }
+    return { kept: kept.sort((a, b) => byRowId({ rowId: a }, { rowId: b })), inserted: inserted.length, stash: this.stashOf(publicId) }
+  }
+
+  async discardGear (holder: string, rowIds: readonly string[]): Promise<number> {
+    checkHolder(holder)
+    let n = 0
+    for (const id of rowIdsOf(rowIds)) {
+      const row = this.stashRows.get(id)
+      if (row === undefined || !row.carried || row.holder !== holder) continue
+      this.stashRows.delete(id)
+      n++
+    }
+    return n
+  }
+
+  async uncarry (holder: string, rowIds: readonly string[]): Promise<number> {
+    checkHolder(holder)
+    let n = 0
+    for (const id of rowIdsOf(rowIds)) {
+      const row = this.stashRows.get(id)
+      if (row === undefined || !row.carried || row.holder !== holder) continue
+      stashed(row)
+      n++
+    }
+    return n
+  }
+
+  async heartbeat (holder: string, held: readonly string[]): Promise<number> {
+    checkHolder(holder)
+    const now = this.clock()
+    this.holders.set(holder, now)
+    const spared = new Set(rowIdsOf(held))
+    let n = 0
+    for (const row of this.stashRows.values()) {
+      if (!row.carried || row.holder !== holder || spared.has(row.rowId)) continue
+      // pg: `carried_at < now() - interval '2 minutes'`.
+      if (row.carriedAt !== null && row.carriedAt < now - RECONCILE_AFTER_MS) {
+        stashed(row)
+        n++
+      }
+    }
+    return n
+  }
+
+  async releaseHolder (holder: string): Promise<number> {
+    checkHolder(holder)
+    let n = 0
+    for (const row of this.stashRows.values()) {
+      if (!row.carried || row.holder !== holder) continue
+      stashed(row)
+      n++
+    }
+    this.holders.delete(holder)
+    return n
+  }
+
+  private stashOf (publicId: string): StashItem[] {
+    const out: StashItem[] = []
+    for (const row of this.stashRows.values()) {
+      if (row.owner === publicId) out.push({ ...instanceOf(row), carried: row.carried, source: row.source })
+    }
+    return out.sort(byRowId)
   }
 
   async refund (publicId: string, nowMs: number): Promise<EnergyRecord> {
@@ -298,6 +618,30 @@ export class MemoryAccountStore implements AccountStore {
   get storedHashes (): string[] {
     return [...this.byHash.keys()]
   }
+}
+
+/** One stash row in the memory store (pg `stash_items`). */
+export interface MemoryStashRow {
+  readonly rowId: string
+  /** The account's public id (pg `account_id`). */
+  owner: string
+  readonly tier: GearTier
+  readonly skill: number
+  readonly rolls: GearRoll[]
+  carried: boolean
+  holder: string | null
+  carriedAt: number | null
+  readonly source: number
+}
+
+function stashed (row: MemoryStashRow): void {
+  row.carried = false
+  row.holder = null
+  row.carriedAt = null
+}
+
+function instanceOf (row: MemoryStashRow): GearInstance & { rowId: string } {
+  return { tier: row.tier, skill: row.skill, rolls: row.rolls.map((r) => ({ stat: r.stat, q: r.q })), rowId: row.rowId }
 }
 
 /**

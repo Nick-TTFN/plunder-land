@@ -1,5 +1,10 @@
 import { Client, Pool, type PoolClient } from 'pg'
-import { type Account, type AccountStore, type StoredLoadout, hashToken, newPublicId, newToken } from './accounts'
+import {
+  type Account, type AccountStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
+  newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Settled, splitFound, type Spent, STALE_CARRY_MS,
+  type StashItem, type StoredLoadout
+} from './accounts'
+import { type GearInstance, type GearTier, STASH_MAX } from '../utils/gear'
 import { migrate } from './migrate'
 import { MIGRATIONS, type Migration } from './migrations'
 import {
@@ -44,6 +49,41 @@ interface SeasonRow {
   last: { start: string, rank: number, ranked: number, tier: number, xp: number } | null
 }
 
+/**
+ * The class key of `settleGear`'s per-account advisory lock (two-int form;
+ * "gear" in ASCII hex). The two-int key space never overlaps the one-bigint
+ * space `SEASON_LOCK` and `MIGRATION_LOCK` use.
+ */
+export const STASH_LOCK_CLASS = 0x67656172
+
+/** The columns a stash row is read with (`StashRowSql`). */
+const STASH_COLUMNS = 'id::text AS id, tier, skill, rolls, state, source'
+
+/** A stash row as pg returns `STASH_COLUMNS` (smallint arrays come back as numbers). */
+interface StashRowSql {
+  id: string
+  tier: number
+  skill: number
+  rolls: number[] | null
+  state: number
+  source: number
+}
+
+function instanceOfRow (row: StashRowSql): GearInstance & { rowId: string } {
+  return { tier: Number(row.tier) as GearTier, skill: Number(row.skill), rolls: rollsOf(row.rolls), rowId: row.id }
+}
+
+function stashItemOfRow (row: StashRowSql): StashItem {
+  return { ...instanceOfRow(row), carried: Number(row.state) === 1, source: Number(row.source) }
+}
+
+/** What the energy transaction did: written or not, the record, and what a spend carried. */
+interface EnergyWritten {
+  written: boolean
+  record: EnergyRecord
+  carried?: GearInstance[]
+}
+
 /** Thrown by `resolve` and `create` until the migrations have run: the caller plays offline. */
 export class NotReadyError extends Error {
   constructor () {
@@ -73,7 +113,7 @@ export interface PgAccountStoreOptions {
  * both 2 s, so a slow database costs a joining player at most a few seconds
  * in the lobby, then an offline run.
  */
-export class PgAccountStore implements AccountStore {
+export class PgAccountStore implements AccountStore, GearStore {
   readonly pool: Pool
   ready = false
   private retry: NodeJS.Timeout | undefined
@@ -159,22 +199,26 @@ export class PgAccountStore implements AccountStore {
     return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy }
   }
 
-  async spend (publicId: string, nowMs: number): Promise<{ ok: boolean, energy: EnergyRecord }> {
-    const { written, record } = await this.energyTx(publicId, nowMs, (stored) => {
+  async spend (publicId: string, nowMs: number, bring?: Bring): Promise<Spent> {
+    if (bring !== undefined) checkHolder(bring.holder)
+    const { written, record, carried } = await this.energyTx(publicId, nowMs, (stored) => {
       const spent = spendAt(stored, nowMs)
       return spent.ok ? spent.record : undefined
-    })
-    return { ok: written, energy: record }
+    }, bring)
+    return bring === undefined ? { ok: written, energy: record } : { ok: written, energy: record, carried: carried ?? [] }
   }
 
   async refund (publicId: string, nowMs: number): Promise<EnergyRecord> {
     return (await this.energyTx(publicId, nowMs, (stored) => refundAt(stored, nowMs))).record
   }
 
-  private async energyTx (publicId: string, nowMs: number, change: (record: EnergyRecord) => EnergyRecord | undefined): Promise<{ written: boolean, record: EnergyRecord }> {
-    if (!this.ready) throw new NotReadyError()
-    if (this.closed) throw new Error('accounts: store closed')
-    const pending = this.energyWrite(publicId, nowMs, change)
+  private async energyTx (publicId: string, nowMs: number, change: (record: EnergyRecord) => EnergyRecord | undefined, bring?: Bring): Promise<EnergyWritten> {
+    this.checkOpen()
+    return await this.tracked(this.energyWrite(publicId, nowMs, change, bring))
+  }
+
+  /** `pending` as a write `close` waits for (callers run `checkOpen` first). */
+  private async tracked<T> (pending: Promise<T>): Promise<T> {
     this.grants.add(pending)
     try {
       return await pending
@@ -183,7 +227,38 @@ export class PgAccountStore implements AccountStore {
     }
   }
 
-  private async energyWrite (publicId: string, nowMs: number, change: (record: EnergyRecord) => EnergyRecord | undefined): Promise<{ written: boolean, record: EnergyRecord }> {
+  private checkOpen (): void {
+    if (!this.ready) throw new NotReadyError()
+    if (this.closed) throw new Error('accounts: store closed')
+  }
+
+  /**
+   * `fn` in one transaction on its own client: committed if it returns,
+   * rolled back if it throws (and the client dropped, not pooled).
+   */
+  private async transaction<T> (fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client: PoolClient = await this.pool.connect()
+    const onError = (e: unknown): void => { this.onError(e) }
+    client.on('error', onError)
+    let failed: Error | undefined
+    try {
+      await client.query('BEGIN')
+      const result = await fn(client)
+      await client.query('COMMIT')
+      return result
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {})
+      failed = e instanceof Error ? e : new Error(String(e))
+      throw e
+    } finally {
+      client.removeListener('error', onError)
+      client.release(failed)
+    }
+  }
+
+  private async energyWrite (publicId: string, nowMs: number, change: (record: EnergyRecord) => EnergyRecord | undefined, bring?: Bring): Promise<EnergyWritten> {
+    // Checked before anything is sent: a bad id would fail the cast inside the transaction.
+    const ids = bring === undefined ? [] : rowIdsOf(bring.ids)
     const client: PoolClient = await this.pool.connect()
     const onError = (e: unknown): void => { this.onError(e) }
     client.on('error', onError)
@@ -213,8 +288,21 @@ export class PgAccountStore implements AccountStore {
         'UPDATE energy SET stock = $2, as_of = to_timestamp($3::double precision / 1000.0), updated_at = now() WHERE account_id = $1',
         [row.account_id, next.stock, next.asOfMs]
       )
+      // The carry (decision #49), in the spend's transaction: conditional on
+      // stashed, so of two tabs bringing one item only one gets it (the
+      // other's UPDATE waits on the row lock, re-checks `state = 0` and skips).
+      let carried: GearInstance[] | undefined
+      if (bring !== undefined && ids.length > 0) {
+        const moved = await client.query(
+          `UPDATE stash_items SET state = 1, holder = $3::uuid, carried_at = now()
+           WHERE id = ANY($2::bigint[]) AND account_id = $1 AND state = 0 AND skill > 0
+           RETURNING ${STASH_COLUMNS}`,
+          [row.account_id, ids, bring.holder]
+        )
+        carried = (moved.rows as StashRowSql[]).map((r) => instanceOfRow(r)).sort(byRowId)
+      }
       await client.query('COMMIT')
-      return { written: true, record: next }
+      return { written: true, record: next, carried }
     } catch (e) {
       await client.query('ROLLBACK').catch(() => {})
       failed = e instanceof Error ? e : new Error(String(e))
@@ -223,6 +311,135 @@ export class PgAccountStore implements AccountStore {
       client.removeListener('error', onError)
       client.release(failed)
     }
+  }
+
+  // --- the gear stash (decision #49, task 49-3; contract on `GearStore`) -------
+
+  /** The account's internal id, inside a transaction; throws for an unknown public id. */
+  private async accountId (client: PoolClient, publicId: string, what: string): Promise<string> {
+    const found = await client.query('SELECT id::text AS id FROM accounts WHERE public_id = $1', [publicId])
+    const row = found.rows[0] as { id: string } | undefined
+    if (row === undefined) throw new Error(`accounts: ${what} for an unknown account`)
+    return row.id
+  }
+
+  private async stashOf (client: PoolClient, accountId: string): Promise<StashItem[]> {
+    const rows = await client.query(`SELECT ${STASH_COLUMNS} FROM stash_items WHERE account_id = $1 ORDER BY id`, [accountId])
+    return (rows.rows as StashRowSql[]).map((r) => stashItemOfRow(r))
+  }
+
+  /**
+   * The stale return, then the account's rows, in one transaction. Not folded
+   * into `resolve`: a data-modifying CTE's effect isn't visible to the same
+   * statement's SELECT, so the rows read would be from before the return.
+   */
+  async loadStash (publicId: string): Promise<StashItem[]> {
+    this.checkOpen()
+    return await this.tracked(this.transaction(async (client) => {
+      const account = await this.accountId(client, publicId, 'stash')
+      await client.query(
+        `UPDATE stash_items SET state = 0, holder = NULL, carried_at = NULL
+         WHERE account_id = $1 AND state = 1
+           AND holder NOT IN (SELECT holder FROM gear_holders WHERE seen_at > now() - $2::double precision * interval '1 millisecond')`,
+        [account, STALE_CARRY_MS]
+      )
+      return await this.stashOf(client, account)
+    }))
+  }
+
+  async settleGear (publicId: string, holder: string, keep: readonly string[], found: readonly GearInstance[]): Promise<Settled> {
+    this.checkOpen()
+    checkHolder(holder)
+    const { keepIds, insert } = splitFound(keep, found)
+    return await this.tracked(this.transaction(async (client) => {
+      const account = await this.accountId(client, publicId, 'settle')
+      // One settle per account at a time, so the count below is never stale:
+      // two settles at the cap can't both see room (race 11). Advisory, not a
+      // row lock on `accounts`, which `resolve`'s last_seen_at UPDATE would
+      // queue behind. The two-int key space is separate from the one-bigint
+      // space of SEASON_LOCK and MIGRATION_LOCK; accounts whose ids collide
+      // modulo 2^31 - 1 only wait for each other.
+      await client.query('SELECT pg_advisory_xact_lock($1::int, ($2::bigint % 2147483647)::int)', [STASH_LOCK_CLASS, account])
+      let kept: string[] = []
+      if (keepIds.length > 0) {
+        const moved = await client.query(
+          `UPDATE stash_items SET account_id = $1, state = 0, holder = NULL, carried_at = NULL
+           WHERE id = ANY($2::bigint[]) AND state = 1 AND holder = $3::uuid
+           RETURNING id::text AS id`,
+          [account, keepIds, holder]
+        )
+        kept = (moved.rows as Array<{ id: string }>).map((r) => r.id).sort((a, b) => byRowId({ rowId: a }, { rowId: b }))
+      }
+      let inserted = 0
+      if (insert.length > 0) {
+        const added = await client.query(
+          `INSERT INTO stash_items (account_id, tier, skill, rolls, source)
+           SELECT $1::bigint, f.tier, f.skill, f.rolls::smallint[], $5::smallint
+           FROM unnest($2::smallint[], $3::smallint[], $4::text[]) WITH ORDINALITY AS f(tier, skill, rolls, n)
+           ORDER BY f.n
+           LIMIT GREATEST(0, $6::bigint - (SELECT count(*) FROM stash_items WHERE account_id = $1::bigint))`,
+          [account, insert.map((i) => i.tier), insert.map((i) => i.skill), insert.map((i) => `{${flatRolls(i.rolls).join(',')}}`), GEAR_SOURCE.found, STASH_MAX]
+        )
+        inserted = added.rowCount ?? 0
+      }
+      return { kept, inserted, stash: await this.stashOf(client, account) }
+    }))
+  }
+
+  async discardGear (holder: string, rowIds: readonly string[]): Promise<number> {
+    return await this.whereCarried(holder, rowIds, 'DELETE FROM stash_items')
+  }
+
+  async uncarry (holder: string, rowIds: readonly string[]): Promise<number> {
+    return await this.whereCarried(holder, rowIds, 'UPDATE stash_items SET state = 0, holder = NULL, carried_at = NULL')
+  }
+
+  /** `statement` on the rows among `rowIds` that `holder` carries; how many. */
+  private async whereCarried (holder: string, rowIds: readonly string[], statement: string): Promise<number> {
+    this.checkOpen()
+    checkHolder(holder)
+    const ids = rowIdsOf(rowIds)
+    if (ids.length === 0) return 0
+    const result = await this.tracked(this.pool.query(
+      `${statement} WHERE id = ANY($1::bigint[]) AND state = 1 AND holder = $2::uuid`,
+      [ids, holder]
+    ))
+    return result.rowCount ?? 0
+  }
+
+  async heartbeat (holder: string, held: readonly string[]): Promise<number> {
+    this.checkOpen()
+    checkHolder(holder)
+    const spared = rowIdsOf(held)
+    return await this.tracked(this.transaction(async (client) => {
+      await client.query(
+        'INSERT INTO gear_holders (holder, seen_at) VALUES ($1::uuid, now()) ON CONFLICT (holder) DO UPDATE SET seen_at = now()',
+        [holder]
+      )
+      const returned = await client.query(
+        `UPDATE stash_items SET state = 0, holder = NULL, carried_at = NULL
+         WHERE holder = $1::uuid AND state = 1 AND carried_at < now() - $3::double precision * interval '1 millisecond'
+           AND id <> ALL($2::bigint[])`,
+        [holder, spared, RECONCILE_AFTER_MS]
+      )
+      // Holders a day silent: they already read as dead (STALE_CARRY_MS), so
+      // forgetting them changes nothing but the table's size.
+      await client.query("DELETE FROM gear_holders WHERE seen_at < now() - interval '1 day'")
+      return returned.rowCount ?? 0
+    }))
+  }
+
+  async releaseHolder (holder: string): Promise<number> {
+    this.checkOpen()
+    checkHolder(holder)
+    return await this.tracked(this.transaction(async (client) => {
+      const returned = await client.query(
+        'UPDATE stash_items SET state = 0, holder = NULL, carried_at = NULL WHERE holder = $1::uuid AND state = 1',
+        [holder]
+      )
+      await client.query('DELETE FROM gear_holders WHERE holder = $1::uuid', [holder])
+      return returned.rowCount ?? 0
+    }))
   }
 
   /**

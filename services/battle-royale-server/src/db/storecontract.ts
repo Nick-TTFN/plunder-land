@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
-import { type AccountStore, newToken, PUBLIC_ID_SHAPE, TOKEN_SHAPE } from './accounts'
+import { randomUUID } from 'node:crypto'
+import {
+  type AccountStore, GEAR_SOURCE, type GearStore, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
+  STALE_CARRY_MS, type StashItem, TOKEN_SHAPE
+} from './accounts'
 import { PAYOUT_DELAY_MS, type SeasonCredit, seasonEndMs, seasonStart, seasonView } from '../progress/seasons'
+import { type GearInstance, STASH_MAX } from '../utils/gear'
 
 /**
  * What every `AccountStore` must do (decision #48), run against the memory
@@ -218,4 +223,402 @@ async function seasonContract (store: AccountStore): Promise<void> {
   assert.equal(await store.grant(players[5].account.publicId, 7, credit(b + 2, 300, 7)), after[5] + 7)
   const late = await store.season(players[5].account.publicId, b)
   assert.deepEqual([late.runs, late.banked, late.xp], [3, 15_000, 6000], 'a credit into a paid season moved its entry')
+}
+
+// --- the gear stash (decision #49, task 49-3) ----------------------------------
+
+/** What the gear contract needs from each store's spec besides the store. */
+export interface GearHooks {
+  /**
+   * Let `ms` pass on the store's clock for everything already written:
+   * memory advances its clock; pg moves `carried_at` and `seen_at` back.
+   */
+  age: (ms: number) => Promise<void>
+  /**
+   * What 49-5's merge or scrap does to one row: delete it only while stashed
+   * (`state = 0`); how many went. Merge isn't built yet, so its condition is
+   * stood in for here.
+   */
+  mergeStashed: (rowId: string) => Promise<number>
+  /** Every stash row's id in the store, any account, any state. */
+  allRowIds: () => Promise<string[]>
+}
+
+type GearTestStore = AccountStore & GearStore
+
+/** A T1 skill item, a T2 skill item and a part, as found. */
+export const T1: GearInstance = { tier: 1, skill: 3, rolls: [{ stat: 1, q: 500 }] }
+export const T2: GearInstance = { tier: 2, skill: 5, rolls: [{ stat: 2, q: 0 }, { stat: 4, q: 1000 }] }
+export const PART: GearInstance = { tier: 1, skill: 0, rolls: [] }
+
+/** A new account with `items` in its stash (through `settleGear`'s found, the only insert there is). */
+async function stocked (store: GearTestStore, items: readonly GearInstance[]): Promise<{ publicId: string, token: string, rows: StashItem[] }> {
+  const { account, token } = await store.create()
+  const settled = await store.settleGear(account.publicId, randomUUID(), [], items)
+  assert.equal(settled.inserted, items.length)
+  return { publicId: account.publicId, token, rows: settled.stash }
+}
+
+/** A holder that has heartbeat (a live process). */
+async function liveHolder (store: GearTestStore): Promise<string> {
+  const holder = randomUUID()
+  await store.heartbeat(holder, [])
+  return holder
+}
+
+async function bring (store: GearTestStore, publicId: string, ids: string[], holder: string): Promise<string[]> {
+  const spent = await store.spend(publicId, Date.now(), { ids, holder })
+  assert.equal(spent.ok, true, 'the spend was refused')
+  assert.ok(Array.isArray(spent.carried))
+  return (spent.carried ?? []).map((i) => i.rowId as string)
+}
+
+function idsOf (rows: readonly StashItem[]): string[] {
+  return rows.map((r) => r.rowId)
+}
+
+function carriedIds (rows: readonly StashItem[]): string[] {
+  return rows.filter((r) => r.carried).map((r) => r.rowId)
+}
+
+/** No row id appears twice and the store holds exactly `expected` rows. */
+async function rowCount (hooks: GearHooks, expected: number, message: string): Promise<void> {
+  const ids = await hooks.allRowIds()
+  assert.equal(new Set(ids).size, ids.length, `${message}: a row id twice`)
+  assert.equal(ids.length, expected, message)
+}
+
+/**
+ * The stash (decision #49, 49-3): every `GearStore` method, and each of the
+ * task's dupe races 1-11 at the store, identically on both stores. The
+ * memory store runs it in accounts.spec.ts, pg in pgstore.spec.ts (where
+ * races 1 and 11 are real concurrent transactions). Races 3, 9 and 10 also
+ * depend on `Worlds` and `Player` (49-4); here is what the store owes them.
+ */
+export async function gearContract (store: GearTestStore, hooks: GearHooks): Promise<void> {
+  await stashBasics(store, hooks)
+  await carrying(store, hooks)
+  await reconcile(store, hooks)
+  await races(store, hooks)
+}
+
+async function stashBasics (store: GearTestStore, hooks: GearHooks): Promise<void> {
+  const before = (await hooks.allRowIds()).length
+  const { account } = await store.create()
+  assert.deepEqual(await store.loadStash(account.publicId), [], 'a new account has a stash')
+  const holder = randomUUID()
+  const settled = await store.settleGear(account.publicId, holder, [], [T1, PART, T2])
+  assert.equal(settled.inserted, 3)
+  assert.deepEqual(settled.kept, [])
+  for (const row of settled.stash) assert.match(row.rowId, ROW_ID_SHAPE)
+  assert.deepEqual(settled.stash.map(({ rowId, ...rest }) => rest), [
+    { ...T1, carried: false, source: GEAR_SOURCE.found },
+    { ...PART, carried: false, source: GEAR_SOURCE.found },
+    { ...T2, carried: false, source: GEAR_SOURCE.found }
+  ], 'found items read back as written, in order')
+  assert.deepEqual(await store.loadStash(account.publicId), settled.stash, 'loadStash and the settle\'s stash differ')
+  // Ascending numerically, whatever the digits.
+  const ids = settled.stash.map((r) => BigInt(r.rowId))
+  assert.deepEqual(ids, [...ids].sort((a, b) => (a < b ? -1 : 1)))
+
+  // What a row can't hold is dropped, not a failed settle (which would undo the keeps).
+  const bad = [
+    { tier: 4, skill: 1, rolls: [] }, { tier: 0, skill: 1, rolls: [] }, { tier: 1, skill: 256, rolls: [] },
+    { tier: 1, skill: 1, rolls: [{ stat: 1, q: 1001 }] }, { tier: 1, skill: 1, rolls: [{ stat: 1, q: 0.5 }] },
+    { tier: 1, skill: 1, rolls: Array.from({ length: 9 }, () => ({ stat: 1, q: 1 })) }
+  ] as unknown as GearInstance[]
+  const dropped = await store.settleGear(account.publicId, holder, ['junk', '-1', '0'], [...bad, T1])
+  assert.equal(dropped.inserted, 1, 'an unstorable found item was inserted')
+  assert.equal(dropped.stash.length, 4)
+
+  // Unknown accounts and malformed holders write nothing.
+  await assert.rejects(store.loadStash('0123456789abcdef'), 'a stash for an unknown account')
+  await assert.rejects(store.settleGear('0123456789abcdef', holder, [], [T1]), 'a settle for an unknown account')
+  for (const malformed of ['', 'not-a-uuid', holder.toUpperCase()]) {
+    await assert.rejects(store.settleGear(account.publicId, malformed, [], [T1]), `settle, holder ${malformed}`)
+    await assert.rejects(store.discardGear(malformed, [settled.stash[0].rowId]), `discard, holder ${malformed}`)
+    await assert.rejects(store.uncarry(malformed, [settled.stash[0].rowId]), `uncarry, holder ${malformed}`)
+    await assert.rejects(store.heartbeat(malformed, []), `heartbeat, holder ${malformed}`)
+    await assert.rejects(store.releaseHolder(malformed), `release, holder ${malformed}`)
+    await assert.rejects(store.spend(account.publicId, Date.now(), { ids: [settled.stash[0].rowId], holder: malformed }), `spend, holder ${malformed}`)
+  }
+  assert.equal((await store.loadStash(account.publicId)).length, 4)
+  await rowCount(hooks, before + 4, 'basics')
+  // Nothing to resolve: no query, no error.
+  assert.equal(await store.discardGear(holder, []), 0)
+  assert.equal(await store.uncarry(holder, ['junk']), 0)
+}
+
+async function carrying (store: GearTestStore, hooks: GearHooks): Promise<void> {
+  const a = await stocked(store, [T1, PART, T2])
+  const b = await stocked(store, [T1])
+  const [t1, part, t2] = idsOf(a.rows)
+  const holder = await liveHolder(store)
+
+  // The account's, stashed, not a part; junk and repeats name nothing more.
+  const carried = await store.spend(a.publicId, Date.now(), { ids: [t2, part, b.rows[0].rowId, 'junk', t1, t1], holder })
+  assert.equal(carried.ok, true)
+  assert.deepEqual(carried.carried, [{ ...T1, rowId: t1 }, { ...T2, rowId: t2 }], 'carried: the account\'s stashed skill items, in id order')
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [t1, t2], 'a live holder\'s carry was returned')
+  assert.deepEqual(carriedIds(await store.loadStash(b.publicId)), [], 'another account\'s row was carried')
+  // Carried rows aren't carried again, by anyone.
+  assert.deepEqual(await bring(store, a.publicId, [t1, t2], randomUUID()), [])
+  // Without bring the answer has no `carried`, as before 49-3.
+  assert.equal('carried' in (await store.spend(a.publicId, Date.now())), false)
+
+  // A refused spend carries nothing.
+  const poor = await stocked(store, [T1])
+  for (let i = 0; i < 6; i++) assert.equal((await store.spend(poor.publicId, Date.now())).ok, true)
+  const refused = await store.spend(poor.publicId, Date.now(), { ids: [poor.rows[0].rowId], holder })
+  assert.deepEqual([refused.ok, refused.carried], [false, []])
+  assert.deepEqual(carriedIds(await store.loadStash(poor.publicId)), [], 'a refused spend carried')
+
+  // discard and uncarry act only on rows this holder carries.
+  const other = randomUUID()
+  assert.equal(await store.discardGear(other, [t1]), 0, 'another holder discarded')
+  assert.equal(await store.uncarry(other, [t1]), 0, 'another holder uncarried')
+  assert.equal(await store.discardGear(holder, [part]), 0, 'a stashed row was discarded')
+  assert.equal(await store.discardGear(holder, [t1]), 1)
+  assert.deepEqual(idsOf(await store.loadStash(a.publicId)), [part, t2])
+  assert.equal(await store.discardGear(holder, [t1]), 0, 'a second discard')
+
+  // releaseHolder: every row of this holder back, and the holder forgotten.
+  assert.equal(await store.releaseHolder(holder), 1)
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [])
+  assert.equal(await store.releaseHolder(holder), 0)
+  // Forgotten: a carry on it now (a straggler after release) reads as a dead holder's.
+  assert.deepEqual(await bring(store, a.publicId, [t2], holder), [t2])
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [], 'a released holder\'s carry was not returned at once')
+  await rowCount(hooks, (await hooks.allRowIds()).length, 'carrying')
+}
+
+async function reconcile (store: GearTestStore, hooks: GearHooks): Promise<void> {
+  const a = await stocked(store, [T1, T2, T1])
+  const [x, y, z] = idsOf(a.rows)
+  const holder = await liveHolder(store)
+  assert.deepEqual(await bring(store, a.publicId, [x, y], holder), [x, y])
+
+  // Under 2 minutes old: spared even though not held (a carry after the heartbeat's snapshot).
+  await hooks.age(RECONCILE_AFTER_MS - 5000)
+  assert.equal(await store.heartbeat(holder, []), 0, 'a carry under 2 minutes old was returned')
+  // Over 2 minutes: only what isn't held goes back.
+  await hooks.age(10_000)
+  assert.equal(await store.heartbeat(holder, [x, 'junk']), 1)
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [x], 'reconcile returned a held row, or kept an unheld one')
+  // Another holder's heartbeat never touches this holder's rows.
+  await hooks.age(RECONCILE_AFTER_MS + 1000)
+  assert.equal(await store.heartbeat(randomUUID(), []), 0)
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [x])
+
+  // A live run longer than 15 minutes: heartbeats every minute, the item stays carried.
+  for (let minute = 0; minute < 20; minute++) {
+    await hooks.age(60_000)
+    assert.equal(await store.heartbeat(holder, [x]), 0)
+    assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [x], `minute ${minute + 1}: a live holder's carry was returned`)
+  }
+  // The holder stops (a crash): just under 15 minutes it still counts as alive...
+  await hooks.age(STALE_CARRY_MS - 5000)
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [x], 'returned before 15 minutes of silence')
+  // ...and past it, the owner's next load returns it.
+  await hooks.age(10_000)
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [], 'not returned after 15 minutes of silence')
+  // A holder that never heartbeat at all reads as dead at once.
+  assert.deepEqual(await bring(store, a.publicId, [z], randomUUID()), [z])
+  assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [])
+  assert.equal((await store.loadStash(a.publicId)).length, 3)
+}
+
+async function races (store: GearTestStore, hooks: GearHooks): Promise<void> {
+  // 1. Two tabs bring the same items at once: each item goes to one of them.
+  for (let round = 0; round < 8; round++) {
+    const a = await stocked(store, [T1, T2])
+    const ids = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    const [one, two] = await Promise.all([
+      store.spend(a.publicId, Date.now(), { ids, holder }),
+      store.spend(a.publicId, Date.now(), { ids: [...ids].reverse(), holder: randomUUID() })
+    ])
+    const got = [...(one.carried ?? []), ...(two.carried ?? [])].map((i) => i.rowId as string).sort()
+    assert.deepEqual(got, [...ids].sort(), `race 1, round ${round}: an item carried twice or by nobody`)
+    assert.equal((await store.loadStash(a.publicId)).length, 2)
+  }
+
+  // 2. Merge/scrap vs bring-in: both act only on stashed rows.
+  {
+    const a = await stocked(store, [T1, T2, T1])
+    const [x, y, z] = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    assert.equal(await hooks.mergeStashed(x), 1)
+    assert.deepEqual(await bring(store, a.publicId, [x, y], holder), [y], 'a merged row was carried')
+    assert.equal(await hooks.mergeStashed(y), 0, 'a carried row was merged')
+    const [carried, merged] = await Promise.all([bring(store, a.publicId, [z], holder), hooks.mergeStashed(z)])
+    assert.equal(carried.length + merged, 1, 'race 2: z both carried and merged, or neither')
+    assert.equal((await store.loadStash(a.publicId)).length, carried.length === 1 ? 2 : 1)
+  }
+
+  // 3. The extraction's write in flight vs the next READY bringing the same items.
+  {
+    const a = await stocked(store, [T1, T2])
+    const ids = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, a.publicId, ids, holder), ids)
+    // Before the settle lands: still carried, so the carry skips them.
+    assert.deepEqual(await bring(store, a.publicId, ids, holder), [], 'race 3: a carried item carried again')
+    // Both at once: one row each whichever lands first.
+    const [settled, again] = await Promise.all([
+      store.settleGear(a.publicId, holder, ids, []),
+      bring(store, a.publicId, ids, holder)
+    ])
+    assert.deepEqual(settled.kept, ids)
+    const stash = await store.loadStash(a.publicId)
+    assert.equal(stash.length, 2, 'race 3: rows multiplied')
+    assert.deepEqual(carriedIds(stash), again, 'race 3: what the carry says differs from the stash')
+    await store.uncarry(holder, again)
+  }
+
+  // 4. Death, then someone extracts the dropped lineage item: the row moves.
+  {
+    const owner = await stocked(store, [T2])
+    const extractor = await stocked(store, [T1])
+    const [x] = idsOf(owner.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, owner.publicId, [x], holder), [x])
+    // The death writes nothing. The extractor's run end keeps x.
+    const settled = await store.settleGear(extractor.publicId, holder, [x], [])
+    assert.deepEqual(settled.kept, [x])
+    assert.deepEqual(settled.stash.map((r) => [r.rowId, r.carried, r.skill]), [[x, false, T2.skill], [extractor.rows[0].rowId, false, T1.skill]])
+    assert.deepEqual(await store.loadStash(owner.publicId), [], 'race 4: the dead owner kept the item too')
+    // A late write by the owner can't take it back.
+    assert.deepEqual((await store.settleGear(owner.publicId, holder, [x], [])).kept, [])
+    // Passed in as found by mistake (a lineage instance): moved, never inserted.
+    const lineage = await stocked(store, [T1])
+    const [w] = idsOf(lineage.rows)
+    assert.deepEqual(await bring(store, lineage.publicId, [w], holder), [w])
+    const before = (await hooks.allRowIds()).length
+    const wrong = await store.settleGear(extractor.publicId, holder, [], [{ ...T1, rowId: w }])
+    assert.deepEqual([wrong.kept, wrong.inserted], [[w], 0], 'a lineage instance in found was inserted')
+    await rowCount(hooks, before, 'race 4: a lineage instance made a row')
+  }
+
+  // 5. The stale return vs an extractor's transfer.
+  {
+    const owner = await stocked(store, [T1, T2, T1])
+    const extractor = await stocked(store, [])
+    const [x, y, z] = idsOf(owner.rows)
+    const live = await liveHolder(store)
+    assert.deepEqual(await bring(store, owner.publicId, [x, z], live), [x, z])
+    // A live holder (heartbeating) is never returned from under the world.
+    await hooks.age(14 * 60_000)
+    await store.heartbeat(live, [x, z])
+    await hooks.age(14 * 60_000)
+    assert.deepEqual(carriedIds(await store.loadStash(owner.publicId)), [x, z], 'race 5: returned while its holder lives')
+    assert.deepEqual((await store.settleGear(extractor.publicId, live, [x], [])).kept, [x])
+    // A dead holder's carry is returned, and its late transfer then matches nothing.
+    const dead = await liveHolder(store)
+    assert.deepEqual(await bring(store, owner.publicId, [y], dead), [y])
+    await hooks.age(STALE_CARRY_MS + 1000)
+    await store.heartbeat(live, [z])
+    assert.deepEqual(carriedIds(await store.loadStash(owner.publicId)), [z], 'race 5: a dead holder\'s carry was not returned')
+    assert.deepEqual((await store.settleGear(extractor.publicId, dead, [y], [])).kept, [], 'race 5: a returned row transferred')
+    // A clean exit after its settles: the settled row stays where the settle put it.
+    await store.heartbeat(live, [z])
+    assert.equal(await store.releaseHolder(live), 1)
+    assert.deepEqual(idsOf(await store.loadStash(extractor.publicId)), [x])
+    assert.deepEqual(idsOf(await store.loadStash(owner.publicId)), [y, z])
+  }
+
+  // 6. A settle that times out and lands later: the reconcile may return first; never two rows.
+  {
+    const owner = await stocked(store, [T2])
+    const extractor = await stocked(store, [])
+    const [x] = idsOf(owner.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, owner.publicId, [x], holder), [x])
+    const before = (await hooks.allRowIds()).length
+    // The ledger let x go at the timeout; the next heartbeat returns it.
+    await hooks.age(RECONCILE_AFTER_MS + 1000)
+    assert.equal(await store.heartbeat(holder, []), 1)
+    // The late settle: its keep matches no row (the extractor loses x), its found lands once.
+    const late = await store.settleGear(extractor.publicId, holder, [x], [PART])
+    assert.deepEqual([late.kept, late.inserted], [[], 1])
+    assert.deepEqual(idsOf(await store.loadStash(owner.publicId)), [x], 'race 6: the owner lost x')
+    await rowCount(hooks, before + 1, 'race 6')
+  }
+
+  // 7. A database outage over 15 minutes while the process lives: never an insert.
+  {
+    const owner = await stocked(store, [T1])
+    const extractor = await stocked(store, [])
+    const [x] = idsOf(owner.rows)
+    const stuck = await liveHolder(store)
+    assert.deepEqual(await bring(store, owner.publicId, [x], stuck), [x])
+    await hooks.age(STALE_CARRY_MS + 1000)
+    // Another process's load returns x; the owner brings it again elsewhere.
+    assert.deepEqual(carriedIds(await store.loadStash(owner.publicId)), [])
+    const elsewhere = await liveHolder(store)
+    assert.deepEqual(await bring(store, owner.publicId, [x], elsewhere), [x])
+    const before = (await hooks.allRowIds()).length
+    // The stuck process's live copy, extracted when the database is back: no match.
+    assert.deepEqual((await store.settleGear(extractor.publicId, stuck, [x], [])).kept, [], 'race 7: a stale holder moved a re-carried row')
+    // Re-carried on that same holder, its copy moves the one row: still one row.
+    await store.uncarry(elsewhere, [x])
+    await store.heartbeat(stuck, [])
+    assert.deepEqual(await bring(store, owner.publicId, [x], stuck), [x])
+    assert.deepEqual((await store.settleGear(extractor.publicId, stuck, [x], [])).kept, [x])
+    await rowCount(hooks, before, 'race 7')
+  }
+
+  // 8. A play spent and carried, a run that never began: uncarry.
+  {
+    const a = await stocked(store, [T1, T2])
+    const ids = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, a.publicId, ids, holder), ids)
+    assert.equal(await store.uncarry(holder, ids), 2)
+    assert.deepEqual(carriedIds(await store.loadStash(a.publicId)), [])
+    assert.equal(await store.uncarry(holder, ids), 0, 'a second uncarry')
+    assert.deepEqual(await bring(store, a.publicId, ids, holder), ids, 'an uncarried item could not be brought again')
+    await store.uncarry(holder, ids)
+  }
+
+  // 9. A drain's cut-off settles as a keep; the disconnect's death sweep then finds nothing.
+  {
+    const a = await stocked(store, [T2])
+    const [x] = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, a.publicId, [x], holder), [x])
+    const cut = await store.settleGear(a.publicId, holder, [x], [T1])
+    assert.deepEqual([cut.kept, cut.inserted], [[x], 1])
+    assert.equal(await store.discardGear(holder, [x]), 0, 'race 9: the death sweep deleted a kept row')
+    assert.equal((await store.loadStash(a.publicId)).length, 2)
+  }
+
+  // 10. A double run end: the second settle's keep moves nothing. (Its found
+  // would insert again: keeping the end single is `Player.runOver`'s job.)
+  {
+    const a = await stocked(store, [T1])
+    const [x] = idsOf(a.rows)
+    const holder = await liveHolder(store)
+    assert.deepEqual(await bring(store, a.publicId, [x], holder), [x])
+    assert.deepEqual((await store.settleGear(a.publicId, holder, [x], [])).kept, [x])
+    assert.deepEqual((await store.settleGear(a.publicId, holder, [x], [])).kept, [], 'race 10: a second keep')
+    assert.equal(await store.discardGear(holder, [x]), 0, 'race 10: a death after the extraction deleted it')
+    assert.equal((await store.loadStash(a.publicId)).length, 1)
+  }
+
+  // 11. Found items at the cap: two settles at once can't both pass it.
+  {
+    const a = await stocked(store, Array.from({ length: STASH_MAX - 1 }, (_, i) => (i % 2 === 0 ? T1 : PART)))
+    const holders = [randomUUID(), randomUUID()]
+    const [one, two] = await Promise.all(holders.map(async (h) => await store.settleGear(a.publicId, h, [], [T2, T2])))
+    assert.equal(one.inserted + two.inserted, 1, 'race 11: the cap was passed')
+    assert.equal((await store.loadStash(a.publicId)).length, STASH_MAX)
+    // At the cap, found items stop, but a keep still moves in (extraction never loses a lineage item).
+    const owner = await stocked(store, [T1])
+    const holder = await liveHolder(store)
+    const [x] = idsOf(owner.rows)
+    assert.deepEqual(await bring(store, owner.publicId, [x], holder), [x])
+    const full = await store.settleGear(a.publicId, holder, [x], [T1])
+    assert.deepEqual([full.kept, full.inserted, full.stash.length], [[x], 0, STASH_MAX + 1])
+  }
 }

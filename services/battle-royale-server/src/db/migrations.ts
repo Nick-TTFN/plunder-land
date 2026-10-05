@@ -144,5 +144,41 @@ export const MIGRATIONS: readonly Migration[] = [
         updated_at timestamptz NOT NULL DEFAULT now()
       )
     `
+  },
+  {
+    version: 6,
+    name: 'stash',
+    // The gear stash (decision #49, task 49-3). A row is `state` 0 stashed or
+    // 1 carried; a carried row names `holder`, the boot id of the process
+    // (`GearLedger`) whose memory may hold its in-world copy. A row with a
+    // `rowId` in a run is only ever moved or deleted, conditionally on
+    // `state = 1 AND holder = <that boot>`, never inserted; only found
+    // instances are inserted, once, at the run's end (`settleGear`).
+    // `rolls` is flat `[stat, q, stat, q]`, q 0..1000 (qualities, never
+    // values: `utils/gear.ts`). `skill` 0 is a part. `source` is append-only:
+    // 1 found, 2 merged (49-5); a later merge reroll (Q11, open) can add its
+    // own columns. `gear_holders` is each live process's last heartbeat: a
+    // carried row whose holder hasn't beaten for 15 minutes returns to the
+    // stash at its owner's next `loadStash`. New tables only: the step-7
+    // server runs unchanged on this schema during overlap and drain.
+    sql: `
+      CREATE TABLE stash_items (
+        id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        account_id  bigint      NOT NULL REFERENCES accounts(id),
+        tier        smallint    NOT NULL CHECK (tier BETWEEN 1 AND 3),
+        skill       smallint    NOT NULL CHECK (skill BETWEEN 0 AND 255),
+        rolls       smallint[]  NOT NULL DEFAULT '{}'
+                    CHECK (array_ndims(rolls) IS NULL OR (array_ndims(rolls) = 1 AND cardinality(rolls) <= 16)),
+        state       smallint    NOT NULL DEFAULT 0 CHECK (state IN (0, 1)),
+        holder      uuid,
+        carried_at  timestamptz,
+        source      smallint    NOT NULL CHECK (source > 0),
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        CHECK ((state = 1) = (holder IS NOT NULL AND carried_at IS NOT NULL))
+      );
+      CREATE INDEX stash_items_account ON stash_items (account_id);
+      CREATE INDEX stash_items_holder ON stash_items (holder) WHERE state = 1;
+      CREATE TABLE gear_holders (holder uuid PRIMARY KEY, seen_at timestamptz NOT NULL)
+    `
   }
 ]

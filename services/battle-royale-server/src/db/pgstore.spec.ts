@@ -1,13 +1,13 @@
 import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Client } from 'pg'
 import { hashToken } from './accounts'
-import { PgAccountStore, NotReadyError, SEASON_LOCK } from './pgstore'
+import { PgAccountStore, NotReadyError, SEASON_LOCK, STASH_LOCK_CLASS } from './pgstore'
 import { migrate, MIGRATION_LOCK } from './migrate'
 import { PAYOUT_DELAY_MS, seasonEndMs, seasonStart } from '../progress/seasons'
 import { MIGRATIONS, type Migration } from './migrations'
-import { storeContract } from './storecontract'
+import { gearContract, type GearHooks, PART, storeContract, T1, T2 } from './storecontract'
 
 /**
  * The Postgres store and the migration runner against a real database, only
@@ -246,7 +246,7 @@ pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v
   const after = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
   assert.deepEqual(after, before, 'migration 3 changed an existing row')
   // The rest, so this release's queries find their tables.
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4, 5])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4, 5, 6])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -339,7 +339,7 @@ pgTest('seasons (migration 4): added to a v3 database it keeps every row, and th
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 4))), [4])
   assert.deepEqual(await snapshot(), before, 'migration 4 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5, 6])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -414,8 +414,9 @@ pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\
   const snapshot = async (): Promise<unknown[]> => await withClient(async (client) => (await client.query(
     'SELECT a.public_id, a.token_hash, p.xp, l.skills, e.banked FROM accounts a JOIN account_progress p ON p.account_id = a.id JOIN loadouts l ON l.account_id = a.id JOIN season_entries e ON e.account_id = a.id ORDER BY a.id')).rows)
   const before = await snapshot()
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 5))), [5])
   assert.deepEqual(await snapshot(), before, 'migration 5 changed an existing row')
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -528,4 +529,161 @@ pgTest('a payout whose backend is killed mid-transaction pays nothing, and the n
   }
   const after = await xpOf()
   assert.deepEqual(after.map((xp, i) => xp - before[i]), [1000, 250, ...Array(8).fill(0)])
+})
+
+// --- the gear stash (decision #49, task 49-3) ----------------------------------
+
+test('the stash lock class fits the two-int advisory key (no database needed)', () => {
+  assert.ok(Number.isInteger(STASH_LOCK_CLASS) && STASH_LOCK_CLASS > 0 && STASH_LOCK_CLASS <= 2147483647)
+})
+
+/** The pg side of the gear contract's hooks: time passes by moving the timestamps back. */
+function pgGearHooks (store: PgAccountStore): GearHooks {
+  return {
+    age: async (ms) => {
+      await store.pool.query("UPDATE stash_items SET carried_at = carried_at - $1::double precision * interval '1 millisecond' WHERE carried_at IS NOT NULL", [ms])
+      await store.pool.query("UPDATE gear_holders SET seen_at = seen_at - $1::double precision * interval '1 millisecond'", [ms])
+    },
+    mergeStashed: async (rowId) => (await store.pool.query('DELETE FROM stash_items WHERE id = $1::bigint AND state = 0', [rowId])).rowCount ?? 0,
+    allRowIds: async () => (await store.pool.query('SELECT id::text AS id FROM stash_items ORDER BY id')).rows.map((r) => r.id as string)
+  }
+}
+
+pgTest('stash (migration 6): added to a v5 database it keeps every row, the step-7 queries still run, and its CHECKs hold', async () => {
+  const v5 = MIGRATIONS.filter((m) => m.version <= 5)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, v5)), [1, 2, 3, 4, 5])
+  const old = new PgAccountStore({ connectionString: URL as string, migrations: v5 })
+  const at = Date.parse('2026-10-07T12:00:00.000Z')
+  const made: Array<{ token: string, publicId: string }> = []
+  try {
+    old.ready = true
+    for (let i = 0; i < 2; i++) {
+      const { account, token } = await old.create()
+      await old.grant(account.publicId, 10, { season: seasonStart(at), atMs: at, banked: 100, extracted: true, xp: 10, name: 'OLD' })
+      await old.saveLoadout(account.publicId, 'peep', 0, [1, 2, 3, i])
+      assert.equal((await old.spend(account.publicId, at)).ok, true)
+      made.push({ token, publicId: account.publicId })
+    }
+  } finally {
+    await old.close()
+  }
+  const snapshot = async (): Promise<unknown[]> => await withClient(async (client) => (await client.query(
+    'SELECT a.public_id, a.token_hash, p.xp, l.skills, e.banked, en.stock, en.as_of FROM accounts a JOIN account_progress p ON p.account_id = a.id JOIN loadouts l ON l.account_id = a.id JOIN season_entries e ON e.account_id = a.id JOIN energy en ON en.account_id = a.id ORDER BY a.id')).rows)
+  const before = await snapshot()
+  assert.equal(before.length, 2)
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6])
+  assert.deepEqual(await snapshot(), before, 'migration 6 changed an existing row')
+
+  // Step 7's queries are this release's resolve, grant, saveLoadout, spend
+  // and refund unchanged (a spend without `bring` sends exactly step 7's SQL).
+  const store = new PgAccountStore({ connectionString: URL as string })
+  try {
+    store.ready = true
+    const resolved = await store.resolve(made[0].token)
+    assert.deepEqual(resolved, { publicId: made[0].publicId, persisted: true, xp: 10, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], energy: { stock: 5, asOfMs: at } })
+    assert.equal(await store.grant(made[0].publicId, 5, { season: seasonStart(at), atMs: at + 1, banked: 0, extracted: false, xp: 5, name: 'OLD' }), 15)
+    await store.saveLoadout(made[1].publicId, 'peep', 1, [1, 2, 3, 0])
+    assert.deepEqual(await store.spend(made[1].publicId, at), { ok: true, energy: { stock: 4, asOfMs: at } })
+    assert.deepEqual(await store.refund(made[1].publicId, at), { stock: 5, asOfMs: at })
+    // An account from before the stash has none.
+    assert.deepEqual(await store.loadStash(made[1].publicId), [])
+
+    // The CHECKs back what the stores check first.
+    const id = (await store.pool.query('SELECT id FROM accounts WHERE public_id = $1', [made[0].publicId])).rows[0].id
+    const insert = async (columns: string, values: string): Promise<unknown> =>
+      await store.pool.query(`INSERT INTO stash_items (account_id, ${columns}) VALUES ($1, ${values})`, [id])
+    await assert.rejects(insert('tier, skill, source', '0, 1, 1'), /check/i, 'tier 0')
+    await assert.rejects(insert('tier, skill, source', '4, 1, 1'), /check/i, 'tier 4')
+    await assert.rejects(insert('tier, skill, source', '1, 256, 1'), /check/i, 'skill 256')
+    await assert.rejects(insert('tier, skill, source', '1, -1, 1'), /check/i, 'skill -1')
+    await assert.rejects(insert('tier, skill, source', '1, 1, 0'), /check/i, 'source 0')
+    await assert.rejects(insert('tier, skill, source, state', '1, 1, 1, 2'), /check/i, 'state 2')
+    await assert.rejects(insert('tier, skill, source, state', '1, 1, 1, 1'), /check/i, 'carried with no holder')
+    await assert.rejects(insert('tier, skill, source, state, holder', `1, 1, 1, 1, '${randomUUID()}'`), /check/i, 'carried with no carried_at')
+    await assert.rejects(insert('tier, skill, source, holder, carried_at', `1, 1, 1, '${randomUUID()}', now()`), /check/i, 'stashed with a holder')
+    await assert.rejects(insert('tier, skill, source, rolls', "1, 1, 1, '{{1,2},{3,4}}'"), /check/i, 'a 2-D rolls')
+    await assert.rejects(insert('tier, skill, source, rolls', `1, 1, 1, '{${Array(17).fill(1).join(',')}}'`), /check/i, '17 rolls values')
+    await insert('tier, skill, source, rolls', `1, 1, 1, '{${Array(16).fill(1).join(',')}}'`)
+    await insert('tier, skill, source, state, holder, carried_at', `1, 1, 1, 1, '${randomUUID()}', now()`)
+    // A row without rolls takes the default.
+    await insert('tier, skill, source', '1, 0, 1')
+    assert.equal((await store.loadStash(made[0].publicId)).length, 3)
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('the gear stash contract and dupe races 1-11, against Postgres', async () => {
+  const store = await readyStore()
+  try {
+    await gearContract(store, pgGearHooks(store))
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('race 1 under load: many concurrent spends bringing the same items, each item carried once', async () => {
+  const store = await readyStore()
+  try {
+    for (let round = 0; round < 15; round++) {
+      const { account } = await store.create()
+      const ids = (await store.settleGear(account.publicId, randomUUID(), [], [T1, T2, T1])).stash.map((r) => r.rowId)
+      const holders = Array.from({ length: 5 }, () => randomUUID())
+      for (const h of holders) await store.heartbeat(h, [])
+      // Five at once, as many as the pool has clients: the transactions overlap.
+      const spent = await Promise.all(holders.map(async (holder, i) => await store.spend(account.publicId, Date.now(), { ids: i % 2 === 0 ? ids : [...ids].reverse(), holder })))
+      assert.equal(spent.filter((s) => s.ok).length, 5)
+      const got = spent.flatMap((s) => (s.carried ?? []).map((c) => c.rowId as string)).sort()
+      assert.deepEqual(got, [...ids].sort(), `round ${round}: an item carried twice or by nobody`)
+      const rows = (await store.pool.query('SELECT id::text AS id, holder::text AS holder FROM stash_items WHERE id = ANY($1::bigint[]) ORDER BY id', [ids])).rows
+      // Each row's holder is the spend that says it carried it.
+      for (const row of rows) {
+        const winner = spent.findIndex((s) => (s.carried ?? []).some((c) => c.rowId === row.id))
+        assert.equal(row.holder, holders[winner], `round ${round}: row ${row.id as string} held by another than its carrier`)
+      }
+    }
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('race 11 under load: concurrent settles at the cap never pass STASH_MAX', async () => {
+  const store = await readyStore()
+  try {
+    for (let round = 0; round < 6; round++) {
+      const { account } = await store.create()
+      const room = round % 3 + 1
+      await store.settleGear(account.publicId, randomUUID(), [], Array.from({ length: 100 - room }, () => PART))
+      const settles = await Promise.all(Array.from({ length: 6 }, async () => await store.settleGear(account.publicId, randomUUID(), [], [T1, T2, T1])))
+      assert.equal(settles.reduce((n, s) => n + s.inserted, 0), room, `round ${round}: inserted past the cap`)
+      const n = Number((await store.pool.query('SELECT count(*) AS n FROM stash_items s JOIN accounts a ON a.id = s.account_id WHERE a.public_id = $1', [account.publicId])).rows[0].n)
+      assert.equal(n, 100, `round ${round}`)
+    }
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('close waits for every gear write in flight; none starts after it', async () => {
+  const store = await readyStore()
+  const { account } = await store.create()
+  const holder = randomUUID()
+  await store.heartbeat(holder, [])
+  const ids = (await store.settleGear(account.publicId, holder, [], Array.from({ length: 12 }, () => T1))).stash.map((r) => r.rowId)
+  assert.equal((await store.spend(account.publicId, Date.now(), { ids, holder })).carried?.length, 12)
+  // A drain's run ends all at once: more writes than the pool's clients.
+  const writes: Array<Promise<unknown>> = [
+    ...ids.slice(0, 4).map(async (id) => await store.settleGear(account.publicId, holder, [id], [PART])),
+    ...ids.slice(4, 8).map(async (id) => await store.discardGear(holder, [id])),
+    ...ids.slice(8).map(async (id) => await store.uncarry(holder, [id])),
+    store.heartbeat(holder, [])
+  ]
+  await store.close()
+  const settled = await Promise.allSettled(writes)
+  assert.deepEqual(settled.filter((r) => r.status === 'rejected'), [], 'a gear write was lost at close')
+  await assert.rejects(store.settleGear(account.publicId, holder, [], [T1]), 'a settle after close')
+  await assert.rejects(store.releaseHolder(holder), 'a release after close')
+  const n = await count('SELECT count(*) AS n FROM stash_items')
+  assert.equal(n, 12 - 4 + 4, 'four discarded, four parts found')
+  assert.equal(await count('SELECT count(*) AS n FROM stash_items WHERE state = 1'), 0)
 })

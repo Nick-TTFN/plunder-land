@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { hashToken, MemoryAccountStore, newToken, tokenOf, TOKEN_SHAPE } from './accounts'
-import { storeContract } from './storecontract'
+import { gearContract, storeContract } from './storecontract'
 import { MIGRATIONS } from './migrations'
 import { openAccountStore } from './open'
 
@@ -10,6 +10,21 @@ import { openAccountStore } from './open'
 
 test('memory store: the store contract', async () => {
   await storeContract(new MemoryAccountStore())
+})
+
+test('memory store: the gear stash contract and dupe races 1-11 (decision #49)', async () => {
+  let now = Date.parse('2026-10-05T12:00:00.000Z')
+  const store = new MemoryAccountStore({ clock: () => now })
+  await gearContract(store, {
+    age: async (ms) => { now += ms },
+    mergeStashed: async (rowId) => {
+      const row = store.stashRows.get(rowId)
+      if (row === undefined || row.carried) return 0
+      store.stashRows.delete(rowId)
+      return 1
+    },
+    allRowIds: async () => [...store.stashRows.keys()]
+  })
 })
 
 test('memory store: what is kept is the token\'s SHA-256, never the token', async () => {
