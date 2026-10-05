@@ -11,7 +11,7 @@ import type Player from '../objects/player'
 import type GearPickup from '../objects/gearpickup'
 import Analytics, { type Params } from '../analytics'
 import { type Bring, type GearStore, MemoryAccountStore, type Settled, type Spent } from '../db/accounts'
-import { GearLedger } from '../gear/ledger'
+import { GearLedger, GearTimeoutError } from '../gear/ledger'
 import { parseBring, type StashEvent } from '../gear/stash'
 import { BRING_LEVEL, GEAR_STATS, type GearInstance, type GearTier } from '../utils/gear'
 import { SKILL_INFO } from '../utils/skills'
@@ -258,6 +258,24 @@ test('bring 2 and extract: both equipped in keys 3 and 4, back stashed after, a 
   assert.deepEqual(last.run, { kept: 3, full: 0 })
   assert.deepEqual(ends.map((p) => [p.gear_brought, p.gear_found, p.gear_kept]), [[2, 1, 3]])
   assert.deepEqual(reported, [])
+})
+
+test('a settle that outlasts the ledger\'s timeout is reported as resolve:settle (decision #50)', async () => {
+  const store = new Store()
+  const ledger = new GearLedger(store, { timeoutMs: 20 })
+  await ledger.beat()
+  const worlds = makeWorlds(store, ledger)
+  const a = await accountWith(store, ledger, BRING_LEVEL, [item(1, FIREBALL)])
+  const client = await connect(worlds, a.token, 'a')
+  const { player, world } = await play(worlds, client, a.ids)
+  const held = gate()
+  store.settleGate = held.promise
+  World.run(world, () => { player.exit() })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  assert.equal(store.settles, 1)
+  assert.deepEqual(reported.map((e) => e instanceof GearTimeoutError ? e.op : String(e)), ['resolve:settle'])
+  held.open()
+  await settle()
 })
 
 test('bring 2 and die, someone else picks both up and extracts: they are theirs, and gone from the dead player\'s stash', async () => {

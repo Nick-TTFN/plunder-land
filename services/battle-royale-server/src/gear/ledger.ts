@@ -23,11 +23,34 @@ export interface GearLedgerOptions {
   holder?: string
 }
 
-/** A gear write the ledger gave up on after `timeoutMs`. It may still land. */
+/**
+ * Which gear write timed out (decision #50, after the unattributed timeout of
+ * 2026-10-05): the heartbeat, a run's carry (the spend with `bring`), the
+ * three writes `resolve` issues, named by their store call, and `close`'s
+ * `releaseHolder`.
+ */
+export type GearOp = 'beat' | 'carry' | 'resolve:settle' | 'resolve:discard' | 'resolve:uncarry' | 'close:release'
+
+/** The store call behind a `resolve`. */
+export type ResolveCall = 'settle' | 'discard' | 'uncarry'
+
+/**
+ * A gear write the ledger gave up on after `timeoutMs`. It may still land.
+ * `op` names the write, in the message (so the throttled log line says it)
+ * and in `reportTags` (so the Sentry event carries it as the `gear_op` tag,
+ * `errors.ts` `tagsFor`).
+ */
 export class GearTimeoutError extends Error {
-  constructor () {
-    super('gear: store write timed out')
+  readonly op: GearOp
+
+  constructor (op: GearOp) {
+    super(`gear: store write timed out (${op})`)
     this.name = 'GearTimeoutError'
+    this.op = op
+  }
+
+  get reportTags (): Record<string, string> {
+    return { gear_op: this.op }
   }
 }
 
@@ -132,7 +155,7 @@ export class GearLedger {
     const snapshot = this.heldIds()
     this.beating = (async () => {
       try {
-        await this.within(this.store.heartbeat(this.holder, snapshot))
+        await this.within(this.store.heartbeat(this.holder, snapshot), 'beat')
         this.lastBeat = issuedAt
       } catch (e) {
         this.safeReport(e)
@@ -157,7 +180,7 @@ export class GearLedger {
     for (const id of asked) this.claim(id)
     let answer: R
     try {
-      answer = await this.within(this.track(issue({ ids: asked, holder: this.holder })))
+      answer = await this.within(this.track(issue({ ids: asked, holder: this.holder })), 'carry')
     } catch (e) {
       for (const id of asked) this.unclaim(id)
       throw e
@@ -172,12 +195,12 @@ export class GearLedger {
    * A write that resolves `ids` (`settleGear`'s keeps, `discardGear`,
    * `uncarry`), given this holder. The ids are let go once it settles, fails
    * or times out (rule 1), whichever comes first; it rejects as the write
-   * does (`GearTimeoutError` for the timeout).
+   * does (`GearTimeoutError` for the timeout, its `op` naming `call`).
    */
-  async resolve<R>(ids: readonly string[], issue: (holder: string) => Promise<R>): Promise<R> {
+  async resolve<R>(ids: readonly string[], issue: (holder: string) => Promise<R>, call: ResolveCall): Promise<R> {
     const claimed = rowIdsOf(ids)
     try {
-      return await this.within(this.track(issue(this.holder)))
+      return await this.within(this.track(issue(this.holder)), `resolve:${call}`)
     } finally {
       for (const id of claimed) this.unclaim(id)
     }
@@ -194,7 +217,7 @@ export class GearLedger {
     this.releasing = true
     if (this.beating !== undefined) await this.beating
     try {
-      await this.within(this.store.releaseHolder(this.holder))
+      await this.within(this.store.releaseHolder(this.holder), 'close:release')
     } catch (e) {
       this.safeReport(e)
     }
@@ -218,11 +241,11 @@ export class GearLedger {
     return pending
   }
 
-  /** `pending`, or a `GearTimeoutError` after `timeoutMs`; the timer never holds the process open. */
-  private async within<T>(pending: Promise<T>): Promise<T> {
+  /** `pending`, or a `GearTimeoutError` naming `op` after `timeoutMs`; the timer never holds the process open. */
+  private async within<T>(pending: Promise<T>, op: GearOp): Promise<T> {
     let timer: NodeJS.Timeout | undefined
     const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => { reject(new GearTimeoutError()) }, this.timeoutMs)
+      timer = setTimeout(() => { reject(new GearTimeoutError(op)) }, this.timeoutMs)
       timer.unref()
     })
     try {

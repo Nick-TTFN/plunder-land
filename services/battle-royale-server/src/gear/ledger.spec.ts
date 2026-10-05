@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { type Bring, HOLDER_SHAPE, MemoryAccountStore, RECONCILE_AFTER_MS, type Spent } from '../db/accounts'
 import { GearLedger, GearTimeoutError, type LedgerStore } from './ledger'
+import { tagsFor } from '../errors'
 import { type GearInstance } from '../utils/gear'
 
 /**
@@ -143,18 +144,18 @@ test('ledger rule 1: a resolving write lets its ids go when it settles, fails or
   await ledger.carry(['1', '2', '3', '4'], async () => spentWith(['1', '2', '3', '4']), carriedOf)
 
   const settle = deferred<number>()
-  const settling = ledger.resolve(['1'], async () => await settle.promise)
+  const settling = ledger.resolve(['1'], async () => await settle.promise, 'settle')
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(ledger.holds('1'), true, 'released before the write settled')
   settle.resolve(1)
   assert.equal(await settling, 1)
   assert.equal(ledger.holds('1'), false)
 
-  await assert.rejects(ledger.resolve(['2'], async () => { throw new Error('store down') }), /store down/)
+  await assert.rejects(ledger.resolve(['2'], async () => { throw new Error('store down') }, 'settle'), /store down/)
   assert.equal(ledger.holds('2'), false, 'a failed write kept its claim')
 
   const hung = deferred<number>()
-  await assert.rejects(ledger.resolve(['3'], async () => await hung.promise), GearTimeoutError)
+  await assert.rejects(ledger.resolve(['3'], async () => await hung.promise, 'settle'), GearTimeoutError)
   assert.equal(ledger.holds('3'), false, 'a timed-out settle kept its claim')
   assert.deepEqual(ledger.heldIds(), ['4'])
   hung.resolve(1)
@@ -204,7 +205,7 @@ test('ledger rule 2: the heartbeat sends held as it was when issued; reconcile s
   await slow.beat()
   await slow.carry([w], async (bring) => await memory.spend(account.publicId, time.now(), bring), carriedOf)
   const hung = deferred<void>()
-  await assert.rejects(slow.resolve([w], async () => await hung.promise), GearTimeoutError)
+  await assert.rejects(slow.resolve([w], async () => await hung.promise, 'settle'), GearTimeoutError)
   assert.equal(slow.holds(w), false)
   time.advance(RECONCILE_AFTER_MS + 1)
   await slow.beat()
@@ -221,7 +222,7 @@ test('ledger rule 3: close waits for gear writes in flight, then releases the ho
   assert.equal(ledger.canCarry, true)
   await ledger.carry(['1', '2'], async () => spentWith(['1', '2']), carriedOf)
   const settle = deferred<number>()
-  const settling = ledger.resolve(['1'], async () => await settle.promise)
+  const settling = ledger.resolve(['1'], async () => await settle.promise, 'settle')
   const closing = ledger.close()
   assert.equal(ledger.canCarry, false, 'a carry allowed while closing')
   // A carry asked now spends without gear.
@@ -229,7 +230,7 @@ test('ledger rule 3: close waits for gear writes in flight, then releases the ho
   assert.deepEqual(late.carried, [])
   // A write issued while close waits is waited for too.
   const discard = deferred<number>()
-  const discarding = ledger.resolve(['2'], async () => await discard.promise)
+  const discarding = ledger.resolve(['2'], async () => await discard.promise, 'discard')
   await new Promise((resolve) => setTimeout(resolve, 20))
   assert.equal(store.calls.includes('release'), false, 'released before the writes in flight settled')
   settle.resolve(1)
@@ -271,4 +272,49 @@ test('ledger: a heartbeat in flight is shared, and a failing one never rejects',
   await one
   await two
   assert.equal(ledger.canCarry, false)
+})
+
+test('a timeout names its write (decision #50): beat, carry, each resolve call, close, in the message, the property and the Sentry tags', async () => {
+  const reports: unknown[] = []
+  const store = new FakeStore()
+  const hungRelease = deferred<number>()
+  store.releaseHolder = async () => await hungRelease.promise
+  const ledger = new GearLedger(store, { timeoutMs: 20, report: (e) => { reports.push(e) } })
+  await ledger.beat()
+  assert.equal(ledger.canCarry, true)
+
+  const hung = deferred<Spent>()
+  const opOf = async (pending: Promise<unknown>): Promise<string> => {
+    try {
+      await pending
+    } catch (e) {
+      assert.ok(e instanceof GearTimeoutError, String(e))
+      assert.equal(e.message, `gear: store write timed out (${e.op})`)
+      assert.deepEqual(tagsFor('accounts', e), { where: 'accounts', gear_op: e.op })
+      return e.op
+    }
+    throw new Error('did not time out')
+  }
+  assert.equal(await opOf(ledger.carry(['1'], async () => await hung.promise, carriedOf)), 'carry')
+  assert.equal(await opOf(ledger.resolve(['1'], async () => await hung.promise, 'settle')), 'resolve:settle')
+  assert.equal(await opOf(ledger.resolve(['1'], async () => await hung.promise, 'discard')), 'resolve:discard')
+  assert.equal(await opOf(ledger.resolve(['1'], async () => await hung.promise, 'uncarry')), 'resolve:uncarry')
+  // close waits for the writes in flight: let them land.
+  hung.resolve(spentWith([]))
+
+  // The heartbeat and the release report what they swallow.
+  store.autoAnswer = false
+  await ledger.beat()
+  await ledger.close()
+  assert.deepEqual(reports.map((e) => (e as GearTimeoutError).op), ['beat', 'close:release'])
+  assert.ok(reports.every((e) => e instanceof GearTimeoutError))
+  hungRelease.resolve(0)
+})
+
+test('Sentry tags: where, plus an error\'s own string reportTags; where always wins', () => {
+  assert.deepEqual(tagsFor('loop', new Error('x')), { where: 'loop' })
+  assert.deepEqual(tagsFor('loop', 'a string'), { where: 'loop' })
+  assert.deepEqual(tagsFor('loop', null), { where: 'loop' })
+  assert.deepEqual(tagsFor('loop', { reportTags: { where: 'forged', a: 'b', n: 3 } }), { where: 'loop', a: 'b' })
+  assert.deepEqual(tagsFor('accounts', new GearTimeoutError('beat')), { where: 'accounts', gear_op: 'beat' })
 })

@@ -969,7 +969,7 @@ export default class Worlds {
     counts.kept = taken.length
     const keep = lineageOf(taken)
     const found = taken.filter((item) => item.rowId === undefined)
-    const done = ledger.resolve(keep, async (holder) => await gear.settleGear(account.publicId, holder, keep, found)).then((settled) => {
+    const done = ledger.resolve(keep, async (holder) => await gear.settleGear(account.publicId, holder, keep, found), 'settle').then((settled) => {
       Worlds.accountSuccess()
       Multiplayer.guarded(() => {
         this.emitStash(connection, account, settled.stash, { kept: settled.kept.length + settled.inserted, full: found.length - settled.inserted })
@@ -990,7 +990,7 @@ export default class Worlds {
     const gear = this.gear
     const ledger = this.ledger
     if (ids.length === 0 || gear === undefined || ledger === undefined) return
-    ledger.resolve(ids, async (holder) => await gear.discardGear(holder, ids)).then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
+    ledger.resolve(ids, async (holder) => await gear.discardGear(holder, ids), 'discard').then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
   }
 
   /** Back to the stash (`uncarry`): carried for a run that didn't begin, or that didn't equip them. */
@@ -999,7 +999,7 @@ export default class Worlds {
     const gear = this.gear
     const ledger = this.ledger
     if (ids.length === 0 || gear === undefined || ledger === undefined) return
-    ledger.resolve(ids, async (holder) => await gear.uncarry(holder, ids)).then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
+    ledger.resolve(ids, async (holder) => await gear.uncarry(holder, ids), 'uncarry').then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
   }
 
   /**

@@ -65,7 +65,23 @@ export function reportError (where: string, e: unknown): void {
 
 /** Send `e` to Sentry only, for a site that logs through its own (throttled) log. */
 export function captureError (where: string, e: unknown): void {
-  Sentry.captureException(e, { tags: { where } })
+  Sentry.captureException(e, { tags: tagsFor(where, e) })
+}
+
+/**
+ * An event's tags: `where`, plus what the error names about itself in
+ * `reportTags` (string values only; `GearTimeoutError`'s `gear_op`, decision
+ * #50). `where` always wins. Duck-typed so this file imports nothing of the
+ * game's.
+ */
+export function tagsFor (where: string, e: unknown): Record<string, string> {
+  const tags: Record<string, string> = {}
+  const own = e !== null && typeof e === 'object' ? (e as { reportTags?: unknown }).reportTags : undefined
+  if (own !== null && typeof own === 'object') {
+    for (const [key, value] of Object.entries(own)) if (typeof value === 'string') tags[key] = value
+  }
+  tags.where = where
+  return tags
 }
 
 /** Send what is queued before the process exits; at most `timeoutMs`. */
