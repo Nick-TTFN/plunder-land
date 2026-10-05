@@ -594,8 +594,8 @@ export class GameObject {
           at += 2
           break
         case 'maxVelocity':
-          // As `speed` (27): tenths in a uint16, rounded (149.8 * 10 is
-          // 1497.9999...) and saturated, so no speed can throw inside the tick
+          // As `speed` (27): tenths in a uint16, rounded (a sum such as
+          // 140.1 + 0.2 times 10 is 1402.9999...) and saturated, so no speed can throw inside the tick
           // (loot32's lesson). Index 10 is never written since 49-2.
           GameObject._room(at, 2).writeUInt16BE(Math.max(0, Math.min(0xFFFF, Math.round(value * 10))), at)
           at += 2

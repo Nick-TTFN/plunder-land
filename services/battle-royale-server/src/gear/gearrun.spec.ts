@@ -104,10 +104,14 @@ test('skill items fill gear slot 2, then slot 3, then the bag, one a tick, each 
   assert.ok(player.maxHp > hp, 'equipping applied no stats')
   assert.equal(World.GEAR.length, 2, 'more than one taken in a tick')
 
+  player.dirtyFields.clear()
   player.update(0.25)
   assert.equal(player.gear[1], b, 'the second was not equipped in slot 3 (key 4)')
+  assert.ok(player.dirtyFields.has('carried'), 'slot 3 did not mark carried')
+  player.dirtyFields.clear()
   player.update(0.25)
   assert.deepEqual(player.bag, [c], 'the third did not go into the bag')
+  assert.ok(player.dirtyFields.has('carried'), 'the bag did not mark carried')
   assert.equal(World.GEAR.length, 0)
   // The gear slots' skills are the items' own instances.
   assert.equal(player.gearSkill(0)?.constructor.name, 'ThrowFireball')

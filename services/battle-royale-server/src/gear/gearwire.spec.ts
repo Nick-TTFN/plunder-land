@@ -113,6 +113,11 @@ test('speed goes out as tenths in a uint16 and comes back exact: 147.0 and 73.5'
     assert.deepEqual(Array.from(record.subarray(3)), [27, tenths >> 8, tenths & 0xff], `${speed} not as [27][uint16 tenths]`)
     assert.equal(decodeRecord(new Uint8Array(record), GameObject.fieldOrder).maxVelocity, speed)
   }
+  // A sum a hair under its tenth (140.1 + 0.2 is 140.29999999999998, times 10
+  // 1402.9999999999998) is rounded to the nearest tenth, not floored to 140.2.
+  player.maxVelocity = 140.1 + 0.2
+  const record = player.serialiseBinary(new Set(['id', 'maxVelocity'])) as Buffer
+  assert.equal(decodeRecord(new Uint8Array(record), GameObject.fieldOrder).maxVelocity, 140.3)
 })
 
 test('the owner\'s create carries carried and speed; another client\'s create of it carries neither', () => {
