@@ -59,12 +59,18 @@ cd services/battle-royale-server && npm test          # node --test via ts-node
 The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typechecked**. A
 type error in a spec only shows up if ts-node trips over it at run time.
 
-**`src/db/pgstore.spec.ts` runs only with `TEST_DATABASE_URL`** and otherwise the suite reports 13 pg skips.
-It drops and recreates the `public` schema, so it refuses (fails, not skips) any host but
-127.0.0.1, localhost or ::1 (`isLocalDatabase`). Use a throwaway container on the same major as
+**`src/db/pgstore.spec.ts` and `src/gear/stashpg.spec.ts` run only with `TEST_DATABASE_URL`**
+and otherwise the suite reports 21 pg skips (979 tests at `cb645f2`, measured 2026-10-05).
+pgstore.spec drops and recreates the `public` schema, so it refuses (fails, not skips) any host but
+127.0.0.1, localhost or ::1 (`isLocalDatabase`); stashpg.spec works in its own database
+(`plunder_stash_spec`) on the same server, because spec files run in parallel. Use a throwaway container on the same major as
 Railway, removed by name afterwards:
 `docker run -d --name plunder-pg-spec -p 5439:5432 -e POSTGRES_PASSWORD=spec postgres:18-alpine`,
 then `TEST_DATABASE_URL=postgres://postgres:spec@127.0.0.1:5439/postgres npm test`.
+
+**A fresh worktree needs `npm ci` in `plunder-land-client` too**, not only in the server: many
+server specs import client modules, and without the client's `node_modules` (pixi's types among
+them) those fail to load (15 spec files in 49-3's worktree).
 
 **Server cost per player: `services/battle-royale-server/tools/load/`.** One command
 builds the server, runs it with a timing probe, ramps headless bots and prints a table
@@ -93,6 +99,12 @@ vision is the smallest, so under server fog it is the cheapest viewer). The ramp
 slightly from `57671dc`). **When the ramp's CPU numbers are noisy** (other lanes or apps on
 the machine, as on 2026-10-03), compare two builds of the tick with `tools/load/tickbench.cjs`
 (deterministic, in-process, 400 players, no sockets), and say that sending isn't in it.
+`GEAR=<0-2>` makes every player equip that many max-roll T3 items. **Its world is seeded
+through `Math.random`, and the gear caches (`World.refillCaches`, including its
+`getUnobstructedPosition`) draw from it**, so a build that adds or moves a draw benches a
+different world (49-2: avgHolders 10.1 against 8.6, which read as +9% tick). When comparing across
+a change to world building, give the caches their own RNG in both builds and check `avgHolders`
+agrees; measured that way 49-2 cost +0.094 ms a tick (+3.1%, accepted by Nick, #49).
 **Several worlds** (worlds-per-process): `ramp.sh` passes its environment through, so
 `WORLD_CAP=100 tools/load/ramp.sh …` runs 400 bots as 4 worlds. The probe then sums
 `World.update` and `flushAll` over one pass of the loop (`Worlds.tickAll`), so "world ms" is
@@ -105,7 +117,8 @@ same.
 **A robot's shown stats (HP, armor, speed, pickup reach, `damageScale`) are in the mirrored
 `utils/archetypes.ts` `stats`** and its row takes them from there (`robot()`, robot-select #42), so
 the lobby and the server read one table; `damageScale` multiplies every skill's damage through
-`Skill.dealt` (`robotselect.spec.ts` fails on a hit that skips it). A join picks the robot by
+`Skill.dealt` (`robotselect.spec.ts` fails on a hit that skips it), read through the `Unit.damageScale`
+getter, which `Player` overrides to add gear (#49). A join picks the robot by
 `start_requested.robot` (a key), only from `SELECTABLE_ROBOTS` and only one the account's level has opened (`unlockLevel` on the mirrored row: Peep 1, Magnet 3, Periscope 5, Hopper 8, Waddle 12; #48 step 5), else peep
 (`lockedStart` in `progress/unlocks.ts`, from `Multiplayer.startRequested`; never in `World.robotFor`, so bots ignore locks). The rest of a row:
 body, HP, speed, loot, contact damage with its cooldown and range in rings (`contact.rings`,
@@ -262,7 +275,9 @@ new/returning counts need events only its web tag sends; the first day is in Red
 `exited` only after `Multiplayer.destroy`, so extraction is read from `extracted`; and a killing
 hit destroys its victim before the attacker's `onKill` runs, so `run_end` goes a microtask later
 to carry `killed_by`. `run_end` also carries `xp_gained` (#48 step 3: the formula's XP, 0 offline,
-sent whether or not the grant lands). Smoke tests against production send real events, and since #48 the
+sent whether or not the grant lands) and, since #49, `gear_brought`, `gear_found` and `gear_kept`
+(`gear_kept` is what the run's end sent to the stash, counted before the write, so it is sent
+whether or not the settle lands). Smoke tests against production send real events, and since #48 the
 server picks the id, so record the id the `account` event gives the smoke test.
 
 **The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
@@ -501,6 +516,23 @@ COLLECTION tab, the title (PLUNDERLAND here; the mockup says SCAVENGERS). `asset
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the
 bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out as mojibake.
 
+**The lobby's STASH panel** (#49, 49-4/49-5; `ui/lobby/stashpanel.ts`, DOM, `lb-st-` classes,
+placeholder chrome; logic in the pixi-free `net/stash.ts`, run by `gear/stashclient.spec.ts` and
+`stasheditclient.spec.ts`). Button beside LOADOUT, key S; one of the three panels open at a time. A
+12-cell grid (`STASH_SOFT`) with the overflow under it, and from 12 items a warning that extraction
+still keeps everything; the focused item's card uses the HUD's own words (`itemLines`). The loadout's
+Q W E R sit read-only beside the two bring keys 3 and 4, locked with `LV 3` below `BRING_LEVEL`; a
+part can't be brought, and a duplicate of a kit skill says IN KIT. The picks are remembered per
+account id in localStorage `plunderland_bring` and sent as `start_requested.bring`. **A brought id
+stays remembered while its row is away** (out of `items` during the run that carries it, back under
+the same id on extraction), so it is dropped only from what is shown and sent (`shownBring`), not
+from memory. MERGE picks 3 (other tiers dimmed but tappable, so the reason line can say why), a
+keep chip when skill items are among them, then MERGE 3; the result card (OK, MERGE MORE) is where
+the Q11 reroll would go if Nick ever says yes. SCRAP sits on every card behind a confirm. **The
+client copies no merge odds**: its preview says "by chance", so `PART_MERGE_SKILL_CHANCE` has one
+copy, on the server. No answer within `STASH_EDIT_WAIT_MS` (8 s) frees the buttons. Another tab's
+edits show only at that tab's next `stash`.
+
 `tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went), `exit.png`,
 `portal.png`, `fireball/*`, `explosion/*`, `resource/*`, the `UI/controls/*` icons and the
 four `obstacle_*` groups in the TexturePacker atlas are now unused, and so are the `hexprop/*`
@@ -715,7 +747,7 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 5 since energy** (#48 step 7, 2026-10-04: a start can be refused with `start_refused`, which an older client never hears, so its READY would leave it on an empty screen); 4 was robot and finish locks (an older client offers every robot and finish, which the server would silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
+tabs left open across a release. **`PROTOCOL` is 6 since gear** (#49, 49-2, live 2026-10-05: field indices 25-27; an older client stops parsing its own player's create at 26 or 27, losing its speed, which now goes out as 27 only, and drops a gear pickup's fields); 5 was energy (#48 step 7, 2026-10-04: a start can be refused with `start_refused`, which an older client never hears, so its READY would leave it on an empty screen); 4 was robot and finish locks (an older client offers every robot and finish, which the server would silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
 
 **`account`** (server → client, text; framed clients decode text events; #48): `{ id }` on
 connect for a known handshake token, `{ id, token }` on a connection's first play without one
@@ -739,6 +771,30 @@ and the client goes back to the lobby (`Game.onStartRefused`). An offline accoun
 (it plays free). See "Energy".
 
 **`season`** (server → client, JSON, #48 step 6): `SeasonView` after `account` for a persisted account and after each grant; additive, no PROTOCOL bump (older clients have no handler). **`GET /season`**: see "Weekly seasons".
+
+**`stash`** (server → client, JSON, #49, 49-4): `{ items: [{ id, tier, skill, rolls: [[stat, q], …] }],
+away, run? }` (`gear/stash.ts` `stashEvent`). `items` are the stashed rows in row id order (`id` a
+decimal string, `skill` 0 a part, `stat` a `GEAR_STATS` id, `q` 0-1000); `away` counts rows carried
+right now (this run, another tab, or awaiting a stale return). Sent after every `account` of a
+persisted account (through `loadStash`, which runs the stale return first), after a start that
+carried anything, after a merge or scrap, and after an extraction's or cut-off's settle **with `run`
+`{ kept, full }`** (rows now in the stash from this run, moved plus inserted; found items the store
+turned away: the `STASH_MAX` ceiling, or one it can't store). Never to an offline account, after a
+death, for a bot, or after a settle that failed or timed out. The client clears its view on every
+connect. Additive, no PROTOCOL bump.
+
+**`merge { ids: [a, b, c], keep? }`** → **`merged { ok, item?, reason? }`** and **`scrap { id }`** →
+**`scrapped { id, ok, reason? }`** (client → server and back, JSON, #49, 49-5; `Worlds.merge` /
+`scrap`). `ids` are 3 distinct stash row ids; `keep` is one of the skill-item inputs (absent or null:
+the first skill item in `ids` order; with parts only it must be absent). `item` is in the `stash`
+item shape. `scrapped.id` echoes what was sent, cut to 20 characters, or null. Reasons: `busy` (a
+merge or scrap of this connection is in flight, or its start is: nothing written, no `stash`
+follows), `invalid` (malformed, no account yet, or the store refused: a row missing, carried or
+another account's, mixed tiers, a T3 merge with a skill item, a bad keep), `store` (offline, no
+stash store, or the store failed or took over 3 s; a fresh `stash` is asked for). After `ok` or a
+store-side `invalid` the same transaction's `stash` follows, without `run`. A merge the timeout gave
+up on may still land: a retry of the same ids is then `invalid`, never doubled. Allowed in the lobby
+and mid-run (only stashed rows are touched); persisted accounts only. Additive.
 
 **`save_loadout { robot, index, skills }`** (client → server, text, in the lobby or mid-run, effective
 at the next join) is answered by **`loadout_saved { robot, index, ok, skills, busy? }`**. Refused
@@ -788,7 +844,7 @@ id); the lobby's INVITE copies `?join=<code>&from=<name>`, and a tab opened from
 inviter's code (sessionStorage `plunderland_join`; `ui/lobby/party.ts`, pixi-free and run by
 `party.spec.ts`). Free-for-all all the same. Additive: an old server ignores it.
 
-**Client → server `start_requested` is `{ id, name, finish, robot, party, loadout }`** (`loadout` the robot's loadout index, raw; `kitFor` checks it; absent = 0) (`robot` the picked
+**Client → server `start_requested` is `{ id, name, finish, robot, party, loadout, bring }`** (`loadout` the robot's loadout index, raw; `kitFor` checks it; absent = 0) (`bring`, #49: up to 2 stash row ids as decimal strings, entry 0 for key 3 and entry 1 for key 4, so `[null, "7"]` brings row 7 into key 4; junk, repeats and entries past 2 are empty slots (`gear/stash.ts` `parseBring`); ignored offline, below `BRING_LEVEL` 3 and before the server's gear ledger has heartbeated; a row that doesn't come back, merged or already carried by another tab, leaves its slot empty; never refuses a join; the client sends it only when something is picked) (`robot` the picked
 robot's key; anything not selectable, or not yet opened by the account's level, plays Peep with Peep's loadout; a locked colour or pattern plays as the group's default; never refused; no account (non-strict specs only) has no locks, an offline account has level 1's; until the lobby, the client sends `?robot=` or
 `peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
@@ -905,21 +961,38 @@ it (`GameObject.destroyCollected`; pickup-reach, #42). The client flies the pick
 if it holds it, else disposes it as before. **Client first**; an older client stops at the index,
 after `id`, and drops the pickup as before (`pickupwire.spec.ts`). Tools' tables have the row.
 
+**`gear` (25), `carried` (26) and `speed` (27)** came with gear in the run (#49, 49-2; PROTOCOL 6,
+client first; `gear/gearwire.spec.ts`; the tools' tables have the rows). **`gear`** is on a
+`GearPickup`'s create only: `[uint8 n]` then one instance as `encodeGear` writes it (mirrored
+`utils/gear.ts`: `[uint8 tier][uint8 skill][uint8 rollCount]` then per roll `[uint8 stat][uint16 q]`,
+big-endian; a stash `rowId` is never on the wire). Counted, so a later addition only lengthens it;
+`decodeGear` skips unknown stat ids and trailing bytes, and refuses an unknown skill or tier, which
+the client then draws as an unknown item. **`carried`** is the player's gear, in the owner's create
+and as a delta on change, like `inventory`: `[uint16 n]` then `[uint8 entries = 6]` and per entry
+`[uint8 len][instance]`, len 0 empty; entries 0-1 are keys 3-4, 2-5 the bag. uint16 because six
+entries can pass 255 bytes once rolls grow. **`speed`** is `maxVelocity` in tenths, a uint16,
+rounded and saturated: `GameObject.WIRE_NAME` maps the `maxVelocity` property to it, as `loot` to
+`loot32`, and **index 10 is never written since**. It was an int8 of tens, which floored a geared
+149.8 to 140 and would have set prediction against reconciliation. The client still decodes 10 for
+older servers. Why not a wider `inventory`: shipped clients read it as counts per fixed slot, so
+instance bytes in it would show as garbage counts.
+
 **`item` (17) and `inventory` (18)** belong to usable items. `item` is a uint8 item id on an
 `ItemPickup`; `inventory` is `[uint8 slot count][uint8 count per slot]`, with fixed slots
-(key 1 = medkit, key 2 = bomb, 3–5 empty). The item table's shared half is the mirrored
+(key 1 = medkit, key 2 = bomb, 5 empty; keys 3-4 are gear, carried in `carried` (26), not here). The item table's shared half is the mirrored
 `utils/items.ts`. Its server half is `ITEMS` beside `ARCHETYPES` and `LAYERS`, and each row
 names a behaviour (`heal`, `bomb`), not an item. **`type` is written as an unsigned byte**,
 because `ItemPickup` is type 128. **Client → server `use_item`** has the same bytes as
 `skill` (a slot, plus an optional absolute aim cell), inside `guarded`, validated by
-`Player.tryUseItem`; a refused use spends nothing. **Effect types 7 (bomb fuse) and 8 (bomb
+`Player.tryUseItem`; a refused use spends nothing. Slots 2-3 (keys 3-4) cast the gear in them
+through the same `Skill.execute` a kit skill uses; an empty one is refused. **Effect types 7 (bomb fuse) and 8 (bomb
 blast)** go through `Multiplayer.effectAt`, which picks recipients from the effect's cell and
 layer, not from the originator. A thrown bomb goes off even if its thrower has died or left
 (its fuse timer has no owner), just as a fireball in flight outlives its caster.
 `fieldtable.spec.ts` reads the client's `allFields` with a regex that stops at the first
 `]`, so a comment inside that array must not contain square brackets.
 
-`maxVelocity` is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
+`maxVelocity` (sent as `speed`, 27) is in `allFieldsOwn` and dirty-tracked, because local prediction cannot run
 without it. It is deliberately **not** in `allFields`: remote units are interpolated between
 known positions and never need a speed.
 
@@ -932,7 +1005,8 @@ raw in milliseconds throws `ERR_OUT_OF_RANGE` for every real value including 100
 
 `Hex.SIZE` is **45 world units, the distance between neighbouring cell centres** (not
 centre to corner: a corner is 26 from the centre, the inradius `Hex.RADIUS` 22.5, and one
-ring is 39–45 units depending on direction). `utils/hex.ts`, `utils/path.ts` and `utils/archetypes.ts`
+ring is 39–45 units depending on direction). `utils/hex.ts`, `utils/path.ts`, `utils/archetypes.ts`,
+`utils/items.ts`, `utils/finishes.ts`, `utils/protocol.ts`, `utils/skills.ts` and `utils/gear.ts`
 are byte-identical in both packages (`mirror.spec.ts` enforces it). It was 35, picked so 140 u/s covered one cell
 per 250 ms tick; that coincidence lost to legibility — the player sprite is 50 px and the
 game draws at 1:1, so a 35-unit cell was smaller than the character standing on it. Movement
@@ -1015,6 +1089,11 @@ banked or lost, kills (`kills`, 21), deepest layer and robot, from `Game.RUN`. I
 AGAIN (or Enter / Space) calls `Game.start`; there is no longer a 2 s automatic restart. A
 level-up's XP line is followed by what it opened (`unlockedBetween` in `ui/lobby/locks.ts`, from the
 same mirrored rows as the locks; the level before comes from the lobby's last standing).
+Its GEAR row (`gearLine` in `net/stash.ts`): a death, or any offline end, is GEAR LOST and the
+count from the player's last `carried`; an extraction carrying nothing is GEAR KEPT 0 at once (the
+server sends no settle then); otherwise `...` until the `stash` with `run` (which can land before or
+after the destroy; `RunRecord.stashRun`, reset in `start`), then GEAR KEPT `run.kept`, or STASH FULL
+when `run.full` > 0, and UNAVAILABLE after `PROGRESS_WAIT_MS`.
 
 **The canvas renders at the screen's density** (`index.ts`: `resolution` = devicePixelRatio
 capped at 2, `autoDensity`, re-read on resize). pixi's default of 1 gave a Retina screen a
@@ -1190,7 +1269,15 @@ so `stillPresent` only matters for a held unit idling in the exit margin.
   edit the lists directly: the next lookup rebuilds (counted in `rebuilds`;
   `cellindex.spec.ts` asserts a world run through its own paths never rebuilds). The one
   edit the check can't see keeps a list's length and last element, such as replacing a
-  middle element in place.
+  middle element in place. `PICKUPS` files three lists: `CONSUMABLES`, `ITEMS` and `GEAR`.
+- **Type 128 is shared by `ItemPickup` and `GearPickup`** (#49): `ObjectType` is a bit mask
+  (`typeMask` in `World.FIND_IN_CELLS`) and all 8 bits of the uint8 are taken. The server tells
+  them apart with `World.isGear`, the client by whether the create carries `gear` (25) or `item`
+  (17). **Gear has its own list, `World.GEAR`, and every place that walks `ITEMS` must decide
+  what it does with `GEAR`**: an interest path that misses it never sends gear, and nothing errors
+  (the interest specs, plain and framed, and `pickuppass.spec.ts` hold gear to exact held sets).
+  The bot brain once read `.kind` off any type-128 pickup and threw inside the tick on gear. A spec
+  that lists or clears the world's lists includes `GEAR`.
 - **Tests that tick a real `new World()` get random exits, portals and mobs.** A player
   standing on an exit extracts after the layer's `extractMs`, a portal moves a player to
   another layer, and a mob never steps onto a gate or an arrival cell (`World.mobCanEnter`). Two test flakes came from this (`c14d74a`, `34835e1`; both
@@ -1225,6 +1312,11 @@ provisional), loot what it sees, else wander and sometimes descend. Measured 202
 `bots.spec.ts`'s ten simulated minutes: runs of about 2 min median, most deaths on layers 02-03;
 about 0.013 ms of tick per bot. Natural loot refills every tick, so a bot carried 400-1200 loot
 within 20-100 s: run length is decided by time, not loot.
+**A quarter of bots join carrying cargo** (#49, 49-6; `BOT_CARGO` in `brain.ts`: chance 0.25,
+skill item 30% else a part, tier 1): one rowless item in the bag, given in `BotFill.spawn` after
+`player.bot` is set (before it, `addGear` would equip a skill item and change the bot's stats).
+A bot puts everything it picks up in the bag and never casts gear; it drops it all on death like a
+player, and its extraction loses found gear and deletes stash rows it carried (`discardGear`).
 
 ## Spectate
 
@@ -1322,8 +1414,8 @@ names are sanitised and public, and the ids link them to `/stats` (disclosed on 
 Nick 2026-10-04). **Deleting a player's season data** (privacy requests, by hand through `railway
 connect`): find the account by `season_entries.name` (names aren't unique: confirm by id or dates),
 then `DELETE FROM season_payouts WHERE account_id = $1; DELETE FROM season_entries WHERE account_id =
-$1;` (both reference `accounts`, so they go before any account row; so do `energy`, `loadouts` and
-`account_progress`).
+$1;` (both reference `accounts`, so they go before any account row; so do `energy`, `loadouts`,
+`account_progress` and, since #49, `stash_items`: add `DELETE FROM stash_items WHERE account_id = $1;`).
 
 **Energy** (#48 step 7, `progress/energy.ts`; numbers are `ENERGY` in `progress/xp.ts`, Nick's #48:
 1 play per 30 min, cap 3, a new account starts with 6, nothing regenerates above the cap). A run
@@ -1344,6 +1436,56 @@ than 30 minutes ends at cap + 1 (never higher: above the cap no clock runs). The
 plays under READY (`net/energy.ts` `energyLine`, counted forward on the client) and disables READY
 at 0 until the next play is due; the server decides regardless. Every start now waits one database
 round trip (a transaction of four statements) before its `hello`.
+
+**Stash** (#49, 49-3..49-5, live 2026-10-05; see "Gear" for the items themselves). Migration 6:
+`stash_items` (a row is `state` 0 stashed or 1 carried; a carried row names `holder`, the boot id of
+the process whose memory may hold its copy; `source` 1 found, 2 merged, append-only) and
+`gear_holders` (each process's last heartbeat). **The invariant that keeps items single:** an
+instance with a `rowId` only ever moves or deletes its own row, conditionally on `state = 1 AND
+holder = <this boot>`, and is never inserted; only rowless (found) instances are inserted, once, at
+the run end of whoever takes them out, and they come off the player in the same synchronous step.
+The worst a failure can do is lose an item or return it to its last owner. The stash methods are
+not on `AccountStore` (six specs outside `db/` implement it): carrying and settling are `GearStore`
+(found by `gearStoreOf` at run time; a store without all six methods plays with no stash, and boot
+warns `gear: the account store has no stash methods`), merge and scrap are `StashEdits`
+(`stashEditsOf`). Merge takes the rule as a callback (`mergeOutcome`, `gear/merge.ts`), so a Q11
+reroll, if Nick says yes, would call it again without touching store code. **`GearLedger`**
+(`gear/ledger.ts`, one per process, per worker under `WORKERS`): a random boot id, refcounted claims
+on row ids (a claim is taken before the carry is issued and let go only when the write that resolves
+it settles or times out), and a heartbeat at boot and every 60 s (a plain unref'd timer, store
+work). No carry before a heartbeat has landed within `FRESH_MS` (5 min): a holder missing from
+`gear_holders` reads as dead. Each heartbeat also returns this holder's rows that it no longer holds
+and that were carried over `RECONCILE_AFTER_MS` (2 min) ago. **A dead holder's rows return to the
+stash 15 minutes after its last heartbeat** (`STALE_CARRY_MS`, at the owner's next `loadStash`), not
+15 minutes after the carry: counted from the carry, a run longer than 15 minutes would have its item
+returned while still in the world, which dupes (Archie's reading of the spec, told to Nick). The
+start carries `bring` in the same transaction as the energy spend (`ledger.carry`); `admit` first
+waits for the connection's previous settle (bounded), whose rows are still carried; a store failure
+plays free and with no gear; whatever was carried but isn't on a live run's player goes back
+(`uncarry`). **Every run end** (`Multiplayer.gearEnded`, from the `runOver` block, bots included):
+
+| End | Found (no `rowId`) | Stash row (`rowId`) |
+|---|---|---|
+| Extraction or drain cut-off, persisted account owning the run | inserted (`settleGear`, up to `STASH_MAX`) | kept or transferred (`settleGear`) |
+| Death or own disconnect | nothing written; dropped on death | nothing written; dropped keeping `rowId` |
+| Extraction offline, under another account, or a bot's | lost | deleted (`discardGear`) |
+
+Keep and discard take the gear off the player before the write, so a cut-off player's disconnect
+sweep drops nothing. A dropped stash item expiring on the ground, and every stash item in a world
+being closed, is deleted too. Extraction never loses an item (Nick, #49): above 12 the stash asks for
+a merge or scrap, and `STASH_MAX` 100 is only a storage ceiling. No XP for kept items. A merge or
+scrap is one transaction on stashed rows only; one stash write in flight per connection, none while
+its start is. **On a drain, `ledger.close()` before `accounts.close()`** (`index.ts`): it waits for
+the settles the disconnects issued, then `releaseHolder` hands back every row this boot still
+carries; SIGINT skips it and the stale return covers a crash. A death in the last ~30 s before a
+deploy or crash may return the dead owner's items (Nick: accepted, favours the player).
+**Known, not fixed:** merge locks its rows `ORDER BY id FOR UPDATE`, but the carry's `UPDATE … id =
+ANY` locks in plan order, so a deadlock is possible (unseen in 24 rounds of `pgstore.spec`'s race 2
+under load). Postgres would abort one side: the merge answers `store`, or the spend rolls back and
+the start plays free without gear; never a duplicate. If it shows in the logs, lock the carry's rows
+first with `SELECT … ORDER BY id FOR UPDATE`. A `GearTimeoutError` doesn't yet say which write
+(heartbeat, carry or resolve) timed out (decision #50: label it); one on 2026-10-05 was a slow
+heartbeat, harmless.
 
 ## Skills
 
@@ -1410,6 +1552,50 @@ stone on its next cell would trap it. `World.BLOCKED` maps each cell to its one
 blocker, not a count, so two blockers on one cell would let the first to expire unblock
 the other's cell. The skip is what makes a stone's unconditional unblock safe.
 
+## Gear
+
+**Skill items and parts** (decision #49, live 2026-10-05 as `cb645f2`; design
+`ideas/skill-items-and-stash.md` in the project memory; the stash is under Accounts). An instance is
+`{ tier 1-3, skill, rolls, rowId? }`: `skill` a `utils/skills.ts` id, 0 for a part (no rolls, only for
+merging); T1 one roll, T2-T3 two, on different stats; each roll a stat id and a quality `q`, an
+**integer 0-1000 everywhere** (database, JSON, binary), turned into a value by `rollValue`, so the
+lobby and the HUD print the same number; `rowId`, the stash row it came from, is server-only.
+`utils/gear.ts` is mirrored: `GEAR_STATS` (ids append-only, per-tier ranges, caps summed over both
+slots), `GEAR_SLOTS` 2, `GEAR_BAG` 4, `STASH_SOFT` 12, `STASH_MAX` 100, `BRING_LEVEL` 3, and
+`encodeGear`/`decodeGear`. The ranges are mirrored because the client prints values and an item
+skill's cooldown, so a retune needs both deploys, client first. The drops are server-only, in
+`LAYERS[].gear` (caches, respawn, mixes, mob chances; T3 is never found or dropped).
+
+**Stats go through the existing paths, cached once at `Player.equipGear`, nothing per tick:**
+damage through the `Unit.damageScale` getter that `Skill.dealt` reads; max HP and armor
+`round(base * (1 + pct/100))`, with hp and armor rising by the same delta (gear only arrives
+mid-run); speed added to `maxVelocity` as a delta rounded to tenths, so a running `Slowdown` still
+restores correctly and `speed` (27) carries it exactly; pickup reach `effectiveReach` (base + bonus,
+at most 2, Magnet's 3 untouched). Don't declare `armor`/`maxArmor` on `Player` (the TS2610 trap
+above). **A duplicate** (an item whose skill is already in the kit or the other slot) fires that
+existing instance and shares its cooldown; its cooldown roll doesn't apply, its other rolls do
+(Nick, #49; `DUPLICATE_CUTS_COOLDOWN` false is the whole rule).
+
+**In the run** (49-2): natural caches per layer (`gear.caches`, no expiry) are placed one a tick
+while the layer is short, and a taken one comes back after `cacheRespawnMs` on a timer owned by the
+world (`CACHES_PENDING`), not refilled every tick like medkits, which would make gear unbounded. Mobs
+drop by `World.createGearFrom` beside `createLootFrom`; drops expire after 30 s. A skill item goes
+into the first empty key (3 or 4), else the bag; a part, and everything a bot takes, into the bag;
+with no room the pickup stays. Nothing moves between bag and keys mid-run (Nick, #49). Death and
+disconnect drop keys and bag (`takeGear`, `rowId` kept). The HUD's keys 3-4 are gear cards
+(`ui/components/gearpanel.ts`, `GearSlot` extends `SkillCard`, so touch arming works; cooldown from
+the client's skill class times the roll, the kit card's for a duplicate) with roll lines on hover or
+long press, and a four-icon bag. The pickup art is a placeholder (a skill icon in a tier ring, a hex
+for a part).
+
+**Merge** (`gear/merge.ts` `mergeOutcome`, 49-5): 3 stashed items of one tier. Any skill item among
+them makes a skill item of the next tier with the kept input's skill and fresh rolls. Parts only: T1
+makes a T2 skill item 15% of the time, T2 a T3 one 25% (`PART_MERGE_SKILL_CHANCE`), else a part of
+the next tier; 3 T3 parts make a T3 skill item, always (so 27 T1 parts always reach one). A T3 merge
+with a skill item is refused: there is no tier 4 (Beck's rule; the spec is silent, flagged to Nick).
+A scrap pays nothing: loot is not a currency (#48, #49). Q11, an ad-gated reroll of a merge result,
+is open: not built, not ruled out.
+
 ## Known-unfixed
 
 - **Levels never change.** `setLevel(1)` is called once; `LEVEL_THRESHOLDS` sits commented
@@ -1442,7 +1628,8 @@ the other's cell. The skip is what makes a stone's unconditional unblock safe.
   within `pickupReach` rings: 1 (#42; Magnet 3), null = own cell**, one loot and one item a tick
   (`Player.pickUp`). A taken pickup's destroy names its taker (`collector`, 24), and the client
   flies it into them (`Game.flyToCollector`, 250 ms). Death drops (loot and items) land on free cell centres within
-  `World.DROP_RINGS` (2), never on a rock or portal cell (`World.dropCells`).
+  `World.DROP_RINGS` (2), never on a rock or portal cell (`World.dropCells`). Gear (#49) is
+  picked up the same way, one gear pickup a tick, and dropped on death with the rest.
 - **Dropped loot expires after `World.DROPPED_LOOT_LIFETIME` (30s); natural spawns do not.**
   The world's own spawner is bounded by a count, drops were not.
 - **Dash is 3 cells of route at 2.5× speed** (#34, `Unit.dash`, `Unit.routeBudget`;

@@ -88,7 +88,22 @@ both sides in the same task (details in CLAUDE.md, "Wire format"):
   duplicated on both sides by hand. Also its standing fields (`xp, level, levelAt, nextAt`) and
   the `progress` event (#48 step 3; server `network/worlds.ts` `grant`, `progress/xp.ts`
   `standingOf`; client `net/account.ts`, `index.ts`, `ui/popups/runsummary.ts`, `ui/lobby/lobby.ts`).
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 5 since #48 step 7): bump it with any change an older
+- `utils/gear.ts` (mirrored; `GEAR_STATS` ids append-only; `encodeGear`/`decodeGear` are the
+  instance bytes inside fields 25 and 26), the fields 25 `gear`, 26 `carried` and 27 `speed`
+  (`WIRE_NAME` maps `maxVelocity` to 27; index 10 is never written) and `use_item` slots 2-3 casting
+  gear (#49, 49-1/49-2; server `objects/gameobject.ts`, `objects/player.ts`, `objects/gearpickup.ts`,
+  `network/multiplayer.ts`; client `game.ts`, `net/records.ts`, `objects/gearpickup.ts`,
+  `ui/components/gearpanel.ts`; spec `gear/gearwire.spec.ts`). **Type 128 is shared by item and gear
+  pickups**: anything that walks `World.ITEMS` must decide what it does with `World.GEAR`.
+- `start_requested.bring` and the `stash` event (with `run`) (#49, 49-4; server `network/worlds.ts`
+  `admit`/`gearEnded`, `gear/stash.ts`, `multiplayer.ts` `parseStart`; client `net/stash.ts`,
+  `ui/lobby/stashpanel.ts`, `lobby.ts`, `game.ts`, `index.ts`, `ui/popups/runsummary.ts`; spec
+  `gear/stashclient.spec.ts`), and `merge`/`merged`, `scrap`/`scrapped` (49-5; server
+  `network/worlds.ts`, `gear/merge.ts`; client `net/stash.ts`, `ui/lobby/stashpanel.ts`; spec
+  `gear/stasheditclient.spec.ts`, which runs the client's `mergeCheck` against the server's
+  `mergeOutcome`). `run_end`'s `gear_brought`, `gear_found`, `gear_kept` are append-only like every
+  GA param. Migration 6 (`stash_items`, `gear_holders`) is additive only, as every migration.
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 6 since #49, 49-2): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
 - **Who is sent what is a contract too, though no byte changes** (server fog, #48):
   `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what
@@ -108,10 +123,11 @@ cd services/battle-royale-server && npm test            # node --test over src/*
 
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
-CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-10-03,
-after 48-6: client 22, server 0, 825 tests with 13 pg skips.)
+CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-10-05 at
+`cb645f2`, after #49: client 22, server 0, 979 tests with 21 pg skips.) A fresh worktree needs
+`npm ci` in `plunder-land-client` as well, or the server specs that import client modules fail to load.
 
-`src/db/pgstore.spec.ts` needs `TEST_DATABASE_URL`; without it the suite reports 13 pg skips. It drops the
+`src/db/pgstore.spec.ts` and `src/gear/stashpg.spec.ts` need `TEST_DATABASE_URL`; without it the suite reports 21 pg skips. pgstore.spec drops the
 `public` schema, so it refuses any host but localhost; use a throwaway `postgres:18-alpine`
 container on a spare port, removed by name (command in CLAUDE.md, "Verification path"). Never
 point it at Railway.
@@ -203,7 +219,7 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`. Dez states values in the spec and Beck applies them.
+  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges and caps in the mirrored `utils/gear.ts` (both deploys, client first), the drops in `LAYERS[].gear` in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). Dez states values in the spec and Beck applies them.
 - **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See CLAUDE.md,
   Known-unfixed.
 - Art is Nick's boundary. Every unit and two player clips are still missing (the arena pass of
