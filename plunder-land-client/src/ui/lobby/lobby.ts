@@ -630,7 +630,7 @@ export default class Lobby extends Container {
       this.customize.classList.add('lb-hidden')
       this.loadout.root.classList.add('lb-hidden')
       // The loadout may have changed since: the IN KIT marks follow it.
-      this.stash.render()
+      this.stash.opened()
     }
     this.root.classList.toggle('lb-editing', show)
   }

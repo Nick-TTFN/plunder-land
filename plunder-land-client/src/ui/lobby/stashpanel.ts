@@ -21,15 +21,22 @@ function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, 
 }
 
 /**
- * Each skill's icon as a data URL, made once per page; '' while it is made or
- * when it failed. The same as `loadoutpanel.ts`'s, which keeps its own private
- * (49-4's allowed paths didn't include that file; one shared helper later).
+ * Each skill's icon as a data URL, made once per page; '' when it failed. The
+ * same as `loadoutpanel.ts`'s, which keeps its own private (49-4's allowed
+ * paths didn't include that file; one shared helper later).
+ *
+ * Started when the panel is built, as the loadout panel's are: in a
+ * headless render (software GL, 2x) the eight extracts took several seconds,
+ * so starting them only on the first open left the icons blank meanwhile. An
+ * icon that failed is tried again at the next open; each finished pass draws
+ * the panel again.
  */
 const ICONS = new Map<number, string>()
 let iconsLoading: Promise<void> | undefined
 
 async function loadIcons (): Promise<void> {
   for (const info of SKILL_LIST) {
+    if (ICONS.get(info.id) !== undefined && ICONS.get(info.id) !== '') continue
     const texture = iconTexture(info.id)
     if (texture === undefined || Game.RENDERER === undefined) {
       ICONS.set(info.id, '')
@@ -106,9 +113,23 @@ export class StashPanel {
     this.root.append(head, this.kitRow, this.warn, this.grid, this.over, this.overGrid, this.detail, foot)
     ACCOUNT.listeners.add(this.onChange)
     STASH.listeners.add(this.onChange)
-    if (iconsLoading === undefined) iconsLoading = loadIcons()
-    void iconsLoading.then(() => { if (!this.disposed) this.render() })
+    this.loadIcons()
     this.render()
+  }
+
+  /** The panel was opened: make any icon not made yet, and draw it. */
+  opened (): void {
+    this.loadIcons()
+    this.render()
+  }
+
+  private loadIcons (): void {
+    if (iconsLoading === undefined) {
+      iconsLoading = loadIcons().then(() => {
+        iconsLoading = undefined
+        if (!this.disposed) this.render()
+      })
+    }
   }
 
   private get level (): number {

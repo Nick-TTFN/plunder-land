@@ -109,7 +109,7 @@ export const LOBBY_CSS = `
 .lb-lo-badge { position: absolute; top: 3px; right: 4px; font-size: 9px; padding: 1px 4px; border-radius: 3px; background: #1A2533; color: #a9bccd; }
 .lb-lo-on { background: #3DE0D0; color: #0B1220; }
 .lb-lo-status { font-size: 12px; letter-spacing: .1em; color: #a9bccd; }
-.lb-stash { max-height: calc(100% - 110px); overflow-y: auto; }
+.lb-stash { max-height: calc(100% - 290px); overflow-y: auto; }
 .lb-st-count { font-size: 13px; letter-spacing: .08em; color: #a9bccd; }
 .lb-st-kit { display: grid; grid-template-columns: repeat(4, 1fr) 6px repeat(2, 1.2fr); gap: 6px; padding: 14px 0; border-bottom: 1px solid #1E3344; }
 .lb-st-kit > :nth-child(5) { grid-column: 6; }
