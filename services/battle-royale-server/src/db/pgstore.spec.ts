@@ -637,6 +637,23 @@ pgTest('the admin contract against Postgres (decision #50), and close waits for 
   assert.equal(await withClient(async (client) => Number((await client.query('SELECT count(*) AS n FROM stash_items WHERE source = 3')).rows[0].n)) >= 2, true)
 })
 
+pgTest('admin grants under load: five at once on one account never take it past STASH_MAX (the stash lock)', async () => {
+  const store = await readyStore()
+  try {
+    const parts = Array.from({ length: 30 }, () => PART)
+    for (let round = 0; round < 10; round++) {
+      const { account } = await store.create()
+      // Five clients open first, so the transactions really overlap.
+      await Promise.all(Array.from({ length: 5 }, async () => await store.pool.query('SELECT 1')))
+      const granted = await Promise.all(Array.from({ length: 5 }, async () => await store.adminGrantGear(account.publicId, parts)))
+      assert.deepEqual(granted.map((g) => g?.inserted).sort(), [0, 0, 30, 30, 30], `round ${round}`)
+      assert.equal((await store.adminRead(account.publicId))?.stashed, 90, `round ${round}`)
+    }
+  } finally {
+    await store.close()
+  }
+})
+
 pgTest('race 1 under load: many concurrent spends bringing the same items, each item carried once', async () => {
   const store = await readyStore()
   try {
