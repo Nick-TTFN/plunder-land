@@ -683,6 +683,17 @@ export class Unit extends GameObject {
   }
 
   /**
+   * One multiplier on all the damage this unit's skills deal (`Skill.dealt`):
+   * its archetype's, 1 for a bare unit. `Player` adds its gear's bonus
+   * (#49). A getter, so nothing is cached that an archetype swap could leave
+   * stale; never declare a `damageScale` field on a subclass (it would
+   * shadow this, the `armor` trap).
+   */
+  get damageScale (): number {
+    return this.archetype?.damageScale ?? 1
+  }
+
+  /**
    * `archetype.armor.refillPerSec`, once `delayMs` has passed since the last
    * hit that did damage. A comparison against the clock, not a Timers entry:
    * it moves on every hit, and re-arming a timer per hit is churn for nothing.

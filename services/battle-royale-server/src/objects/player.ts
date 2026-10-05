@@ -3,8 +3,9 @@ import { GameObject, ObjectType } from './gameobject'
 import { type Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { type Skill } from '../skills/skill'
-import { type Archetype, ARCHETYPES, buildKit } from '../archetypes/archetypes'
-import { LOADOUT_SIZE, START_KIT } from '../utils/skills'
+import { type Archetype, ARCHETYPES, buildKit, buildSkillById } from '../archetypes/archetypes'
+import { LOADOUT_SIZE, START_KIT, skillById } from '../utils/skills'
+import { type GearEffect, type GearInstance, GEAR_SLOTS, NO_GEAR_EFFECT, effectiveReach, gearEffect, itemCooldownMs } from '../utils/gear'
 import World from './world'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Timers from './timers'
@@ -90,6 +91,20 @@ export default class Player extends Unit {
   private _healLeft = 0
   private _healPerSec = 0
   private _healCarry = 0
+
+  /**
+   * Equipped gear (decision #49): one item per slot (keys 3 and 4), null when
+   * empty; the skill each slot fires, which for a duplicate is the kit's (or
+   * the other slot's) own instance; the summed, capped bonuses, computed once
+   * per `equipGear` and read by the stat paths, never per tick; and the speed
+   * the bonus has added to `maxVelocity`, so a change is applied as a delta.
+   * Written only after construction (`equipGear`), never from a
+   * base-constructor hook, so plain initialisers are safe.
+   */
+  private readonly _gear: Array<GearInstance | null> = new Array<GearInstance | null>(GEAR_SLOTS).fill(null)
+  private readonly _gearSkills: Array<Skill | null> = new Array<Skill | null>(GEAR_SLOTS).fill(null)
+  private _gearEffect: GearEffect = NO_GEAR_EFFECT
+  private _gearSpeed = 0
 
   /**
    * Every player is a peep until `robot-type-on-join` lets them choose.
@@ -250,7 +265,7 @@ export default class Player extends Unit {
    * `indexOf` on its list, once per pickup taken.
    */
   private pickUp (): void {
-    const reach = this.archetype.pickupReach ?? 0
+    const reach = this.pickupReach
     let loot: Consumable | undefined
     let item: ItemPickup | undefined
     World.forKeysWithin(this.cell, reach, (key) => {
@@ -459,6 +474,117 @@ export default class Player extends Unit {
     this._healLeft -= whole
     const hp = Math.min(this.maxHP(), this.hp + whole)
     if (hp !== this.hp) this.hp = hp
+  }
+
+  // Gear ========
+
+  /** The equipped gear, by slot (null = empty). Read-only; see `equipGear`. */
+  get gear (): ReadonlyArray<GearInstance | null> {
+    return this._gear
+  }
+
+  /** The summed, capped bonuses of the equipped gear (`gearEffect`), as of the last `equipGear`. */
+  get gearEffect (): GearEffect {
+    return this._gearEffect
+  }
+
+  /** The skill gear slot `slot` fires, or null. A duplicate's is the kit's own instance. */
+  gearSkill (slot: number): Skill | null {
+    return this._gearSkills[slot] ?? null
+  }
+
+  /** The archetype's `damageScale` plus the gear's, through `Skill.dealt` (#49). */
+  get damageScale (): number {
+    return super.damageScale + this._gearEffect.damageScale
+  }
+
+  /**
+   * Rings within which loot and items are taken: the robot's, raised by gear
+   * to at most 2, and a robot already at 2 or more (Magnet) untouched
+   * (`effectiveReach`).
+   */
+  get pickupReach (): number {
+    return effectiveReach(this.archetype.pickupReach ?? 0, this._gearEffect.reach)
+  }
+
+  /**
+   * Put a skill item in gear slot `slot` (0 or 1, keys 3 and 4) and apply
+   * its stats. Refused (false, nothing changes) for a slot out of range or
+   * already holding an item, a part, or a skill this build doesn't know:
+   * gear only arrives mid-run and leaves only by death (49-2 empties the
+   * slots for the drop).
+   *
+   * The slot's skill: a **duplicate** (the skill is already in the kit, or in
+   * the other gear slot) fires that existing instance and shares its
+   * cooldown (spec Q7); whether its cooldown roll applies there is
+   * `itemCooldownMs`'s rule (no, Nick 2026-10-05). Otherwise a new instance,
+   * its cooldown cut by the item's own roll.
+   */
+  equipGear (slot: number, item: GearInstance): boolean {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= GEAR_SLOTS) return false
+    if (this._gear[slot] !== null) return false
+    if (item.skill === 0 || skillById(item.skill) === undefined) return false
+
+    const shared = this.instanceOf(item.skill)
+    let skill: Skill
+    if (shared !== null) {
+      skill = shared
+      skill.cooldown = itemCooldownMs(skill.cooldown, item, true)
+    } else {
+      skill = buildSkillById(this, item.skill)
+      skill.cooldown = itemCooldownMs(skill.cooldown, item, false)
+    }
+    this._gear[slot] = item
+    this._gearSkills[slot] = skill
+    this.applyGear()
+    return true
+  }
+
+  /** The instance already firing skill `id`: a kit slot's, else a gear slot's; null if none. */
+  private instanceOf (id: number): Skill | null {
+    const kit = this.slotOf(id)
+    if (kit >= 0) return this.skills[kit]
+    for (let i = 0; i < GEAR_SLOTS; i++) {
+      if (this._gear[i]?.skill === id) return this._gearSkills[i]
+    }
+    return null
+  }
+
+  /**
+   * Recompute the gear's bonuses once and apply them through the existing
+   * stats. Max HP and max armor are `round(base * (1 + pct / 100))` from the
+   * archetype; a rise lifts hp and armor by the same amount. Speed is added
+   * to `maxVelocity` as the change in the bonus (rounded to tenths, which
+   * 49-2's `speed` field carries exactly), never assigned, so a `Slowdown`
+   * running now still restores to base + gear.
+   */
+  private applyGear (): void {
+    const effect = gearEffect(this._gear)
+    const base = this.archetype
+
+    const maxHp = Math.round(base.maxHp * (1 + effect.hpPct / 100))
+    const hpRise = maxHp - this.maxHp
+    if (hpRise !== 0) {
+      this.maxHp = maxHp
+      this.hp = hpRise > 0 ? this.hp + hpRise : Math.min(this.hp, maxHp)
+    }
+
+    if (base.armor.max > 0) {
+      const maxArmor = Math.round(base.armor.max * (1 + effect.armorPct / 100))
+      const armorRise = maxArmor - this.maxArmor
+      if (armorRise !== 0) {
+        this.maxArmor = maxArmor
+        this.armor = armorRise > 0 ? this.armor + armorRise : Math.min(this.armor, maxArmor)
+      }
+    }
+
+    const speed = Math.round(base.speed * effect.speedPct / 10) / 10
+    if (speed !== this._gearSpeed) {
+      this.maxVelocity += speed - this._gearSpeed
+      this._gearSpeed = speed
+    }
+
+    this._gearEffect = effect
   }
 
   setLevel (value: number): void {

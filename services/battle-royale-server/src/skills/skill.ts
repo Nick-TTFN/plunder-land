@@ -40,12 +40,13 @@ export class Skill {
   }
 
   /**
-   * Damage this skill deals, times the owner's archetype `damageScale`
-   * (robot-select, #42: one multiplier on all of a robot's skill damage).
-   * Every skill that hits goes through here. Not floored: `hit` floors.
+   * Damage this skill deals, times the owner's `damageScale` (robot-select,
+   * #42: one multiplier on all of a robot's skill damage; a player's gear adds
+   * to it, #49). Every skill that hits goes through here. Not floored: `hit`
+   * floors.
    */
   protected dealt (base: number): number {
-    return base * (this.owner.archetype?.damageScale ?? 1)
+    return base * this.owner.damageScale
   }
 
   /** True when `aimCell` names a cell other than the one the caster stands on. */

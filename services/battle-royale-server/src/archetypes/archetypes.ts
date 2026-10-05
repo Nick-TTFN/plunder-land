@@ -14,7 +14,8 @@ import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
 import { ARCHETYPE_INFO, type ArchetypeInfo } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
-import { type SkillKey, skillById } from '../utils/skills'
+import { type SkillKey, skillById, SKILL_LIST } from '../utils/skills'
+import { type GearInstance, type GearRoll, type GearTier, GEAR_STAT_LIST, Q_MAX, rollCount } from '../utils/gear'
 
 /**
  * Every kind of unit, as data (decision #23, design `ideas/unit-archetypes-design.md`).
@@ -387,6 +388,33 @@ export interface LayerMobs {
   count: number
 }
 
+/** Shares of a gear pickup by kind and tier; each set sums to 1. */
+export interface GearMix { part: number, t1: number, t2: number }
+
+/**
+ * A layer's gear drops (decision #49, spec `ideas/skill-items-and-stash.md`
+ * section 3, verbatim; all judgement, Dez). Read by 49-2 (caches and mob
+ * drops) and 49-5. T3 is never found, only merged.
+ */
+export interface GearDrops {
+  /** Natural caches standing on the layer. */
+  caches: number
+  /** How long after a cache is taken another one appears, in ms. */
+  cacheRespawnMs: number
+  /** What a cache holds: a part, a T1 skill item or a T2 skill item. */
+  cacheMix: GearMix
+  /** The chance a kill of this mob drops a gear item, by archetype key (0 = never). */
+  mobChance: { grunt: number, gunner: number, boss: number }
+  /**
+   * A grunt's or gunner's item: part or skill item. Spec section 3 gives no
+   * tier for these; T1 (`mobTier`) is assumed (49-1, for Dez to confirm).
+   */
+  mobMix: { part: number, skill: number }
+  mobTier: GearTier
+  /** A boss's item is always a skill item, T1 or T2 by these shares; null where no boss lives. */
+  bossTiers: { t1: number, t2: number } | null
+}
+
 /**
  * A ground layer and everything the world keeps on it (decisions #3, #10, #16,
  * #26; numbers from `ideas/balance-pass.md` section 1).
@@ -435,6 +463,8 @@ export interface LayerSpec {
    * player drops is on top and does not count (it expires on its own).
    */
   items: LayerItems[]
+  /** Gear caches and drops (decision #49). */
+  gear: GearDrops
 }
 
 /**
@@ -474,7 +504,16 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     items: [
       { item: ITEMS.medkit, count: 8 },
       { item: ITEMS.bomb, count: 3 }
-    ]
+    ],
+    gear: {
+      caches: 1,
+      cacheRespawnMs: 180000,
+      cacheMix: { part: 0.75, t1: 0.22, t2: 0.03 },
+      mobChance: { grunt: 0.03, gunner: 0, boss: 0 },
+      mobMix: { part: 0.8, skill: 0.2 },
+      mobTier: 1,
+      bossTiers: null
+    }
   },
   {
     tag: -1,
@@ -494,7 +533,16 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     items: [
       { item: ITEMS.medkit, count: 10 },
       { item: ITEMS.bomb, count: 5 }
-    ]
+    ],
+    gear: {
+      caches: 1,
+      cacheRespawnMs: 120000,
+      cacheMix: { part: 0.65, t1: 0.28, t2: 0.07 },
+      mobChance: { grunt: 0.04, gunner: 0.08, boss: 0.5 },
+      mobMix: { part: 0.75, skill: 0.25 },
+      mobTier: 1,
+      bossTiers: { t1: 0.7, t2: 0.3 }
+    }
   },
   {
     tag: -2,
@@ -514,7 +562,16 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     items: [
       { item: ITEMS.medkit, count: 12 },
       { item: ITEMS.bomb, count: 7 }
-    ]
+    ],
+    gear: {
+      caches: 2,
+      cacheRespawnMs: 90000,
+      cacheMix: { part: 0.55, t1: 0.33, t2: 0.12 },
+      mobChance: { grunt: 0.05, gunner: 0.1, boss: 0.5 },
+      mobMix: { part: 0.7, skill: 0.3 },
+      mobTier: 1,
+      bossTiers: { t1: 0.5, t2: 0.5 }
+    }
   }
 ])
 
@@ -537,6 +594,40 @@ export function buildKit (owner: Unit, kit: readonly number[]): Array<Skill | nu
     if (info === undefined) throw new Error(`no skill with id ${id}`)
     return buildSkill(owner, SKILL_SPECS[info.key], info.key)
   })
+}
+
+/**
+ * One player skill by its mirrored id, with `SKILL_SPECS`' overrides, as
+ * `buildKit` builds each slot: a gear item's own skill (`Player.equipGear`).
+ * An unknown id throws.
+ */
+export function buildSkillById (owner: Unit, id: number): Skill {
+  const info = skillById(id)
+  if (info === undefined) throw new Error(`no skill with id ${id}`)
+  return buildSkill(owner, SKILL_SPECS[info.key], info.key)
+}
+
+/**
+ * A fresh gear instance (decision #49, spec section 1), pure but for
+ * `random` (0 <= r < 1, e.g. `Math.random`). A part has skill 0 and no
+ * rolls. A skill item's skill is uniform over every `SKILL_LIST` id (level
+ * locks don't apply: a found skill above your level is a tease, spec Q3); it
+ * has `rollCount(tier)` rolls on different stats, drawn without repeats from
+ * those rollable at the tier (so reach only at T3), each with q uniform over
+ * the integers 0..1000. Used by 49-2 (drops) and 49-5 (merge).
+ */
+export function rollGear (tier: GearTier, kind: 'part' | 'skill', random: () => number): GearInstance {
+  if (kind === 'part') return Object.freeze({ tier, skill: 0, rolls: Object.freeze([]) })
+  const pick = (n: number): number => Math.min(n - 1, Math.floor(random() * n))
+  const skill = SKILL_LIST[pick(SKILL_LIST.length)].id
+  const pool = GEAR_STAT_LIST.filter((stat) => stat.ranges[tier - 1] !== null).map((stat) => stat.id)
+  const rolls: GearRoll[] = []
+  const count = Math.min(rollCount(tier), pool.length)
+  for (let i = 0; i < count; i++) {
+    const stat = pool.splice(pick(pool.length), 1)[0]
+    rolls.push(Object.freeze({ stat, q: pick(Q_MAX + 1) }))
+  }
+  return Object.freeze({ tier, skill, rolls: Object.freeze(rolls) })
 }
 
 function buildSkill (owner: Unit, spec: SkillSpec, label: string): Skill {
