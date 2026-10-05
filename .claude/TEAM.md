@@ -124,10 +124,10 @@ cd services/battle-royale-server && npm test            # node --test over src/*
 The client has no tests, and its build does not run the typechecker, so a client build
 passing proves nothing about types. Any client error outside the three known groups listed in
 CLAUDE.md is a regression; compare the sorted list, not just the count. (Measured 2026-10-05 at
-`cb645f2`, after #49: client 22, server 0, 979 tests with 21 pg skips.) A fresh worktree needs
+`cb645f2`, after #49: client 22, server 0, 979 tests with 21 pg skips; 995 / 23 after admin-endpoints.) A fresh worktree needs
 `npm ci` in `plunder-land-client` as well, or the server specs that import client modules fail to load.
 
-`src/db/pgstore.spec.ts` and `src/gear/stashpg.spec.ts` need `TEST_DATABASE_URL`; without it the suite reports 21 pg skips. pgstore.spec drops the
+`src/db/pgstore.spec.ts` and `src/gear/stashpg.spec.ts` need `TEST_DATABASE_URL`; without it the suite reports 23 pg skips. pgstore.spec drops the
 `public` schema, so it refuses any host but localhost; use a throwaway `postgres:18-alpine`
 container on a spare port, removed by name (command in CLAUDE.md, "Verification path"). Never
 point it at Railway.

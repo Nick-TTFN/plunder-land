@@ -60,7 +60,7 @@ The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typec
 type error in a spec only shows up if ts-node trips over it at run time.
 
 **`src/db/pgstore.spec.ts` and `src/gear/stashpg.spec.ts` run only with `TEST_DATABASE_URL`**
-and otherwise the suite reports 21 pg skips (979 tests at `cb645f2`, measured 2026-10-05).
+and otherwise the suite reports 23 pg skips (995 tests after admin-endpoints, measured 2026-10-05).
 pgstore.spec drops and recreates the `public` schema, so it refuses (fails, not skips) any host but
 127.0.0.1, localhost or ::1 (`isLocalDatabase`); stashpg.spec works in its own database
 (`plunder_stash_spec`) on the same server, because spec files run in parallel. Use a throwaway container on the same major as
@@ -260,6 +260,8 @@ set (Railway), from the four places that catch errors so the world keeps running
 each world's tick, timers and `guarded` socket handlers. No user fields, IPs, cookies or headers
 (`dataCollection`, which replaced `sendDefaultPii` in v11), no tracing; a budget of 30 events
 per 10 min (server) and 20 per page load (client). The server SDK costs about 25-30 MB of RSS.
+An error may carry `reportTags` (string values), which the server's `captureError` adds as event tags
+(`tagsFor`; its own `where` always wins): `GearTimeoutError` sends `gear_op`.
 Source maps are not uploaded: Sentry fetches the public `.map` of the deployed build, so a
 stack from an older deploy can't be mapped once a newer one replaces it.
 
@@ -1439,7 +1441,7 @@ round trip (a transaction of four statements) before its `hello`.
 
 **Stash** (#49, 49-3..49-5, live 2026-10-05; see "Gear" for the items themselves). Migration 6:
 `stash_items` (a row is `state` 0 stashed or 1 carried; a carried row names `holder`, the boot id of
-the process whose memory may hold its copy; `source` 1 found, 2 merged, append-only) and
+the process whose memory may hold its copy; `source` 1 found, 2 merged, 3 admin, append-only) and
 `gear_holders` (each process's last heartbeat). **The invariant that keeps items single:** an
 instance with a `rowId` only ever moves or deletes its own row, conditionally on `state = 1 AND
 holder = <this boot>`, and is never inserted; only rowless (found) instances are inserted, once, at
@@ -1483,9 +1485,23 @@ deploy or crash may return the dead owner's items (Nick: accepted, favours the p
 ANY` locks in plan order, so a deadlock is possible (unseen in 24 rounds of `pgstore.spec`'s race 2
 under load). Postgres would abort one side: the merge answers `store`, or the spend rolls back and
 the start plays free without gear; never a duplicate. If it shows in the logs, lock the carry's rows
-first with `SELECT … ORDER BY id FOR UPDATE`. A `GearTimeoutError` doesn't yet say which write
-(heartbeat, carry or resolve) timed out (decision #50: label it); one on 2026-10-05 was a slow
-heartbeat, harmless.
+first with `SELECT … ORDER BY id FOR UPDATE`. A `GearTimeoutError` names its operation (`op`: `beat`,
+`carry`, `resolve:settle|discard|uncarry`, `close:release`) in its message and as the Sentry tag
+`gear_op` (#50); `ledger.resolve` requires the call's kind, so a new call site can't forget it. One
+on 2026-10-05, before the label, was a slow heartbeat, harmless.
+
+**Admin endpoints** (decision #50, `network/admin.ts`): off unless `ADMIN_KEY` holds 32+ characters
+(boot logs `admin: on`/`admin: off`, never the key). Then, with `Authorization: Bearer <key>`:
+`GET /admin/account/:id`, `POST /admin/account/:id/xp { xp }` (set, 0..10,000,000), `/energy { stock }`
+(0..99, as of now), `/gear { items: [{ tier, skill, rolls: [[stat, q]] }] }` (stashed rows of source 3,
+exactly the shapes `rollGear` makes, all or none within `STASH_MAX`, under `settleGear`'s per-account
+lock). **A missing or wrong key, or admin off, answers exactly as an unknown route** (404, empty), so
+nothing says the routes exist. The key is kept only as its SHA-256 and compared with `timingSafeEqual`
+over the two hashes; it is never logged, reported or echoed. One log line per call (`admin: <method>
+<route> <id> <status> <outcome>`); refused keys are counted in at most one line a minute. Store-only
+(`AdminStore`, both stores, `adminContract`): a player sees the change at their next connect or run.
+Bodies at most 16 KB (413), 400 on malformed input. The key goes on Railway only with Nick's go; keep a
+copy outside any repo and never print it.
 
 ## Skills
 
