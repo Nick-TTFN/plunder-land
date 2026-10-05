@@ -189,7 +189,7 @@ test('a client that plays in world A, dies and plays again in world B keeps noth
   // Objects: everything held is one of B's, with B's type and, for what does
   // not move, B's position. (Ids alone can't say: both worlds count from 1.)
   const bObjects = new Map<number, GameObject>()
-  for (const list of [b.PLAYERS, b.MOBS, b.OBSTACLES, b.PROJECTILES, b.CONSUMABLES, b.ITEMS]) {
+  for (const list of [b.PLAYERS, b.MOBS, b.OBSTACLES, b.PROJECTILES, b.CONSUMABLES, b.ITEMS, b.GEAR]) {
     for (const obj of list as GameObject[]) bObjects.set(obj.id, obj)
   }
   const still = ObjectType.Obstacle | ObjectType.Portal | ObjectType.Exit | ObjectType.Consumable | ObjectType.Item

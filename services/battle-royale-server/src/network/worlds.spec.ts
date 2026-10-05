@@ -131,7 +131,7 @@ function standingNames (buffer: Buffer): string[] {
 /** Every object a world holds in its lists, by id. */
 function objectsOf (world: World): Map<number, GameObject> {
   const out = new Map<number, GameObject>()
-  for (const list of [world.PLAYERS, world.MOBS, world.OBSTACLES, world.PROJECTILES, world.CONSUMABLES, world.ITEMS]) {
+  for (const list of [world.PLAYERS, world.MOBS, world.OBSTACLES, world.PROJECTILES, world.CONSUMABLES, world.ITEMS, world.GEAR]) {
     for (const obj of list as GameObject[]) out.set(obj.id, obj)
   }
   return out
