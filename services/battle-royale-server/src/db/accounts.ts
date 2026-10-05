@@ -234,8 +234,66 @@ export interface Settled {
   stash: StashItem[]
 }
 
-/** `stash_items.source`. **Append-only**, like field indices. */
-export const GEAR_SOURCE = Object.freeze({ found: 1, merged: 2 })
+/**
+ * `stash_items.source`. **Append-only**, like field indices: 1 found (a
+ * run's end), 2 merged (49-5), 3 admin (granted through `/admin`, decision
+ * #50). The column's CHECK is only `source > 0`, so a new value needs no
+ * migration.
+ */
+export const GEAR_SOURCE = Object.freeze({ found: 1, merged: 2, admin: 3 })
+
+/** One account as `/admin` reads it (decision #50): raw store values; the level and the energy view are the caller's. */
+export interface AdminAccount {
+  publicId: string
+  xp: number
+  /** As stored; null is an account with no row yet (reads as `ENERGY.start`). */
+  energy: EnergyRecord | null
+  /** Saved loadout rows, any robot. */
+  loadouts: number
+  /** Stash rows stashed. */
+  stashed: number
+  /** Stash rows carried (in a run, or awaiting the stale return at the owner's next `loadStash`). */
+  away: number
+}
+
+/** What an admin gear grant did: rows inserted (0 when they didn't all fit), the room there was, the account's rows after. */
+export interface AdminGranted {
+  inserted: number
+  room: number
+  stash: StashItem[]
+}
+
+/**
+ * The store half of `/admin` (decision #50). Separate from `AccountStore`
+ * for the reason `GearStore` is (spec wrappers implement `AccountStore`).
+ * Store-only: nothing here touches a world, so a player in a run sees a
+ * change at their next connect or run, like a season payout. Every method
+ * answers null for an unknown account and writes nothing then; validation is
+ * the caller's (`network/admin.ts`), the store keeps `storable` as a
+ * backstop. Each write is one statement or one transaction, waited for by
+ * `close`.
+ */
+export interface AdminStore {
+  adminRead: (publicId: string) => Promise<AdminAccount | null>
+  /** Set the account's total XP (not add); the new total. */
+  adminSetXp: (publicId: string, xp: number) => Promise<number | null>
+  /** Set the play stock to `stock` as of `nowMs`; the record written. */
+  adminSetEnergy: (publicId: string, stock: number, nowMs: number) => Promise<EnergyRecord | null>
+  /**
+   * Insert `items` stashed (source `GEAR_SOURCE.admin`), all or none: none
+   * when they would take the account past `STASH_MAX` rows of either state,
+   * counted under `settleGear`'s per-account lock. Throws, writing nothing,
+   * if any item isn't `storable`.
+   */
+  adminGrantGear: (publicId: string, items: readonly GearInstance[]) => Promise<AdminGranted | null>
+}
+
+/** The store's admin half, when it has every method (both shipped stores do). */
+export function adminStoreOf (store: AccountStore): (AccountStore & AdminStore) | undefined {
+  const s = store as Partial<AdminStore>
+  const methods: Array<keyof AdminStore> = ['adminRead', 'adminSetXp', 'adminSetEnergy', 'adminGrantGear']
+  return methods.every((m) => typeof s[m] === 'function') ? store as AccountStore & AdminStore : undefined
+}
 
 /**
  * How long after its holder's last heartbeat a carried row is returned to
@@ -371,7 +429,7 @@ export function tokenOf (auth: unknown): string | undefined {
  * production (every deploy forgets every account; `openAccountStore` reports
  * that on Railway).
  */
-export class MemoryAccountStore implements AccountStore, GearStore, StashEdits {
+export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore {
   /** The stash's clock (pg's `now()`); specs pass a fake one to age carries and heartbeats. */
   private readonly clock: () => number
 
@@ -693,6 +751,66 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits {
       done.push(result)
     }
     return done
+  }
+
+  // --- /admin (decision #50; contract on `AdminStore`) --------------------------
+
+  async adminRead (publicId: string): Promise<AdminAccount | null> {
+    if (!this.ids.has(publicId)) return null
+    let stashed = 0
+    let away = 0
+    for (const row of this.stashRows.values()) {
+      if (row.owner !== publicId) continue
+      if (row.carried) away++
+      else stashed++
+    }
+    const energy = this.energy.get(publicId)
+    return {
+      publicId,
+      xp: this.xp.get(publicId) ?? 0,
+      energy: energy === undefined ? null : { ...energy },
+      loadouts: this.loadouts.get(publicId)?.size ?? 0,
+      stashed,
+      away
+    }
+  }
+
+  async adminSetXp (publicId: string, xp: number): Promise<number | null> {
+    if (!this.ids.has(publicId)) return null
+    this.xp.set(publicId, xp)
+    return xp
+  }
+
+  async adminSetEnergy (publicId: string, stock: number, nowMs: number): Promise<EnergyRecord | null> {
+    if (!this.ids.has(publicId)) return null
+    const record = { stock, asOfMs: nowMs }
+    this.energy.set(publicId, record)
+    return { ...record }
+  }
+
+  /** Synchronous from start to end, so the count can't go stale under a settle (pg: the stash lock). */
+  async adminGrantGear (publicId: string, items: readonly GearInstance[]): Promise<AdminGranted | null> {
+    if (!this.ids.has(publicId)) return null
+    if (!items.every((item) => storable(item))) throw new Error('accounts: an admin item is not storable')
+    let rows = 0
+    for (const row of this.stashRows.values()) if (row.owner === publicId) rows++
+    const room = Math.max(0, STASH_MAX - rows)
+    if (items.length > room) return { inserted: 0, room, stash: this.stashOf(publicId) }
+    for (const item of items) {
+      const rowId = String(this.nextRowId++)
+      this.stashRows.set(rowId, {
+        rowId,
+        owner: publicId,
+        tier: item.tier,
+        skill: item.skill,
+        rolls: item.rolls.map((r) => ({ stat: r.stat, q: r.q })),
+        carried: false,
+        holder: null,
+        carriedAt: null,
+        source: GEAR_SOURCE.admin
+      })
+    }
+    return { inserted: items.length, room, stash: this.stashOf(publicId) }
   }
 
   async close (): Promise<void> {}

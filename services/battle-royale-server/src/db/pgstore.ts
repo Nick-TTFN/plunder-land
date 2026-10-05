@@ -1,6 +1,6 @@
 import { Client, Pool, type PoolClient } from 'pg'
 import {
-  type Account, type AccountStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
+  type Account, type AccountStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
   type Merged, mergeIdsOf, type MergeRule, newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Scrapped,
   type Settled, splitFound, type Spent, STALE_CARRY_MS, type StashEdits, type StashItem, storable, type StoredLoadout
 } from './accounts'
@@ -113,7 +113,7 @@ export interface PgAccountStoreOptions {
  * both 2 s, so a slow database costs a joining player at most a few seconds
  * in the lobby, then an offline run.
  */
-export class PgAccountStore implements AccountStore, GearStore, StashEdits {
+export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore {
   readonly pool: Pool
   ready = false
   private retry: NodeJS.Timeout | undefined
@@ -492,6 +492,87 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits {
       )
       await client.query('DELETE FROM gear_holders WHERE holder = $1::uuid', [holder])
       return returned.rowCount ?? 0
+    }))
+  }
+
+  // --- /admin (decision #50; contract on `AdminStore`) --------------------------
+
+  /** One read: XP, the stored energy row, and the counts. Not tracked: it writes nothing. */
+  async adminRead (publicId: string): Promise<AdminAccount | null> {
+    this.checkOpen()
+    const result = await this.pool.query(
+      `SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
+         (SELECT count(*) FROM loadouts l WHERE l.account_id = a.id) AS loadouts,
+         (SELECT count(*) FROM stash_items s WHERE s.account_id = a.id AND s.state = 0) AS stashed,
+         (SELECT count(*) FROM stash_items s WHERE s.account_id = a.id AND s.state = 1) AS away
+       FROM accounts a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id
+       WHERE a.public_id = $1`,
+      [publicId]
+    )
+    const row = result.rows[0] as { public_id: string, xp: string, stock: number | null, as_of_ms: string | null, loadouts: string, stashed: string, away: string } | undefined
+    if (row === undefined) return null
+    return {
+      publicId: row.public_id,
+      xp: Number(row.xp),
+      energy: row.stock === null || row.as_of_ms === null ? null : { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) },
+      loadouts: Number(row.loadouts),
+      stashed: Number(row.stashed),
+      away: Number(row.away)
+    }
+  }
+
+  /** One upsert, as `grant`'s, but setting the total. */
+  async adminSetXp (publicId: string, xp: number): Promise<number | null> {
+    this.checkOpen()
+    const result = await this.tracked(this.pool.query(
+      `INSERT INTO account_progress (account_id, xp)
+       SELECT id, $2 FROM accounts WHERE public_id = $1
+       ON CONFLICT (account_id) DO UPDATE SET xp = EXCLUDED.xp, updated_at = now()
+       RETURNING xp`,
+      [publicId, xp]
+    ))
+    const row = result.rows[0] as { xp: string | number } | undefined
+    return row === undefined ? null : Number(row.xp)
+  }
+
+  /** One upsert; a spend holding the row (`FOR UPDATE`) makes it wait, so neither is lost half-way. */
+  async adminSetEnergy (publicId: string, stock: number, nowMs: number): Promise<EnergyRecord | null> {
+    this.checkOpen()
+    const result = await this.tracked(this.pool.query(
+      `INSERT INTO energy (account_id, stock, as_of)
+       SELECT id, $2, to_timestamp($3::double precision / 1000.0) FROM accounts WHERE public_id = $1
+       ON CONFLICT (account_id) DO UPDATE SET stock = EXCLUDED.stock, as_of = EXCLUDED.as_of, updated_at = now()
+       RETURNING stock, round(extract(epoch FROM as_of) * 1000)::bigint AS as_of_ms`,
+      [publicId, stock, nowMs]
+    ))
+    const row = result.rows[0] as { stock: number, as_of_ms: string } | undefined
+    return row === undefined ? null : { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
+  }
+
+  /** One transaction under `settleGear`'s per-account lock: count, then insert all or none. */
+  async adminGrantGear (publicId: string, items: readonly GearInstance[]): Promise<AdminGranted | null> {
+    this.checkOpen()
+    if (!items.every((item) => storable(item))) throw new Error('accounts: an admin item is not storable')
+    return await this.tracked(this.transaction(async (client) => {
+      const found = await client.query('SELECT id::text AS id FROM accounts WHERE public_id = $1', [publicId])
+      const account = (found.rows[0] as { id: string } | undefined)?.id
+      if (account === undefined) return null
+      await client.query('SELECT pg_advisory_xact_lock($1::int, ($2::bigint % 2147483647)::int)', [STASH_LOCK_CLASS, account])
+      const counted = await client.query('SELECT count(*) AS n FROM stash_items WHERE account_id = $1', [account])
+      const room = Math.max(0, STASH_MAX - Number((counted.rows[0] as { n: string }).n))
+      if (items.length > room) return { inserted: 0, room, stash: await this.stashOf(client, account) }
+      let inserted = 0
+      if (items.length > 0) {
+        const added = await client.query(
+          `INSERT INTO stash_items (account_id, tier, skill, rolls, source)
+           SELECT $1::bigint, f.tier, f.skill, f.rolls::smallint[], $5::smallint
+           FROM unnest($2::smallint[], $3::smallint[], $4::text[]) WITH ORDINALITY AS f(tier, skill, rolls, n)
+           ORDER BY f.n`,
+          [account, items.map((i) => i.tier), items.map((i) => i.skill), items.map((i) => `{${flatRolls(i.rolls).join(',')}}`), GEAR_SOURCE.admin]
+        )
+        inserted = added.rowCount ?? 0
+      }
+      return { inserted, room, stash: await this.stashOf(client, account) }
     }))
   }
 

@@ -10,6 +10,7 @@ import cluster from 'node:cluster'
 import { runPrimary } from './cluster'
 import { GearLedger } from './gear/ledger'
 import { gearStoreOf } from './gear/stash'
+import { Admin } from './network/admin'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
@@ -115,6 +116,12 @@ function startGame (): void {
     quitWhenClosed()
   }
 
+  // Admin endpoints behind a key (decision #50, network/admin.ts). Off, and
+  // every /admin path a plain 404, unless ADMIN_KEY holds 32+ characters.
+  // The key itself is never logged.
+  const admin = new Admin({ key: process.env.ADMIN_KEY, store: accounts })
+  console.log(admin.bootLine)
+
   const httpserver = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/healthcheck') {
       res.writeHead(200)
@@ -151,6 +158,10 @@ function startGame (): void {
       })
       return
     }
+
+    // Answers only an authorised /admin request; anything else (admin off, no
+    // key, a wrong one) falls through to the same 404 as an unknown route.
+    if (admin.handle(req, res)) return
 
     res.writeHead(404)
     res.end()

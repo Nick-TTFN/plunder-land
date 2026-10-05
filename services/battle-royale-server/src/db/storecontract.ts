@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import {
-  type AccountStore, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
+  type AccountStore, type AdminStore, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
   STALE_CARRY_MS, type StashEdits, type StashItem, TOKEN_SHAPE
 } from './accounts'
 // The merge rule draws through `rollGear` (archetypes), whose import graph
@@ -318,6 +318,88 @@ export async function gearContract (store: GearTestStore, hooks: GearHooks): Pro
   await reconcile(store, hooks)
   await races(store, hooks)
   await mergeAndScrap(store, hooks)
+}
+
+/**
+ * `/admin`'s store half (decision #50), identically on both stores: unknown
+ * accounts answer null and write nothing; XP and energy are set, not added,
+ * and a join reads them; a gear grant inserts stashed rows of source 3, all
+ * or none within `STASH_MAX`, one grant at a time per account; a row that
+ * isn't storable throws and writes nothing.
+ */
+export async function adminContract (store: GearTestStore & AdminStore, hooks: GearHooks): Promise<void> {
+  const unknown = '0123456789abcdef'
+  const t = Date.parse('2026-10-05T12:00:00.000Z')
+  const rowsBefore = (await hooks.allRowIds()).length
+  assert.equal(await store.adminRead(unknown), null)
+  assert.equal(await store.adminSetXp(unknown, 10), null)
+  assert.equal(await store.adminSetEnergy(unknown, 5, t), null)
+  assert.equal(await store.adminGrantGear(unknown, [T1]), null)
+  await rowCount(hooks, rowsBefore, 'a grant to an unknown account wrote')
+
+  const { account, token } = await store.create()
+  const id = account.publicId
+  const other = await store.create()
+  assert.deepEqual(await store.adminRead(id), { publicId: id, xp: 0, energy: null, loadouts: 0, stashed: 0, away: 0 })
+
+  // XP is set, not added, down as well as up; a join reads it.
+  assert.equal(await store.adminSetXp(id, 5000), 5000)
+  assert.equal((await store.resolve(token))?.xp, 5000)
+  await store.grant(id, 20)
+  assert.equal(await store.adminSetXp(id, 12), 12)
+  assert.equal((await store.resolve(token))?.xp, 12)
+  assert.equal((await store.adminRead(id))?.xp, 12)
+
+  // Energy is set as of `nowMs`; a spend and a join read it.
+  assert.deepEqual(await store.adminSetEnergy(id, 9, t), { stock: 9, asOfMs: t })
+  assert.deepEqual((await store.resolve(token))?.energy, { stock: 9, asOfMs: t })
+  assert.deepEqual((await store.spend(id, t + 1)).energy.stock, 8)
+  assert.deepEqual(await store.adminSetEnergy(id, 0, t + 2), { stock: 0, asOfMs: t + 2 })
+  assert.equal((await store.spend(id, t + 3)).ok, false, 'a stock set to 0 still spent')
+  assert.deepEqual((await store.adminRead(id))?.energy, { stock: 0, asOfMs: t + 2 })
+
+  // Gear: stashed rows of source 3, with exactly the instances given.
+  const granted = await store.adminGrantGear(id, [T1, PART, T3])
+  assert.ok(granted !== null)
+  assert.deepEqual([granted.inserted, granted.room], [3, STASH_MAX])
+  const stash = await store.loadStash(id)
+  assert.deepEqual(stash.map((r) => [r.tier, r.skill, r.rolls, r.carried, r.source]), [
+    [1, 3, [{ stat: 1, q: 500 }], false, GEAR_SOURCE.admin],
+    [1, 0, [], false, GEAR_SOURCE.admin],
+    [3, 2, [{ stat: 1, q: 10 }, { stat: 5, q: 20 }], false, GEAR_SOURCE.admin]
+  ])
+  assert.deepEqual(granted.stash.map((r) => r.rowId), idsOf(stash))
+  assert.equal(GEAR_SOURCE.admin, 3, 'the source is append-only')
+
+  // The counts: a loadout, a carried row.
+  await store.saveLoadout(id, 'peep', 0, [1, 2, 3, 0])
+  await store.adminSetEnergy(id, 5, t)
+  const holder = await liveHolder(store)
+  assert.deepEqual(await bring(store, id, [stash[0].rowId], holder), [stash[0].rowId])
+  const counted = await store.adminRead(id)
+  assert.deepEqual({ ...counted, energy: counted?.energy?.stock }, { publicId: id, xp: 12, energy: 4, loadouts: 1, stashed: 2, away: 1 })
+
+  // Not storable: throws, nothing written.
+  const before = (await hooks.allRowIds()).length
+  await assert.rejects(store.adminGrantGear(id, [T1, { tier: 4, skill: 1, rolls: [] } as unknown as GearInstance]))
+  await rowCount(hooks, before, 'a refused admin grant wrote')
+
+  // STASH_MAX: all or none. 3 rows now; fill to 99, then 2 don't fit and 1 does.
+  const fill = Array.from({ length: STASH_MAX - 4 }, () => PART)
+  assert.equal((await store.adminGrantGear(id, fill))?.inserted, STASH_MAX - 4)
+  const full = await store.adminGrantGear(id, [T1, T1])
+  assert.deepEqual([full?.inserted, full?.room], [0, 1])
+  await rowCount(hooks, before + STASH_MAX - 4, 'a grant past STASH_MAX wrote')
+  assert.deepEqual([(await store.adminGrantGear(id, [T1]))?.inserted], [1])
+  assert.deepEqual([(await store.adminGrantGear(id, [T1]))?.inserted, (await store.adminRead(id))?.stashed], [0, STASH_MAX - 1])
+
+  // Two grants at once that only fit one at a time: exactly one lands.
+  const both = await Promise.all([store.adminGrantGear(other.account.publicId, fill.slice(0, 60)), store.adminGrantGear(other.account.publicId, fill.slice(0, 60))])
+  assert.deepEqual(both.map((g) => g?.inserted).sort(), [0, 60])
+  assert.equal((await store.adminRead(other.account.publicId))?.stashed, 60)
+
+  // The other account's XP and energy never moved.
+  assert.deepEqual([(await store.resolve(other.token))?.xp, (await store.resolve(other.token))?.energy], [0, null])
 }
 
 const P2: GearInstance = { tier: 2, skill: 0, rolls: [] }

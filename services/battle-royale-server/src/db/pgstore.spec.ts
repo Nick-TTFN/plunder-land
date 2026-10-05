@@ -7,7 +7,7 @@ import { PgAccountStore, NotReadyError, SEASON_LOCK, STASH_LOCK_CLASS } from './
 import { migrate, MIGRATION_LOCK } from './migrate'
 import { PAYOUT_DELAY_MS, seasonEndMs, seasonStart } from '../progress/seasons'
 import { MIGRATIONS, type Migration } from './migrations'
-import { gearContract, type GearHooks, PART, seeded, storeContract, T1, T2 } from './storecontract'
+import { adminContract, gearContract, type GearHooks, PART, seeded, storeContract, T1, T2 } from './storecontract'
 import { mergeOutcome } from '../gear/merge'
 
 /**
@@ -620,6 +620,21 @@ pgTest('the gear stash contract, dupe races 1-11, merge and scrap, against Postg
   } finally {
     await store.close()
   }
+})
+
+pgTest('the admin contract against Postgres (decision #50), and close waits for an admin grant in flight', async () => {
+  const store = await readyStore()
+  try {
+    await adminContract(store, pgGearHooks(store))
+  } finally {
+    await store.close()
+  }
+  const again = await readyStore()
+  const { account } = await again.create()
+  const pending = again.adminGrantGear(account.publicId, [T1, T2])
+  await again.close()
+  assert.equal((await pending)?.inserted, 2, 'close cut an admin grant short')
+  assert.equal(await withClient(async (client) => Number((await client.query('SELECT count(*) AS n FROM stash_items WHERE source = 3')).rows[0].n)) >= 2, true)
 })
 
 pgTest('race 1 under load: many concurrent spends bringing the same items, each item carried once', async () => {

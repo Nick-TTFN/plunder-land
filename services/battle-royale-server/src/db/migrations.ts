@@ -156,7 +156,8 @@ export const MIGRATIONS: readonly Migration[] = [
     // instances are inserted, once, at the run's end (`settleGear`).
     // `rolls` is flat `[stat, q, stat, q]`, q 0..1000 (qualities, never
     // values: `utils/gear.ts`). `skill` 0 is a part. `source` is append-only:
-    // 1 found, 2 merged (49-5); a later merge reroll (Q11, open) can add its
+    // 1 found, 2 merged (49-5), 3 admin (decision #50, no migration: the
+    // CHECK is only `source > 0`); a later merge reroll (Q11, open) can add its
     // own columns. `gear_holders` is each live process's last heartbeat: a
     // carried row whose holder hasn't beaten for 15 minutes returns to the
     // stash at its owner's next `loadStash`. New tables only: the step-7

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { hashToken, MemoryAccountStore, newToken, tokenOf, TOKEN_SHAPE } from './accounts'
-import { gearContract, storeContract } from './storecontract'
+import { adminContract, gearContract, storeContract } from './storecontract'
 import { MIGRATIONS } from './migrations'
 import { openAccountStore } from './open'
 
@@ -19,6 +19,11 @@ test('memory store: the gear stash contract and dupe races 1-11, merge and scrap
     age: async (ms) => { now += ms },
     allRowIds: async () => [...store.stashRows.keys()]
   })
+})
+
+test('memory store: the admin contract (decision #50)', async () => {
+  const store = new MemoryAccountStore()
+  await adminContract(store, { age: async () => {}, allRowIds: async () => [...store.stashRows.keys()] })
 })
 
 test('memory store: what is kept is the token\'s SHA-256, never the token', async () => {
