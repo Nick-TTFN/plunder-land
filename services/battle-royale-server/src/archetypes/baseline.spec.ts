@@ -156,7 +156,11 @@ const LOOT = (v: number): number[] => [GameObject.fieldOrder.indexOf('loot32'), 
 const TAG = (v: number): number[] => [6, v & 0xff]
 const TO = (v: number): number[] => [7, v & 0xff]
 const RADIUS = (v: number): number[] => [8, v]
-const MAXVEL = (v: number): number[] => [10, Math.floor(v / 10)]
+// gear-in-run (49-2), deliberate: the speed goes out as field 27, tenths in a
+// uint16; index 10 (an int8 of tens) is never written again.
+const SPEED = (v: number): number[] => [27, ...u16(Math.round(v * 10))]
+// gear-in-run, deliberate: the owner's carried gear, a uint16 count, then 6 empty entries.
+const CARRIED_EMPTY = [26, 0, 7, 6, 0, 0, 0, 0, 0, 0]
 const NAME = (s: string): number[] => [11, ...Buffer.from(s), 0]
 const MAXHP = (v: number): number[] => [12, ...u16(v)]
 const FACING = (v: number): number[] => [13, v]
@@ -192,7 +196,10 @@ test('the byte helpers use today\'s field indices', () => {
       // robot-finishes, deliberate: a player's finish, appended.
       'finish',
       // pickup-reach, deliberate: who took a pickup, appended.
-      'collector']
+      'collector',
+      // gear-in-run (49-2), deliberate: a gear pickup's item, a player's
+      // carried gear and the speed in tenths, appended.
+      'gear', 'carried', 'speed']
   )
 })
 
@@ -281,7 +288,8 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
   // What the joining player gets for itself (Multiplayer.admit).
   assert.deepEqual(bytesOf(player, player.allFieldsOwn), [
     ...ID(1), ...TYPE(4), ...POS(X, Y), ...HP(100), ...LEVEL(1), ...LOOT(0), ...TAG(0),
-    ...TO(0), ...RADIUS(14), ...MAXVEL(140), ...MAXHP(100),
+    // gear-in-run, deliberate: the speed moved to the end, as field 27.
+    ...TO(0), ...RADIUS(14), ...MAXHP(100),
     // Steps 3 and 4, deliberate, as above.
     ...ARMOR(50), ...MAXARMOR(50), ...ARCHETYPE(1),
     // usable-items, deliberate: the owner's own inventory, five empty slots.
@@ -289,7 +297,10 @@ test('player: create record (allFields) and create_own (allFieldsOwn) bytes', ()
     // run-summary-card, deliberate: the run's kills, starting at 0.
     ...KILLS(0),
     // robot-finishes, deliberate: the finish, as in everyone's create.
-    ...FINISH_MINT
+    ...FINISH_MINT,
+    // gear-in-run (49-2), deliberate: carried gear and the speed last, so a
+    // client from before 49-2 still reads everything before them.
+    ...CARRIED_EMPTY, ...SPEED(140)
   ])
 })
 

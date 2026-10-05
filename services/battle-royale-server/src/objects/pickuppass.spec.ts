@@ -5,13 +5,14 @@ import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Obstacle from './obstacle'
+import GearPickup from './gearpickup'
 import World from './world'
 import Timers from './timers'
 import type Player from './player'
 import { type GameObject, ObjectType } from './gameobject'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
-import { buildKit } from '../archetypes/archetypes'
+import { buildKit, rollGear } from '../archetypes/archetypes'
 import { SKILL_INFO } from '../utils/skills'
 
 /**
@@ -77,6 +78,7 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
   World.MOBS.length = 0
   World.CONSUMABLES.length = 0
   World.ITEMS.length = 0
+  World.GEAR.length = 0
   Timers.clear()
   const multiplayer = new Multiplayer(250, okRedis())
   const world = new World(4000)
@@ -107,6 +109,19 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
     World.addObstacle(new Obstacle(x, y, tag, 600_000))
     placed++
   }
+  // Gear on the ground (49-2), ObjectType.Item like items but in World.GEAR:
+  // the pass must settle it exactly as it does items. Walkers take some, fill
+  // their slots and bags, and drop them again when they die.
+  let gearPlaced = 0
+  while (gearPlaced < 60) {
+    const cell = Hex.toCell(new Vector(rand() * 4000, rand() * 4000))
+    const tag = World.TAGS[gearPlaced % World.TAGS.length]
+    if (!Hex.onMap(cell.x, cell.y, World.mapSize) || World.isBlocked(cell.x, cell.y, tag)) continue
+    const at = Hex.toPosition(cell)
+    World.PICKUPS.push(World.GEAR, new GearPickup(at.x, at.y, tag, rollGear(gearPlaced % 3 === 0 ? 1 : 2, gearPlaced % 2 === 0 ? 'part' : 'skill', rand)))
+    gearPlaced++
+  }
+  let gearChecked = 0
 
   const counts = Multiplayer.pickupViewCounts
   const before = { ...counts }
@@ -156,8 +171,9 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
     for (const player of players) if (player.tag !== World.TAGS[0]) hops.add(player.id)
     for (const obj of World.OBSTACLES) if (!Multiplayer.isTerrain(obj) && obj.lifetime !== 600_000) placedStones.add(obj)
 
-    for (const pickup of [...World.CONSUMABLES, ...World.ITEMS, ...World.OBSTACLES.filter((o) => !Multiplayer.isTerrain(o))]) {
+    for (const pickup of [...World.CONSUMABLES, ...World.ITEMS, ...World.GEAR, ...World.OBSTACLES.filter((o) => !Multiplayer.isTerrain(o))]) {
       if (Multiplayer.gone(pickup)) continue
+      if (World.isGear(pickup)) gearChecked++
       const was = footprint(connections, pickup)
       Multiplayer.Instance.update(pickup)
       assert.equal(footprint(connections, pickup), was, `tick ${tick}: the pass left pickup ${pickup.id} (${pickup.constructor.name}) unsettled`)
@@ -174,8 +190,9 @@ test('the pickup pass leaves nothing for an every-pickup update to do', () => {
     left: counts.left - before.left
   }
   // It exercised what it claims to.
-  console.log(`pickup pass: ${JSON.stringify(ran)}, ${checked} checked, ${deaths} deaths, ${dashes} dashes, ${walls} walls, ${placedStones.size} stones placed`)
+  console.log(`pickup pass: ${JSON.stringify(ran)}, ${checked} checked (${gearChecked} gear), ${deaths} deaths, ${dashes} dashes, ${walls} walls, ${placedStones.size} stones placed`)
   assert.ok(checked > 100_000, `only ${checked} pickups checked`)
+  assert.ok(gearChecked > 10_000, `only ${gearChecked} gear pickups checked`)
   assert.ok(deaths > 5 && dashes > 50 && walls > 25, `deaths ${deaths}, dashes ${dashes}, walls ${walls}`)
   assert.ok(placedStones.size > 25, `StoneWall placed only ${placedStones.size} stones`)
   assert.ok(hops.size > 0, 'nobody came through a portal')
@@ -286,6 +303,24 @@ test('a pickup made while its viewer stood elsewhere is settled at the next pass
   player.position = Hex.toPosition(home)
   pass()
   assert.ok(stone.knownBy.has(connection), 'never brought into view')
+})
+
+test('a gear pickup made while its viewer stood elsewhere is settled at the next pass', () => {
+  const { player, connection, home, pass } = quietWorld()
+  World.GEAR.length = 0
+  pass()
+  // As the stone test above: settled at home, then within one pass the viewer
+  // is away when the gear is made, and back. The connection is skipped (same
+  // cell), so only the pickup's own first update, from World.pickupPass's walk
+  // of World.GEAR, can bring it into view (49-2).
+  player.position = Hex.toPosition(new Vector(home.x + 40, home.y))
+  const at = Hex.toPosition(new Vector(home.x + 2, home.y))
+  const dropped = new GearPickup(at.x, at.y, player.tag, rollGear(1, 'part', Math.random), World.DROPPED_LOOT_LIFETIME)
+  World.PICKUPS.push(World.GEAR, dropped)
+  assert.ok(!dropped.knownBy.has(connection), 'created into a view it was not in')
+  player.position = Hex.toPosition(home)
+  pass()
+  assert.ok(dropped.knownBy.has(connection), 'never brought into view')
 })
 
 test('forRing visits each cell of a ring once, at that distance', () => {

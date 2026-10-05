@@ -168,9 +168,11 @@ test('a longer finish is read for its first six bytes (room for later additions)
   assert.deepEqual(finishFromBytes(new Uint8Array([9, 3, 9, 3, 9, 3])), finishFromBytes([9, 3, 9, 3, 9, 3]))
 })
 
-test('finish is the last field of a player\'s creates, so a client from before it loses only the finish', () => {
+test('finish is the last field of a player\'s creates before 49-2\'s, so a client from before it loses only the finish and what came after it', () => {
   // An old client stops reading a record at an index it doesn't know; fields
-  // go out in the order the snapshot sets were filled.
+  // go out in the order the snapshot sets were filled. Since gear-in-run
+  // (49-2) the owner's create ends with carried gear (26) and the speed (27),
+  // after the finish: that client loses those too (PROTOCOL 6 reloads it).
   const multiplayer = setup()
   const player = join(multiplayer, { finish: [9, 3, 9, 3, 9, 3] })
   for (const fields of [player.allFields, player.allFieldsOwn]) {
@@ -180,6 +182,21 @@ test('finish is the last field of a player\'s creates, so a client from before i
     const old = decodeRecord(new Uint8Array(record), oldFields)
     const now = decodeRecord(new Uint8Array(record), GameObject.fieldOrder)
     delete now.finish
+    delete now.carried
+    delete now.maxVelocity
     assert.deepEqual(old, now)
   }
+})
+
+test('carried gear and the speed are the last fields of the owner\'s create, so a client from before 49-2 loses only those two', () => {
+  const multiplayer = setup()
+  const player = join(multiplayer, { finish: [9, 3, 9, 3, 9, 3] })
+  const record = player.serialiseBinary(player.allFieldsOwn)
+  assert.ok(record !== null)
+  const old = decodeRecord(new Uint8Array(record), GameObject.fieldOrder.slice(0, GameObject.fieldOrder.indexOf('gear')))
+  const now = decodeRecord(new Uint8Array(record), GameObject.fieldOrder)
+  assert.ok(Array.isArray(now.carried) && typeof now.maxVelocity === 'number')
+  delete now.carried
+  delete now.maxVelocity
+  assert.deepEqual(old, now)
 })

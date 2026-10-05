@@ -1,5 +1,6 @@
 import Consumable from './consumable'
 import ItemPickup from './itempickup'
+import GearPickup from './gearpickup'
 import Player from './player'
 import Obstacle from './obstacle'
 import { Vector } from '../utils/vector'
@@ -8,7 +9,8 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob from './mob'
-import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item } from '../archetypes/archetypes'
+import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item, rollGear } from '../archetypes/archetypes'
+import { type GearInstance, type GearTier } from '../utils/gear'
 import { ARCHETYPE_INFO, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
 import type Area from '../area/area'
@@ -171,6 +173,20 @@ export default class World {
    * pickup (`Player.update`) and expiry (`World.update`) only.
    */
   ITEMS: ItemPickup[] = []
+  /**
+   * Gear on the ground (decision #49, 49-2): natural caches and drops. Their
+   * own list, like ITEMS: not loot, not a counted item kind. Removed by pickup
+   * (`Player.pickUp`) and expiry (`World.update`) only. **Every place that
+   * walks `ITEMS` must decide what it does with `GEAR`**: a gear pickup missed
+   * by an interest path is never sent, and nothing errors.
+   */
+  GEAR: GearPickup[] = []
+  /**
+   * Per layer tag, the cache respawn timers still running (`gearTaken`):
+   * `refillLayer` keeps natural caches + pending at the layer's
+   * `gear.caches`, so a taken cache is replaced once its timer has run.
+   */
+  CACHES_PENDING: Map<number, number> = new Map()
   PLAYERS: Player[] = []
   MOBS: Unit[] = []
   AREA_EFFECT: Area[] = []
@@ -213,12 +229,12 @@ export default class World {
   )
 
   /**
-   * Loot (`CONSUMABLES`) and items (`ITEMS`) on the ground, by layer and cell.
+   * Loot (`CONSUMABLES`), items (`ITEMS`) and gear (`GEAR`) on the ground, by layer and cell.
    * Pickups are same-cell (decision #32). Add and remove through its `push` /
    * `removeAt` / `remove`, never on the lists directly.
    */
-  PICKUPS = new CellIndex<Consumable | ItemPickup>(
-    () => [this.CONSUMABLES, this.ITEMS],
+  PICKUPS = new CellIndex<Consumable | ItemPickup | GearPickup>(
+    () => [this.CONSUMABLES, this.ITEMS, this.GEAR],
     (pickup) => pickup.tag,
     (pickup) => World.cellKeyOf(pickup.position)
   )
@@ -371,6 +387,12 @@ export default class World {
       }
     }
     for (const obj of World.ITEMS) {
+      if (obj.dirtyFields.size > 0 || !passed.has(obj)) {
+        passed.add(obj)
+        obj.update(dt)
+      }
+    }
+    for (const obj of World.GEAR) {
       if (obj.dirtyFields.size > 0 || !passed.has(obj)) {
         passed.add(obj)
         obj.update(dt)
@@ -554,6 +576,9 @@ export default class World {
   static set CONSUMABLES (value: Consumable[]) { World.current.CONSUMABLES = value }
   static get ITEMS (): ItemPickup[] { return World.current.ITEMS }
   static set ITEMS (value: ItemPickup[]) { World.current.ITEMS = value }
+  static get GEAR (): GearPickup[] { return World.current.GEAR }
+  static set GEAR (value: GearPickup[]) { World.current.GEAR = value }
+  static get CACHES_PENDING (): Map<number, number> { return World.current.CACHES_PENDING }
   static get PLAYERS (): Player[] { return World.current.PLAYERS }
   static set PLAYERS (value: Player[]) {
     const world = World.current
@@ -576,8 +601,8 @@ export default class World {
   static set UNITS (value: CellIndex<Unit>) { World.current.UNITS = value }
   static get INTEREST (): CellIndex<Player> { return World.current.INTEREST }
   static set INTEREST (value: CellIndex<Player>) { World.current.INTEREST = value }
-  static get PICKUPS (): CellIndex<Consumable | ItemPickup> { return World.current.PICKUPS }
-  static set PICKUPS (value: CellIndex<Consumable | ItemPickup>) { World.current.PICKUPS = value }
+  static get PICKUPS (): CellIndex<Consumable | ItemPickup | GearPickup> { return World.current.PICKUPS }
+  static set PICKUPS (value: CellIndex<Consumable | ItemPickup | GearPickup>) { World.current.PICKUPS = value }
   static get GATES (): CellIndex<GameObject> { return World.current.GATES }
   static set GATES (value: CellIndex<GameObject>) { World.current.GATES = value }
   static get STEPS (): Map<number, Map<number, Unit>> { return World.current.STEPS }
@@ -858,6 +883,14 @@ export default class World {
         World.PICKUPS.removeAt(World.ITEMS, i)
       }
     }
+    // Dropped gear only: a natural cache has no expiry.
+    for (let i = World.GEAR.length - 1; i >= 0; i--) {
+      const gear = World.GEAR[i]
+      if (gear.expiresAt > 0 && now > gear.expiresAt) {
+        gear.destroy()
+        World.PICKUPS.removeAt(World.GEAR, i)
+      }
+    }
 
     for (const area of World.AREA_EFFECT) {
       area.update(dt)
@@ -867,6 +900,7 @@ export default class World {
       const mob = World.MOBS[i]
       if (mob.destroyed) {
         this.createLootFrom(mob)
+        this.createGearFrom(mob)
         World.removeUnitAt(World.MOBS, i)
         continue
       }
@@ -950,6 +984,93 @@ export default class World {
       const pos = this.getUnobstructedPosition(tag)
       if (pos !== undefined) World.PICKUPS.push(World.ITEMS, new ItemPickup(pos.x, pos.y, tag, item))
     }
+
+    this.refillCaches(layer)
+  }
+
+  /**
+   * Natural gear caches (decision #49, spec section 3): at most one placed a
+   * tick while the layer's caches standing plus the respawn timers still
+   * running (`CACHES_PENDING`) are short of `gear.caches`. So the first ticks
+   * of a world place them all, and a taken one comes back on the first tick
+   * after its timer (`gearTaken`). **Timed, not refilled every tick like
+   * medkits**: a standing count refilled at once would make gear unbounded
+   * (bots took 400-1200 loot in 20-100 s that way). A cache holds a part, a
+   * T1 or a T2 skill item by the layer's `cacheMix`; T3 is never found.
+   */
+  private refillCaches (layer: LayerSpec): void {
+    const tag = layer.tag
+    let standing = World.CACHES_PENDING.get(tag) ?? 0
+    for (const pickup of World.GEAR) if (pickup.tag === tag && pickup.cache && !pickup.destroyed) standing++
+    if (standing >= layer.gear.caches) return
+    const pos = this.getUnobstructedPosition(tag)
+    if (pos === undefined) return
+    const mix = layer.gear.cacheMix
+    const roll = Math.random()
+    const item = roll < mix.part
+      ? rollGear(1, 'part', Math.random)
+      : rollGear(roll < mix.part + mix.t1 ? 1 : 2, 'skill', Math.random)
+    World.PICKUPS.push(World.GEAR, new GearPickup(pos.x, pos.y, tag, item, 0, true))
+  }
+
+  /**
+   * A gear pickup was taken (`Player.pickUp`): out of `GEAR`, its destroy
+   * names the taker, and a natural cache starts its layer's respawn timer.
+   * The timer belongs to the world, not to the pickup, which is destroyed
+   * here (`Timers.cancelOwner` would cancel it with the pickup).
+   */
+  static gearTaken (pickup: GearPickup, by: GameObject): void {
+    pickup.destroyCollected(by)
+    World.PICKUPS.remove(World.GEAR, pickup)
+    if (!pickup.cache) return
+    const layer = World.LAYERS.find((l) => l.tag === pickup.tag)
+    if (layer === undefined) return
+    const world = World.current
+    const pending = world.CACHES_PENDING
+    pending.set(pickup.tag, (pending.get(pickup.tag) ?? 0) + 1)
+    Timers.schedule(layer.gear.cacheRespawnMs, () => {
+      pending.set(pickup.tag, Math.max(0, (pending.get(pickup.tag) ?? 0) - 1))
+    }, world)
+  }
+
+  /** True for a gear pickup (`GearPickup`), which shares `ObjectType.Item` with `ItemPickup`. */
+  static isGear (obj: GameObject): obj is GearPickup {
+    return obj instanceof GearPickup
+  }
+
+  /**
+   * A dead mob's gear drop, beside `createLootFrom` (decision #49, spec
+   * section 3): by the layer's chance for its archetype (`gear.mobChance`; a
+   * key with none is 0), a boss's always a skill item at T1 or T2
+   * (`bossTiers`), a grunt's or gunner's a part or a skill item
+   * (`mobMix`) at `mobTier`. T3 is never dropped. One item at most, on a
+   * `dropCells` cell, expiring after `DROPPED_LOOT_LIFETIME`. `random` is for
+   * specs.
+   */
+  createGearFrom (mob: Unit, random: () => number = Math.random): GearInstance | undefined {
+    const layer = World.LAYERS.find((l) => l.tag === mob.tag)
+    const key = mob.archetype?.key
+    if (layer === undefined || key === undefined) return undefined
+    const drops = layer.gear
+    const chance = (drops.mobChance as Record<string, number>)[key] ?? 0
+    if (!(chance > 0) || random() >= chance) return undefined
+    let item: GearInstance
+    if (key === 'boss') {
+      const tiers = drops.bossTiers
+      if (tiers === null) return undefined
+      item = rollGear(random() < tiers.t1 ? 1 : 2, 'skill', random)
+    } else {
+      const tier: GearTier = drops.mobTier
+      item = rollGear(tier, random() < drops.mobMix.part ? 'part' : 'skill', random)
+    }
+    const free = World.dropCells(mob.cell, mob.tag)
+    this.dropGear(item, free[Math.min(free.length - 1, Math.floor(random() * free.length))], mob.tag)
+    return item
+  }
+
+  private dropGear (item: GearInstance, cell: Vector, tag: number): void {
+    const at = Hex.toPosition(cell)
+    World.PICKUPS.push(World.GEAR, new GearPickup(at.x, at.y, tag, item, World.DROPPED_LOOT_LIFETIME))
   }
 
   /**
@@ -1086,12 +1207,16 @@ export default class World {
    */
   createItemsFrom (player: Player): void {
     const carried = player.takeInventory()
-    if (carried.length === 0) return
+    // Gear too (decision #49): both slots and the bag, each instance as it
+    // was (its `rowId` kept), on the same cells. A disconnect is a death here.
+    const gear = player.takeGear()
+    if (carried.length === 0 && gear.length === 0) return
 
     const free = World.dropCells(player.cell, player.tag)
     for (const { item, count } of carried) {
       for (let n = 0; n < count; n++) this.dropItem(item, free[Random.RangeInt(0, free.length)], player.tag)
     }
+    for (const item of gear) this.dropGear(item, free[Random.RangeInt(0, free.length)], player.tag)
   }
 
   private dropItem (item: Item, cell: Vector, tag: number): void {

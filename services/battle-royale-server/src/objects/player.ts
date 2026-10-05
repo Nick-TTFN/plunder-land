@@ -5,7 +5,7 @@ import { Hex } from '../utils/hex'
 import { type Skill } from '../skills/skill'
 import { type Archetype, ARCHETYPES, buildKit, buildSkillById } from '../archetypes/archetypes'
 import { LOADOUT_SIZE, START_KIT, skillById } from '../utils/skills'
-import { type GearEffect, type GearInstance, GEAR_SLOTS, NO_GEAR_EFFECT, effectiveReach, gearEffect, itemCooldownMs } from '../utils/gear'
+import { type GearEffect, type GearInstance, GEAR_BAG, GEAR_FIRST_SLOT, GEAR_SLOTS, NO_GEAR_EFFECT, effectiveReach, encodeGear, gearEffect, itemCooldownMs } from '../utils/gear'
 import World from './world'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Timers from './timers'
@@ -15,6 +15,7 @@ import { type Item } from '../archetypes/archetypes'
 import { itemForSlot, useItem } from '../items/use'
 import type Consumable from './consumable'
 import type ItemPickup from './itempickup'
+import type GearPickup from './gearpickup'
 import Analytics from '../analytics'
 import type BotBrain from '../bots/brain'
 import { countKill } from '../progress/run'
@@ -105,6 +106,13 @@ export default class Player extends Unit {
   private readonly _gearSkills: Array<Skill | null> = new Array<Skill | null>(GEAR_SLOTS).fill(null)
   private _gearEffect: GearEffect = NO_GEAR_EFFECT
   private _gearSpeed = 0
+  /**
+   * Gear carried but not equipped (49-2): found with no free slot, a part, or
+   * anything a bot picks up. At most `GEAR_BAG`. Not usable; dropped on death,
+   * kept on extraction (49-4). Behind `carried`, like `_inventory`: every
+   * change goes through `addGear` / `takeGear`.
+   */
+  private readonly _bag: GearInstance[] = []
 
   /**
    * Every player is a peep until `robot-type-on-join` lets them choose.
@@ -147,6 +155,15 @@ export default class Player extends Unit {
     // what the server holds. Never dirty: it doesn't change within a run.
     this.allFields.add('finish')
     this.allFieldsOwn.add('finish')
+    // Carried gear (49-2), the owner's create only, and a delta on change.
+    // Then the speed, moved to the end: it goes out as field 27 since 49-2.
+    // Fields go out in the order the sets were filled, and a client from
+    // before 49-2 stops at the first index it doesn't know, so with these two
+    // last it still reads everything else of its own create (PROTOCOL 6 then
+    // sends it to reload).
+    this.allFieldsOwn.add('carried')
+    this.allFieldsOwn.delete('maxVelocity')
+    this.allFieldsOwn.add('maxVelocity')
 
     Multiplayer.Instance.create(this)
   }
@@ -268,11 +285,16 @@ export default class Player extends Unit {
     const reach = this.pickupReach
     let loot: Consumable | undefined
     let item: ItemPickup | undefined
+    let gear: GearPickup | undefined
     World.forKeysWithin(this.cell, reach, (key) => {
       for (const obj of World.PICKUPS.at(this.tag, key)) {
         if (obj.destroyed) continue
         if (obj.type === ObjectType.Consumable) {
           if (loot === undefined) loot = obj as Consumable
+        } else if (World.isGear(obj)) {
+          // Gear shares ObjectType.Item with items (49-2). One a tick; with no
+          // room for it the pickup stays where it is.
+          if (gear === undefined && this.gearRoom(obj.instance)) gear = obj
         } else if (item === undefined && this.countOf((obj as ItemPickup).kind) < (obj as ItemPickup).kind.maxStack) {
           // One a tick, like loot. A full stack leaves the pickup where it is.
           item = obj as ItemPickup
@@ -291,6 +313,7 @@ export default class Player extends Unit {
       item.destroyCollected(this)
       World.PICKUPS.remove(World.ITEMS, item)
     }
+    if (gear !== undefined && this.addGear(gear.instance)) World.gearTaken(gear, this)
   }
 
   /**
@@ -433,6 +456,9 @@ export default class Player extends Unit {
   tryUseItem (slot: number, aimCell?: Vector): boolean {
     if (this.destroyed || this.exited) return false
     if (!Number.isInteger(slot) || slot < 0 || slot >= INVENTORY_SLOTS) return false
+    // Keys 3-4 (slots 2-3) are the gear slots (decision #49): they cast the
+    // slot's skill, nothing is spent, and an empty slot is refused.
+    if (slot >= GEAR_FIRST_SLOT && slot < GEAR_FIRST_SLOT + GEAR_SLOTS) return this.castGear(slot - GEAR_FIRST_SLOT, aimCell)
     const item = itemForSlot(slot)
     if (item === undefined || this._inventory[slot] <= 0) return false
 
@@ -491,6 +517,98 @@ export default class Player extends Unit {
   /** The skill gear slot `slot` fires, or null. A duplicate's is the kit's own instance. */
   gearSkill (slot: number): Skill | null {
     return this._gearSkills[slot] ?? null
+  }
+
+  /** The gear carried but not equipped, oldest first. Read-only; see `_bag`. */
+  get bag (): readonly GearInstance[] {
+    return this._bag
+  }
+
+  /**
+   * Whether `addGear` would take `item`: a skill item while a gear slot is
+   * empty (never for a bot), else while the bag has room.
+   */
+  gearRoom (item: GearInstance): boolean {
+    if (this._bag.length < GEAR_BAG) return true
+    return this.bot === undefined && item.skill !== 0 && this._gear.includes(null)
+  }
+
+  /**
+   * Carry a found item (49-2): a skill item goes into the first empty gear
+   * slot (`equipGear`, which applies its stats), else into the bag; a part
+   * always goes into the bag. **A bot puts everything in the bag** (spec: bots
+   * carry, never equip, so a bot's stats never change). False, and nothing
+   * changes, with no room. The instance is kept as it is, `rowId` included.
+   * Nothing moves between the bag and the slots mid-run (Nick, #49 Q3).
+   */
+  addGear (item: GearInstance): boolean {
+    if (this.bot === undefined && item.skill !== 0) {
+      const empty = this._gear.indexOf(null)
+      if (empty >= 0 && this.equipGear(empty, item)) {
+        this.dirtyFields.add('carried')
+        return true
+      }
+    }
+    if (this._bag.length >= GEAR_BAG) return false
+    this._bag.push(item)
+    this.dirtyFields.add('carried')
+    return true
+  }
+
+  /**
+   * Empty both gear slots and the bag and return what was in them, slots
+   * first, for the death drop (`World.createItemsFrom`). For a dead player
+   * only: the stats the gear gave are left as they are, and the field is not
+   * marked (the destroy record carries id and hp only), as `takeInventory`.
+   */
+  takeGear (): GearInstance[] {
+    const out: GearInstance[] = []
+    for (let i = 0; i < GEAR_SLOTS; i++) {
+      const item = this._gear[i]
+      if (item !== null) out.push(item)
+      this._gear[i] = null
+      this._gearSkills[i] = null
+    }
+    out.push(...this._bag)
+    this._bag.length = 0
+    return out
+  }
+
+  /**
+   * Cast gear slot `slot`'s skill at `aimCell` (or along facing), through the
+   * same `Skill.execute` a kit press uses; a duplicate fires the kit's own
+   * instance and shares its cooldown (49-1). False for an empty slot.
+   */
+  private castGear (slot: number, aimCell?: Vector): boolean {
+    const skill = this._gearSkills[slot]
+    if (skill === null || skill === undefined) return false
+    skill.execute(aimCell)
+    return true
+  }
+
+  /**
+   * The `carried` wire field (49-2): `[uint8 entries = 6]` then per entry
+   * `[uint8 len][instance]` (`encodeGear`; len 0 = empty), entries 0-1 the
+   * gear slots, 2-5 the bag. `GameObject.serialiseBinary` puts a uint16
+   * length in front. Built when serialised: it is sent in the owner's create
+   * and when it changes, never per tick.
+   */
+  get carried (): Uint8Array {
+    const entries: Array<Uint8Array | null> = [...this._gear.map((g) => g === null ? null : encodeGear(g))]
+    for (let i = 0; i < GEAR_BAG; i++) entries.push(this._bag[i] !== undefined ? encodeGear(this._bag[i]) : null)
+    let size = 1
+    for (const e of entries) size += 1 + (e?.length ?? 0)
+    const out = new Uint8Array(size)
+    out[0] = entries.length
+    let at = 1
+    for (const e of entries) {
+      out[at++] = e?.length ?? 0
+      if (e !== null) {
+        out.set(e, at)
+        at += e.length
+      }
+    }
+    return out
   }
 
   /** The archetype's `damageScale` plus the gear's, through `Skill.dealt` (#49). */

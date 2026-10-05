@@ -75,7 +75,8 @@ if (serverUrl === undefined) {
 // Must match the client's allFields (src/game.ts) and the server's fieldOrder.
 const FIELDS = ['id', 'type', 'position', 'hp', 'level', 'loot', 'tag', 'to', 'radius',
   'lifetime', 'maxVelocity', 'name', 'maxHp', 'facing', 'armor', 'maxArmor', 'archetype',
-  'item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile', 'finish', 'collector']
+  'item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile', 'finish', 'collector',
+  'gear', 'carried', 'speed']
 const TYPE_NAMES = { 1: 'Obstacle', 2: 'Consumable', 4: 'Player', 8: 'Portal', 16: 'Throwable', 32: 'Mob', 64: 'Exit' }
 const MOB = 32
 const PLAYER = 4
@@ -127,6 +128,19 @@ function decode (buffer) {
         data[key] = ((buffer[o++] << 8) + buffer[o++]) * 100; break
       case 'maxVelocity':
         data[key] = buffer[o++] * 10; break
+      case 'speed':
+        // uint16 tenths, stored as maxVelocity (gear-in-run, field 27; 10 is no longer sent)
+        data.maxVelocity = ((buffer[o++] << 8) + buffer[o++]) / 10; break
+      case 'gear': {
+        // [uint8 n][one gear instance] (field 25), kept raw
+        const n = buffer[o++]
+        data[key] = Array.from(buffer.subarray(o, o + n)); o += n; break
+      }
+      case 'carried': {
+        // [uint16 n][entries] (field 26), kept raw
+        const n = (buffer[o++] << 8) + buffer[o++]
+        data[key] = Array.from(buffer.subarray(o, o + n)); o += n; break
+      }
       case 'name': {
         let s = ''
         while (o < buffer.length) { const c = buffer[o++]; if (c === 0) break; s += String.fromCharCode(c) }

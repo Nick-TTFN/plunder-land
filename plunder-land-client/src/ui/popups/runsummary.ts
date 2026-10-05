@@ -38,6 +38,12 @@ export class RunRecord {
   deepest = 0
   kills = 0
   loot = 0
+  /**
+   * Gear items carried (both slots and the bag) as of the last `carried` the
+   * server sent (decision #49): at the end, what was taken out, or lost on a
+   * death. 49-4 adds what is kept.
+   */
+  gear = 0
   robot = ''
   durationMs = 0
 
@@ -46,6 +52,7 @@ export class RunRecord {
     this.deepest = 0
     this.kills = 0
     this.loot = 0
+    this.gear = 0
     this.durationMs = 0
     this.robot = (robot ?? 'robot').toUpperCase()
     this.progress = undefined
@@ -59,6 +66,11 @@ export class RunRecord {
     // names only the last one's unlocks).
     this.levelBefore = progress.levelUp ? Math.min(levelBefore ?? progress.level - 1, progress.level - 1) : progress.level
     this.onProgress?.(progress)
+  }
+
+  /** The own player's `carried` field: counts the items in it. */
+  setCarried (carried: ReadonlyArray<unknown>): void {
+    this.gear = carried.filter((entry) => entry !== null && entry !== undefined).length
   }
 
   /** The player is on layer number `n` (undefined: a tag this client wasn't told about). */
@@ -113,6 +125,8 @@ export class RunSummaryCard extends Container {
     const rows: Array<[string, string, number]> = [
       ['TIME', run.time, THEME.text],
       [extracted ? 'LOOT BANKED' : 'LOOT LOST', run.loot.toLocaleString('en-US'), run.loot === 0 ? THEME.text : extracted ? THEME.loot : THEME.danger],
+      // Gear (decision #49): what was carried at the end, out or lost.
+      [extracted ? 'GEAR CARRIED' : 'GEAR LOST', String(run.gear), run.gear === 0 ? THEME.text : extracted ? THEME.loot : THEME.danger],
       ['KILLS', String(run.kills), THEME.text],
       ['DEEPEST', run.deepest > 0 ? `LAYER ${two(run.deepest)}` : '-', THEME.text],
       ['ROBOT', run.robot, THEME.text],

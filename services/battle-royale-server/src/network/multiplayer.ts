@@ -1146,6 +1146,7 @@ export default class Multiplayer {
     for (const obj of World.OBSTACLES) if (!Multiplayer.isTerrain(obj)) visit(obj)
     for (const obj of World.CONSUMABLES) visit(obj)
     for (const obj of World.ITEMS) visit(obj)
+    for (const obj of World.GEAR) visit(obj)
     for (const obj of World.interestCandidates(player.position.x, player.position.y, tag)) visit(obj)
     for (const obj of World.MOBS) visit(obj)
   }
@@ -1220,7 +1221,10 @@ export default class Multiplayer {
    */
   static readonly pickupViewCounts = { skipped: 0, rings: 0, whole: 0, entered: 0, left: 0 }
 
-  /** True for what `pickupViews` brings into and out of view: loot, items and StoneWall stones. */
+  /**
+   * True for what `pickupViews` brings into and out of view: loot, items,
+   * gear (which is `ObjectType.Item` too, 49-2) and StoneWall stones.
+   */
   static isPickupLike (obj: GameObject): boolean {
     return obj.type === ObjectType.Consumable || obj.type === ObjectType.Item ||
       (obj.type === ObjectType.Obstacle && !Multiplayer.isTerrain(obj))
@@ -1311,6 +1315,7 @@ export default class Multiplayer {
         counts.whole++
         for (const obj of World.CONSUMABLES) if (obj.tag === tag) enterIfIn(connection, viewer, obj)
         for (const obj of World.ITEMS) if (obj.tag === tag) enterIfIn(connection, viewer, obj)
+        for (const obj of World.GEAR) if (obj.tag === tag) enterIfIn(connection, viewer, obj)
         for (const obj of World.OBSTACLES) if (obj.tag === tag && !Multiplayer.isTerrain(obj)) enterIfIn(connection, viewer, obj)
       }
 

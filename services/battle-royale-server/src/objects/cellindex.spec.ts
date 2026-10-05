@@ -12,6 +12,7 @@ import Exit from './exit'
 import Portal from './portal'
 import Obstacle from './obstacle'
 import Consumable from './consumable'
+import GearPickup from './gearpickup'
 import { GameObject, ObjectType } from './gameobject'
 import { type Unit } from './unit'
 import { CellIndex } from '../utils/cellindex'
@@ -269,8 +270,9 @@ test('a world run through its own paths never rebuilds an index after the first 
 
   const players = ['a1a1a1', 'b2b2b2', 'c3c3c3', 'd4d4d4', 'e5e5e5'].map(join)
   // That each path below really ran, so a pass means something.
-  const ran = { pickup: false, stones: false, drops: false, swept: false }
+  const ran = { pickup: false, stones: false, drops: false, swept: false, gear: false }
   let crystal: Consumable | undefined
+  let found: GearPickup | undefined
   let caster: Player | undefined
   for (let tick = 0; tick < 200; tick++) {
     t.mock.timers.tick(250)
@@ -298,6 +300,17 @@ test('a world run through its own paths never rebuilds an index after the first 
     if (tick >= 11 && tick <= 15 && !ran.pickup && crystal !== undefined) {
       const by = crystal.collector
       ran.pickup = crystal.destroyed && !World.CONSUMABLES.includes(crystal) && players.some((p) => p.id === by)
+    }
+    if (tick === 16 && live[0] !== undefined) {
+      // Gear (49-2) on the player's own cell: taken through PICKUPS, out of
+      // World.GEAR by World.gearTaken.
+      live[0].stop()
+      const at = Hex.toPosition(live[0].cell)
+      found = new GearPickup(at.x, at.y, live[0].tag, { tier: 1, skill: 0, rolls: [] }, 30000)
+      World.PICKUPS.push(World.GEAR, found)
+    }
+    if (tick >= 17 && tick <= 21 && !ran.gear && found !== undefined) {
+      ran.gear = found.destroyed && !World.GEAR.includes(found) && players.some((p) => p.id === found?.collector)
     }
     if (tick === 13) ran.stones = World.OBSTACLES.some((o) => o instanceof Obstacle && o.lifetime > 0)
     if (tick === 12) {
@@ -330,14 +343,14 @@ test('a world run through its own paths never rebuilds an index after the first 
     if (tick === 35 && live[4] !== undefined) live[4].changeLayer(MIDDLE)
   }
 
-  assert.deepEqual(ran, { pickup: true, stones: true, drops: true, swept: true }, 'a path this test means to cover never ran')
+  assert.deepEqual(ran, { pickup: true, stones: true, drops: true, swept: true, gear: true }, 'a path this test means to cover never ran')
   for (const [name, index] of Object.entries(indexes)) {
     assert.equal(index.rebuilds - before[name], 0, `${name} rebuilt while the world ran through its own paths`)
   }
   // And each is still exactly its lists.
   for (const unit of [...World.PLAYERS, ...World.MOBS] as Unit[]) assert.ok(World.UNITS.has(unit))
   assert.equal(World.UNITS.size, World.PLAYERS.length + World.MOBS.length)
-  assert.equal(World.PICKUPS.size, World.CONSUMABLES.length + World.ITEMS.length)
+  assert.equal(World.PICKUPS.size, World.CONSUMABLES.length + World.ITEMS.length + World.GEAR.length)
   assert.equal(World.GATES.size, World.OBSTACLES.filter((o) => o instanceof Exit || o instanceof Portal).length)
 })
 

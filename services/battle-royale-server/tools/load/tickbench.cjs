@@ -10,6 +10,11 @@
 //   ROBOT=<key>  every player joins as that robot (peep, periscope, magnet,
 //                hopper, waddle); ROBOT=mix cycles through all five. Default:
 //                none sent, so Peep, as before the option existed.
+//   GEAR=<n>     every player equips n (0-2) max-roll T3 skill items before
+//                the first tick (decision #49, 49-2): Fireball with damage and
+//                hp, Icicle with speed and armor, at q 1000, so stats are at
+//                their caps. A build without `Player.equipGear` (before 49-1)
+//                equips nothing: `gearApplied` says how many took.
 // kbPerClientTick is the mean framed bytes written per player per tick over
 // the same last 300 ticks (uncompressed: the fake socket has no deflate), and
 // periscopeKbPerTick the same for the Periscopes alone (null without any).
@@ -50,6 +55,16 @@ for (let i = 0; i < N; i++) {
   h.start_requested(start)
   players.push(World.PLAYERS[World.PLAYERS.length - 1])
 }
+const GEAR = Math.max(0, Math.min(2, Number(process.env.GEAR ?? 0)))
+const GEAR_ITEMS = [
+  { tier: 3, skill: 6, rolls: [{ stat: 4, q: 1000 }, { stat: 1, q: 1000 }] },
+  { tier: 3, skill: 7, rolls: [{ stat: 3, q: 1000 }, { stat: 2, q: 1000 }] }
+]
+let gearApplied = 0
+for (const p of players) {
+  if (typeof p.equipGear !== 'function') break
+  for (let s = 0; s < GEAR; s++) if (p.equipGear(s, GEAR_ITEMS[s])) gearApplied++
+}
 let upd = 0; let calls = 0
 const orig = Multiplayer.prototype.update
 let inPass = false; let passUpd = 0; let passCalls = 0
@@ -83,4 +98,4 @@ const kbOf = (list) => list.length === 0 ? null : +(list.reduce((a, i) => a + wr
 const all = players.map((_, i) => i)
 const scopes = all.filter((i) => players[i].archetype.key === 'periscope')
 const kb = players.filter((p) => !p.destroyed).map((p) => p.knownBy.size); const moving = players.filter((p) => p.path.length > 0).length
-console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))
+console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', gear: GEAR, gearApplied, tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))

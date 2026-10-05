@@ -9,6 +9,7 @@ import { Leaderboard } from './leaderboard'
 import { Game } from '../../game'
 import { SETTINGS, normaliseKey } from '../../net/settings'
 import { SettingsPanel } from '../settings/settingspanel'
+import { type GearInstance } from '../../utils/gear'
 
 const MINIMAP = 200
 
@@ -89,6 +90,23 @@ export class HUD extends Container {
 
   updateInventory (counts: number[]): void {
     this.status?.inventory.update(counts)
+  }
+
+  /** The run's kit skill ids, for which gear is a duplicate (`setupGear`). */
+  private _kit: readonly number[] = []
+
+  /**
+   * A new run's gear (decision #49): keys 3 and 4 and the bag live in the
+   * inventory, which `setupStats` made afresh. `kit` is the run's 4 skill ids.
+   */
+  setupGear (kit: readonly number[]): void {
+    this._kit = kit
+    this.status?.inventory.updateGear([], kit)
+  }
+
+  /** The own player's `carried` field: the gear slots and the bag. */
+  updateGear (carried: ReadonlyArray<GearInstance | null>): void {
+    this.status?.inventory.updateGear(carried, this._kit)
   }
 
   /**
@@ -224,6 +242,7 @@ export class HUD extends Container {
   update (dt: number): void {
     if (this.map != null) this.map.update(dt)
     this.status?.update()
+    this.status?.inventory.tick(performance.now())
     this.clock?.update()
     this.skills?.update(performance.now())
     this.layers?.setCurrent(Game.PLAYER?.tag)

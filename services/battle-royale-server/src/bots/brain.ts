@@ -262,7 +262,11 @@ export default class BotBrain implements IAIRoutine {
       if (distance >= bestDistance) return
       for (const obj of World.PICKUPS.at(me.tag, key)) {
         if (obj.destroyed) continue
-        if (obj.type !== ObjectType.Consumable) {
+        if (World.isGear(obj)) {
+          // Gear shares ObjectType.Item but has no `kind` (decision #49,
+          // 49-2): reading one threw inside the tick. A bot bags gear.
+          if (!me.gearRoom(obj.instance)) continue
+        } else if (obj.type !== ObjectType.Consumable) {
           const kind = (obj as unknown as { kind: { slot: number, maxStack: number } }).kind
           if ((me.inventory[kind.slot] ?? 0) >= kind.maxStack) continue
         }

@@ -34,8 +34,8 @@ let wireFields = {}
 const kindOf = new Map()
 const KIND_NAMES = { 1: 'rock', 2: 'loot', 4: 'player', 8: 'portal', 16: 'projectile', 32: 'mob', 64: 'exit', 128: 'item' }
 const EVENTS = { 1: 'create', 2: 'create_own', 3: 'effect', 4: 'destroy', 5: 'standings', 6: 'update' }
-// Payload widths by field index; -1 NUL string, -2 counted. Mirrors loadbot.mjs's WIDTH.
-const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4, 21: 2, 22: 1, 23: -2, 24: 2 }
+// Payload widths by field index; -1 NUL string, -2 counted (uint8), -3 counted (uint16). Mirrors loadbot.mjs's WIDTH.
+const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4, 21: 2, 22: 1, 23: -2, 24: 2, 25: -2, 26: -3, 27: 2 }
 let FIELD_NAMES = []
 function tallyFrame (frame) {
   let at = 9
@@ -66,6 +66,7 @@ function tallyFrame (frame) {
               if (w === undefined) break
               else if (w === -1) { n = 1; while (f + n < rec.length && rec[f + n] !== 0) n++; n++ }
               else if (w === -2) n = 1 + rec[f + 1]
+              else if (w === -3) n = 2 + ((rec[f + 1] << 8) | rec[f + 2])
               else n = w
               const name = FIELD_NAMES[idx] ?? idx
               wireFields[name] = (wireFields[name] ?? 0) + 1 + n

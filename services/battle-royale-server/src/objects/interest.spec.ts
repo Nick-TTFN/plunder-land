@@ -10,11 +10,12 @@ import Player from './player'
 import Mob from './mob'
 import Consumable from './consumable'
 import ItemPickup from './itempickup'
+import GearPickup from './gearpickup'
 import Obstacle from './obstacle'
 import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
 import { type GameObject } from './gameobject'
-import { ARCHETYPES, ITEMS, LAYERS, buildKit } from '../archetypes/archetypes'
+import { ARCHETYPES, ITEMS, LAYERS, buildKit, rollGear } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparser'
@@ -97,6 +98,8 @@ beforeEach(() => {
   World.PROJECTILES.length = 0
   World.CONSUMABLES.length = 0
   World.ITEMS.length = 0
+  World.GEAR.length = 0
+  World.CACHES_PENDING.clear()
   World.PLAYERS.length = 0
   World.MOBS.length = 0
   World.AREA_EFFECT.length = 0
@@ -246,7 +249,7 @@ function stones (): GameObject[] {
 }
 
 function dynamics (): GameObject[] {
-  return [...World.PLAYERS, ...World.MOBS, ...World.CONSUMABLES, ...World.ITEMS, ...World.PROJECTILES, ...stones()]
+  return [...World.PLAYERS, ...World.MOBS, ...World.CONSUMABLES, ...World.ITEMS, ...World.GEAR, ...World.PROJECTILES, ...stones()]
 }
 
 /**
@@ -255,7 +258,7 @@ function dynamics (): GameObject[] {
  */
 function tick (multiplayer: Multiplayer, n: number): void {
   for (let i = World.PLAYERS.length - 1; i >= 0; i--) multiplayer.update(World.PLAYERS[i])
-  for (const obj of [...World.MOBS, ...World.PROJECTILES, ...World.CONSUMABLES, ...World.ITEMS, ...stones()]) multiplayer.update(obj)
+  for (const obj of [...World.MOBS, ...World.PROJECTILES, ...World.CONSUMABLES, ...World.ITEMS, ...World.GEAR, ...stones()]) multiplayer.update(obj)
   multiplayer.flushAll(n, 250)
 }
 
@@ -319,6 +322,13 @@ function loot (x: number, y: number, tag: number): Consumable {
   return pickup
 }
 
+/** A gear pickup (decision #49): `ObjectType.Item` like an item, in its own list `World.GEAR`. */
+function gear (x: number, y: number, tag: number, cache = false): GearPickup {
+  const pickup = new GearPickup(x, y, tag, rollGear(2, 'skill', Math.random), cache ? 0 : 30000, cache)
+  World.PICKUPS.push(World.GEAR, pickup)
+  return pickup
+}
+
 function rock (x: number, y: number, tag: number): Obstacle {
   const obstacle = new Obstacle(x, y, tag)
   World.addObstacle(obstacle)
@@ -346,6 +356,10 @@ test('over thousands of random changes every client holds exactly what it can se
   for (let i = 0; i < 5; i++) {
     const at = spot()
     World.PICKUPS.push(World.ITEMS, new ItemPickup(at.x, at.y, layer(), ITEMS.medkit))
+  }
+  for (let i = 0; i < 5; i++) {
+    const at = spot()
+    gear(at.x, at.y, layer(), i % 2 === 0)
   }
   tick(multiplayer, 0)
 
@@ -411,6 +425,14 @@ test('over thousands of random changes every client holds exactly what it can se
         gone.destroy()
         World.removeObstacle(gone)
       }
+    } else if (roll < 0.55) {
+      // Gear (49-2) comes and goes like loot.
+      const at = spot()
+      gear(at.x, at.y, layer())
+    } else if (roll < 0.60 && World.GEAR.length > 0) {
+      const pickup = World.GEAR[Math.floor(random() * World.GEAR.length)]
+      pickup.destroy()
+      World.PICKUPS.remove(World.GEAR, pickup)
     }
 
     tick(multiplayer, n)
@@ -661,6 +683,7 @@ test('a pickup and a StoneWall stone come into and go out of sight by the same r
   World.MOBS.length = 0
   World.CONSUMABLES.length = 0
   World.ITEMS.length = 0
+  World.GEAR.length = 0
   const start = Hex.toPosition(new Vector(124, 40))
   assert.equal(start.x, 6480)
   const client = join(multiplayer, 'b00006', start)
@@ -669,7 +692,9 @@ test('a pickup and a StoneWall stone come into and go out of sight by the same r
   const pickup = loot(offCell(start, 12).x, offCell(start, 12).y, TOP)
   const stone = new Obstacle(offCell(start, 12, -1).x, offCell(start, 12, -1).y, TOP, 600_000)
   World.addObstacle(stone)
-  const objects = [pickup, stone]
+  // A natural cache (no expiry): the pickup pass must bring gear in and out too.
+  const cache = gear(offCell(start, 11, 1).x, offCell(start, 11, 1).y, TOP, true)
+  const objects = [pickup, stone, cache]
   const step = (n: number, cell: Vector): void => {
     client.player.position = Hex.toPosition(cell)
     t.mock.timers.tick(250)
@@ -694,7 +719,7 @@ test('a pickup and a StoneWall stone come into and go out of sight by the same r
       assert.equal(client.mirror.held.has(obj.id), ring <= 8, `${obj.constructor.name} out at ring ${ring}`)
     }
   }
-  assert.ok(!client.mirror.held.has(pickup.id) && !client.mirror.held.has(stone.id), 'never left')
+  assert.ok(!client.mirror.held.has(pickup.id) && !client.mirror.held.has(stone.id) && !client.mirror.held.has(cache.id), 'never left')
   assertClean([client], 'world pickups and stones')
 })
 
@@ -894,14 +919,18 @@ test('the join snapshot is the whole of the layer\'s terrain and only what is in
   const belowMob = idleMob(2200, 2000, MIDDLE)
   const nearLoot = loot(1800, 2100, TOP)
   const farLoot = loot(2000, 1400, TOP)
+  // Gear (49-2) is in the snapshot like loot: `sendVisible` walks World.GEAR.
+  const nearGear = gear(1900, 2000, TOP, true)
+  const farGear = gear(2000, 1300, TOP)
+  const belowGear = gear(1900, 2000, MIDDLE)
   const other = join(multiplayer, 'a0000b', new Vector(2300, 2000))
   const distant = join(multiplayer, 'a0000c', new Vector(200, 200))
   other.mirror.clear()
 
   const joiner = join(multiplayer, 'a0000d', at)
   const created = new Set(joiner.mirror.seen.create)
-  for (const obj of [nearRock, farRock, nearMob, nearLoot, other.player]) assert.ok(created.has(obj.id), `missing ${obj.constructor.name} ${obj.id}`)
-  for (const obj of [belowRock, farMob, belowMob, farLoot, distant.player]) assert.ok(!created.has(obj.id), `sent ${obj.constructor.name} ${obj.id}`)
+  for (const obj of [nearRock, farRock, nearMob, nearLoot, nearGear, other.player]) assert.ok(created.has(obj.id), `missing ${obj.constructor.name} ${obj.id}`)
+  for (const obj of [belowRock, farMob, belowMob, farLoot, farGear, belowGear, distant.player]) assert.ok(!created.has(obj.id), `sent ${obj.constructor.name} ${obj.id}`)
   assert.deepEqual(joiner.mirror.seen.create_own, [joiner.player.id])
   assert.ok(!created.has(joiner.player.id), 'its own player went out as a plain create too')
   // The one already there was sent the newcomer, the distant one was not.
@@ -1283,16 +1312,18 @@ test('the world\'s own tick tells a player who comes up to a pickup that it is t
   World.MOBS.length = 0
   World.CONSUMABLES.length = 0
   World.ITEMS.length = 0
+  World.GEAR.length = 0
   const client = join(multiplayer, 'a00016', new Vector(500, 500))
-  // Three cells from where the player will stand, so neither is picked up.
+  // Three cells from where the player will stand, so none is picked up.
   const target = Hex.toPosition(Hex.toCell(new Vector(3000, 3000)))
   const pickup = loot(target.x + 3 * Hex.SIZE, target.y, TOP)
   const item = new ItemPickup(target.x, target.y + 3 * Hex.SIZE, TOP, ITEMS.bomb)
   World.PICKUPS.push(World.ITEMS, item)
+  const dropped = gear(target.x - 3 * Hex.SIZE, target.y, TOP)
   t.mock.timers.tick(250)
   world.update(0.25)
   multiplayer.flushAll(1, 250)
-  assert.ok(!client.mirror.held.has(pickup.id) && !client.mirror.held.has(item.id))
+  assert.ok(!client.mirror.held.has(pickup.id) && !client.mirror.held.has(item.id) && !client.mirror.held.has(dropped.id))
 
   client.player.position = target
   t.mock.timers.tick(250)
@@ -1300,5 +1331,6 @@ test('the world\'s own tick tells a player who comes up to a pickup that it is t
   multiplayer.flushAll(2, 250)
   assert.ok(client.mirror.held.has(pickup.id), 'loot not created on coming into range')
   assert.ok(client.mirror.held.has(item.id), 'item not created on coming into range')
+  assert.ok(client.mirror.held.has(dropped.id), 'gear not created on coming into range')
   assertClean([client], 'world pickups')
 })

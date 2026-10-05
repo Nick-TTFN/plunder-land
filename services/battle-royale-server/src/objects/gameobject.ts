@@ -165,16 +165,34 @@ export class GameObject {
     // Who took a pickup (pickup-reach, #42): the collecting player's id, a
     // uint16, in the pickup's destroy record only, so the client can fly it to
     // them. Set by `destroyCollected`. Appended, as above.
-    'collector'
+    'collector',
+    // A gear pickup's item (decision #49, 49-2): `[uint8 n]` and that many
+    // bytes, one instance as `encodeGear` writes it (utils/gear.ts). Counted,
+    // so a later addition only lengthens it. Only `GearPickup` sends it, in its
+    // create; it tells a gear pickup from an `ItemPickup`, which shares
+    // `ObjectType.Item` and sends `item` instead. Appended, as above.
+    'gear',
+    // A player's carried gear (49-2): `[uint16 n big-endian]` and that many
+    // bytes, `[uint8 entries = 6]` then per entry `[uint8 len][instance]`,
+    // len 0 an empty entry; entries 0-1 are the gear slots (keys 3-4), 2-5 the
+    // bag. In the owner's create and a delta on change, like `inventory`.
+    // Appended, as above.
+    'carried',
+    // `maxVelocity` in tenths, a uint16 (49-2). The `maxVelocity` property goes
+    // out under this index (see WIRE_NAME), so index 10, an int8 of tens that
+    // floored a geared 149.8 to 140, is never written again. Appended, as above.
+    'speed'
   ]
 
   /**
    * Properties that go on the wire under a different field than their own
-   * name. `loot` is the only one: its uint16 field threw ERR_OUT_OF_RANGE for
-   * a haul over 65,535, from inside the tick, so dirty tracking and the
-   * snapshot sets keep saying `loot` and only the encoding changes.
+   * name. `loot`: its uint16 field threw ERR_OUT_OF_RANGE for a haul over
+   * 65,535, from inside the tick, so dirty tracking and the snapshot sets keep
+   * saying `loot` and only the encoding changes. `maxVelocity` the same way
+   * (49-2): index 10 carried tens in an int8, so a geared speed of 149.8
+   * reached the predicting client as 140; `speed` (27) carries tenths.
    */
-  static WIRE_NAME: Readonly<Record<string, string>> = Object.freeze({ loot: 'loot32' })
+  static WIRE_NAME: Readonly<Record<string, string>> = Object.freeze({ loot: 'loot32', maxVelocity: 'speed' })
 
   constructor (
     type: number,
@@ -576,9 +594,31 @@ export class GameObject {
           at += 2
           break
         case 'maxVelocity':
-          GameObject._room(at, 1).writeInt8(Math.floor(value / 10), at)
-          at += 1
+          // As `speed` (27): tenths in a uint16, rounded (149.8 * 10 is
+          // 1497.9999...) and saturated, so no speed can throw inside the tick
+          // (loot32's lesson). Index 10 is never written since 49-2.
+          GameObject._room(at, 2).writeUInt16BE(Math.max(0, Math.min(0xFFFF, Math.round(value * 10))), at)
+          at += 2
           break
+        case 'gear': {
+          // One instance's bytes (`encodeGear`), counted by a uint8. An
+          // instance is 3 + 3 per roll bytes, far under 255.
+          const bytes = value as Uint8Array
+          const scratch = GameObject._room(at, 1 + bytes.length)
+          scratch.writeUInt8(bytes.length, at)
+          scratch.set(bytes, at + 1)
+          at += 1 + bytes.length
+          break
+        }
+        case 'carried': {
+          // Already the entries' bytes (`Player.carried`), counted by a uint16.
+          const bytes = value as Uint8Array
+          const scratch = GameObject._room(at, 2 + bytes.length)
+          scratch.writeUInt16BE(bytes.length, at)
+          scratch.set(bytes, at + 2)
+          at += 2 + bytes.length
+          break
+        }
         case 'inventory':
         case 'finish': {
           const counts = value as readonly number[]

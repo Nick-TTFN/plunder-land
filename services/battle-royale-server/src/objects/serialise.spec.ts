@@ -55,7 +55,21 @@ function legacy (obj: GameObject, fields: Set<string>): Buffer | null {
       case 'to': raw.push(getBuffer(value)); break
       case 'radius': raw.push(getBuffer(value)); break
       case 'lifetime': raw.push(getBuffer2(Math.min(65535, Math.floor(value / 100)))); break
-      case 'maxVelocity': raw.push(getBuffer(Math.floor(value / 10))); break
+      // gear-in-run (49-2): goes out as `speed` (27), tenths in a saturated
+      // uint16, not as index 10's int8 of tens; written in the same style.
+      case 'maxVelocity': raw.push(getBuffer2(Math.max(0, Math.min(0xFFFF, Math.round(value * 10))))); break
+      // gear-in-run: appended after this encoder was retired, counted by a
+      // uint8 (`gear`) and a uint16 (`carried`).
+      case 'gear': {
+        const bytes = value as Uint8Array
+        raw.push(Buffer.from([bytes.length]), Buffer.from(bytes))
+        break
+      }
+      case 'carried': {
+        const bytes = value as Uint8Array
+        raw.push(getBuffer2(bytes.length), Buffer.from(bytes))
+        break
+      }
       case 'maxHp': raw.push(getBuffer2(value)); break
       case 'armor': raw.push(getBuffer2(value)); break
       case 'maxArmor': raw.push(getBuffer2(value)); break
@@ -122,7 +136,7 @@ function same (obj: GameObject, fields: Set<string>, label: string): void {
 const ALL_KEYS = [
   'id', 'type', 'position', 'direction', 'hp', 'level', 'loot', 'tag', 'to', 'radius', 'lifetime',
   'maxVelocity', 'maxHp', 'armor', 'maxArmor', 'archetype', 'item', 'inventory', 'extractProgress',
-  'facing', 'name', 'finish', 'collector', 'notAField'
+  'facing', 'name', 'finish', 'collector', 'gear', 'carried', 'notAField'
 ]
 
 // A small seeded generator, so a failure reproduces.
@@ -207,13 +221,21 @@ test('a value that does not fit its field throws the same error as before', () =
   const player = players[0]
   const cases: Array<[string, unknown]> = [
     ['radius', 300], ['level', -200], ['hp', 70_000], ['hp', -1], ['maxHp', 1.5e6],
-    ['armor', 65_536], ['tag', 128], ['facing', 999], ['maxVelocity', 5000], ['position', new Vector(40_000, 0)]
+    ['armor', 65_536], ['tag', 128], ['facing', 999], ['position', new Vector(40_000, 0)]
   ]
   for (const [key, value] of cases) {
     const saved = (player as unknown as Record<string, unknown>)[key]
     ;(player as unknown as Record<string, unknown>)[key] = value
     same(player, new Set(['id', 'type', key]), `${key} = ${String(value)}`)
     ;(player as unknown as Record<string, unknown>)[key] = saved
+  }
+  // Speed saturates rather than throwing since it went out as `speed` (49-2):
+  // 5000 threw on index 10's int8. Tenths, rounded.
+  for (const speed of [5000, 70_000, -3, 147, 73.5, 149.8]) {
+    const saved = player.maxVelocity
+    player.maxVelocity = speed
+    same(player, new Set(['id', 'maxVelocity']), `maxVelocity = ${speed}`)
+    player.maxVelocity = saved
   }
   // Loot saturates rather than throwing.
   player.loot = 2 ** 40

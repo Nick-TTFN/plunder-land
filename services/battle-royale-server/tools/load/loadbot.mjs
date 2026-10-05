@@ -108,12 +108,13 @@ function ownPosition (rec, ownId) {
     if (w === undefined) return undefined
     if (w === -1) { while (o < rec.length && rec[o++] !== 0); continue }
     if (w === -2) { o += 1 + rec[o]; continue }
+    if (w === -3) { o += 2 + ((rec[o] << 8) | rec[o + 1]); continue }
     o += w
   }
   return undefined
 }
-// Payload widths by field index (CLAUDE.md wire format); -1 NUL string, -2 counted.
-const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4, 21: 2, 22: 1, 23: -2, 24: 2 }
+// Payload widths by field index (CLAUDE.md wire format); -1 NUL string, -2 counted (uint8), -3 counted (uint16, `carried`).
+const WIDTH = { 0: 2, 1: 1, 2: 4, 3: 2, 4: 1, 5: 2, 6: 1, 7: 1, 8: 1, 9: 2, 10: 1, 11: -1, 12: 2, 13: 1, 14: 2, 15: 2, 16: 1, 17: 1, 18: -2, 19: 1, 20: 4, 21: 2, 22: 1, 23: -2, 24: 2, 25: -2, 26: -3, 27: 2 }
 
 function splitRecords (b, start) {
   const recs = []

@@ -67,6 +67,8 @@ extensions['.ts'] = function (m, file) {
 }
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { LocalPlayer } = require('../../../../plunder-land-client/src/net/localplayer')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { decodeRecord } = require('../../../../plunder-land-client/src/net/records')
 
 // --- setup ------------------------------------------------------------------
 
@@ -457,6 +459,25 @@ test('mirror: a route that bends round rocks, and the facing it ends on, agree',
   assertSameTrack(track)
   assert.equal(track.local.path.length, 0, 'the client never arrived')
   assert.equal(track.local.facingIndex, World.FACING_INDEX(track.player.facing), 'the two face different ways')
+})
+
+test('mirror: a geared player at a speed that is not a multiple of 10 walks the same track on both sides', () => {
+  // Gear (49-1/49-2): a T3 speed roll at max is +6%, so Peep walks at 148.4.
+  // The client takes its speed from the wire as it does in play: field 27,
+  // tenths. Index 10 carried tens, and would have predicted at 140.
+  const player = playerOn(TOP, new Vector(20, 40))
+  assert.ok(player.equipGear(0, { tier: 3, skill: 6, rolls: [{ stat: 3, q: 1000 }, { stat: 1, q: 0 }] }))
+  assert.ok(player.maxVelocity % 10 !== 0, `speed ${player.maxVelocity} is a multiple of 10`)
+  const wire = decodeRecord(player.serialiseBinary(new Set(['id', 'maxVelocity'])), GameObject.fieldOrder)
+  assert.equal(wire.maxVelocity, player.maxVelocity, 'the wire did not carry the speed exactly')
+  assert.notEqual(Math.floor(player.maxVelocity / 10) * 10, player.maxVelocity)
+
+  const local = localFor(player)
+  local.reset(player.position.x, player.position.y, player.tag, wire.maxVelocity)
+  routeBoth(player, local, new Vector(36, 40))
+  const track = run(player, local, 24)
+  assertSameTrack(track)
+  assert.ok(same(track.server[track.server.length - 1], Hex.toPosition(new Vector(36, 40))), 'the walk never arrived')
 })
 
 // --- a portal hop (hex-cells P2: arrival cells, #31 Q3, #33) ------------------

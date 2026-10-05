@@ -98,8 +98,9 @@ test('archetype is field index 16, after maxArmor', () => {
   // extract-channel appended `extractProgress` (19), and loot-wire-overflow
   // appended `loot32` (20), and run-summary-card appended `kills` (21), and
   // the arena art pass appended `projectile` (22), robot-finishes appended
-  // `finish` (23), and pickup-reach appended `collector` (24).
-  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile', 'finish', 'collector'], 'a field after collector: update this spec')
+  // `finish` (23), and pickup-reach appended `collector` (24), and
+  // gear-in-run appended `gear` (25), `carried` (26) and `speed` (27).
+  assert.deepEqual(GameObject.fieldOrder.slice(17), ['item', 'inventory', 'extractProgress', 'loot32', 'kills', 'projectile', 'finish', 'collector', 'gear', 'carried', 'speed'], 'a field after speed: update this spec')
 })
 
 function units (): Array<[string, Unit, number]> {
@@ -127,12 +128,13 @@ test('every archetype unit\'s create record ends with [16, id] (then a player\'s
   }
 })
 
-test('the player\'s create_own carries [16, 1], followed only by its inventory, kills and finish', () => {
+test('the player\'s create_own carries [16, 1], followed only by its inventory, kills, finish, carried gear and speed', () => {
   const player = new Player(X, Y, 0, 'p1')
   const own = [...(player.serialiseBinary(player.allFieldsOwn) as Buffer)]
   // usable-items: the inventory (field 18, five empty slots) came next;
-  // run-summary-card: then kills (field 21, a uint16 0); robot-finishes: then the finish.
-  assert.deepEqual(own.slice(-20), [16, 1, 18, 5, 0, 0, 0, 0, 0, 21, 0, 0, ...FINISH_MINT])
+  // run-summary-card: then kills (field 21, a uint16 0); robot-finishes: then the finish;
+  // gear-in-run: then carried gear (26, six empty entries) and the speed (27, 1400 tenths).
+  assert.deepEqual(own.slice(-33), [16, 1, 18, 5, 0, 0, 0, 0, 0, 21, 0, 0, ...FINISH_MINT, 26, 0, 7, 6, 0, 0, 0, 0, 0, 0, 27, 5, 120])
 })
 
 test('archetype is never dirty, so it never goes in a delta', () => {

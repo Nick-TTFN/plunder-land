@@ -8,6 +8,8 @@ import { TextEffect } from '../elements/texteffect'
 import { ItemPickup } from '../../objects/itempickup'
 import { Panel } from './panel'
 import { THEME } from '../theme'
+import { GearBag, GearSlot } from './gearpanel'
+import { type GearInstance, GEAR_BAG, GEAR_FIRST_SLOT, GEAR_SLOTS } from '../../utils/gear'
 
 const SLOT = 58
 const SLOT_GAP = 8
@@ -28,10 +30,24 @@ export class Inventory extends Container {
   private _counts: number[] = new Array<number>(INVENTORY_SLOTS).fill(0)
   private readonly _countTexts: Text[] = []
   private readonly _icons: Container[] = []
+  /** Keys 3 and 4: the gear slots (decision #49), in place of two empty item slots. */
+  readonly gear: GearSlot[] = []
+  /** The bag of 4, under the slots. */
+  readonly bag = new GearBag(GEAR_BAG)
 
   constructor () {
     super()
     for (let slot = 0; slot < INVENTORY_SLOTS; slot++) {
+      if (slot >= GEAR_FIRST_SLOT && slot < GEAR_FIRST_SLOT + GEAR_SLOTS) {
+        const gear = new GearSlot(slot, String(slot + 1))
+        gear.x = slot * (SLOT + SLOT_GAP)
+        gear.y = 10
+        this.gear.push(gear)
+        // Its count text and icon are never drawn; kept so slot indices line up.
+        this._countTexts[slot] = Panel.text('', THEME.bodySize, THEME.text)
+        this._icons[slot] = new Container()
+        continue
+      }
       const card = new Container()
       card.x = slot * (SLOT + SLOT_GAP)
       card.y = 10
@@ -82,7 +98,31 @@ export class Inventory extends Container {
 
       this.addChild(card)
     }
+    this.bag.y = 10 + SLOT + 10
+    this.addChild(this.bag)
+    // The gear slots last, so a slot's hover lines draw over its neighbours.
+    for (const gear of this.gear) this.addChild(gear)
     this.redraw()
+  }
+
+  /**
+   * The own player's `carried` field (decision #49): entries 0-1 into the
+   * gear slots, 2-5 into the bag. `kit` is the run's skill ids, for which an
+   * item is a duplicate (its skill already in the kit, or in an earlier gear
+   * slot: the server's `Player.equipGear` shares that instance).
+   */
+  updateGear (carried: ReadonlyArray<GearInstance | null>, kit: readonly number[]): void {
+    this.gear.forEach((slot, i) => {
+      const item = carried[i] ?? null
+      const earlier = carried.slice(0, i).some((other) => other !== null && item !== null && other.skill === item.skill)
+      slot.setItem(item, item !== null && (kit.includes(item.skill) || earlier))
+    })
+    this.bag.set(carried.slice(GEAR_SLOTS), kit)
+  }
+
+  /** Each gear slot's cooldown text, every frame. */
+  tick (now: number): void {
+    for (const slot of this.gear) slot.update(now)
   }
 
   /** The `inventory` field, as the server sent it: a count per slot. */
@@ -109,6 +149,11 @@ export class Inventory extends Container {
    * again against its own position, and may still refuse one at the edge.
    */
   use (slot: number): void {
+    const gear = this.gear[slot - GEAR_FIRST_SLOT]
+    if (gear !== undefined) {
+      gear.invoke()
+      return
+    }
     const info = itemInSlot(slot)
     if (info === undefined || (this._counts[slot] ?? 0) <= 0 || Game.PLAYER === undefined) return
 

@@ -24,5 +24,9 @@
  * 48-6 (seasons) needed none: a new `season` event, which older clients ignore.
  * 5: energy (#48 step 7). A start can now be refused (`start_refused`), which
  * an older client never hears: its READY would leave it on an empty screen.
+ * 6: gear in the run (#49, 49-2). New field indices 25 `gear`, 26 `carried`
+ * and 27 `speed`: an older client stops parsing its own player's create at
+ * 26/27 (and so loses its speed, which now goes out as 27 only) and drops a
+ * gear pickup's fields.
  */
-export const PROTOCOL = 5
+export const PROTOCOL = 6

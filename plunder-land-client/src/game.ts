@@ -38,8 +38,10 @@ import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
 import { ItemPickup } from './objects/itempickup'
+import { GearPickup } from './objects/gearpickup'
 import { itemById } from './utils/items'
 import { finishFromBytes } from './utils/finishes'
+import { type GearInstance } from './utils/gear'
 import Unit from './objects/unit'
 import { type GameObject } from './objects/gameobject'
 import { type HUD } from './ui/components/hud'
@@ -514,10 +516,28 @@ export class Game extends Container {
       'finish',
       // Who took a pickup, a uint16 id, in its destroy record only
       // (pickup-reach): the pickup flies to them.
-      'collector'
+      'collector',
+      // A gear pickup's item (decision #49): a uint8 count, then one instance
+      // as utils/gear.ts encodes it. Only in a gear pickup's create, which is
+      // type 128 like an item pickup and tells itself apart by this field.
+      'gear',
+      // The own player's carried gear: a uint16 count, then 6 entries, each a
+      // uint8 length and an instance (0 = empty): the two gear slots, keys 3
+      // and 4, then the bag of 4. In the own create and a delta on change.
+      'carried',
+      // maxVelocity in tenths, a uint16, stored as maxVelocity. It replaces
+      // index 10, which floored speed to tens; that one is still read for an
+      // older server.
+      'speed'
     ]
 
     return decodeRecord(raw, allFields)
+  }
+
+  /** The own player's `carried` field (decision #49): the gear cards, the bag and the run card's count. */
+  applyCarried (carried: Array<GearInstance | null>): void {
+    Game.hud.updateGear(carried)
+    Game.RUN.setCarried(carried)
   }
 
   /**
@@ -590,6 +610,12 @@ export class Game extends Container {
       }
 
       case 1 << 7: {
+        // Gear on the ground (decision #49) shares the type and carries `gear`
+        // instead of `item`; null is one this build can't read, still drawn.
+        if ('gear' in data) {
+          obj = new GearPickup(data.gear, data.radius)
+          break
+        }
         // A usable item on the ground (decision #12). Drawn with Graphics: the
         // atlas has no item art. An id this build doesn't know draws a plain
         // marker rather than nothing.
@@ -644,6 +670,10 @@ export class Game extends Container {
       Game.hud.setupSkills(Game.PLAYER.equip(slots.ids), slots.keys)
       Game.hud.setupInventory()
       if (Array.isArray(data.inventory)) Game.hud.updateInventory(data.inventory)
+      // Gear carried into the run (#49): keys 3-4 and the bag. A server from
+      // before it sends none, and the cards stay empty.
+      Game.hud.setupGear(slots.ids)
+      if (Array.isArray(data.carried)) this.applyCarried(data.carried)
 
       this.updateLayerVisibility(data.tag)
     }
@@ -887,6 +917,8 @@ export class Game extends Container {
 
       if (Array.isArray(data.inventory) && obj === Game.PLAYER) Game.hud.updateInventory(data.inventory)
 
+      if (Array.isArray(data.carried) && obj === Game.PLAYER) this.applyCarried(data.carried)
+
       if (typeof data.kills === 'number' && obj === Game.PLAYER) Game.RUN.kills = data.kills
 
       if (data.loot !== undefined && data.loot !== obj.loot) {
@@ -994,7 +1026,7 @@ export class Game extends Container {
 
       // Picked up (pickup-reach): it flies to whoever took it, then goes.
       const collector = data.collector !== undefined ? this.LOOKUP[data.collector] : undefined
-      if (collector instanceof Unit && (obj instanceof Consumable || obj instanceof ItemPickup)) {
+      if (collector instanceof Unit && (obj instanceof Consumable || obj instanceof ItemPickup || obj instanceof GearPickup)) {
         Game.flyToCollector(obj, collector)
       } else {
         obj.dispose()
@@ -1025,7 +1057,7 @@ export class Game extends Container {
         pickup.scale.set(fromScale * (1 - 0.6 * t))
       })
       .onComplete(() => {
-        if (pickup instanceof ItemPickup && collector instanceof Player) collector.onLootGained()
+        if ((pickup instanceof ItemPickup || pickup instanceof GearPickup) && collector instanceof Player) collector.onLootGained()
         pickup.dispose()
       })
       .start()
