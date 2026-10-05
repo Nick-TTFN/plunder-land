@@ -13,6 +13,8 @@ import type { Account } from '../db/accounts'
 import { earnedXp } from '../progress/run'
 import { kitFor } from '../progress/loadouts'
 import { lockedStart } from '../progress/unlocks'
+import type { GearInstance } from '../utils/gear'
+import { type GearCounts, parseBring } from '../gear/stash'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -216,6 +218,16 @@ export default class Multiplayer {
    * #48 step 3); unset (single-world specs) nothing is granted.
    */
   runEnded: ((connection: Connection, player: Player, xp: number) => void) | undefined
+  /**
+   * Called at **every** player's run end (`destroy`, once per run through
+   * `Player.runOver`), bots included and with or without a connection (decision
+   * #49, 49-4): `Worlds` keeps, transfers or discards the gear the run takes
+   * out of the world, taking it off the player synchronously, so the death
+   * sweep that follows (`World.createItemsFrom`) can only drop what was left.
+   * Returns the run's gear counts for `run_end`. Unset (single-world specs):
+   * gear stays on the player and drops as on any death.
+   */
+  gearEnded: ((connection: Connection | undefined, player: Player) => GearCounts) | undefined
 
   /**
    * Stats are a side channel. Nothing in the world is persisted, so a stats write
@@ -375,7 +387,7 @@ export default class Multiplayer {
    * `onConnect`; the server and every `Worlds` spec run strict, so there a
    * start without an account is ignored (fail closed).
    */
-  startRequested (connection: Connection, data: unknown): void {
+  startRequested (connection: Connection, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>): void {
     if (connection.started) return
     Multiplayer.checkWorld(this, 'Multiplayer.startRequested')
     const start = Multiplayer.parseStart(data)
@@ -397,7 +409,7 @@ export default class Multiplayer {
     // start without `loadout` (a client from before loadouts) is loadout 0; no
     // account (single-world specs) is the start kit.
     const kit = kitFor(connection.account, robot, 'loadout' in start ? start.loadout : 0)
-    this.onStart(connection, playerId, start.name, finish, robot, kit)
+    this.onStart(connection, playerId, start.name, finish, robot, kit, gear)
   }
 
   onConnect (socket: Socket): void {
@@ -457,11 +469,21 @@ export default class Multiplayer {
    * has been emitted to the joining client (`hello` goes out just before that
    * flush), and `started` is cleared so it can ask again.
    */
-  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[]): void {
+  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], gear?: ReadonlyArray<GearInstance | undefined>): void {
     Multiplayer.checkWorld(this, 'Multiplayer.onStart')
     let player: Player | undefined
     try {
       player = World.createPlayer(playerId, name, finish, robot, kit)
+      // Gear brought in from the stash (decision #49, 49-4; `Worlds.admit`),
+      // each in its requested slot, before the join snapshot so the own
+      // create carries it. An item `equipGear` refuses (an id this build doesn't
+      // know) stays off the player, and `Worlds` returns it to the stash.
+      if (gear !== undefined) {
+        for (let slot = 0; slot < gear.length; slot++) {
+          const item = gear[slot]
+          if (item !== undefined) player.equipGear(slot, item)
+        }
+      }
       this.admit(connection, player)
       let humans = 0
       let bots = 0
@@ -736,10 +758,10 @@ export default class Multiplayer {
    * again. The bare-string form (the id alone, player-names 2026-09-25) is
    * gone: the id was all it carried.
    */
-  static parseStart (data: unknown): { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string } | undefined {
+  static parseStart (data: unknown): { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string, bring?: Array<string | null> } | undefined {
     if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined
-    const { id, name, finish, robot, loadout, party } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown }
-    const start: { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string } = { name }
+    const { id, name, finish, robot, loadout, party, bring } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown, bring?: unknown }
+    const start: { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string, bring?: Array<string | null> } = { name }
     if (typeof id === 'string' && Multiplayer.ID_SHAPE.test(id)) start.id = id
     if (finish !== undefined) start.finish = finish
     if (robot !== undefined) start.robot = robot
@@ -748,6 +770,11 @@ export default class Multiplayer {
     if (loadout !== undefined) start.loadout = loadout
     // Only a well-formed code; anything else plays as if there were none.
     if (typeof party === 'string' && Multiplayer.PARTY_SHAPE.test(party)) start.party = party
+    // Stash row ids for keys 3 and 4 (decision #49, 49-4; `parseBring`):
+    // anything else is an empty slot, and the join is never refused for it.
+    // `Worlds.admit` decides whether they are carried in.
+    const ids = parseBring(bring)
+    if (ids !== undefined) start.bring = ids
     return start
   }
 
@@ -1661,9 +1688,12 @@ export default class Multiplayer {
       const player = obj as Player
       player.runOver = true
       const own = this.connectionOf(player)
+      // Gear first, for every player, bots too (decision #49, 49-4): what is
+      // kept or discarded comes off the player here, before the death sweep.
+      const gear = this.gearEnded?.(own, player)
       if (own !== undefined) {
         this.updateStats(player).catch(Multiplayer.logStatsFailure)
-        const xp = Multiplayer.sendRunEnd(player)
+        const xp = Multiplayer.sendRunEnd(player, gear)
         this.runEnded?.(own, player, xp)
       }
     }
@@ -1680,7 +1710,7 @@ export default class Multiplayer {
    * Returns the XP the run earned (decision #48 step 3), from the same values
    * (`xp_gained`; 0 on an offline run), which the caller grants.
    */
-  static sendRunEnd (player: Player): number {
+  static sendRunEnd (player: Player, gear?: GearCounts): number {
     const outcome = player.extracted ? 'extracted' : player.hp <= 0 ? 'died' : 'left'
     const at = Date.now()
     const seconds = Math.round((at - player.createdAt) / 1000)
@@ -1694,7 +1724,11 @@ export default class Multiplayer {
       kills: player.kills,
       deepest_layer: deepest,
       robot: player.archetype.key,
-      xp_gained: xp
+      xp_gained: xp,
+      // Decision #49 (Nick's question 5), append-only; 0 where `Worlds` doesn't run.
+      gear_brought: gear?.brought ?? 0,
+      gear_found: gear?.found ?? 0,
+      gear_kept: gear?.kept ?? 0
     }
     const run = { playerId: player.playerId, startedAt: player.createdAt, offline }
     queueMicrotask(() => {

@@ -22,7 +22,13 @@ import type Redis from 'ioredis'
  *   `deepest_layer` (1-3), `robot`, and `killed_by` (`robot`, `mob`, `other`)
  *   on a death. `xp_gained` (decision #48 step 3, added with XP): the XP the
  *   run earned by the formula in `progress/xp.ts`, 0 on an offline run; sent
- *   whether or not the grant then reached the database.
+ *   whether or not the grant then reached the database. Gear (decision #49,
+ *   Nick's question 5, added with the stash in 49-4): `gear_brought` (items
+ *   equipped from the stash at the start), `gear_found` (items carried at the
+ *   end that the run didn't bring: caches, mobs, other players' drops),
+ *   `gear_kept` (items the run's end sent to the stash: on an extraction or a
+ *   drain's cut-off of a persisted account, else 0; sent whether or not the
+ *   write then landed).
  * - Every event of a run on an offline account (the account store failed,
  *   decision #48) also carries `offline: 1`; it is absent otherwise. Such a
  *   run's `run_start` has no `run_number` or `days_since_first`: its id is

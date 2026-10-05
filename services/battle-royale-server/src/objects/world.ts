@@ -187,6 +187,12 @@ export default class World {
    * `gear.caches`, so a taken cache is replaced once its timer has run.
    */
   CACHES_PENDING: Map<number, number> = new Map()
+  /**
+   * A dropped stash item (one with a `rowId`, decision #49) expired on the
+   * ground (49-4): `Worlds` deletes its row (`discardGear`). Unset, nothing
+   * is written (single-world specs).
+   */
+  gearExpired: ((item: GearInstance) => void) | undefined
   PLAYERS: Player[] = []
   MOBS: Unit[] = []
   AREA_EFFECT: Area[] = []
@@ -889,6 +895,7 @@ export default class World {
       if (gear.expiresAt > 0 && now > gear.expiresAt) {
         gear.destroy()
         World.PICKUPS.removeAt(World.GEAR, i)
+        if (gear.instance.rowId !== undefined) World.current.gearExpired?.(gear.instance)
       }
     }
 

@@ -12,6 +12,11 @@ import { levelOf, standingOf } from '../progress/xp'
 import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
 import { creditOf } from '../progress/seasons'
 import { type EnergyView, energyView } from '../progress/energy'
+import { joinLevel } from '../progress/unlocks'
+import type { GearLedger } from '../gear/ledger'
+import { type GearCounts, gearStoreOf, lineageOf, stashEvent, type StashRunResult } from '../gear/stash'
+import type { GearStore, Spent, StashItem } from '../db/accounts'
+import { BRING_LEVEL, type GearInstance } from '../utils/gear'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -38,6 +43,14 @@ export interface WorldsOptions {
    * replica. Absent or 0: no cap.
    */
   maxPlayers?: number
+  /**
+   * This process's gear ledger (decision #49, 49-3/49-4), already started:
+   * one per process, shared by every world. Absent, or a store without the
+   * gear half (`gearStoreOf`): no stash, so nothing is carried in and a run's
+   * end writes nothing. Give it the same timeout as `accountTimeoutMs`: its
+   * carries and settles are bounded by it, not by `bounded`.
+   */
+  ledger?: GearLedger
 }
 
 /** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
@@ -121,6 +134,17 @@ export default class Worlds {
   private readonly saving = new WeakSet<Connection>()
   /** Runs that spent a play (`admit`), and the account that paid; an extraction gives it back (`refundRun`). */
   private readonly paid = new WeakMap<Player, Account>()
+  /** The store's gear half (`gearStoreOf`); undefined: no stash. */
+  private readonly gear: (AccountStore & GearStore) | undefined
+  private readonly ledger: GearLedger | undefined
+  /** Each run's stash rows equipped at its start (`admit`), for `run_end`'s `gear_brought`. */
+  private readonly brought = new WeakMap<Player, string[]>()
+  /**
+   * Each connection's run-end settle while it is in flight (`gearEnded`):
+   * the next start waits for it (race 3). Never rejects; bounded by the
+   * ledger's timeout.
+   */
+  private readonly settling = new WeakMap<Connection, Promise<void>>()
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
@@ -152,6 +176,8 @@ export default class Worlds {
     this.accounts = options.accounts ?? new MemoryAccountStore()
     this.accountTimeoutMs = options.accountTimeoutMs ?? 3000
     this.maxPlayers = options.maxPlayers ?? 0
+    this.gear = gearStoreOf(this.accounts)
+    this.ledger = this.gear !== undefined ? options.ledger : undefined
     World.strict = true
     this.open()
   }
@@ -163,7 +189,9 @@ export default class Worlds {
       this.grant(connection, player, xp)
       this.refundRun(connection, player)
     }
+    multiplayer.gearEnded = (connection, player) => this.gearEnded(connection, player)
     const world = World.build(this.mapSize, { multiplayer })
+    world.gearExpired = (item) => { this.discard([item]) }
     this.worlds.push(world)
     return world
   }
@@ -317,7 +345,31 @@ export default class Worlds {
       message.energy = energyView(account.energy, this.now())
     }
     connection.socket.emit('account', message)
-    if (account.persisted) this.sendSeason(connection, account)
+    if (account.persisted) {
+      this.sendSeason(connection, account)
+      this.sendStash(connection, account)
+    }
+  }
+
+  /**
+   * `stash { items, away }` (decision #49, 49-4) from `loadStash`, which first
+   * returns rows a dead process held (the stale return): after `account` on
+   * connect and creation, and after a start's carry. Bounded; a failure is an
+   * account failure and sends nothing. Never for an offline account, never
+   * without a stash, never to a closed socket or one now on another account.
+   */
+  private sendStash (connection: Connection, account: Account): void {
+    const gear = this.gear
+    if (gear === undefined || !account.persisted) return
+    this.bounded(gear.loadStash(account.publicId)).then((rows) => {
+      Worlds.accountSuccess()
+      Multiplayer.guarded(() => { this.emitStash(connection, account, rows) })
+    }).catch((e) => { Worlds.accountFailure(e) })
+  }
+
+  private emitStash (connection: Connection, account: Account, rows: readonly StashItem[], run?: StashRunResult): void {
+    if (connection.closed || connection.account !== account) return
+    connection.socket.emit('stash', stashEvent(rows, run))
   }
 
   /**
@@ -593,38 +645,110 @@ export default class Worlds {
    * a run that then doesn't start (the socket closed, a drain began, the join
    * threw) is given back.
    */
-  private admit (connection: Connection, start: { party?: string }, data: unknown): void {
+  private admit (connection: Connection, start: { party?: string, bring?: Array<string | null> }, data: unknown): void {
     const account = connection.account
     if (account === undefined || !account.persisted) {
+      // Offline: no stash, so `bring` is ignored.
       this.begin(connection, start, data)
       return
     }
     connection.starting = true
-    this.bounded(this.accounts.spend(account.publicId, this.now())).then((spent) => {
+    // Race 3 (49-3): the last run's settle may still be writing. Its rows are
+    // still carried, so a carry now would skip them; wait (bounded by the
+    // ledger's timeout) so what it returns can come in again.
+    const settle = this.settling.get(connection)
+    if (settle === undefined) {
+      this.spendAndBegin(connection, account, start, data)
+      return
+    }
+    settle.then(() => {
+      Multiplayer.guarded(() => {
+        if (connection.closed) {
+          connection.starting = false
+          return
+        }
+        if (this.draining) {
+          connection.starting = false
+          Worlds.redirect(connection)
+          return
+        }
+        this.spendAndBegin(connection, account, start, data)
+      })
+    }).catch((e) => {
+      connection.starting = false
+      reportError('accounts', e)
+    })
+  }
+
+  /**
+   * The rows `start.bring` may carry in (decision #49, 49-4), in slot order:
+   * none without a stash or below `BRING_LEVEL`. The ledger also refuses to
+   * carry before its first heartbeat lands (`GearLedger.canCarry`), and the
+   * spend then goes alone.
+   */
+  private bringFor (account: Account, bring: Array<string | null> | undefined): string[] {
+    if (bring === undefined || this.ledger === undefined || this.gear === undefined) return []
+    if (joinLevel(account) < BRING_LEVEL) return []
+    return bring.filter((id): id is string => id !== null)
+  }
+
+  /**
+   * The spend (and, with `bring`, the carry in the same transaction), then
+   * the run; see `admit`. A carry's answer equips each item in the slot it
+   * was asked for. Anything carried that doesn't end up on a live run's
+   * player (the run didn't begin, the socket closed, a drain began, an item
+   * `equipGear` refused) goes back to the stash (`uncarry`). A store failure
+   * or a timeout plays free and with no gear (fail open, as energy).
+   */
+  private spendAndBegin (connection: Connection, account: Account, start: { party?: string, bring?: Array<string | null> }, data: unknown): void {
+    const ids = this.bringFor(account, start.bring)
+    const ledger = this.ledger
+    const gear = this.gear
+    const spending: Promise<Spent> = ids.length > 0 && ledger !== undefined && gear !== undefined
+      // The ledger bounds a carry itself (and lets its claims go on a
+      // timeout); a spend it sends alone (no fresh heartbeat) is bounded here.
+      ? ledger.carry(ids, async (bring) => bring === undefined
+        ? await this.bounded(this.accounts.spend(account.publicId, this.now()))
+        : await gear.spend(account.publicId, this.now(), bring), (spent) => spent.carried)
+      : this.bounded(this.accounts.spend(account.publicId, this.now()))
+    spending.then((spent) => {
       Worlds.accountSuccess()
       account.energy = spent.energy
+      const carried = spent.carried ?? []
       Multiplayer.guarded(() => {
         connection.starting = false
         if (!spent.ok) {
+          // A refused spend carries nothing (store contract); return anything all the same.
+          this.uncarry(carried)
           if (!connection.closed) connection.socket.emit('start_refused', { reason: 'energy', energy: energyView(spent.energy, this.now()) })
           return
         }
         if (connection.closed || this.draining || connection.account !== account) {
           this.refund(account)
+          this.uncarry(carried)
           if (!connection.closed && this.draining) Worlds.redirect(connection)
           return
         }
+        // Each carried item in the slot it was asked for; a slot whose row
+        // didn't come back (another tab took it, it was merged) stays empty.
+        const slots = (start.bring ?? []).map((id) => id === null ? undefined : carried.find((item) => item.rowId === id))
         let player: Player | undefined
         try {
-          this.begin(connection, start, data)
+          this.begin(connection, start, data, carried.length > 0 ? slots : undefined)
           if (connection.started && connection.player?.playerId === account.publicId) player = connection.player
         } finally {
           if (player !== undefined) {
             this.paid.set(player, account)
             connection.socket.emit('energy', energyView(spent.energy, this.now()))
+            const equipped = lineageOf(player.gear)
+            if (equipped.length > 0) this.brought.set(player, equipped)
+            this.uncarry(carried.filter((item) => item.rowId === undefined || !equipped.includes(item.rowId)))
           } else {
             this.refund(account, connection)
+            this.uncarry(carried)
           }
+          // The lobby's `away` count moved.
+          if (carried.length > 0) this.sendStash(connection, account)
         }
       })
     }, (e) => {
@@ -671,7 +795,7 @@ export default class Worlds {
   }
 
   /** The run itself: `start` once the connection has its account and, if it pays, its play (`admit`). */
-  private begin (connection: Connection, start: { party?: string }, data: unknown): void {
+  private begin (connection: Connection, start: { party?: string }, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>): void {
     connection.party = start.party
     const target = this.choose(start.party)
     const from = this.worldOf.get(connection)
@@ -680,7 +804,85 @@ export default class Worlds {
       World.run(target, () => { target.multiplayer?.adopt(connection) })
       this.worldOf.set(connection, target)
     }
-    World.run(target, () => { target.multiplayer?.startRequested(connection, data) })
+    World.run(target, () => { target.multiplayer?.startRequested(connection, data, gear) })
+  }
+
+  /**
+   * A run ended (`Multiplayer.gearEnded`: once per run, every player, bots
+   * too; decision #49, task 49-4). What the run takes out of the world:
+   *
+   * - An extraction, or a drain's cut-off (`connection.cutOff`), on the
+   *   persisted account the run was played under: every item carried comes
+   *   off the player and goes to `settleGear` (brought-in and picked-up stash
+   *   rows kept or transferred, found items inserted up to `STASH_MAX`). One
+   *   settle per run; the next start on the connection waits for it (race 3).
+   * - The same ending offline, under another account, or for a bot: the
+   *   items come off the player; found ones are lost, stash rows deleted
+   *   (`discardGear`).
+   * - A death or the player's own disconnect: nothing written, nothing
+   *   taken; the death sweep (`World.createItemsFrom`) drops everything, each
+   *   stash row's instance keeping its `rowId`.
+   *
+   * Keeps and discards take the gear off the player **synchronously, before
+   * any write**, so a cut-off player's disconnect sweep drops nothing (race
+   * 9). No XP for kept items (spec Q12). Returns the counts for `run_end`.
+   */
+  private gearEnded (connection: Connection | undefined, player: Player): GearCounts {
+    const carried: GearInstance[] = []
+    for (const item of player.gear) if (item !== null) carried.push(item)
+    carried.push(...player.bag)
+    const brought = this.brought.get(player) ?? []
+    this.brought.delete(player)
+    const counts: GearCounts = {
+      brought: brought.length,
+      found: carried.filter((item) => item.rowId === undefined || !brought.includes(item.rowId)).length,
+      kept: 0
+    }
+    if (!player.extracted && connection?.cutOff !== true) return counts
+    const taken = player.takeGear()
+    if (taken.length === 0) return counts
+    const account = connection?.account
+    const gear = this.gear
+    const ledger = this.ledger
+    if (connection === undefined || player.bot !== undefined || account === undefined || !account.persisted ||
+      account.publicId !== player.playerId || gear === undefined || ledger === undefined) {
+      this.discard(taken)
+      return counts
+    }
+    counts.kept = taken.length
+    const keep = lineageOf(taken)
+    const found = taken.filter((item) => item.rowId === undefined)
+    const done = ledger.resolve(keep, async (holder) => await gear.settleGear(account.publicId, holder, keep, found)).then((settled) => {
+      Worlds.accountSuccess()
+      Multiplayer.guarded(() => {
+        this.emitStash(connection, account, settled.stash, { kept: settled.kept.length + settled.inserted, full: found.length - settled.inserted })
+      })
+    }, (e) => { Worlds.accountFailure(e) })
+    this.settling.set(connection, done)
+    void done.then(() => { if (this.settling.get(connection) === done) this.settling.delete(connection) })
+    return counts
+  }
+
+  /**
+   * Stash rows among `items` leave the game for good (`discardGear`): a
+   * bot's or an offline extraction, a dropped one expiring, a world closing.
+   * Found items need nothing: they have no row.
+   */
+  private discard (items: ReadonlyArray<GearInstance | null | undefined>): void {
+    const ids = lineageOf(items)
+    const gear = this.gear
+    const ledger = this.ledger
+    if (ids.length === 0 || gear === undefined || ledger === undefined) return
+    ledger.resolve(ids, async (holder) => await gear.discardGear(holder, ids)).then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
+  }
+
+  /** Back to the stash (`uncarry`): carried for a run that didn't begin, or that didn't equip them. */
+  private uncarry (items: readonly GearInstance[]): void {
+    const ids = lineageOf(items)
+    const gear = this.gear
+    const ledger = this.ledger
+    if (ids.length === 0 || gear === undefined || ledger === undefined) return
+    ledger.resolve(ids, async (holder) => await gear.uncarry(holder, ids)).then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
   }
 
   /**
@@ -729,6 +931,19 @@ export default class Worlds {
    * no world until their next run.
    */
   close (world: World): void {
+    // Stash rows still in it (decision #49, 49-4): dropped on the ground, or
+    // carried by a bot or a corpse not yet swept. The world won't come back,
+    // so they are gone (`discardGear`). A world closes only with no human in
+    // a run.
+    World.run(world, () => {
+      const left: GearInstance[] = []
+      for (const pickup of world.GEAR) if (!pickup.destroyed) left.push(pickup.instance)
+      for (const player of world.PLAYERS) {
+        for (const item of player.gear) if (item !== null) left.push(item)
+        left.push(...player.bag)
+      }
+      this.discard(left)
+    })
     for (const [connection, of] of this.worldOf) {
       if (of !== world) continue
       World.run(world, () => { world.multiplayer?.release(connection) })

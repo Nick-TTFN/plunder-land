@@ -8,6 +8,8 @@ import { NotReadyError } from './db/pgstore'
 import { BOARD_SIZE, type SeasonBoard, SeasonPayer } from './progress/seasons'
 import cluster from 'node:cluster'
 import { runPrimary } from './cluster'
+import { GearLedger } from './gear/ledger'
+import { gearStoreOf } from './gear/stash'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
@@ -39,6 +41,17 @@ function startGame (): void {
   const payer = new SeasonPayer(accounts, (e) => { if (!(e instanceof NotReadyError)) Worlds.accountFailure(e) })
   payer.start()
 
+  // The gear ledger (decision #49, 49-3/49-4): one per process (per worker
+  // under WORKERS), naming this boot to the stash and heartbeating every
+  // minute. No start carries gear until its first heartbeat lands. Its
+  // timeout is the account timeout, which bounds every other store call.
+  const accountTimeoutMs = 3000
+  const gearStore = gearStoreOf(accounts)
+  const ledger = gearStore === undefined
+    ? undefined
+    : new GearLedger(gearStore, { timeoutMs: accountTimeoutMs, report: (e) => { if (!(e instanceof NotReadyError)) Worlds.accountFailure(e) } })
+  ledger?.start()
+
   // Several worlds in this one process (worlds-per-process, decision #39): a
   // run goes to the fullest world with fewer than WORLD_CAP active players,
   // and a world with none for WORLD_IDLE_MS closes (one always stays open).
@@ -50,6 +63,8 @@ function startGame (): void {
     bots: parseInt(process.env.BOT_TARGET ?? '8'),
     redis,
     accounts,
+    accountTimeoutMs,
+    ledger,
     // Runs this process takes before it sends `full` (burst-capacity); unset, no cap.
     maxPlayers: parseInt(process.env.MAX_PLAYERS ?? '0') || 0
   })
@@ -87,9 +102,12 @@ function startGame (): void {
       }
       // The account pool and Sentry's queue too, inside the same 5 s. The
       // payer first, so no payout starts as the pool closes; one in flight is
-      // waited for by `close`.
+      // waited for by `close`. The gear ledger before the pool (49-3 rule 3):
+      // it waits for the run ends' settles (issued by the disconnects above),
+      // then hands every row this boot still carries back to the stash.
       payer.stop()
-      Promise.allSettled([redis.quit(), accounts.close(), flushErrors(2000)]).finally(() => process.exit(0))
+      const stash = ledger === undefined ? Promise.resolve() : ledger.close()
+      Promise.allSettled([redis.quit(), stash.then(async () => { await accounts.close() }), flushErrors(2000)]).finally(() => process.exit(0))
     }
     quitWhenClosed()
   }
