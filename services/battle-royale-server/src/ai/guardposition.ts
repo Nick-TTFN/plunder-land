@@ -161,8 +161,9 @@ export default class GuardPosition implements IAIRoutine {
         // Step toward the target's cell until within `chaseStop` rings of it
         // (hex-cells P2): the gunner's standoff, or contact range for the
         // others, so a grunt stops on the next cell and hits from there. It
-        // does not back away from a target that walks up to it.
-        this.owner.stepGoal = { cell: targetCell, within: this.chaseStop }
+        // does not back away from a target that walks up to it, unless it
+        // has a keep-distance band (`retreat`, the Kiln).
+        this.owner.stepGoal = this.chaseGoal(targetCell, rings)
         this.moveTarget = undefined
         return
       }
@@ -180,6 +181,19 @@ export default class GuardPosition implements IAIRoutine {
       this.moveTarget = this.wanderGoal()
     }
     this.owner.stepGoal = { cell: Hex.toCell(this.moveTarget), within: 0 }
+  }
+
+  /**
+   * The step goal while chasing a target `rings` away on `targetCell`.
+   * Without a `retreat` band: close to `chaseStop`. With one (#51, l1-4):
+   * below `min`, step away until `min` away; otherwise close to `max`, which
+   * holds anywhere from `min` to `max`.
+   */
+  chaseGoal (targetCell: Vector, rings: number): { cell: Vector, within: number, away?: boolean } {
+    const band = this.spec.retreat
+    if (band === undefined) return { cell: targetCell, within: this.chaseStop }
+    if (rings < band.min) return { cell: targetCell, within: band.min, away: true }
+    return { cell: targetCell, within: band.max }
   }
 
   /**

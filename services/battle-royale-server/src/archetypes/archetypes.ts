@@ -13,6 +13,7 @@ import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
+import { KilnLob } from '../mobskills/kilnlob'
 import { ARCHETYPE_INFO, type ArchetypeInfo, type Rarity } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
 import { type SkillKey, skillById, SKILL_LIST } from '../utils/skills'
@@ -69,9 +70,19 @@ export interface GuardSpec {
   /**
    * While chasing, a target at `h <= standoff` is not closed on: the unit
    * stops where it is. 0 = never stop, which is how grunt and boss chase.
-   * It does not back away from a target that walks up to it.
+   * It does not back away from a target that walks up to it, unless it has
+   * a `retreat` band.
    */
   standoff: number
+  /**
+   * Keep-distance band, in rings (#51, l1-4: the Kiln). While chasing, a
+   * target at `h < min` is backed away from (`Unit.stepGoal.away`) until it
+   * is `min` away; at `min <= h <= max` the unit holds; beyond `max` it closes
+   * to `max`. With a band, `standoff` is not read. Greedy like every mob step:
+   * it may stall against valleys and walls (#45, #51 Q16). Undefined: no band,
+   * the plain `standoff` chase.
+   */
+  retreat?: { min: number, max: number }
 }
 
 export interface UseSkillOnTargetSpec {
@@ -220,6 +231,12 @@ const GUARD: GuardSpec = Object.freeze({
 })
 
 const NO_ARMOR = Object.freeze({ max: 0, refillPerSec: 0, delayMs: 0 })
+
+/** A mirrored row's lob range (`attack`, kind `lob`). Anything else is a table error. */
+function lobRangeOf (info: ArchetypeInfo): number {
+  if (info.attack?.kind !== 'lob') throw new Error(`${info.key}: a lob needs attack kind 'lob' in utils/archetypes.ts`)
+  return info.attack.range
+}
 
 /** A mirrored row's `rangedCells`, for a RangedAttack override. Null there is a table error. */
 function rangedCellsOf (info: ArchetypeInfo): number {
@@ -408,9 +425,10 @@ export function mobGearRolls (rarity: Rarity | null): MobGearRolls {
  * 30 (not from l1-0).
  *
  * Each guard is `GuardSpec` (rings). Contact is 0 for every NPC but the
- * Reactor (l1-0): until l1-3..l1-7 add their attacks, Compactor, Kiln, Coil,
- * Brood and Broodling chase and deal no damage. Kiln and Brood stand off at 5,
- * the low edge of l1-0's 5-6 keep-distance band, until l1-4's retreat guard.
+ * Reactor (l1-0): until l1-3, l1-5..l1-7 add their attacks, Compactor, Coil,
+ * Brood and Broodling chase and deal no damage. The Kiln keeps l1-0's 5-6
+ * band (`GuardSpec.retreat`) and lobs (l1-4); the Brood stands off at 5, the
+ * band's low edge, until l1-7.
  */
 const NPC_NUMBERS = Object.freeze({
   crawler: {
@@ -422,7 +440,17 @@ const NPC_NUMBERS = Object.freeze({
     guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 4 }
   },
   compactor: { maxHp: 60, body: 30, loot: 50, contact: 0, guard: { acquire: 4, lose: 5, chaseSpeed: 100, standoff: 0 } },
-  kiln: { maxHp: 80, body: 30, loot: 100, contact: 0, guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 5 } },
+  // Band 5-6 (l1-0 Q1, not the roster's 7-9), lob 30 on a 1-ring blast
+  // after 1250 ms (Q2), every 3500 ms, cast within 7 cells (the mirrored
+  // `attack.range`). `standoff` is unread with a band; set to its top.
+  kiln: {
+    maxHp: 80,
+    body: 30,
+    loot: 100,
+    contact: 0,
+    lob: { damage: 30, cooldownMs: 3500, flightMs: 1250 },
+    guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 6, retreat: { min: 5, max: 6 } }
+  },
   coil: { maxHp: 70, body: 32, loot: 75, contact: 0, guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 2 } },
   reactor: { maxHp: 360, body: 40, loot: 500, contact: 15, guard: { acquire: 5, lose: 6, chaseSpeed: 110, standoff: 0 } },
   /**
@@ -457,7 +485,7 @@ const NPC_NUMBERS = Object.freeze({
   ])
 })
 
-type NpcNumbers = typeof NPC_NUMBERS.compactor
+type NpcNumbers = typeof NPC_NUMBERS.compactor & { guard: { retreat?: { min: number, max: number } } }
 
 /**
  * An NPC row from its numbers: a guard and contact only. What Compactor, Kiln,
@@ -503,7 +531,28 @@ const crawler: Archetype = {
   ]
 }
 const compactor: Archetype = npc(ARCHETYPE_INFO.compactor, NPC_NUMBERS.compactor)
-const kiln: Archetype = npc(ARCHETYPE_INFO.kiln, NPC_NUMBERS.kiln)
+/** The Kiln's lob with its numbers: a `SkillClass` is built from its owner alone. */
+class KilnsLob extends KilnLob {
+  constructor (owner: Unit) {
+    super(owner, NPC_NUMBERS.kiln.lob)
+  }
+}
+
+/**
+ * Artillery (#51, l1-4): keeps 5-6 cells off its target and lobs at its cell
+ * within the lob's range (`mobskills/kilnlob.ts`).
+ */
+const kilnBase = npc(ARCHETYPE_INFO.kiln, NPC_NUMBERS.kiln)
+const kiln: Archetype = {
+  ...kilnBase,
+  skills: [{ skill: KilnsLob }],
+  // Guard first: it picks the target the lob is aimed at.
+  routines: [
+    ...kilnBase.routines,
+    { kind: 'useSkillOnTarget', skill: 0, withinCells: lobRangeOf(ARCHETYPE_INFO.kiln) }
+  ]
+}
+
 /** A mirrored row's disc `attack` rings, for an NPC whose attack is a disc round itself. */
 function discRingsOf (info: ArchetypeInfo): number {
   if (info.attack?.kind !== 'disc') throw new Error(`${info.key}: needs a disc attack in utils/archetypes.ts`)

@@ -39,6 +39,7 @@ import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
 import { ReactorEffect } from './vfx/reactor.effect'
+import { KilnLobEffect } from './vfx/kilnlob.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
@@ -832,6 +833,16 @@ export class Game extends Container {
       const reactor = target
       new ReactorEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.reactorRelease, lifetime,
         () => reactor instanceof Unit && reactor.hp === 0)
+      return
+    }
+
+    // The Kiln's lob (#51, l1-4): its landing marker and arc (9) and its blast
+    // (10), on the landing cell, sent like the bomb's to the cell's layer
+    // (`effectAt`). The Kiln is looked up only for the arc's start, on the
+    // marker: by the blast it may be dead and its id reused.
+    if (type === NPC_EFFECT.kilnLob || type === NPC_EFFECT.kilnBlast) {
+      const blast = type === NPC_EFFECT.kilnBlast
+      if (aimCell !== undefined) new KilnLobEffect(aimCell, Game.LOCAL.tag, blast, lifetime, blast ? undefined : target)
       return
     }
 

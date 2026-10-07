@@ -486,3 +486,36 @@ for (const [name, make, type] of [
     assert.deepEqual(blast?.aimCell, parked)
   })
 }
+
+// #51 l1-4: the Kiln's lob, run for real. The landing cell its effects carry
+// (9 and 10) and the client's cells for the kiln row's `attack` round that
+// cell are exactly the cells whose players lost life.
+test('a Kiln lob damages exactly the cells the client draws round the cell its effects carry', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  const origin = new Vector(20, 40)
+  const at = Hex.toPosition(origin)
+  const kiln = new Mob(at.x, at.y, 0, ARCHETYPES.kiln)
+  World.MOBS.push(kiln)
+  const aim = new Vector(24, 38)
+  const players: Player[] = []
+  for (let q = aim.x - 3; q <= aim.x + 3; q++) {
+    for (let r = aim.y - 3; r <= aim.y + 3; r++) {
+      const cell = new Vector(q, r)
+      if (Hex.distance(cell, aim) > 3 || Hex.distance(cell, origin) === 0) continue
+      players.push(playerOn(cell))
+    }
+  }
+  const before = players.map((p) => p.hp + p.armor)
+  const lob = kiln.routines.map((r) => (r as Partial<UseSkillOnTarget>).skill).find((s) => s !== undefined)
+  assert.ok(lob !== undefined)
+  assert.equal(lob.execute(aim), true)
+  advance(t, 1250)
+
+  assert.deepEqual(effects.map((e) => e.type), [9, 10])
+  for (const e of effects) assert.deepEqual(e.aimCell, aim)
+  const hit = players.filter((p, i) => p.hp + p.armor < before[i]).map((p) => p.cell)
+  const attack = ARCHETYPE_INFO.kiln.attack
+  assert.ok(attack !== undefined)
+  assert.deepEqual(keys(hit), keys(Client.attackCells(attack, origin, undefined, effects[1].aimCell)))
+  assert.equal(hit.length, 7)
+})
