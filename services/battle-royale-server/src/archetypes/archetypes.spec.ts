@@ -22,7 +22,7 @@ import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
-import { type Archetype, ARCHETYPES, LAYERS, SKILL_SPECS, buildKit, buildSkills } from './archetypes'
+import { type Archetype, ARCHETYPES, LAYERS, SKILL_SPECS, buildKit, buildSkills, isPackEntry } from './archetypes'
 import { SKILL_INFO, SKILL_LIST, type SkillKey } from '../utils/skills'
 
 /**
@@ -238,45 +238,70 @@ test('kill stats keep today\'s redis keys: a boss counts as a mob kill and a bos
   assert.deepEqual(await statsForKilling(new Unit(ObjectType.Mob, 1000, 2000, 10, 0)), ['kills'])
 })
 
+// #51 L1: a kill of an NPC writes `mobKills` and its rarity's key; `bossKills`
+// is frozen (only the retired boss row credits it).
+test('an NPC kill writes mobKills and its rarity key, and never bossKills', async () => {
+  const want: Array<[Archetype, string]> = [
+    [ARCHETYPES.crawler, 'commonKills'],
+    [ARCHETYPES.compactor, 'commonKills'],
+    [ARCHETYPES.broodling, 'commonKills'],
+    [ARCHETYPES.kiln, 'rareKills'],
+    [ARCHETYPES.coil, 'rareKills'],
+    [ARCHETYPES.reactor, 'epicKills'],
+    [ARCHETYPES.brood, 'legendaryKills']
+  ]
+  for (const [archetype, key] of want) {
+    assert.deepEqual(await statsForKilling(new Mob(1000, 2000, 0, archetype)), ['kills', 'mobKills', key], archetype.key)
+  }
+  // Every row with a rarity, so a new NPC can't slip past the list above.
+  const npcs = ALL.filter((a) => a.rarity !== null)
+  assert.deepEqual(npcs.map((a) => a.key).sort(), want.map(([a]) => a.key).sort())
+  for (const a of ALL) {
+    if (a.killStats.includes('bossKills')) assert.equal(a.key, 'boss', `${a.key} credits the frozen bossKills`)
+  }
+})
+
 // --- spawner --------------------------------------------------------------------
 
-// DELIBERATE CHANGE (decision #26, `three-ground-layers`): this pinned 5 bosses
-// and 8 gunners world-wide with grunts filling the rest of 50 (37). The counts
-// are now per layer, from LAYERS: grunts 22/18/14, gunners 0/8/14, bosses
-// 0/2/3: 76 grunts and gunners (the balance pass's "76 overall") plus 5
-// bosses, 81 units. The by-archetype replacement it checked still holds.
+// DELIBERATE CHANGE (decision #51, L1 `l1-1-npc-roster-table`): this pinned
+// grunts 22/18/14, gunners 0/8/14 and bosses 0/2/3 (81). The roster replaced
+// them: single entries are counted by archetype as before, pack entries by
+// packs (roster.spec.ts holds the population over two simulated minutes).
+// The by-archetype replacement it checked still holds.
 test('the spawner keeps each layer\'s mobs by archetype, as LAYERS says', () => {
   const world = new World(4000)
   // See "Things that are deliberate": no gates to carry anyone anywhere.
   World.OBSTACLES.length = 0
   World.BLOCKED.clear()
   const count = (a: Archetype, tag: number): number =>
-    World.MOBS.filter((m) => m.archetype === a && m.tag === tag).length
-  const total = LAYERS.reduce((sum, l) => sum + l.mobs.reduce((s, m) => s + m.count, 0), 0)
-  for (let i = 0; i < 400 && World.MOBS.length < total; i++) world.update(0.25)
+    World.MOBS.filter((m) => m.archetype === a && m.tag === tag && (m as Mob).pack === undefined && !m.destroyed).length
+  const packs = (tag: number): number => new Set(World.MOBS.filter((m) => m.tag === tag && !m.destroyed).map((m) => (m as Mob).pack).filter((p) => p !== undefined)).size
+  const full = (): boolean => LAYERS.every((layer) => layer.mobs.every((entry) =>
+    isPackEntry(entry) ? packs(layer.tag) >= entry.count : count(entry.archetype, layer.tag) >= entry.count))
+  for (let i = 0; i < 400 && !full(); i++) world.update(0.25)
 
-  assert.equal(total, 81)
-  assert.equal(World.MOBS.length, total)
   for (const layer of LAYERS) {
-    for (const { archetype, count: want } of layer.mobs) {
-      assert.equal(count(archetype, layer.tag), want, `${archetype.key} on layer ${layer.tag}`)
+    for (const entry of layer.mobs) {
+      if (isPackEntry(entry)) assert.equal(packs(layer.tag), entry.count, `${entry.pack.key} packs on layer ${layer.tag}`)
+      else assert.equal(count(entry.archetype, layer.tag), entry.count, `${entry.archetype.key} on layer ${layer.tag}`)
     }
   }
   for (const mob of World.MOBS) assert.ok(mob instanceof Mob)
+  const total = World.MOBS.length
 
-  // A dead boss is replaced by a boss, not a grunt, on its own layer.
+  // A dead Reactor is replaced by a Reactor, not anything else, on its own layer.
   const deep = LAYERS[2].tag
-  const boss = World.MOBS.find((m) => m.archetype === ARCHETYPES.boss && m.tag === deep) as Mob
-  boss.hit(10_000)
-  for (let i = 0; i < 400 && count(ARCHETYPES.boss, deep) < 3; i++) world.update(0.25)
-  assert.equal(count(ARCHETYPES.boss, deep), 3)
+  const reactor = World.MOBS.find((m) => m.archetype === ARCHETYPES.reactor && m.tag === deep) as Mob
+  reactor.hit(10_000)
+  for (let i = 0; i < 400 && count(ARCHETYPES.reactor, deep) < 2; i++) world.update(0.25)
+  assert.equal(count(ARCHETYPES.reactor, deep), 2)
   assert.equal(World.MOBS.length, total)
 
-  // Likewise a dead gunner.
-  const gunner = World.MOBS.find((m) => m.archetype === ARCHETYPES.gunner && m.tag === deep) as Mob
-  gunner.hit(10_000)
-  for (let i = 0; i < 400 && count(ARCHETYPES.gunner, deep) < 14; i++) world.update(0.25)
-  assert.equal(count(ARCHETYPES.gunner, deep), 14)
+  // Likewise a dead Kiln.
+  const kiln = World.MOBS.find((m) => m.archetype === ARCHETYPES.kiln && m.tag === deep) as Mob
+  kiln.hit(10_000)
+  for (let i = 0; i < 400 && count(ARCHETYPES.kiln, deep) < 6; i++) world.update(0.25)
+  assert.equal(count(ARCHETYPES.kiln, deep), 6)
   assert.equal(World.MOBS.length, total)
 })
 

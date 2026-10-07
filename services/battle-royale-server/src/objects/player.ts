@@ -24,7 +24,13 @@ import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'o
 export class Stats {
   kills?: number
   mobKills?: number
+  /** Frozen since L1 (decision #51): see `KillStat`. Kept readable, never renamed. */
   bossKills?: number
+  /** Killing blows by mob rarity (decision #51, L1; `KillStat`). */
+  commonKills?: number
+  rareKills?: number
+  epicKills?: number
+  legendaryKills?: number
   games?: number
   lootCollected?: number
   lifeTime?: number

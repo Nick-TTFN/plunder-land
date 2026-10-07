@@ -66,6 +66,17 @@ export default class GuardPosition implements IAIRoutine {
     for (const routine of unit.routines) {
       if (routine instanceof GuardPosition) routine.provoke(attacker)
     }
+    // Shared pack aggro (decision #51 Q8): provoking one member provokes them
+    // all. Each takes its own distance to the attacker for its lose range.
+    // Structural, not `Mob`: mob.ts imports this module.
+    const pack = (unit as { pack?: { members: readonly Unit[] } }).pack
+    if (pack === undefined) return
+    for (const member of pack.members) {
+      if (member === unit || member.destroyed) continue
+      for (const routine of member.routines) {
+        if (routine instanceof GuardPosition) routine.provoke(attacker)
+      }
+    }
   }
 
   provoke (attacker: Unit): void {
@@ -117,7 +128,7 @@ export default class GuardPosition implements IAIRoutine {
     for (const area of World.AREA_EFFECT) {
       if (area.tag !== this.owner.tag) continue
       if (area.target === this.owner) continue
-      if (area.overlaps(this.owner.position)) this.provoke(area.target as Unit)
+      if (area.overlaps(this.owner.position)) GuardPosition.provoke(this.owner, area.target as Unit)
     }
 
     if (

@@ -12,7 +12,7 @@ import { ThrowFireball } from '../skills/throwfireball'
 import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
-import { ARCHETYPE_INFO, type ArchetypeInfo } from '../utils/archetypes'
+import { ARCHETYPE_INFO, type ArchetypeInfo, type Rarity } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
 import { type SkillKey, skillById, SKILL_LIST } from '../utils/skills'
 import { type GearInstance, type GearRoll, type GearTier, GEAR_STAT_LIST, Q_MAX, rollCount } from '../utils/gear'
@@ -87,14 +87,26 @@ export interface UseSkillOnTargetSpec {
 
 export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec
 
-/** The redis `stats-<player>` hash keys a kill of this unit increments, besides `kills`. */
-export type KillStat = 'mobKills' | 'bossKills'
+/**
+ * The redis `stats-<player>` hash keys a kill of this unit increments, besides
+ * `kills`. A consumed boundary (`/stats`, `Multiplayer.getLeaderboard`): keys
+ * are added, never renamed or removed.
+ *
+ * - `mobKills`: every mob kill.
+ * - `commonKills` .. `legendaryKills` (decision #51, L1): killing blows by the
+ *   mob's `rarity`, one key per rarity.
+ * - `bossKills`: **frozen since L1.** Only the retired boss row credits it,
+ *   and no layer spawns that any more, so it stops growing; it is kept
+ *   readable, not renamed (renames are removals). The epic and legendary NPCs
+ *   count under their rarity key instead.
+ */
+export type KillStat = 'mobKills' | 'bossKills' | 'commonKills' | 'rareKills' | 'epicKills' | 'legendaryKills'
 
 /**
- * `id`, `key`, `kind`, `passesObstacles`, `vision` and `rangedCells` come from
- * the mirrored `utils/archetypes.ts`, which the client shares: each entry below
- * spreads its `ARCHETYPE_INFO` row first and must not set those six itself
- * (wire.spec.ts checks it). `id` is the `archetype` wire field.
+ * `id`, `key`, `kind`, `passesObstacles`, `vision`, `rangedCells`, `rarity`
+ * and `attack` come from the mirrored `utils/archetypes.ts`, which the client
+ * shares: each entry below spreads its `ARCHETYPE_INFO` row first and must not
+ * set those itself (wire.spec.ts checks it). `id` is the `archetype` wire field.
  */
 export interface Archetype extends ArchetypeInfo {
   maxHp: number
@@ -155,7 +167,8 @@ export interface Archetype extends ArchetypeInfo {
    * Stats keys a kill of this unit counts toward. The keys are a consumed
    * boundary (redis hashes) and keep today's names. A boss kill counts as both
    * a mob kill and a boss kill, because `Boss` extended `Mob` and the old test
-   * was two `instanceof`s.
+   * was two `instanceof`s. An NPC counts `mobKills` and its rarity's key
+   * (`npcKillStats`), never `bossKills`.
    */
   killStats: KillStat[]
   skills: SkillSpec[]
@@ -324,7 +337,147 @@ const gunner: Archetype = {
   ]
 }
 
-export const ARCHETYPES = Object.freeze({ peep, periscope, magnet, hopper, waddle, grunt, boss, gunner })
+/** The stats keys a kill of an NPC of `rarity` credits: every mob kill, and its rarity's. */
+export function npcKillStats (rarity: Rarity | null): KillStat[] {
+  if (rarity === null) throw new Error('an NPC needs a rarity in utils/archetypes.ts')
+  return ['mobKills', `${rarity}Kills`]
+}
+
+/**
+ * **PROVISIONAL (l1-0)**: every server-only NPC number in one place, from
+ * Dez's l1-0 table (`ideas/npc-numbers.md`, PROPOSED 2026-10-07, not yet
+ * accepted by Nick). The client-shared ones (`rangedCells`, attack cells) are
+ * `NPC_SHARED` in the mirrored `utils/archetypes.ts`. `loot` is not
+ * provisional (Nick, #51 L1 plan calls, before the layer multiplier). `body`
+ * is the drawn radius, sized by the roster's size column against the grunt's
+ * 30 (not from l1-0).
+ *
+ * Each guard is `GuardSpec` (rings). Contact is 0 for every NPC but the
+ * Reactor (l1-0): until l1-3..l1-7 add their attacks, Compactor, Kiln, Coil,
+ * Brood and Broodling chase and deal no damage. Kiln and Brood stand off at 5,
+ * the low edge of l1-0's 5-6 keep-distance band, until l1-4's retreat guard.
+ */
+const NPC_NUMBERS = Object.freeze({
+  crawler: {
+    maxHp: 35,
+    body: 22,
+    loot: 25,
+    contact: 0,
+    shot: { damage: 8, cooldownMs: 2000 },
+    guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 4 }
+  },
+  compactor: { maxHp: 60, body: 30, loot: 50, contact: 0, guard: { acquire: 4, lose: 5, chaseSpeed: 100, standoff: 0 } },
+  kiln: { maxHp: 80, body: 30, loot: 100, contact: 0, guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 5 } },
+  coil: { maxHp: 70, body: 32, loot: 75, contact: 0, guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 2 } },
+  reactor: { maxHp: 360, body: 40, loot: 500, contact: 15, guard: { acquire: 5, lose: 6, chaseSpeed: 110, standoff: 0 } },
+  brood: { maxHp: 400, body: 40, loot: 800, contact: 0, guard: { acquire: 7, lose: 9, chaseSpeed: 60, standoff: 5 } },
+  // Any hit sets it off (l1-7). Drops nothing, pays nothing (#51). Idle speed:
+  // l1-0 gives none (it is never idle once l1-7 spawns it); 30 like the rest.
+  broodling: { maxHp: 1, body: 16, loot: 0, contact: 0, guard: { acquire: 8, lose: 10, chaseSpeed: 130, standoff: 0 } },
+  /** Every NPC guard's idle speed, wander and refresh (today's). */
+  idleSpeed: 30,
+  wander: 1,
+  refreshMs: 2000,
+  /** Crawlers per pack, by share (sums to 1). */
+  packSizes: Object.freeze([
+    Object.freeze({ count: 2, share: 0.35 }),
+    Object.freeze({ count: 3, share: 0.40 }),
+    Object.freeze({ count: 4, share: 0.25 })
+  ]),
+  /** Per layer, top first: packs, Coil escort share, and the single NPCs. */
+  layers: Object.freeze([
+    { packs: 5, escortShare: 0, compactor: 8, kiln: 0, reactor: 0, brood: 0 },
+    { packs: 5, escortShare: 0.6, compactor: 7, kiln: 4, reactor: 2, brood: 0 },
+    { packs: 5, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 }
+  ])
+})
+
+type NpcNumbers = typeof NPC_NUMBERS.compactor
+
+/**
+ * An NPC row from its numbers: a guard and contact only. What Compactor, Kiln,
+ * Reactor, Coil, Brood and Broodling are until their own attacks land
+ * (l1-3..l1-7); the Crawler adds its shot.
+ */
+function npc (info: ArchetypeInfo, n: NpcNumbers): Archetype {
+  const guard: GuardSpec = Object.freeze({
+    kind: 'guard',
+    ...n.guard,
+    idleSpeed: NPC_NUMBERS.idleSpeed,
+    wander: NPC_NUMBERS.wander,
+    refreshMs: NPC_NUMBERS.refreshMs
+  })
+  return {
+    ...info,
+    damageScale: 1,
+    maxHp: n.maxHp,
+    armor: NO_ARMOR,
+    // Overwritten by the guard before the first move, as the grunt's is.
+    speed: n.guard.chaseSpeed,
+    body: n.body,
+    pickupReach: null,
+    loot: n.loot,
+    // `rings` also floors the chase stop, as the gunner's does with no damage.
+    contact: { damage: n.contact, cooldownMs: n.contact > 0 ? 1000 : 0, rings: 1 },
+    killStats: npcKillStats(info.rarity),
+    skills: [],
+    routines: [guard]
+  }
+}
+
+/** Ranged fodder in packs, the gunner's pattern (#51): holds at its standoff and shoots. */
+const crawlerBase = npc(ARCHETYPE_INFO.crawler, NPC_NUMBERS.crawler)
+const crawler: Archetype = {
+  ...crawlerBase,
+  skills: [{ skill: RangedAttack, ...NPC_NUMBERS.crawler.shot, range: rangedCellsOf(ARCHETYPE_INFO.crawler) }],
+  // Guard first: it picks the target the shot fires at.
+  routines: [
+    ...crawlerBase.routines,
+    { kind: 'useSkillOnTarget', skill: 0, withinCells: rangedCellsOf(ARCHETYPE_INFO.crawler) }
+  ]
+}
+const compactor: Archetype = npc(ARCHETYPE_INFO.compactor, NPC_NUMBERS.compactor)
+const kiln: Archetype = npc(ARCHETYPE_INFO.kiln, NPC_NUMBERS.kiln)
+const reactor: Archetype = npc(ARCHETYPE_INFO.reactor, NPC_NUMBERS.reactor)
+const coil: Archetype = npc(ARCHETYPE_INFO.coil, NPC_NUMBERS.coil)
+const brood: Archetype = npc(ARCHETYPE_INFO.brood, NPC_NUMBERS.brood)
+const broodling: Archetype = npc(ARCHETYPE_INFO.broodling, NPC_NUMBERS.broodling)
+
+/**
+ * A layer's mob entries from `NPC_NUMBERS.layers[i]`: the Crawler packs (with
+ * a Coil escort where the share is above 0), then each single NPC with a
+ * count above 0.
+ */
+function npcPopulation (i: number): LayerMobs[] {
+  const p = NPC_NUMBERS.layers[i]
+  const entries: LayerMobs[] = [
+    p.escortShare > 0
+      ? { pack: crawler, sizes: NPC_NUMBERS.packSizes, escort: coil, escortShare: p.escortShare, count: p.packs }
+      : { pack: crawler, sizes: NPC_NUMBERS.packSizes, escortShare: 0, count: p.packs }
+  ]
+  for (const [archetype, count] of [[compactor, p.compactor], [kiln, p.kiln], [reactor, p.reactor], [brood, p.brood]] as const) {
+    if (count > 0) entries.push({ archetype, count })
+  }
+  return entries
+}
+
+export const ARCHETYPES = Object.freeze({
+  peep,
+  periscope,
+  magnet,
+  hopper,
+  waddle,
+  grunt,
+  boss,
+  gunner,
+  crawler,
+  kiln,
+  reactor,
+  coil,
+  compactor,
+  brood,
+  broodling
+})
 
 /**
  * What using an item does. **One case per behaviour, not per item**: a new item
@@ -381,11 +534,37 @@ export interface LayerItems {
   count: number
 }
 
-/** One entry of a layer's standing mob population. */
-export interface LayerMobs {
+/** A single-mob entry of a layer's standing population. */
+export interface LayerSingle {
   archetype: Archetype
-  /** How many the world keeps alive on this layer, replacing the dead one a tick. */
+  /** How many the world keeps alive on this layer, replacing a dead one a tick. */
   count: number
+}
+
+/**
+ * A pack entry (decision #51, L1): `count` packs of `pack`, each of a size
+ * drawn from `sizes`, spawned together on one free cell and its free
+ * neighbours, sharing one home and one aggro (`Mob.pack`,
+ * `GuardPosition.provoke`). With `escort`, a share `escortShare` of the packs
+ * also gets one escort mob (a Coil, -1/-2 only, Q8), which is a member like the
+ * rest. A pack counts as alive while any member lives, and is replaced (at most
+ * one a tick) only once all are dead (Q11).
+ */
+export interface LayerPack {
+  pack: Archetype
+  /** How many of `pack` a spawn holds, by share (the shares sum to 1). */
+  sizes: ReadonlyArray<{ readonly count: number, readonly share: number }>
+  escort?: Archetype
+  escortShare: number
+  count: number
+}
+
+/** One entry of a layer's standing mob population: one archetype, or a pack. */
+export type LayerMobs = LayerSingle | LayerPack
+
+/** True for a pack entry. */
+export function isPackEntry (entry: LayerMobs): entry is LayerPack {
+  return 'pack' in entry
 }
 
 /** Shares of a gear pickup by kind and tier; each set sums to 1. */
@@ -426,8 +605,7 @@ export interface LayerSpec {
    */
   tag: number
   /**
-   * Applied to natural pickups and to the loot of every mob (grunt, gunner,
-   * boss) spawned here, rounded to a whole number. Not to what a dead player
+   * Applied to natural pickups and to the loot of every mob spawned here, rounded to a whole number. Not to what a dead player
    * drops: that is their own haul.
    */
   lootMultiplier: number
@@ -456,7 +634,7 @@ export interface LayerSpec {
   portalsUp: number
   /** Portals to the layer below. 0 on the bottom layer. */
   portalsDown: number
-  /** Spawned in this order each tick, one of each that is short. */
+  /** Spawned in this order each tick: at most one mob, or one pack, per entry that is short. */
   mobs: LayerMobs[]
   /**
    * Natural item pickups, topped up one of each short kind a tick. What a dead
@@ -478,10 +656,12 @@ export interface LayerSpec {
  * the two-layer world had (20 and 8). Layer 02 splits its 10 evenly between up
  * and down; every layer keeps its exits (#10).
  *
- * Rocks, loot cap, multiplier and mobs are #26's list. Grunts 22/18/14,
- * gunners 0/8/14, bosses 0/2/3 replace the world-wide 5 bosses and 8 gunners
- * with the rest grunts up to 50 (37 when all were up). That is 81 units where
- * there were 50: the balance pass's "76 overall" counts grunts and gunners only.
+ * Rocks, loot cap and multiplier are #26's list. The mobs are the NPC roster
+ * (decision #51, L1), counts **PROVISIONAL (l1-0)** in `NPC_NUMBERS.layers`:
+ * layer 0 holds Crawler packs and Compactors only; Kiln and Reactor -1/-2;
+ * the Brood -2 only; Coils only as pack escorts on -1/-2; Broodlings never
+ * (the Brood releases them, l1-7). Grunt, gunner and boss are spawned by no
+ * layer.
  *
  * Items are #26's provisional counts: medkits 8/10/12 and bombs 3/5/7.
  */
@@ -496,11 +676,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     extractMs: 5000,
     portalsUp: 0,
     portalsDown: 10,
-    mobs: [
-      { archetype: grunt, count: 22 },
-      { archetype: gunner, count: 0 },
-      { archetype: boss, count: 0 }
-    ],
+    mobs: npcPopulation(0),
     items: [
       { item: ITEMS.medkit, count: 8 },
       { item: ITEMS.bomb, count: 3 }
@@ -525,11 +701,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     extractMs: 7000,
     portalsUp: 5,
     portalsDown: 5,
-    mobs: [
-      { archetype: grunt, count: 18 },
-      { archetype: gunner, count: 8 },
-      { archetype: boss, count: 2 }
-    ],
+    mobs: npcPopulation(1),
     items: [
       { item: ITEMS.medkit, count: 10 },
       { item: ITEMS.bomb, count: 5 }
@@ -554,11 +726,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     extractMs: 9000,
     portalsUp: 10,
     portalsDown: 0,
-    mobs: [
-      { archetype: grunt, count: 14 },
-      { archetype: gunner, count: 14 },
-      { archetype: boss, count: 3 }
-    ],
+    mobs: npcPopulation(2),
     items: [
       { item: ITEMS.medkit, count: 12 },
       { item: ITEMS.bomb, count: 7 }

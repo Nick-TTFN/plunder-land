@@ -11,7 +11,7 @@ import { Unit } from '../objects/unit'
 import { ObjectType } from '../objects/gameobject'
 import Slowdown from '../buffs/slowdown'
 import { Skill } from '../skills/skill'
-import { ARCHETYPES, LAYERS, buildSkillById, rollGear } from '../archetypes/archetypes'
+import { ARCHETYPES, LAYERS, buildSkillById, isPackEntry, rollGear } from '../archetypes/archetypes'
 import { SKILL_INFO, SKILL_LIST } from '../utils/skills'
 import {
   BRING_LEVEL, DUPLICATE_CUTS_COOLDOWN, GEAR_BAG, GEAR_SLOTS, GEAR_STATS, GEAR_STAT_LIST, GEAR_TIERS,
@@ -216,9 +216,15 @@ test('every layer has a gear row, verbatim from spec section 3, and each mix sum
     assert.ok(Math.abs(sum({ ...l.gear.cacheMix }) - 1) < 1e-9)
     assert.ok(Math.abs(sum(l.gear.mobMix) - 1) < 1e-9)
     if (l.gear.bossTiers !== null) assert.ok(Math.abs(sum(l.gear.bossTiers) - 1) < 1e-9)
-    // No gear chance for a mob the layer doesn't keep.
+    // DELIBERATE CHANGE (#51, l1-1): this checked no gear chance for a mob the
+    // layer doesn't keep. Since the NPC roster no layer keeps grunt, gunner or
+    // boss, and `mobChance` is keyed by those only, so no NPC drops gear until
+    // l1-2 replaces it with the per-rarity rolls. Pinned so that gap is seen.
     for (const m of l.mobs) {
-      if (m.count === 0) assert.equal(l.gear.mobChance[m.archetype.key as 'grunt' | 'gunner' | 'boss'], 0, m.archetype.key)
+      const keys = isPackEntry(m) ? [m.pack.key, m.escort?.key] : [m.archetype.key]
+      for (const key of keys) {
+        if (key !== undefined) assert.equal((l.gear.mobChance as Record<string, number>)[key], undefined, key)
+      }
     }
   }
 })

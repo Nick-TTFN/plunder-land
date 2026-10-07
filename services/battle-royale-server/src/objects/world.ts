@@ -8,8 +8,8 @@ import { Hex } from '../utils/hex'
 import { Random } from '../utils/random'
 import Portal from './portal'
 import { GameObject, IdPool, ObjectType } from './gameobject'
-import Mob from './mob'
-import { type Archetype, type LayerSpec, ARCHETYPES, LAYERS, type Item, rollGear } from '../archetypes/archetypes'
+import Mob, { MobPack } from './mob'
+import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, rollGear } from '../archetypes/archetypes'
 import { type GearInstance, type GearTier } from '../utils/gear'
 import { ARCHETYPE_INFO, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
@@ -758,7 +758,8 @@ export default class World {
 
   /**
    * Least hex distance (`Hex.distance`, in cells) from a new player's cell to
-   * any exit, portal or boss on its layer, and to any other mob.
+   * any exit, portal or boss (an epic or legendary mob, `isSpawnHazard`) on
+   * its layer, and to any other mob.
    * Provisional (`safe-spawn-placement`; Dez may retune). A random spawn used
    * to land close enough to an exit to extract within a second about one join
    * in 250.
@@ -766,6 +767,16 @@ export default class World {
   static SPAWN_CLEARANCE = 3
   /** Random cells `spawnCell` tries before it falls back to a full scan. */
   static SPAWN_TRIES = 40
+
+  /**
+   * A mob a new player must not join next to, as hard a rule as a gate: an
+   * epic or legendary one (Reactor, Brood; decision #51), and the retired boss
+   * (an old row still built by specs).
+   */
+  static isSpawnHazard (archetype: Archetype | undefined): boolean {
+    if (archetype === undefined) return false
+    return archetype.rarity === 'epic' || archetype.rarity === 'legendary' || archetype === ARCHETYPES.boss
+  }
 
   /**
    * Where a new player on layer `tag` starts: a random cell that is on the
@@ -791,10 +802,10 @@ export default class World {
     for (const gates of World.GATES.buckets(tag).values()) {
       for (const gate of gates) hazards.push(Hex.toCell(gate.position))
     }
-    // Once per join, and MOBS is the fixed mob population (81), not players.
+    // Once per join, and MOBS is the fixed mob population (about 85), not players.
     for (const mob of World.MOBS) {
       if (mob.tag !== tag || mob.destroyed) continue
-      if (mob.archetype === ARCHETYPES.boss) hazards.push(Hex.toCell(mob.position))
+      if (World.isSpawnHazard(mob.archetype)) hazards.push(Hex.toCell(mob.position))
       else mobs.push(Hex.toCell(mob.position))
     }
     const nearest = (cell: Vector, from: Vector[]): number => {
@@ -937,8 +948,9 @@ export default class World {
 
   /**
    * Top a layer back up to its `LAYERS` numbers: at most one natural pickup
-   * and one mob of each short archetype per tick. (World rocks were refilled
-   * here too until the valleys replaced them, tile art pass 2026-09-27.)
+   * and one mob, or one pack, of each short entry per tick. (World rocks were
+   * refilled here too until the valleys replaced them, tile art pass
+   * 2026-09-27.)
    *
    * Every count is per layer. Mobs and pickups were once world totals on
    * random layers.
@@ -948,6 +960,11 @@ export default class World {
    * none was ever replaced once the population had filled past ten. Each
    * archetype now has its own count, so grunts no longer fill whatever the
    * others leave, and the total never sits above the table's sum.
+   *
+   * A pack entry counts packs, not mobs: a pack is alive while any member is
+   * (`Mob.pack`), so it is replaced only once all its members are dead (#51
+   * Q11). Its members are not counted against a single entry of the same
+   * archetype: a single entry counts mobs with no pack.
    */
   private refillLayer (layer: LayerSpec): void {
     const tag = layer.tag
@@ -972,12 +989,16 @@ export default class World {
 
     // Mobs never change layer (portals move players only, #26), so a mob
     // counts where it spawned.
-    for (const { archetype, count } of layer.mobs) {
+    for (const entry of layer.mobs) {
+      if (isPackEntry(entry)) {
+        if (World.packsAlive(entry, tag) < entry.count) this.spawnPack(entry, layer)
+        continue
+      }
       let alive = 0
       for (const mob of World.MOBS) {
-        if (mob.tag === tag && mob.archetype === archetype && !mob.destroyed) alive++
+        if (mob.tag === tag && mob.archetype === entry.archetype && !mob.destroyed && (mob as Mob).pack === undefined) alive++
       }
-      if (alive < count) this.spawnMob(archetype, layer)
+      if (alive < entry.count) this.spawnMob(entry.archetype, layer)
     }
 
     // Natural item pickups, one of each short kind a tick, like loot. A death
@@ -1114,6 +1135,11 @@ export default class World {
       if (World.mobCellFree(cell.x, cell.y, layer.tag)) pos = candidate
     }
     if (pos === undefined) return
+    this.placeMob(archetype, pos, layer)
+  }
+
+  /** A new mob of `archetype` at `pos`, carrying the layer's loot, added to `MOBS`. */
+  private placeMob (archetype: Archetype, pos: Vector, layer: LayerSpec): Mob {
     const mob = new Mob(pos.x, pos.y, layer.tag, archetype)
     mob.loot = Math.round(archetype.loot * layer.lootMultiplier)
     // A mob's loot is server-side only: it is not in its create record
@@ -1122,6 +1148,58 @@ export default class World {
     // as a "+88" the moment it comes into view.
     mob.dirtyFields.delete('loot')
     World.addUnit(World.MOBS, mob)
+    return mob
+  }
+
+  /** Live packs of `entry` on layer `tag`: distinct `Mob.pack`s among its live mobs. */
+  static packsAlive (entry: LayerPack, tag: number): number {
+    const packs = new Set<MobPack>()
+    for (const mob of World.MOBS) {
+      if (mob.tag !== tag || mob.destroyed) continue
+      const pack = (mob as Mob).pack
+      if (pack !== undefined && pack.entry === entry) packs.add(pack)
+    }
+    return packs.size
+  }
+
+  /**
+   * One pack of `entry` on `layer` (decision #51, L1): a size drawn from
+   * `entry.sizes` of `entry.pack`, plus one `entry.escort` with chance
+   * `escortShare`, on a cell `spawnMob` would pick and that many of its free
+   * neighbours
+   * (`mobCellFree`, in random order), sharing the centre cell as home.
+   * A candidate without room for the whole pack is passed over (10 tries, as
+   * `spawnMob`); none found and nothing spawns this tick. `random` is for specs.
+   */
+  private spawnPack (entry: LayerPack, layer: LayerSpec, random: () => number = Math.random): MobPack | undefined {
+    const tag = layer.tag
+    // By share; the last size takes any rounding left over.
+    let roll = random()
+    let size = entry.sizes[entry.sizes.length - 1].count
+    for (const option of entry.sizes) {
+      if (roll < option.share) { size = option.count; break }
+      roll -= option.share
+    }
+    const escort = entry.escort !== undefined && random() < entry.escortShare ? entry.escort : undefined
+    const needed = size + (escort !== undefined ? 1 : 0)
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidate = this.getUnobstructedPosition(tag)
+      if (candidate === undefined) return undefined
+      const centre = Hex.toCell(candidate)
+      if (!World.mobCellFree(centre.x, centre.y, tag)) continue
+      const cells: Vector[] = [centre]
+      const around = Hex.DIRECTIONS.map((d) => new Vector(centre.x + d.x, centre.y + d.y))
+        .filter((c) => World.mobCellFree(c.x, c.y, tag))
+      if (around.length < needed - 1) continue
+      while (cells.length < needed) cells.push(around.splice(Math.min(around.length - 1, Math.floor(random() * around.length)), 1)[0])
+      const pack = new MobPack(entry, Hex.toPosition(centre))
+      for (let i = 0; i < needed; i++) {
+        const archetype = i < size ? entry.pack : (escort as Archetype)
+        pack.join(this.placeMob(archetype, Hex.toPosition(cells[i]), layer))
+      }
+      return pack
+    }
+    return undefined
   }
 
   /**

@@ -138,21 +138,67 @@ test('every archetype\'s built ranged range is the one the client draws it at, l
 
 test('the threat cells the client draws under a mob reach as far as its attack (world-markers)', () => {
   // Boss: the FireBreath cone, drawn as the full disc since it can turn.
-  // Gunner: its built RangedAttack. Grunts and robots: none.
+  // Gunner and Crawler (#51): their built RangedAttack. An NPC with attack
+  // cells: their reach, when the caller passes the row's attack. Grunts and
+  // robots: none.
   const owner = playerOn(new Vector(20, 40))
   for (const archetype of Object.values(ARCHETYPES)) {
     const info = ARCHETYPE_INFO[archetype.key]
-    const drawn = Client.threatRingsOf(info.key, info.kind, info.rangedCells)
+    const drawn = Client.threatRingsOf(info.key, info.kind, info.rangedCells, info.attack)
     const skills = buildSkills(owner, archetype)
+    const ranged = skills.find((s): s is RangedAttack => s instanceof RangedAttack)
     if (archetype.key === 'boss') {
       assert.ok(skills.some((s) => s instanceof FireBreath), 'the boss no longer breathes: its threat cells are wrong')
       assert.equal(drawn, FireBreath.RINGS, 'boss')
-    } else if (archetype.key === 'gunner') {
-      const ranged = skills.find((s): s is RangedAttack => s instanceof RangedAttack)
-      assert.ok(ranged !== undefined)
-      assert.equal(drawn, ranged.range, 'gunner')
+    } else if (archetype.kind === 'mob' && ranged !== undefined) {
+      assert.equal(drawn, ranged.range, archetype.key)
+    } else if (archetype.kind === 'mob' && info.attack !== undefined) {
+      assert.equal(drawn, Client.attackReach(info.attack), archetype.key)
     } else {
       assert.equal(drawn, 0, archetype.key)
+    }
+  }
+  assert.equal(Client.threatRingsOf('crawler', 'mob', ARCHETYPE_INFO.crawler.rangedCells), 5, 'the Crawler is not marked by its shot')
+})
+
+// #51 L1: every NPC row's attack cells, as the client works them out, are the
+// cells the server's own definitions give: a disc is FIND_IN_CELLS' set, a
+// line is Hex.neighbour stepped `length` times, a lob the disc round its aim.
+test('the client\'s attackCells for every NPC row are the server\'s cells for that shape', () => {
+  const npcs = Object.values(ARCHETYPE_INFO).filter((info) => info.attack !== undefined)
+  assert.deepEqual(npcs.map((info) => info.key).sort(), ['broodling', 'coil', 'compactor', 'kiln', 'reactor'])
+  const disc = (origin: Vector, rings: number): Vector[] => {
+    const cells: Vector[] = []
+    for (let q = origin.x - 12; q <= origin.x + 12; q++) {
+      for (let r = origin.y - 12; r <= origin.y + 12; r++) {
+        if (Hex.distance(origin, new Vector(q, r)) <= rings) cells.push(new Vector(q, r))
+      }
+    }
+    return cells
+  }
+  for (const info of npcs) {
+    const attack = info.attack
+    assert.ok(attack !== undefined)
+    for (const origin of ORIGINS) {
+      for (let d = 0; d < 6; d++) {
+        const aim = Hex.neighbour(Hex.neighbour(origin, d), (d + 1) % 6)
+        let expected: Vector[]
+        if (attack.kind === 'disc') expected = disc(origin, attack.rings)
+        else if (attack.kind === 'lob') expected = disc(aim, attack.rings)
+        else {
+          expected = []
+          let at = origin
+          for (let i = 0; i < attack.length; i++) { at = Hex.neighbour(at, d); expected.push(at) }
+        }
+        const got = Client.attackCells(attack, origin, d, aim)
+        assert.equal(new Set(keys(got)).size, got.length, `${info.key}: a cell listed twice`)
+        assert.deepEqual(keys(got), keys(expected), `${info.key} origin ${origin.x},${origin.y} direction ${d}`)
+        if (attack.kind !== 'lob') {
+          assert.ok(Math.max(...expected.map((c) => Hex.distance(origin, c))) <= Client.attackReach(attack), `${info.key}: reach`)
+        } else {
+          assert.ok(Client.attackReach(attack) === attack.range + attack.rings, `${info.key}: reach`)
+        }
+      }
     }
   }
 })

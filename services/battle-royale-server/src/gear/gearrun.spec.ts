@@ -360,7 +360,7 @@ test('a player standing on a cache takes it, and the world starts its respawn', 
 
 // --- mob drops ----------------------------------------------------------------------
 
-function mobOn (key: 'grunt' | 'gunner' | 'boss', tag: number): Mob {
+function mobOn (key: 'grunt' | 'gunner' | 'boss' | 'crawler' | 'compactor' | 'kiln' | 'coil' | 'reactor' | 'brood' | 'broodling', tag: number): Mob {
   const mob = new Mob(HOME.x, HOME.y, tag, ARCHETYPES[key])
   mob.routines = []
   World.addUnit(World.MOBS, mob)
@@ -411,6 +411,17 @@ test('a mob drops gear by its layer\'s chance and mix; a boss always a skill ite
     }
   }
   assert.ok(rolled > 200, `only ${rolled} drops`)
+})
+
+// #51 l1-1: `mobChance` is keyed by the retired rows only, so no NPC drops gear
+// until l1-2 replaces it with the per-rarity rolls. Pinned so the gap is seen.
+test('until l1-2, no NPC drops gear on any layer', () => {
+  noRefill()
+  for (const layer of LAYERS) {
+    for (const key of ['crawler', 'compactor', 'kiln', 'coil', 'reactor', 'brood', 'broodling'] as const) {
+      assert.equal(world.createGearFrom(mobOn(key, layer.tag), seq(0, 0)), undefined, `${key} on ${layer.tag}`)
+    }
+  }
 })
 
 test('a mob killed in the world drops its gear beside its loot on the sweep', () => {

@@ -135,3 +135,13 @@ test('standingOf: level, where it began, where the next begins', () => {
   assert.deepEqual(standingOf(87), { xp: 87, level: 2, levelAt: 40, nextAt: 220 })
   assert.deepEqual(standingOf(220), { xp: 220, level: 3, levelAt: 220, nextAt: 540 })
 })
+
+// #51 L1: the NPC roster's kill XP (Dez's drop table section 5, accepted).
+test('kills: Crawler 1, Broodling 0, Compactor 2, Kiln 3, Coil 3, Reactor 10, Brood 12, under the same cap', () => {
+  assert.equal(runXp(run({ extracted: true, mobKills: { crawler: 3 } })), 5) // round(1.5 x 3)
+  assert.equal(runXp(run({ extracted: true, mobKills: { broodling: 40 } })), 0)
+  assert.equal(runXp(run({ extracted: true, mobKills: { compactor: 1, kiln: 1, coil: 1 } })), 12) // 8 x 1.5
+  assert.equal(runXp(run({ extracted: true, mobKills: { reactor: 1 } })), 15)
+  assert.equal(runXp(run({ extracted: true, mobKills: { brood: 1 } })), 18)
+  assert.equal(runXp(run({ extracted: true, mobKills: { brood: 1, reactor: 1 } })), 30, 'the mob cap is 20')
+})

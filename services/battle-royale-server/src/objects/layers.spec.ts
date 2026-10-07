@@ -13,7 +13,7 @@ import Consumable from './consumable'
 import Mob from './mob'
 import Player from './player'
 import { type GameObject } from './gameobject'
-import { type Archetype, ARCHETYPES, LAYERS } from '../archetypes/archetypes'
+import { type Archetype, ARCHETYPES, LAYERS, isPackEntry } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import GuardPosition from '../ai/guardposition'
@@ -48,7 +48,9 @@ beforeEach(() => {
 
 // --- the table ------------------------------------------------------------------
 
-test('LAYERS holds #26\'s numbers, top layer first', () => {
+// DELIBERATE CHANGE (#51, l1-1): the mobs were grunts 22/18/14, gunners
+// 0/8/14, bosses 0/2/3. Now the NPC roster, PROVISIONAL (l1-0) counts.
+test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   const row = (i: number): unknown => {
     const l = LAYERS[i]
     return {
@@ -56,13 +58,19 @@ test('LAYERS holds #26\'s numbers, top layer first', () => {
       loot: l.lootMultiplier,
       voids: l.voidShare,
       cap: l.naturalLoot,
-      mobs: l.mobs.map((m) => `${m.archetype.key} ${m.count}`)
+      mobs: l.mobs.map((m) => isPackEntry(m)
+        ? `${m.count} ${m.pack.key} packs, ${m.escort?.key ?? 'no'} escort ${m.escortShare}`
+        : `${m.archetype.key} ${m.count}`)
     }
   }
   assert.equal(LAYERS.length, 3)
-  assert.deepEqual(row(0), { tag: 0, loot: 1, voids: 1 / 3, cap: 150, mobs: ['grunt 22', 'gunner 0', 'boss 0'] })
-  assert.deepEqual(row(1), { tag: -1, loot: 1.75, voids: 1 / 3, cap: 150, mobs: ['grunt 18', 'gunner 8', 'boss 2'] })
-  assert.deepEqual(row(2), { tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['grunt 14', 'gunner 14', 'boss 3'] })
+  assert.deepEqual(row(0), { tag: 0, loot: 1, voids: 1 / 3, cap: 150, mobs: ['5 crawler packs, no escort 0', 'compactor 8'] })
+  assert.deepEqual(row(1), {
+    tag: -1, loot: 1.75, voids: 1 / 3, cap: 150, mobs: ['5 crawler packs, coil escort 0.6', 'compactor 7', 'kiln 4', 'reactor 2']
+  })
+  assert.deepEqual(row(2), {
+    tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['5 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']
+  })
   assert.deepEqual(World.TAGS, [0, -1, -2])
 })
 
@@ -154,7 +162,7 @@ test('natural loot is capped per layer, and death drops do not count toward the 
   assert.equal(natural(BOTTOM).length, 1)
 })
 
-test('natural pickups, mobs and bosses carry their layer\'s loot multiplier', () => {
+test('natural pickups and mobs carry their layer\'s loot multiplier', () => {
   const world = worldWithoutGates()
   world.update(DT)
   // Mob loot is server-side only: never marked for the wire, where the client
@@ -173,20 +181,26 @@ test('natural pickups, mobs and bosses carry their layer\'s loot multiplier', ()
 
   const lootOf = (a: Archetype, tag: number): number[] =>
     [...new Set(World.MOBS.filter((m) => m.archetype === a && m.tag === tag).map((m) => m.loot))]
-  assert.deepEqual(lootOf(ARCHETYPES.grunt, TOP), [50])
-  assert.deepEqual(lootOf(ARCHETYPES.grunt, MIDDLE), [88])
-  assert.deepEqual(lootOf(ARCHETYPES.grunt, BOTTOM), [150])
-  assert.deepEqual(lootOf(ARCHETYPES.gunner, MIDDLE), [131])
-  assert.deepEqual(lootOf(ARCHETYPES.gunner, BOTTOM), [225])
-  assert.deepEqual(lootOf(ARCHETYPES.boss, MIDDLE), [875])
-  assert.deepEqual(lootOf(ARCHETYPES.boss, BOTTOM), [1500])
+  // Loot per NPC: Nick, #51 L1 plan calls (Crawler 25, Compactor 50, Coil 75,
+  // Kiln 100, Reactor 500, Brood 800), times 1 / 1.75 / 3, rounded.
+  assert.deepEqual(lootOf(ARCHETYPES.crawler, TOP), [25])
+  assert.deepEqual(lootOf(ARCHETYPES.compactor, TOP), [50])
+  assert.deepEqual(lootOf(ARCHETYPES.crawler, MIDDLE), [44])
+  assert.deepEqual(lootOf(ARCHETYPES.compactor, MIDDLE), [88])
+  assert.deepEqual(lootOf(ARCHETYPES.kiln, MIDDLE), [175])
+  assert.deepEqual(lootOf(ARCHETYPES.reactor, MIDDLE), [875])
+  assert.deepEqual(lootOf(ARCHETYPES.crawler, BOTTOM), [75])
+  assert.deepEqual(lootOf(ARCHETYPES.coil, BOTTOM), [225])
+  assert.deepEqual(lootOf(ARCHETYPES.kiln, BOTTOM), [300])
+  assert.deepEqual(lootOf(ARCHETYPES.reactor, BOTTOM), [1500])
+  assert.deepEqual(lootOf(ARCHETYPES.brood, BOTTOM), [2400])
 })
 
 test('a mob\'s death drops carry its multiplied loot', () => {
   const world = worldWithoutGates()
   for (let i = 0; i < 5; i++) world.update(DT)
-  const boss = World.MOBS.find((m) => m.archetype === ARCHETYPES.boss && m.tag === BOTTOM) as Mob
-  boss.hit(10_000)
+  const reactor = World.MOBS.find((m) => m.archetype === ARCHETYPES.reactor && m.tag === BOTTOM) as Mob
+  reactor.hit(10_000)
   const before = World.CONSUMABLES.filter((c) => c.expiresAt > 0).length
   assert.equal(before, 0)
 

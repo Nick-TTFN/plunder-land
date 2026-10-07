@@ -49,7 +49,16 @@ const LOOKS: Readonly<Record<ArchetypeKey, SpriteLook>> = Object.freeze({
   boss: MOB_DEFAULT,
   // A cold blue, far from the grunt's untinted sprite and from the 0xffbb00
   // that marks something with a lifetime.
-  gunner: Object.freeze({ run: 'mob/mob', tint: 0x7fb2ff })
+  gunner: Object.freeze({ run: 'mob/mob', tint: 0x7fb2ff }),
+  // The NPC roster (decision #51): `mob/mob` until their rigs land (l1-8,
+  // l1-9). The Crawler takes the gunner's tint, as it takes its role (ranged).
+  crawler: Object.freeze({ run: 'mob/mob', tint: 0x7fb2ff }),
+  kiln: MOB_DEFAULT,
+  reactor: MOB_DEFAULT,
+  coil: MOB_DEFAULT,
+  compactor: MOB_DEFAULT,
+  brood: MOB_DEFAULT,
+  broodling: MOB_DEFAULT
 })
 
 /**
