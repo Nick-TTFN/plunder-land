@@ -318,6 +318,9 @@ test('shot: a player\'s hit sets it off in place at once, credits that player on
   tick(t)
   const cell = ling.cell
   assert.equal(new RangedAttack(player).execute(cell), true)
+  // Only its freed id is left to run: the fuse went with it, because the
+  // Broodling owns it (an ownerless fuse would still be pending here).
+  assert.equal(Timers.size, 1, 'a timer of the Broodling survived its blast')
 
   assert.equal(ling.destroyed, true)
   assert.deepEqual(blasts().map((s) => [s.at - T0, key(s.cell)]), [[250, key(cell)]])
@@ -331,6 +334,20 @@ test('shot: a player\'s hit sets it off in place at once, credits that player on
   // Its fuse was cancelled with it.
   for (let i = 0; i < 30; i++) tick(t)
   assert.equal(blasts().length, 1)
+})
+
+test('shot during its tell, it goes off on the primed cell at once and leaves neither the fuse nor the tell pending', (t) => {
+  mockClock(t)
+  const ling = mobAt(ARCHETYPES.broodling)
+  const player = playerAt(1)
+  tick(t)
+  assert.deepEqual(fuseOf(ling)?.primedCell, HOME, 'test setup: not primed')
+  assert.equal(ling.hit(5), true)
+  assert.deepEqual(blasts().map((s) => key(s.cell)), [key(HOME)])
+  assert.equal(Timers.size, 1, 'a timer of the Broodling survived its blast')
+  for (let i = 0; i < 4; i++) tick(t)
+  assert.equal(blasts().length, 1)
+  assert.equal(health(player), 150 - 25)
 })
 
 test('any damaging hit sets it off, lethal or not; a hit that would do nothing does nothing', () => {
@@ -360,6 +377,8 @@ test('a chain of three goes off once each, frees each id once and credits only t
   const freedBefore = GameObject.FreedIDs.length
 
   assert.equal(new RangedAttack(shooter).execute(a.cell), true)
+  // Only the four freed ids are left: every fuse in the chain went with its Broodling.
+  assert.equal(Timers.size, 4, 'a timer of a Broodling survived the chain')
   assert.deepEqual([a.destroyed, b.destroyed, c.destroyed], [true, true, true])
   assert.deepEqual(blasts().map((s) => s.originator), [a.id, b.id, c.id])
   assert.equal(crawler.destroyed, true)
