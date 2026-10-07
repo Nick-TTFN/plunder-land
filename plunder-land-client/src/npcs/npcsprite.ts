@@ -1,8 +1,15 @@
-import { AlphaFilter, Assets, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
+import { AlphaFilter, Assets, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Rectangle, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
 import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig } from './npcrig'
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
+
+/** An `NpcMasked` drawn: its images in a container cut by its mask sprite. */
+interface MaskedGroup {
+  readonly container: Container
+  readonly mask: Sprite
+  readonly sprites: Sprite[]
+}
 
 /** A clip played over the idle/move loop, then gone (death holds). */
 interface Action {
@@ -30,20 +37,28 @@ interface Action {
  *   its gait points. The move loop runs at `RobotSprite.RUN_RATE` times the
  *   ground speed over `STRIDE_SPEED`, like the robots' (`setPace`).
  * - `play` lays an action over it: an attack (aimed, and started so that its
- *   event, the Crawler's shot at 0.34 s, lands `SHOT.fire` after the effect,
- *   when `RangedAttackEffect` fires the beam), a hit (with a code hit flash,
- *   which the packages leave to the game), a death (from `death.from`, held at
- *   its end), a spawn (the Broodling's emerge, drawn in place, on the Brood's
- *   release) or a prime (the Broodling's tell, l1-7: the end of its
- *   detonate, which a death then carries on rather than restarts). A death
- *   is never replaced; a hit doesn't cut an attack before its event, a spawn
- *   or a prime.
+ *   event lands `lead` seconds after the effect: the Crawler's shot at
+ *   0.34 s `SHOT.fire` after, when `RangedAttackEffect` fires the beam; the
+ *   Compactor's impact on the server's `impactMs`; the Reactor's release on
+ *   its effect 12, l1-9), a hit (with a code hit flash, which the packages
+ *   leave to the game), a death (from `death.from`, held at its end; from the
+ *   pose shown, an attack's included, with `death.fromAction`), a spawn (the
+ *   Broodling's emerge, drawn in place, on the Brood's release) or a prime
+ *   (the Broodling's tell, l1-7: the end of its detonate, which a death then
+ *   carries on rather than restarts). A death is never replaced; a hit
+ *   doesn't cut a spawn, a prime, an attack before its event, or any of an
+ *   attack with `refusesHit`. With `holdGaitOnHit` the idle/move clock
+ *   waits while a hit plays.
  * - `poseOptions` feeds the package's pose parameters each frame (the
  *   Broodling's cord length from its fuse left).
  *
  * Its own contact shadows are the package's; with `castShadow` it also casts
  * a silhouette (its images again in black under one `AlphaFilter`, laid by
- * `layShadow`), as every unit does. The ticker listener lives while `host` is
+ * `layShadow`), as every unit does, leaving out painted contact shadows and
+ * masked images. An image with a clip is drawn from its band frame
+ * (`<art>-<top row>`, the Crawler's shell) when the sheet has one, else cut
+ * from its art's frame at draw time (`cut`: the Compactor's shaft, whose
+ * crop slides, and its front legs' roots). The ticker listener lives while `host` is
  * in the scene, as `RobotSprite`'s.
  */
 export class NpcSprite extends Container {
@@ -58,7 +73,8 @@ export class NpcSprite extends Container {
 
   /** True once its sheet is loaded; `Mob` draws `mob/mob` otherwise. */
   static ready (rig: NpcRig): boolean {
-    return Assets.cache.has(`npc-${rig.key}/body.png`)
+    // Any of its arts will do: a sheet loads whole. (Not every NPC has a `body`.)
+    return Assets.cache.has(`npc-${rig.key}/${Object.keys(rig.arts)[0]}.png`)
   }
 
   /** CSS px from the ground to the top of its reference pose. */
@@ -70,6 +86,7 @@ export class NpcSprite extends Container {
   private readonly ground = new Graphics()
   private readonly sprites: Sprite[] = []
   private readonly marks: Graphics[] = []
+  private readonly groups: MaskedGroup[] = []
   private readonly cast: Container | undefined
   private readonly castRig = new Container()
   private readonly castSprites: Sprite[] = []
@@ -81,7 +98,10 @@ export class NpcSprite extends Container {
   private pace = 1
   private direction = { x: 0, y: 1 }
   private action: Action | undefined
+  /** The last idle/move pose shown: what an action starts from. */
   private last: NpcPose | undefined
+  /** The last pose shown, an action's included: what a `fromAction` death starts from. */
+  private shownPose: NpcPose | undefined
   private flashLeft = 0
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
   private ticking = false
@@ -143,8 +163,13 @@ export class NpcSprite extends Container {
     return roles.spawn?.clip
   }
 
-  /** Lays an action over the loop (see the class comment); `aim` is a ground direction. False if it has no such clip or it was refused. */
-  play (role: Action['role'], aim?: { x: number, y: number }): boolean {
+  /**
+   * Lays an action over the loop (see the class comment); `aim` is a ground
+   * direction. An attack is started so that its event comes `lead` seconds
+   * from now (the beam's `SHOT.fire` when undefined). False if it has no such
+   * clip or it was refused.
+   */
+  play (role: Action['role'], aim?: { x: number, y: number }, lead?: number): boolean {
     const clip = this.clipFor(role)
     if (clip === undefined) return false
     const current = this.action
@@ -152,7 +177,7 @@ export class NpcSprite extends Container {
     if (role === 'hit') {
       this.flashLeft = NpcSprite.HIT_FLASH_S
       if (current?.role === 'spawn' || current?.role === 'prime') return false
-      if (current?.role === 'attack' && current.t < (this.npc.roles.attack?.event ?? 0)) return false
+      if (current?.role === 'attack' && (this.npc.roles.attack?.refusesHit === true || current.t < (this.npc.roles.attack?.event ?? 0))) return false
     }
     const roles = this.npc.roles
     // A death on the clip a prime is already playing (the Broodling's
@@ -163,12 +188,13 @@ export class NpcSprite extends Container {
       current.t = Math.max(current.t, roles.death!.from)
       return true
     }
-    const t = role === 'attack' ? roles.attack!.event - SHOT.fire
+    const t = role === 'attack' ? roles.attack!.event - (lead ?? SHOT.fire)
       : role === 'death' ? roles.death!.from
         : role === 'spawn' ? roles.spawn!.from
           : role === 'prime' ? roles.prime!.from
             : 0
-    this.action = { role, clip, t, aim, from: this.last }
+    const from = role === 'death' && roles.death?.fromAction === true ? this.shownPose ?? this.last : this.last
+    this.action = { role, clip, t, aim, from }
     return true
   }
 
@@ -219,7 +245,8 @@ export class NpcSprite extends Container {
   }
 
   update (dt: number): void {
-    this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * this.pace : dt
+    const holding = this.action?.role === 'hit' && this.npc.roles.holdGaitOnHit === true
+    if (!holding) this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * this.pace : dt
     this.flashLeft = Math.max(0, this.flashLeft - dt)
     const action = this.action
     if (action !== undefined) {
@@ -247,6 +274,7 @@ export class NpcSprite extends Container {
     const t = playing === undefined ? this.baseTime : Math.min(Math.max(0, playing.t), this.npc.clips[playing.clip].duration)
     const pose = this.npc.pose(clip, t, this.direction, playing?.aim, playing?.from, this.poseOptions?.())
     if (playing === undefined) this.last = pose
+    this.shownPose = pose
     if (pose.muzzle !== undefined) this.muzzle.set(pose.muzzle.x, pose.muzzle.y)
     this.drawList(this.npc.draw(pose, { inPlace: true }))
   }
@@ -259,8 +287,10 @@ export class NpcSprite extends Container {
     }
 
     const order: DisplayObject[] = []
+    const shades: Sprite[] = []
     let sprites = 0
     let graphics = 0
+    let groups = 0
     let open: Graphics | undefined
     const tint = this.flashLeft > 0 ? NpcSprite.HIT_TINT : 0xffffff
     for (const item of list.items) {
@@ -268,13 +298,35 @@ export class NpcSprite extends Container {
         open = undefined
         const sprite = this.sprites[sprites] ?? (this.sprites[sprites] = new Sprite())
         this.place(sprite, item)
-        sprite.tint = tint
+        sprite.tint = item.contact === true ? 0xffffff : tint
         order.push(sprite)
-        if (this.cast !== undefined) {
-          const shade = this.castSprites[sprites] ?? (this.castSprites[sprites] = Object.assign(new Sprite(), { tint: 0x000000 }))
+        if (this.cast !== undefined && item.contact !== true) {
+          const shade = this.castSprites[shades.length] ?? (this.castSprites[shades.length] = Object.assign(new Sprite(), { tint: 0x000000 }))
           this.place(shade, item)
+          // The silhouette is solid; its opacity is the filter's.
+          shade.alpha = 1
+          shades.push(shade)
         }
         sprites++
+        continue
+      }
+      if (item.kind === 'masked') {
+        open = undefined
+        const group = this.groups[groups] ?? (this.groups[groups] = NpcSprite.maskedGroup())
+        groups++
+        while (group.sprites.length < item.items.length) group.sprites.push(new Sprite())
+        for (let k = 0; k < item.items.length; k++) {
+          this.place(group.sprites[k], item.items[k])
+          group.sprites[k].tint = tint
+        }
+        this.place(group.mask, item.mask)
+        const want = group.sprites.slice(0, item.items.length)
+        const now = group.container.children
+        if (now.length !== want.length + 1 || want.some((s, k) => now[k] !== s)) {
+          group.container.removeChildren()
+          group.container.addChild(...want, group.mask)
+        }
+        order.push(group.container)
         continue
       }
       if (open === undefined) {
@@ -291,7 +343,6 @@ export class NpcSprite extends Container {
       if (order.length > 0) this.rig.addChild(...order)
     }
     if (this.cast !== undefined) {
-      const shades = this.castSprites.slice(0, sprites)
       const now = this.castRig.children
       if (now.length !== shades.length || shades.some((s, i) => now[i] !== s)) {
         this.castRig.removeChildren()
@@ -300,20 +351,72 @@ export class NpcSprite extends Container {
     }
   }
 
-  /** The frame for an image: the art, or the band of it a clip cuts (the Crawler's shell sections, `body-<top row>`). */
+  private static maskedGroup (): MaskedGroup {
+    const container = new Container()
+    const mask = new Sprite()
+    container.mask = mask
+    return { container, mask, sprites: [] }
+  }
+
+  /**
+   * The frame for an image: the art; or the band of it a clip cuts, as its
+   * own frame (the Crawler's shell sections, `body-<top row>`) or, where the
+   * sheet has none, cut from the art's frame (`cut`).
+   */
   private place (sprite: Sprite, item: NpcImage): void {
-    const name = `npc-${this.npc.key}/${item.art}${item.clip === undefined ? '' : `-${item.clip.y}`}.png`
-    const texture = Texture.from(name)
-    if (sprite.texture !== texture) sprite.texture = texture
     const art = this.npc.arts[item.art]
-    const ox = item.clip?.x ?? 0
-    const oy = item.clip?.y ?? 0
+    let texture: Texture
+    let clip = item.clip
+    if (clip === undefined) texture = Texture.from(`npc-${this.npc.key}/${item.art}.png`)
+    else {
+      const band = `npc-${this.npc.key}/${item.art}-${clip.y}.png`
+      if (Assets.cache.has(band)) texture = Texture.from(band)
+      else ({ texture, clip } = NpcSprite.cut(Texture.from(`npc-${this.npc.key}/${item.art}.png`), art, clip))
+    }
+    if (sprite.texture !== texture) sprite.texture = texture
+    sprite.alpha = item.alpha ?? 1
+    const ox = clip?.x ?? 0
+    const oy = clip?.y ?? 0
     // Stretch the frame, whatever its resolution, over the art (or band) it stands for.
-    const fx = (item.clip?.w ?? art.w) / texture.width
-    const fy = (item.clip?.h ?? art.h) / texture.height
+    const fx = (clip?.w ?? art.w) / texture.width
+    const fy = (clip?.h ?? art.h) / texture.height
     const m = item.m
     this.scratch.set(m.a * fx, m.b * fx, m.c * fy, m.d * fy, m.a * ox + m.c * oy + m.x, m.b * ox + m.d * oy + m.y)
     sprite.transform.setFromMatrix(this.scratch)
+  }
+
+  /** Cut textures, by frame and texel rectangle: a sliding crop makes a few dozen at most. */
+  private static readonly cuts = new Map<string, Texture>()
+
+  /**
+   * `clip` (art pixels) of the art's frame `full`, snapped to whole texels:
+   * the texture, and the clip it really shows, in art pixels. Works on a
+   * trimmed frame (`orig`/`trim`), so the bake may trim as for any part.
+   */
+  static cut (full: Texture, art: { w: number, h: number }, clip: { x: number, y: number, w: number, h: number }): { texture: Texture, clip: { x: number, y: number, w: number, h: number } } {
+    const sx = full.orig.width / art.w
+    const sy = full.orig.height / art.h
+    const x0 = Math.round(clip.x * sx)
+    const y0 = Math.round(clip.y * sy)
+    const x1 = Math.max(x0 + 1, Math.round((clip.x + clip.w) * sx))
+    const y1 = Math.max(y0 + 1, Math.round((clip.y + clip.h) * sy))
+    const shown = { x: x0 / sx, y: y0 / sy, w: (x1 - x0) / sx, h: (y1 - y0) / sy }
+    const key = `${full.textureCacheIds[0] ?? ''}:${x0},${y0},${x1},${y1}`
+    let texture = NpcSprite.cuts.get(key)
+    if (texture === undefined) {
+      // The trimmed frame's pixels inside the cut, in the untrimmed frame's coordinates.
+      const trim = full.trim ?? new Rectangle(0, 0, full.orig.width, full.orig.height)
+      const vx0 = Math.max(x0, trim.x)
+      const vy0 = Math.max(y0, trim.y)
+      const vx1 = Math.min(x1, trim.x + trim.width)
+      const vy1 = Math.min(y1, trim.y + trim.height)
+      const orig = new Rectangle(0, 0, x1 - x0, y1 - y0)
+      texture = vx1 <= vx0 || vy1 <= vy0
+        ? new Texture(full.baseTexture, new Rectangle(full.frame.x, full.frame.y, 1, 1), orig, new Rectangle(0, 0, 0, 0))
+        : new Texture(full.baseTexture, new Rectangle(full.frame.x + vx0 - trim.x, full.frame.y + vy0 - trim.y, vx1 - vx0, vy1 - vy0), orig, new Rectangle(vx0 - x0, vy0 - y0, vx1 - vx0, vy1 - vy0))
+      NpcSprite.cuts.set(key, texture)
+    }
+    return { texture, clip: shown }
   }
 
   private static drawMark (g: Graphics, mark: NpcMark): void {

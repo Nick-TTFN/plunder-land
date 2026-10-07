@@ -1,6 +1,8 @@
 import { type Matrix } from '../peep/rig'
 import { CRAWLER_RIG } from './crawler/rig'
 import { BROODLING_RIG } from './broodling/rig'
+import { REACTOR_RIG } from './reactor/rig'
+import { COMPACTOR_RIG } from './compactor/rig'
 
 /**
  * What `NpcSprite` needs to draw one NPC (l1-8, decision #51): the sibling of
@@ -20,7 +22,7 @@ import { BROODLING_RIG } from './broodling/rig'
  */
 export interface NpcRig {
   /** The key in the mirror (`utils/archetypes.ts`), and its sheet `npc-<key>.json` (`tools/bake-npc-atlas.py`). */
-  readonly key: 'crawler' | 'broodling'
+  readonly key: 'crawler' | 'broodling' | 'reactor' | 'compactor'
   /** Every clip, from the package's `rig/animation-manifest.json` (`npcrigs.spec.ts` checks the table against it). */
   readonly clips: Readonly<Record<string, NpcClip>>
   /**
@@ -53,18 +55,34 @@ export interface NpcRig {
 export interface NpcClip {
   readonly duration: number
   readonly loop: boolean
-  readonly events: ReadonlyArray<{ readonly time: number, readonly name: string }>
+  /** `leg`: which leg breaks (the Reactor's `leg_break`s). */
+  readonly events: ReadonlyArray<{ readonly time: number, readonly name: string, readonly leg?: number }>
 }
 
 /** Which clip does what. A clip name is a key of `NpcRig.clips`. */
 export interface NpcRoles {
   readonly idle: string
   readonly move: string
-  /** Played on the NPC's attack effect, held so that `attack.event` lands as the effect's beam fires. */
-  readonly attack?: { readonly clip: string, readonly event: number }
+  /**
+   * Played on the NPC's attack effect, started so that `attack.event` lands
+   * when the server's moment does (the Crawler's beam, the Compactor's
+   * impact, the Reactor's release). With `refusesHit` a hit never cuts it
+   * (the package doesn't support a hit over it): the hit only flashes.
+   */
+  readonly attack?: { readonly clip: string, readonly event: number, readonly refusesHit?: boolean }
   readonly hit?: string
-  /** Played on death; with `deathHolds`, from `death.from` seconds in (the Broodling's blast). */
-  readonly death?: { readonly clip: string, readonly from: number }
+  /**
+   * The idle/move clock stands still while a hit plays, so the hit, which
+   * ends exactly on the pose it started from, hands back to the same gait
+   * phase (the Reactor's and the Compactor's packages ask for it).
+   */
+  readonly holdGaitOnHit?: boolean
+  /**
+   * Played on death; with `deathHolds`, from `death.from` seconds in (the
+   * Broodling's blast). With `fromAction` it starts from the pose shown, an
+   * attack's included; otherwise from the last idle/move pose.
+   */
+  readonly death?: { readonly clip: string, readonly from: number, readonly fromAction?: boolean }
   /** Played when it is released (the Broodling on the Brood's effect 19), from `spawn.from` seconds in. */
   readonly spawn?: { readonly clip: string, readonly from: number, readonly ready: number }
   /**
@@ -101,6 +119,21 @@ export interface NpcImage {
   readonly art: string
   readonly m: Matrix
   readonly clip?: { readonly x: number, readonly y: number, readonly w: number, readonly h: number }
+  /** Opacity, 0-1; undefined is 1. */
+  readonly alpha?: number
+  /** A contact shadow painted as an image (the Reactor's, the Compactor's): drawn in turn, never cast. */
+  readonly contact?: boolean
+}
+
+/**
+ * Images seen only through `mask`'s alpha, as the package composites them
+ * offscreen and cuts them with `destination-in` (the Reactor's core through
+ * its aperture). Never cast.
+ */
+export interface NpcMasked {
+  readonly kind: 'masked'
+  readonly items: readonly NpcImage[]
+  readonly mask: NpcImage
 }
 
 /** A filled ellipse, rig units. */
@@ -138,7 +171,7 @@ export interface NpcPolygon {
 }
 
 export type NpcMark = NpcEllipse | NpcLine | NpcPolygon
-export type NpcDrawItem = NpcImage | NpcMark
+export type NpcDrawItem = NpcImage | NpcMasked | NpcMark
 
 /**
  * In draw order. `ground` lies under everything (contact shadows); `items`
@@ -151,7 +184,27 @@ export interface NpcDrawList {
   readonly items: NpcDrawItem[]
 }
 
+/**
+ * How long before an attack clip's event the server's moment is, in seconds,
+ * from an effect sent `lifetimeMs` ahead of it (l1-9). The wire floors an
+ * effect's lifetime to tenths of a second (`Multiplayer.effectLifetime`), so
+ * when the clip's own event falls inside that tenth it is taken as the exact
+ * moment: the server's numbers are the clip's (the Compactor's `impactMs`
+ * 1215 arrives as 1200; the Reactor's tell, 1000, exactly). Otherwise (a
+ * retuned server) the lifetime as received.
+ */
+export function attackLead (event: number, lifetimeMs: number): number {
+  const ms = event * 1000
+  return ms >= lifetimeMs && ms < lifetimeMs + 100 ? event : lifetimeMs / 1000
+}
+
 export const NPC_RIGS: Readonly<Partial<Record<string, NpcRig>>> = Object.freeze({
   crawler: CRAWLER_RIG,
-  broodling: BROODLING_RIG
+  broodling: BROODLING_RIG,
+  // PROVISIONAL (l1-9): reactor-v6 is delivered but not yet approved by Nick;
+  // re-sync after his art review (`tools/npc-rig-sync.mjs reactor`, `tools/bake-npc-atlas.py reactor`).
+  reactor: REACTOR_RIG,
+  // PROVISIONAL (l1-9): compactor-v4 is delivered but not yet approved by Nick
+  // (v3 was); re-sync after his art review (`tools/npc-rig-sync.mjs compactor`, `tools/bake-npc-atlas.py compactor`).
+  compactor: COMPACTOR_RIG
 })

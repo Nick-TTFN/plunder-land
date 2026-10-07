@@ -1,0 +1,297 @@
+{
+ "frames": {
+  "npc-compactor/shaft.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 7,
+    "h": 35
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 7,
+    "h": 35
+   },
+   "sourceSize": {
+    "w": 7,
+    "h": 35
+   }
+  },
+  "npc-compactor/shadow.png": {
+   "frame": {
+    "x": 11,
+    "y": 2,
+    "w": 72,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 72,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 72,
+    "h": 34
+   }
+  },
+  "npc-compactor/compactor.png": {
+   "frame": {
+    "x": 85,
+    "y": 2,
+    "w": 50,
+    "h": 24
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 50,
+    "h": 24
+   },
+   "sourceSize": {
+    "w": 50,
+    "h": 24
+   }
+  },
+  "npc-compactor/shoe.png": {
+   "frame": {
+    "x": 137,
+    "y": 2,
+    "w": 28,
+    "h": 17
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 28,
+    "h": 17
+   },
+   "sourceSize": {
+    "w": 28,
+    "h": 17
+   }
+  },
+  "npc-compactor/bearing.png": {
+   "frame": {
+    "x": 167,
+    "y": 2,
+    "w": 16,
+    "h": 16
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 16,
+    "h": 16
+   },
+   "sourceSize": {
+    "w": 16,
+    "h": 16
+   }
+  },
+  "npc-compactor/cog-back.png": {
+   "frame": {
+    "x": 185,
+    "y": 2,
+    "w": 15,
+    "h": 15
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 15,
+    "h": 15
+   },
+   "sourceSize": {
+    "w": 17,
+    "h": 17
+   }
+  },
+  "npc-compactor/cog.png": {
+   "frame": {
+    "x": 202,
+    "y": 2,
+    "w": 15,
+    "h": 15
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 1,
+    "w": 15,
+    "h": 15
+   },
+   "sourceSize": {
+    "w": 17,
+    "h": 17
+   }
+  },
+  "npc-compactor/lower.png": {
+   "frame": {
+    "x": 2,
+    "y": 39,
+    "w": 42,
+    "h": 15
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 42,
+    "h": 15
+   },
+   "sourceSize": {
+    "w": 42,
+    "h": 15
+   }
+  },
+  "npc-compactor/shoe-shadow.png": {
+   "frame": {
+    "x": 46,
+    "y": 39,
+    "w": 27,
+    "h": 15
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 27,
+    "h": 15
+   },
+   "sourceSize": {
+    "w": 29,
+    "h": 15
+   }
+  },
+  "npc-compactor/upper.png": {
+   "frame": {
+    "x": 75,
+    "y": 39,
+    "w": 31,
+    "h": 13
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 31,
+    "h": 13
+   },
+   "sourceSize": {
+    "w": 31,
+    "h": 13
+   }
+  },
+  "npc-compactor/joint.png": {
+   "frame": {
+    "x": 108,
+    "y": 39,
+    "w": 6,
+    "h": 7
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 6,
+    "h": 7
+   },
+   "sourceSize": {
+    "w": 6,
+    "h": 7
+   }
+  },
+  "npc-compactor/sensor-base.png": {
+   "frame": {
+    "x": 116,
+    "y": 39,
+    "w": 4,
+    "h": 4
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "sourceSize": {
+    "w": 4,
+    "h": 4
+   }
+  },
+  "npc-compactor/sensor-lit.png": {
+   "frame": {
+    "x": 122,
+    "y": 39,
+    "w": 4,
+    "h": 4
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "sourceSize": {
+    "w": 4,
+    "h": 4
+   }
+  },
+  "npc-compactor/sensor-off.png": {
+   "frame": {
+    "x": 128,
+    "y": 39,
+    "w": 4,
+    "h": 4
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "sourceSize": {
+    "w": 4,
+    "h": 4
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-npc-atlas.py",
+  "version": "1.0",
+  "image": "npc-compactor.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 256,
+   "h": 56
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.4317718940936864,
+  "package": "npc-refinements/compactor-v4"
+ }
+}

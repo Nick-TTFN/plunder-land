@@ -2,7 +2,7 @@ import { Point } from 'pixi.js'
 import Unit from './unit'
 import { AnimationStates } from '../animation/animationstates'
 import { lookFor } from './archetypesprites'
-import { NPC_RIGS } from '../npcs/npcrig'
+import { NPC_RIGS, attackLead } from '../npcs/npcrig'
 import { NpcSprite } from '../npcs/npcsprite'
 import { RobotSprite } from '../robots/robotsprite'
 import { SETTINGS } from '../net/settings'
@@ -126,6 +126,22 @@ export default class Mob extends Unit {
     if (this.npc === undefined || name !== 'shoot') return false
     const aim = toward === undefined ? undefined : { x: toward.x - this.x, y: toward.y - this.y }
     return this.npc.play('attack', aim)
+  }
+
+  /**
+   * Its attack clip for an NPC effect that names the moment (l1-9): started
+   * so that the clip's event lands when the server's moment does, `leadMs`
+   * from now as the effect said it (`attackLead`), aimed at `toward` (world
+   * position) if given. The Compactor's strike on its shockwave (14, the
+   * impact `lifetime` after the cast); the Reactor's activation on its tell
+   * (11, the release `lifetime` after) and again on its release (12, lead 0:
+   * back in step with the server). False without a rig.
+   */
+  playAttack (leadMs: number, toward?: { x: number, y: number }): boolean {
+    const event = this.npc?.npc.roles.attack?.event
+    if (this.npc === undefined || event === undefined) return false
+    const aim = toward === undefined ? undefined : { x: toward.x - this.x, y: toward.y - this.y }
+    return this.npc.play('attack', aim, attackLead(event, leadMs))
   }
 
   /** Where its shot leaves (the Crawler's sensor), on screen, global, as `Player`'s eye. */

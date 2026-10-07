@@ -22,10 +22,10 @@ for (let i = 0; i < 6; i++) {
   CORNERS.push([Math.cos(a) * CORNER, Math.sin(a) * CORNER])
 }
 
-/** How far this mob's attack reaches, in rings, or 0 (`threatRingsOf`). */
+/** How far this mob's attack reaches, in rings, or 0 (`threatRingsOf`): its shot, or an NPC's attack cells (`attack` in the mirror). */
 export function threatRings (archetype: ArchetypeInfo | undefined): number {
   if (archetype === undefined) return 0
-  return threatRingsOf(archetype.key, archetype.kind, archetype.rangedCells)
+  return threatRingsOf(archetype.key, archetype.kind, archetype.rangedCells, archetype.attack)
 }
 
 /** One threatening mob: its cell and reach. */

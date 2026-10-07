@@ -14,8 +14,7 @@ import { Vector } from './utils/vector'
 import { Hex } from './utils/hex'
 import { archetypeById } from './utils/archetypes'
 import { PathMarker } from './ui/elements/pathmarker'
-import { ThreatMarker, type Threat } from './ui/elements/threatmarker'
-import { threatRingsOf } from './vfx/cells'
+import { ThreatMarker, threatRings, type Threat } from './ui/elements/threatmarker'
 import { Timer } from './ui/elements/timer'
 import { ExtractRing } from './ui/elements/extractring'
 import { Throwable, PROJECTILE } from './objects/throwable'
@@ -244,7 +243,7 @@ export class Game extends Container {
   }
 
   /** `tools/bake-npc-atlas.py` writes one per NPC rig (`src/npcs/npcrig.ts` `NPC_RIGS`). */
-  static readonly NPC_SHEETS = ['./res/npc-crawler.json', './res/npc-broodling.json']
+  static readonly NPC_SHEETS = ['./res/npc-crawler.json', './res/npc-broodling.json', './res/npc-reactor.json', './res/npc-compactor.json']
 
   clear (): void {
     if (this.layers != null) {
@@ -864,8 +863,14 @@ export class Game extends Container {
     if (type === NPC_EFFECT.reactorTell || type === NPC_EFFECT.reactorRelease) {
       if (aimCell === undefined) return
       const reactor = target
-      new ReactorEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.reactorRelease, lifetime,
+      const release = type === NPC_EFFECT.reactorRelease
+      new ReactorEffect(aimCell, Game.LOCAL.tag, release, lifetime,
         () => reactor instanceof Unit && reactor.hp === 0)
+      // Its rig's activation (l1-9): the tell starts the charge so that
+      // release_start lands `lifetime` later, when the release is due; the
+      // release puts it back in step (lead 0), or starts it there for a
+      // viewer who missed the tell.
+      if (reactor instanceof Mob) reactor.playAttack(release ? 0 : lifetime)
       return
     }
 
@@ -938,6 +943,9 @@ export class Game extends Container {
 
       case NPC_EFFECT.compactorShockwave:
         new ShockwaveEffect(target, lifetime, aimCell)
+        // Its rig's strike (l1-9), started so the clip's `attack` event (the
+        // shoe on the floor) lands `lifetime` later, on the server's impact.
+        if (target instanceof Mob) target.playAttack(lifetime, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
         break
 
       case NPC_EFFECT.knockback:
@@ -1223,7 +1231,7 @@ export class Game extends Container {
   /**
    * The threat cells on the player's plane: every mob with a reach the player
    * can see (not hidden by fog, not out of view), at the cell it is drawn on:
-   * a shot's range, or an NPC's attack cells (`threatRingsOf`).
+   * a shot's range, or an NPC's attack cells (`threatRings`).
    * Re-parented like the route marker.
    */
   updateThreatMarker (): void {
@@ -1237,8 +1245,7 @@ export class Game extends Container {
       for (const mob of Game.MOBS) {
         if (mob.tag !== Game.LOCAL.tag || mob.killed || !mob.visible || !mob.renderable) continue
         // An NPC's reach from its own attack cells (`attack` in the mirror), else its shot.
-        const a = mob.archetype
-        const rings = a === undefined ? 0 : threatRingsOf(a.key, a.kind, a.rangedCells, a.attack)
+        const rings = threatRings(mob.archetype)
         if (rings > 0) threats.push({ cell: Hex.toCell(new Vector(mob.x, mob.y)), rings })
       }
     }

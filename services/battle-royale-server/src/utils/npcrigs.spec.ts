@@ -2,9 +2,16 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+// Entered through the server's usual first module, so the archetype table loads (l1-9's timing tests).
+import Multiplayer from '../network/multiplayer'
+import { ARCHETYPES, type RoutineSpec } from '../archetypes/archetypes'
+import { type Unit } from '../objects/unit'
+import { type Shockwave } from '../mobskills/shockwave'
 import * as crawler from '../../../../plunder-land-client/src/npcs/crawler/rig'
 import * as broodling from '../../../../plunder-land-client/src/npcs/broodling/rig'
-import { NPC_RIGS, type NpcDrawList, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
+import * as reactor from '../../../../plunder-land-client/src/npcs/reactor/rig'
+import * as compactor from '../../../../plunder-land-client/src/npcs/compactor/rig'
+import { NPC_RIGS, attackLead, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
 
 /**
@@ -24,10 +31,16 @@ import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archet
  *   hit marks), to 1e-5. The Crawler's sensor (Canvas gradients) and its
  *   shot streak (the game's beam) are not compared;
  * - the clip table against the package's `animation-manifest.json`.
+ *
+ * The Reactor and the Compactor (l1-9, PROVISIONAL: their packages await
+ * Nick's art review, so a re-sync is expected) draw only images: their image
+ * entries carry the opacity and a tag ('' drawn, 'in' seen through the mask,
+ * 'mask' the Reactor's aperture), and a sample's `base` says how to make the
+ * pose an action starts from.
  */
 
 type Leaf = number | string | boolean
-type Image = [string, number[] | null, ...number[]]
+type Image = [string, number[] | null, ...Array<number | string>]
 type Mark = [string, string, number, number, number, ...number[]]
 
 interface Sample {
@@ -90,17 +103,25 @@ function thin (points: readonly number[]): number[] {
   return out
 }
 
-/** The draw list in the fixture's terms: its images, and its shapes as fill and stroke marks. */
+/** The draw list in the fixture's terms: its images (with their opacity and tag), and its shapes as fill and stroke marks. */
 function drawn (list: NpcDrawList, arts: NpcRig['arts']): { images: Image[], marks: Mark[] } {
   const images: Image[] = []
   const marks: Mark[] = []
+  const image = (item: NpcImage, tag: string): void => {
+    const { w, h } = arts[item.art]
+    const m = item.m
+    const at = (u: number, v: number): number[] => [m.a * u + m.c * v + m.x, m.b * u + m.d * v + m.y]
+    const clip = item.clip === undefined ? null : [item.clip.x, item.clip.y, item.clip.w, item.clip.h]
+    images.push([item.art, clip, ...at(0, 0), ...at(w, 0), ...at(0, h), item.alpha ?? 1, tag])
+  }
   for (const item of [...list.ground, ...list.items]) {
     if (item.kind === 'image') {
-      const { w, h } = arts[item.art]
-      const m = item.m
-      const at = (u: number, v: number): number[] => [m.a * u + m.c * v + m.x, m.b * u + m.d * v + m.y]
-      const clip = item.clip === undefined ? null : [item.clip.x, item.clip.y, item.clip.w, item.clip.h]
-      images.push([item.art, clip, ...at(0, 0), ...at(w, 0), ...at(0, h)])
+      image(item, '')
+      continue
+    }
+    if (item.kind === 'masked') {
+      for (const inner of item.items) image(inner, 'in')
+      image(item.mask, 'mask')
       continue
     }
     if (item.approx === true) continue
@@ -130,6 +151,11 @@ function checkDrawing (list: NpcDrawList, arts: NpcRig['arts'], s: Sample, where
     assert.equal(img[0], want[0], `${where} image ${i} art`)
     assert.deepEqual(img[1], want[1], `${where} image ${i} clip`)
     for (let k = 2; k < 8; k++) assert.ok(Math.abs((img[k] as number) - (want[k] as number)) <= DRAW_EPS, `${where} image ${i} (${img[0]}) corner[${k - 2}]: ${img[k] as number} vs ${want[k] as number}`)
+    // The image-only packages (l1-9) also record each image's opacity and tag.
+    if (want.length > 8) {
+      assert.ok(Math.abs((img[8] as number) - (want[8] as number)) <= DRAW_EPS, `${where} image ${i} (${img[0]}) alpha: ${img[8]} vs ${want[8]}`)
+      assert.equal(img[9], want[9], `${where} image ${i} (${img[0]}) tag`)
+    }
   })
   // Shapes as a set: the port draws shadows under everything, the package in turn.
   const left = [...marks]
@@ -191,6 +217,112 @@ test('broodling: the port matches the package on every sampled pose', () => {
     checkState(state, f, s, where)
     checkDrawing(broodling.draw(state), broodling.BROODLING_RIG.arts, s, where)
   }
+})
+
+test('reactor: the clip table is the package manifest\'s', () => {
+  checkManifest(reactor.REACTOR_RIG, load('reactor'))
+})
+
+/** How a sample's `base` is made by the port: idle or walk, or the activation from an idle clock. */
+function reactorBase (b: { clip: string, time: number, direction?: { x: number, y: number }, startTime?: number }): reactor.ReactorState {
+  return b.clip === 'activate' ? reactor.activationPose(b.time, { startTime: b.startTime }) : reactor.pose(b.time, b.clip === 'walk' ? { direction: b.direction } : {})
+}
+
+test('reactor: the port matches the package on every sampled pose', () => {
+  const f = load('reactor')
+  assert.ok(f.samples.length >= 163, 'the package samples kept and the extras')
+  for (const name of ['idle', 'walk', 'activate', 'hit', 'fall_apart']) assert.ok(f.samples.some((s) => s.name === name), name)
+  assert.ok(f.samples.some((s) => s.name === 'fall_apart' && s.time > 0.5 && (s.options.base as { clip?: string } | undefined)?.clip === 'activate'), 'a death from the activation')
+  for (const s of f.samples) {
+    const where = `reactor ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    const { base, ...rest } = s.options as { base?: Parameters<typeof reactorBase>[0] } & reactor.ReactorOptions
+    const state = reactor.sampleClip(s.name, s.time, base === undefined ? rest : { ...rest, basePose: reactorBase(base) })
+    checkState(state, f, s, where)
+    checkDrawing(reactor.draw(state), reactor.REACTOR_RIG.arts, s, where)
+  }
+})
+
+test('compactor: the clip table is the package manifest\'s', () => {
+  checkManifest(compactor.COMPACTOR_RIG, load('compactor'))
+})
+
+test('compactor: the port matches the package on every sampled pose', () => {
+  const f = load('compactor')
+  assert.ok(f.samples.length >= 220, 'the package samples kept and the extras')
+  for (const name of ['idle', 'run', 'fire', 'hit', 'fall_apart']) assert.ok(f.samples.some((s) => s.name === name), name)
+  // The shaft's crop and the front legs' roots are clipped images.
+  assert.ok(f.samples.some((s) => s.images.some((i) => i[0] === 'shaft' && i[1] !== null)), 'a cropped shaft')
+  for (const s of f.samples) {
+    const where = `compactor ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    const { base, ...rest } = s.options as { base?: { clip: string, time: number, options: compactor.CompactorOptions } } & compactor.CompactorOptions
+    const pose = compactor.animationPose(s.name, s.time, base === undefined ? rest : { ...rest, basePose: compactor.animationPose(base.clip, base.time, base.options) })
+    checkState(pose.state, f, s, where)
+    checkDrawing(compactor.draw(pose), compactor.COMPACTOR_RIG.arts, s, where)
+  }
+})
+
+// l1-9: the clips' events are the server's moments. The Compactor's strike
+// starts on its shockwave (effect 14, sent `impactMs` before the impact) and
+// its `attack` event, the shoe on the floor, is the impact; the Reactor's
+// activation starts on its tell (11, `activateMs` before the release) and
+// release_start/release_end are the release (12) and its end. The wire
+// floors an effect's lifetime to tenths (`effectLifetime`); `attackLead`
+// takes the clip's own event when it falls inside that tenth.
+test('the Compactor\'s strike lands on the server\'s impact, and the Reactor\'s release on its release', () => {
+  const wire = (ms: number): number => Multiplayer.effectLifetime(ms) * 100
+  const shockwave = new ARCHETYPES.compactor.skills[0].skill({} as unknown as Unit) as Shockwave
+  const strike = compactor.COMPACTOR_RIG.roles.attack!
+  assert.equal(strike.clip, 'fire')
+  assert.equal(strike.event * 1000, shockwave.impactMs, 'the clip\'s attack event is the server\'s impactMs')
+  assert.deepEqual(compactor.CLIPS.fire.events, [{ time: strike.event, name: 'attack' }])
+  // 1215 ms goes out as 1200: the lead is still the event, so the clip starts at its 0.
+  assert.equal(wire(shockwave.impactMs), 1200)
+  assert.equal(attackLead(strike.event, wire(shockwave.impactMs)), shockwave.impactMs / 1000)
+
+  const burst = ARCHETYPES.reactor.routines.find((r) => r.kind === 'reactorBurst') as Extract<RoutineSpec, { kind: 'reactorBurst' }>
+  const release = reactor.REACTOR_RIG.roles.attack!
+  assert.equal(release.clip, 'activate')
+  const events = Object.fromEntries(reactor.CLIPS.activate.events.map((e) => [e.name, e.time]))
+  assert.equal(release.event, events.release_start)
+  assert.equal(events.release_start * 1000, burst.activateMs, 'release_start is the tell\'s length')
+  assert.equal((events.release_end - events.release_start) * 1000, burst.releaseMs, 'the release is as long on both')
+  assert.equal(attackLead(release.event, wire(burst.activateMs)), burst.activateMs / 1000)
+  // Effect 12 brings it back in step: lead 0 puts the clip on release_start.
+  assert.equal(attackLead(release.event, 0), 0)
+  // A retuned server (outside the tenth) is taken as sent.
+  assert.equal(attackLead(1.215, 1500), 1.5)
+  assert.equal(attackLead(1.215, 1100), 1.1)
+})
+
+// Both packages reject a hit over their attack (their HANDOFF.md files) and
+// ask for the gait to wait while a hit plays; both fall apart from any pose,
+// the attack's included.
+test('the Reactor and the Compactor refuse a hit over their attack, hold the gait on a hit and die from the attack\'s pose', () => {
+  for (const rig of [reactor.REACTOR_RIG, compactor.COMPACTOR_RIG]) {
+    assert.equal(rig.roles.attack?.refusesHit, true, rig.key)
+    assert.equal(rig.roles.holdGaitOnHit, true, rig.key)
+    assert.equal(rig.roles.death?.fromAction, true, rig.key)
+    assert.equal(rig.roles.death?.from, 0, rig.key)
+  }
+  // The rigs' own pose functions take a strike's or an activation's pose as a death's base.
+  const strike = compactor.COMPACTOR_RIG.pose('fire', 1.3, { x: 0, y: 1 }, { x: 1, y: 0 })
+  const dead = compactor.COMPACTOR_RIG.pose('fall_apart', 2.8, { x: 0, y: 1 }, undefined, strike).state as compactor.CompactorPose
+  assert.equal(dead.state.death?.settled, true)
+  const charge = reactor.REACTOR_RIG.pose('activate', 1.5, { x: 0, y: 1 })
+  const wreck = reactor.REACTOR_RIG.pose('fall_apart', 2.6, { x: 0, y: 1 }, undefined, charge).state as reactor.ReactorState
+  assert.equal(wreck.death?.parts.length, 12)
+  // A hit ends exactly on the pose it began from, which is why the gait waits.
+  const idle = reactor.REACTOR_RIG.pose('idle', 0.7, { x: 0, y: 1 })
+  assert.deepEqual(reactor.REACTOR_RIG.pose('hit', 0.68, { x: 0, y: 1 }, undefined, idle).state, idle.state)
+  // The Compactor's rig never throws for a hit over the strike (the sprite never asks; a frame must not die).
+  assert.doesNotThrow(() => compactor.COMPACTOR_RIG.pose('hit', 0.3, { x: 0, y: 1 }, undefined, strike))
+})
+
+test('the Reactor\'s activation rides the idle clock it started from', () => {
+  const idle = reactor.REACTOR_RIG.pose('idle', 2.25, { x: 0, y: 1 })
+  const charge = reactor.REACTOR_RIG.pose('activate', 0, { x: 0, y: 1 }, undefined, idle).state as reactor.ReactorState
+  assert.ok(Math.abs(charge.bob - (idle.state as reactor.ReactorState).bob) < 1e-12)
+  assert.equal(charge.time, 2.25)
 })
 
 test('every NPC rig is keyed by a mob in the mirror, with a sheet name the bake writes', () => {

@@ -2,12 +2,13 @@
 /**
  * Take an NPC rig package's numbers into the repo (l1-8, decision #51).
  *
- *   node tools/npc-rig-sync.mjs <npc> [package-dir]    # crawler, broodling
+ *   node tools/npc-rig-sync.mjs <npc> [package-dir]    # crawler, broodling, reactor, compactor
  *
  * The package (default below, in `codex_output/`, not checked in) holds the
- * authoritative rig as JavaScript (`tools/rig.mjs` for the Crawler,
- * `tools/broodling.mjs` for the Broodling) and, since the export-only
- * copies of 2026-10-07, `rig/pose-samples.json`: poses sampled from that
+ * authoritative rig as JavaScript (`tools/rig.mjs` for the Crawler and the
+ * Compactor, `tools/broodling.mjs` for the Broodling, `tools/reactor.mjs` for
+ * the Reactor) and, since the export-only copies of 2026-10-07,
+ * `rig/pose-samples.json`: poses sampled from that
  * module (`version`, `tolerance`, `samples` of `name`, `time`, `options`,
  * `state`). `src/npcs/<npc>/rig.ts` is a hand port. This writes
  * `services/battle-royale-server/src/utils/npcrigs/<npc>.fixtures.json`,
@@ -29,8 +30,19 @@
  *
  * A Crawler action's `basePose` is stored as the only parts the evaluator
  * reads (the presence and the feet); this checks that the package gives the
- * same pose from that as from the whole one. The manifest's clip table goes
- * in too, for the spec to hold the port's against.
+ * same pose from that as from the whole one. The Reactor's and the
+ * Compactor's (l1-9) copy the whole base into their result, so a base is
+ * stored as how to make it (`base`: clip, time, options), checked to give
+ * the package's exact base. The manifest's clip table goes in too, for the
+ * spec to hold the port's against.
+ *
+ * The Reactor and the Compactor (l1-9, PROVISIONAL: their packages await
+ * Nick's art review) draw only images, with an opacity: their image entries
+ * add `alpha` and a tag ('' drawn, 'in' drawn through the mask, 'mask' the
+ * mask: the Reactor's core is composited offscreen and cut by its aperture).
+ * The Compactor's samples whose base came from its package's stateful
+ * `NpcController` (not ported: the game plays the stateless clips) are left
+ * out; extras from stateless run bases stand in for them.
  *
  * The art goes separately, through `tools/bake-npc-atlas.py`.
  */
@@ -43,7 +55,10 @@ const here = dirname(fileURLToPath(import.meta.url))
 const client = join(here, '..')
 const NPCS = {
   crawler: { pkg: 'crawler-animations-v4', module: 'rig.mjs' },
-  broodling: { pkg: 'npc-refinements/broodling-v3', module: 'broodling.mjs' }
+  broodling: { pkg: 'npc-refinements/broodling-v3', module: 'broodling.mjs' },
+  // PROVISIONAL (l1-9): delivered 2026-10-07, not yet approved by Nick.
+  reactor: { pkg: 'npc-refinements/reactor-v6', module: 'reactor.mjs' },
+  compactor: { pkg: 'npc-refinements/compactor-v4', module: 'rig.mjs' }
 }
 const key = process.argv[2]
 if (NPCS[key] === undefined) {
@@ -115,14 +130,35 @@ const mul = (p, q) => [p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1], p[0
  * stroke width. Fills that aren't plain colours (the sensor's gradients) and
  * the `skip` colours are left out.
  */
-function record (paint, artSizes, skip = []) {
-  const fresh = () => ({ m: [1, 0, 0, 1, 0, 0], alpha: 1, lineWidth: 1, strokeStyle: '#000000', fillStyle: '#000000', clip: null })
+function record (paint, artSizes, skip = [], { alpha = false } = {}) {
+  const images = []
+  const marks = []
+  const ctx = recorder(images, marks, skip, alpha)
+  const imgs = Object.fromEntries(Object.entries(artSizes).map(([art, s]) => [art, { art, width: s.w, height: s.h }]))
+  paint(ctx, imgs)
+  return { images, marks }
+}
+
+/**
+ * An offscreen canvas for a package that composites (the Reactor's
+ * chamber): it records what is drawn into it, and the image drawn with
+ * `destination-in` (the mask); drawn onto a recorder, its images are
+ * recorded there through the destination rectangle, tagged 'in', then the
+ * mask, tagged 'mask'.
+ */
+function surface (width, height) {
+  const s = { width, height, surface: true, images: [], mask: null }
+  s.ctx = recorder(s.images, [], [], true, s)
+  s.getContext = () => s.ctx
+  return s
+}
+
+function recorder (images, marks, skip, withAlpha, owner = null) {
+  const fresh = () => ({ m: [1, 0, 0, 1, 0, 0], alpha: 1, lineWidth: 1, strokeStyle: '#000000', fillStyle: '#000000', clip: null, gco: 'source-over' })
   let cur = fresh()
   const stack = []
   let path = []
   let rect = null
-  const images = []
-  const marks = []
   const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
   const scaleOf = (m) => Math.hypot(m[0], m[1])
   const current = () => {
@@ -171,26 +207,62 @@ function record (paint, artSizes, skip = []) {
     fillRect: noop,
     createRadialGradient: () => ({ addColorStop: noop }),
     createLinearGradient: () => ({ addColorStop: noop }),
-    drawImage: (img, x, y, w, h) => {
-      w ??= img.width
-      h ??= img.height
+    setTransform: (a, b, c, d, e, f) => { cur.m = [a, b, c, d, e, f] },
+    clearRect: () => { images.length = 0; if (owner !== null) owner.mask = null },
+    drawImage: (img, ...args) => {
+      let x, y, w, h
+      let clip = cur.clip === null ? null : [cur.clip.x, cur.clip.y, cur.clip.w, cur.clip.h]
+      if (args.length === 8) {
+        // A source rectangle drawn onto the same rectangle of the image's own
+        // pixels (the Compactor's crops): the whole image's place, and the clip.
+        const [sx, sy, sw, sh, dx, dy, dw, dh] = args
+        if (sx !== dx || sy !== dy || sw !== dw || sh !== dh) throw Error('a crop drawn elsewhere than its source rectangle')
+        ;[x, y, w, h] = [0, 0, img.width, img.height]
+        clip = [sx, sy, sw, sh]
+      } else [x, y, w = img.width, h = img.height] = args
+      if (img.surface === true) {
+        // An offscreen canvas: its images through the destination rectangle.
+        const to = mul(cur.m, [w / img.width, 0, 0, h / img.height, x, y])
+        for (const [art, c, ...rest] of img.images) {
+          const corners = rest.slice(0, 6)
+          const pts = []
+          for (let k = 0; k < 6; k += 2) pts.push(...apply(to, corners[k], corners[k + 1]).map(round5))
+          images.push([art, c, ...pts, round5(rest[6] * cur.alpha), 'in'])
+        }
+        if (img.mask !== null) {
+          const [art, c, ...rest] = img.mask
+          const pts = []
+          for (let k = 0; k < 6; k += 2) pts.push(...apply(to, rest[k], rest[k + 1]).map(round5))
+          images.push([art, c, ...pts, 1, 'mask'])
+        }
+        return
+      }
       // Three corners fix a parallelogram: top left, top right, bottom left.
+      // Inside a surface they stay unrounded until it is drawn.
       const pts = []
-      for (const [u, v] of [[x, y], [x + w, y], [x, y + h]]) pts.push(...apply(cur.m, u, v).map(round5))
-      images.push([img.art, cur.clip === null ? null : [cur.clip.x, cur.clip.y, cur.clip.w, cur.clip.h], ...pts])
+      for (const [u, v] of [[x, y], [x + w, y], [x, y + h]]) pts.push(...apply(cur.m, u, v).map(owner === null ? round5 : (n) => n))
+      const entry = [img.art, clip, ...pts]
+      if (withAlpha) entry.push(owner === null ? round5(cur.alpha) : cur.alpha, '')
+      if (owner !== null && cur.gco === 'destination-in') owner.mask = entry
+      else images.push(entry)
     }
   }
-  for (const prop of ['globalAlpha', 'lineWidth', 'strokeStyle', 'fillStyle']) {
-    const field = prop === 'globalAlpha' ? 'alpha' : prop
+  for (const prop of ['globalAlpha', 'lineWidth', 'strokeStyle', 'fillStyle', 'globalCompositeOperation']) {
+    const field = prop === 'globalAlpha' ? 'alpha' : prop === 'globalCompositeOperation' ? 'gco' : prop
     Object.defineProperty(ctx, prop, { get: () => cur[field], set: (v) => { cur[field] = v } })
   }
   for (const prop of ['lineCap', 'lineJoin', 'filter', 'shadowColor', 'shadowBlur']) ctx[prop] = undefined
-  const imgs = Object.fromEntries(Object.entries(artSizes).map(([art, s]) => [art, { art, width: s.w, height: s.h }]))
-  paint(ctx, imgs)
-  return { images, marks }
+  return ctx
 }
 
 const artSizes = Object.fromEntries(parts.parts.map((p) => [p.id, { w: p.size[0], h: p.size[1] }]))
+
+/** A sample's options with its stored `base` (how to make it) made into the `basePose` the evaluator takes. */
+function withBase (options, build) {
+  if (options.base === undefined) return options
+  const { base, ...rest } = options
+  return { ...rest, basePose: build(base) }
+}
 const out = []
 
 if (key === 'crawler') {
@@ -221,6 +293,84 @@ if (key === 'crawler') {
     }
   }
   for (const t of [0.12, 0.24, 0.6, 1.5, 2.6]) take('fall_apart', t, { aimX: -1, aimY: 0, basePose: run })
+} else if (key === 'reactor') {
+  // Drawn as the package does once `installParts` has its images and a canvas factory.
+  rig.installParts(Object.fromEntries(parts.parts.map((p) => [p.id, { art: p.id, width: p.size[0], height: p.size[1] }])), parts, surface)
+  /** How the port makes a base pose: idle or walk (`pose`) or the activation (`activationPose`), checked against the sample's. */
+  const describe = (b) => {
+    const base = b.action?.name === 'activate'
+      ? { clip: 'activate', time: b.action.time, startTime: b.time - b.action.time }
+      : b.speed > 0 ? { clip: 'walk', time: b.time, direction: b.dir } : { clip: 'idle', time: b.time }
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(build(base))), JSON.parse(JSON.stringify(b)))) throw Error(`no stateless base for ${JSON.stringify(base)}`)
+    return base
+  }
+  const build = (base) => base.clip === 'activate' ? rig.activationPose(base.time, { startTime: base.startTime }) : rig.pose(base.time, base.clip === 'walk' ? { direction: base.direction } : {})
+  const take = (name, time, options) => {
+    const state = rig.sampleClip(name, time, withBase(options, build))
+    const drawn = record((ctx, images) => rig.drawReactor(ctx, state, 0, 0, 1), artSizes, [], { alpha: true })
+    const [paths, values] = flatten(state)
+    out.push({ name, time, options, shape: shapeOf(paths), values, ...drawn })
+  }
+  // Every package sample is checked against the module, but in full the
+  // fixture would be 2.3 MB (a death carries every leg piece twice): the
+  // walks, hits and deaths are thinned to every `THIN`th along a diagonal of
+  // (time, base), which keeps every time and every base (Archie, l1-8:
+  // thin the samples, not the rounding).
+  const THIN = { walk: 2, hit: 2, fall_apart: 3 }
+  const order = (list, value) => { if (!list.includes(value)) list.push(value); return list.indexOf(value) }
+  const axes = {}
+  let thinned = 0
+  for (const s of samples.samples) {
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(rig.sampleClip(s.name, s.time, s.options))), s.state)) throw Error(`the package's module no longer gives its sample: ${s.name} ${s.time}`)
+    const options = s.options.basePose === undefined ? s.options : { base: describe(s.options.basePose) }
+    const k = THIN[s.name]
+    if (k !== undefined) {
+      const a = axes[s.name] ??= { times: [], bases: [] }
+      if ((order(a.times, s.time) + order(a.bases, JSON.stringify(options))) % k !== 0) { thinned++; continue }
+    }
+    take(s.name, s.time, options)
+  }
+  console.log(`reactor: ${thinned} package samples thinned out (all checked against the module)`)
+  // The game's own use: a walk any way, the charge from a running idle
+  // clock, and a hit and a death from a diagonal walk and mid-release.
+  for (let i = 1; i < 8; i += 2) take('walk', 1.3, { direction: { x: Math.cos(i * Math.PI / 4), y: Math.sin(i * Math.PI / 4) } })
+  for (const t of [0.4, 1.05, 2.2]) take('activate', t, { startTime: 3.7 })
+  for (const t of [0.05, 0.3]) take('hit', t, { base: { clip: 'walk', time: 2.15, direction: { x: -0.6, y: 0.8 } } })
+  for (const t of [0.2, 0.9, 2.6]) take('fall_apart', t, { base: { clip: 'activate', time: 1.3, startTime: 3.7 } })
+} else if (key === 'compactor') {
+  /** How the port makes a base pose: a clip, time and options of the stateless evaluator; null if none gives the sample's. */
+  const describe = (b) => {
+    const a = b.state.animation
+    for (const options of [{}, { directionY: 1 }, { directionY: -1 }]) {
+      if (isDeepStrictEqual(JSON.parse(JSON.stringify(rig.evaluate(a.name, a.time, options))), b)) return { clip: a.name, time: a.time, options }
+    }
+    return null
+  }
+  const take = (name, time, options) => {
+    const pose = rig.evaluate(name, time, withBase(options, (b) => rig.evaluate(b.clip, b.time, b.options)))
+    const drawn = record((ctx, images) => rig.rig.drawPose(ctx, images, pose, 0, 0, 1), artSizes, [], { alpha: true })
+    // Matrices, regions and sprites aren't stored: the images (to 1e-5) are what they draw.
+    const [paths, values] = flatten(pose.state)
+    out.push({ name, time, options, shape: shapeOf(paths), values, ...drawn })
+  }
+  let skipped = 0
+  for (const s of samples.samples) {
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(rig.evaluate(s.name, s.time, s.options))), s.state)) throw Error(`the package's module no longer gives its sample: ${s.name} ${s.time}`)
+    if (s.options.basePose === undefined) { take(s.name, s.time, s.options); continue }
+    const base = describe(s.options.basePose)
+    if (base === null) { skipped++; continue }
+    take(s.name, s.time, { base })
+  }
+  console.log(`compactor: ${skipped} package samples left out (base from the NpcController)`)
+  // The game's own use: a run any way; the strike from a run, aimed; a hit
+  // and a death from a run (in place of the controller's), and a death at
+  // the strike's impact.
+  for (const [x, y] of [[1, 0], [-0.6, 0.8], [0.7, -0.7]]) for (const t of [0.2, 0.9]) take('run', t, { directionX: x, directionY: y })
+  const run = { clip: 'run', time: 0.47, options: { directionX: 1, directionY: 0 } }
+  for (const t of [0.3, 1.215, 2.4]) take('fire', t, { aimX: -1, aimY: 0.3, base: run })
+  for (const t of [0.1, 0.36, 0.6]) take('hit', t, { base: run })
+  for (const t of [0.1, 0.5, 1.4, 2.8]) take('fall_apart', t, { base: run })
+  for (const t of [0.3, 2.8]) take('fall_apart', t, { base: { clip: 'fire', time: 1.215, options: {} } })
 } else {
   const take = (name, time, options) => {
     const state = rig.sample(name, time, options)

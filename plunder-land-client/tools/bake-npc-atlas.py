@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 Bake an NPC's rig parts into `assets/res/npc-<npc>.png` + `npc-<npc>.json`
-(l1-8, decision #51): the Crawler and the Broodling.
+(l1-8, decision #51): the Crawler and the Broodling; the Reactor and the
+Compactor since l1-9 (PROVISIONAL: their packages await Nick's art review,
+so expect to re-bake them).
 
-    python3 tools/bake-npc-atlas.py <npc> [package-dir]    # crawler, broodling
+    python3 tools/bake-npc-atlas.py <npc> [package-dir]    # crawler, broodling, reactor, compactor
 
 The source is the NPC's Codex package, not checked in (like every art drop):
-`rig/parts.json` names each part's PNG (`art/<part>.png`) and its size. The
+`rig/parts.json` names each part's PNG (`art/<part>.png`, `parts/<part>.png`)
+and its size. The
 rig places every image by a matrix from the art's own pixels to rig units
 (`NpcImage.m`, `src/npcs/npcrig.ts`), so a texture of any resolution fits;
 `NpcSprite` stretches each frame to the art's full size. Each part is
@@ -17,8 +20,8 @@ resampled once, from the full-size art, to the most it is ever drawn at:
 `TEXELS_PER_UNIT` is the robots' (`bake-peep-atlas.py`): 2 x
 `RobotSprite.PEEP_HEIGHT` (53) over Peep's 245.5 reference units, a texel per
 device pixel on a 2x screen (the sheet is at scale 2). `SIZE_SCALE` is the
-NPC's `sizeScale` (Nick, 2026-10-07: Crawler 0.89, Broodling 0.94): change
-both together.
+NPC's `sizeScale` (Nick, 2026-10-07: Crawler 0.89, Broodling 0.94, Reactor
+2.11, Compactor 1.00): change both together.
 
 The units per pixel are the evaluators', and each is the largest the part
 reaches, so nothing is ever drawn bigger than its texture:
@@ -33,6 +36,17 @@ reaches, so nothing is ever drawn bigger than its texture:
   1.12. The body 38 units across 1052 px; the upper and lower legs 13 and 18
   units between the same anchors as the Crawler's (the art is the Crawler's);
   the knee joint 5 units, the hip 4.8.
+- Reactor (`tools/reactor.mjs`): every part at 4 px a unit, only turned (its
+  plates never stretch); the shadow at most 120 x 58 units over 256 x 128 px
+  (the body's). Its `aperture-mask` is baked white and untrimmed: pixi's
+  sprite mask reads the red channel, and the package's mask is black.
+- Compactor (`tools/rig.mjs`): the largest units per pixel over every pose
+  in `compactor.fixtures.json` (measured, 2026-10-07): the body and sensor
+  116 / 476 (and 0.2444 down, a hit's pitch); the upper and lower legs
+  0.1258 and 0.1479 (their screen length can pass their 48 and 70 units);
+  the joints 15 / 300; the piston parts 1 / 8; the shadows 1.305 x 1.219 and
+  0.1313 x 0.1365. The shaft and the front legs' roots are cropped at draw
+  time (`NpcSprite.cut`), from the whole part.
 
 The Crawler's fall_apart splits its shell into three row bands of the body
 art (`SHELLS` in `src/npcs/crawler/rig.ts`); each band is its own frame,
@@ -88,6 +102,43 @@ NPCS = {
         },
         'bands': [],
     },
+    # PROVISIONAL (l1-9): reactor-v6, delivered 2026-10-07, not yet approved by Nick.
+    'reactor': {
+        'package': 'npc-refinements/reactor-v6',
+        'size_scale': 2.11,
+        'parts': {
+            **{part: (0.25, 0.25) for part in [
+                'shell', 'chamber', 'core', 'core-off', 'core-emission', 'ribs', 'rim',
+                'shutter0', 'shutter1', 'shutter2', 'hip', 'knee', 'aperture-mask',
+                *[f'{seg}{i}' for i in range(6) for seg in ('upper', 'lower')]]},
+            'shadow': (120 / 256, 58 / 128),
+        },
+        'bands': [],
+        # Baked white and untrimmed: a sprite mask (see above).
+        'masks': ['aperture-mask'],
+    },
+    # PROVISIONAL (l1-9): compactor-v4, delivered 2026-10-07, not yet approved by Nick (v3 was).
+    'compactor': {
+        'package': 'npc-refinements/compactor-v4',
+        'size_scale': 1.0,
+        'parts': {
+            'compactor': (116 / 476, 0.2444),
+            'sensor-base': (116 / 476, 0.2444),
+            'sensor-lit': (116 / 476, 0.2444),
+            'sensor-off': (116 / 476, 0.2444),
+            'upper': (0.1259, 0.1259),
+            'lower': (0.1480, 0.1480),
+            'joint': (15 / 300, 15 / 300),
+            'shoe': (1 / 8, 1 / 8),
+            'shaft': (1 / 8, 1 / 8),
+            'cog': (1 / 8, 1 / 8),
+            'cog-back': (1 / 8, 1 / 8),
+            'bearing': (1 / 8, 1 / 8),
+            'shoe-shadow': (0.1314, 0.1366),
+            'shadow': (1.305, 1.219),
+        },
+        'bands': [],
+    },
 }
 
 
@@ -104,14 +155,21 @@ def bake():
     out_name = f'npc-{npc}'
     tiles = {}
 
-    def add(name, art, box):
-        """`art` cut to `box` (left, top, right, bottom in art px), resampled to its largest drawn size."""
+    masks = spec.get('masks', [])
+
+    def add(name, art, box, part):
+        """`art` (part `part`) cut to `box` (left, top, right, bottom in art px), resampled to its largest drawn size."""
         image = art.crop(box)
-        ux, uy = spec['parts'][name.split('-')[0]]
+        ux, uy = spec['parts'][part]
         size = (max(1, round(image.size[0] * ux * density)), max(1, round(image.size[1] * uy * density)))
+        if part in masks:
+            # A mask: its alpha, on white (pixi's sprite mask multiplies by red).
+            white = Image.new('RGBA', image.size, (255, 255, 255, 0))
+            white.putalpha(image.getchannel('A'))
+            image = white
         # Premultiplied, so transparent pixels' colour doesn't bleed into edges.
         small = image.convert('RGBa').resize(size, Image.LANCZOS).convert('RGBA')
-        trim = small.getchannel('A').point(lambda a: 255 if a > 2 else 0).getbbox() or (0, 0, 1, 1)
+        trim = (0, 0) + size if part in masks else small.getchannel('A').point(lambda a: 255 if a > 2 else 0).getbbox() or (0, 0, 1, 1)
         tiles[f'{out_name}/{name}.png'] = (small.crop(trim), size, trim)
 
     for name in spec['parts']:
@@ -119,10 +177,10 @@ def bake():
         art = Image.open(os.path.join(source, file)).convert('RGBA')
         if art.size != size:
             sys.exit(f'{file} is {art.size}, parts.json says {size}')
-        add(name, art, (0, 0) + art.size)
+        add(name, art, (0, 0) + art.size, name)
     for name, top, rows in spec['bands']:
         art = Image.open(os.path.join(source, pngs[name][0])).convert('RGBA')
-        add(f'{name}-{top}', art, (0, top, art.size[0], top + rows))
+        add(f'{name}-{top}', art, (0, top, art.size[0], top + rows), name)
 
     frames, (sw, sh) = pack({n: t[0] for n, t in tiles.items()}, 256)
     sheet = Image.new('RGBA', (sw, sh), (0, 0, 0, 0))
