@@ -84,7 +84,9 @@ function addPlayer (at: Vector, name = 'p1'): Player {
 function tick (t: TestContext): void {
   t.mock.timers.tick(250)
   Timers.run(Date.now())
-  for (const p of World.PLAYERS) p.update(DT)
+  // A dead player is not updated, as in `World.update`; it stays in the
+  // cell index (and so findable) until the sweep, which this never runs.
+  for (const p of World.PLAYERS) if (!p.destroyed) p.update(DT)
   for (const m of World.MOBS) if (!m.destroyed) m.update(DT)
 }
 
@@ -314,11 +316,19 @@ test('dead and extracted players on the field are left alone', (t) => {
   const target = addPlayer(east(1), 'target')
   const gone = addPlayer(east(-1), 'gone')
   gone.exited = true
+  // Killed this tick: destroyed, but still on its cell in the index until
+  // the sweep (CLAUDE.md, "A dead unit stays findable").
+  const dead = addPlayer(Hex.toPosition(Hex.toCell(HOME).add(new Vector(0, 1))), 'dead')
+  dead.destroy()
+  assert.ok(dead.destroyed)
+  assert.ok(World.FIND_IN_CELLS(Hex.toCell(HOME), RINGS, 0, dead.type).includes(dead), 'the dead player is not findable, so this proves nothing')
   coil.update(DT)
   assert.equal(coil.target, target)
   for (let i = 0; i < 7; i++) tick(t)
   assert.equal(target.maxVelocity, 84)
   assert.equal(gone.maxVelocity, 140)
+  assert.equal(dead.maxVelocity, 140)
+  assert.deepEqual(of(NPC_EFFECT.slowed).map((e) => e.id), [target.id])
 })
 
 test('a charging Coil stays planted when its target walks off, and its field stays on its cell', (t) => {
