@@ -71,7 +71,7 @@ One repo holds both sides: `plunder-land-client/` and `services/battle-royale-se
 Beck's worktree covers both. Nick often has uncommitted work in the main checkout; it is his.
 
 There is no separate contract directory. These are the contract, and each must change on
-both sides in the same task (details in CLAUDE.md, "Wire format"):
+both sides in the same task (details in `docs/wire-format.md`):
 
 - The field tables: `fieldOrder` in server `src/objects/gameobject.ts` and `allFields` in
   client `src/game.ts`. Identical and **append-only**.
@@ -132,7 +132,7 @@ CLAUDE.md is a regression; compare the sorted list, not just the count. (Measure
 container on a spare port, removed by name (command in CLAUDE.md, "Verification path"). Never
 point it at Railway.
 
-Running and smoke-testing locally: CLAUDE.md, "Running it locally".
+Running locally: CLAUDE.md, "Running locally"; smoke-testing: `docs/dev-and-ops.md`.
 
 ## Running Beck lanes in parallel
 
@@ -213,14 +213,14 @@ literally: an id pattern given as "for example" would have locked out every real
 
 - **There is no simulator yet.** Dez's first task is to spec one (`tasks/spec-simulator.md`).
   Until it exists, proposals rest on measured runs (a scripted `socket.io-client` bot, logged
-  stats, timings, as CLAUDE.md already measures the dash and the tick) or on reasoning plus
+  stats, timings, as the docs already measure the dash and the tick) or on reasoning plus
   Nick's playtest, and say which.
 - Tunable values are not separated from mechanism code. Known ones: `IMPULSE_FRICTION` in
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
   formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges and caps in the mirrored `utils/gear.ts` (both deploys, client first), the drops in `LAYERS[].gear` in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). Dez states values in the spec and Beck applies them.
-- **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See CLAUDE.md,
+- **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See `docs/world.md`,
   Known-unfixed.
 - Art is Nick's boundary. Every unit and two player clips are still missing (the arena pass of
   2026-09-28 covered everything else); list them, don't make them.

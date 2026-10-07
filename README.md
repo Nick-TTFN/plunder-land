@@ -21,7 +21,7 @@ build, run and smoke-test recipe, and for the list of what is designed but not y
 - **Client** — TypeScript, Pixi.js v7, socket.io-client, webpack
 - **Server** — Node.js, socket.io, Redis (cumulative player stats only), a fixed 250ms
   simulation tick
-- **Protocol** — custom binary; see the wire format section of `CLAUDE.md`
+- **Protocol** — custom binary; see `docs/wire-format.md`
 
 ## History
 
