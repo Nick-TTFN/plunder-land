@@ -865,7 +865,7 @@ export class Game extends Container {
       const reactor = target
       const release = type === NPC_EFFECT.reactorRelease
       new ReactorEffect(aimCell, Game.LOCAL.tag, release, lifetime,
-        () => reactor instanceof Unit && reactor.hp === 0)
+        () => reactor instanceof Unit && reactor.hp === 0, reactor instanceof Mob ? reactor : undefined)
       // Its rig's activation (l1-9): the tell starts the charge so that
       // release_start lands `lifetime` later, when the release is due; the
       // release puts it back in step (lead 0), or starts it there for a

@@ -6,6 +6,7 @@ import { NPC_RIGS, attackLead } from '../npcs/npcrig'
 import { NpcSprite } from '../npcs/npcsprite'
 import { RobotSprite } from '../robots/robotsprite'
 import { SETTINGS } from '../net/settings'
+import { hitSpark } from '../vfx/npcfx'
 
 export default class Mob extends Unit {
   /**
@@ -115,6 +116,7 @@ export default class Mob extends Unit {
 
   onHurt (): void {
     this.npc?.play('hit')
+    hitSpark(this)
   }
 
   /**

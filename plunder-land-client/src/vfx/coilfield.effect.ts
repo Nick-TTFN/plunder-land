@@ -1,95 +1,114 @@
 import TWEEN from '@tweenjs/tween.js'
-import { Graphics } from 'pixi.js'
 import { type Vector } from '../utils/vector'
+import { Hex } from '../utils/hex'
 import { type GameObject } from '../objects/gameobject'
 import { discCells } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
 import { COIL_PULSE, coilPulsePhase } from './coilfield'
+import { FxSprite, discard, runFor, stampCells, standAt, warnCells } from './npcfx'
 
-/**
- * **PLACEHOLDER ART (art pass, #51):** both effects below are drawn in code
- * until the Coil pulse and slowed-cue art arrives (Codex brief
- * `npc-integration-2026-10-07/sessions/06-effects.md`, `codex_output/npc-fx-v1/`).
- */
-
+/** Fallback colours, drawn as cell highlights only while the effects sheet hasn't loaded. */
 const TELL_COLOUR = 0x6fd3ff
 const FIELD_COLOUR = 0x3aa8ff
-const SLOWED_COLOUR = 0x7fdcff
 
 /**
- * Effect 13, the Coil's pulse (task l1-3): on the field's cells, exactly the
- * disc the server slows (`World.FIND_IN_CELLS`, `COIL_PULSE.rings`). Faint and
- * swelling through the tell, solid while the field holds, then gone.
- * Placeholder (see above).
+ * Effect 13, the Coil's pulse (task l1-3), on the field's cells: exactly the
+ * disc the server slows (`World.FIND_IN_CELLS`, `COIL_PULSE.rings`). Art:
+ * Codex `npc-fx-v1` (l1-11).
+ *
+ * The record's lifetime is tell + hold (`coilPulsePhase`, the tell's share
+ * taken from the end, so a late viewer still sees the whole hold). Through
+ * the tell the cells carry the shared warning (`warnCells`; the package has
+ * no tell art). Through the hold, while the server slows, `coil-pulse-cell`
+ * on every cell and `coil-pulse-burst` standing at the Coil's feet (the
+ * field's centre cell, where it stands planted), both remapped onto the hold
+ * (the package's 1.5 s is the server's `holdMs`).
  */
 export class CoilPulseEffect {
   constructor (cell: Vector, tag: number | undefined, lifetime: number) {
     const layer = layerOf(tag)
     if (layer === undefined) return
-
-    const highlight = new CellHighlight(FIELD_COLOUR, 0.3)
-    highlight.draw(discCells(cell, COIL_PULSE.rings))
-    highlight.tint = TELL_COLOUR
-    highlight.alpha = 0
-    layer.addChild(highlight)
-
+    const centre = { x: cell.x, y: cell.y }
+    const cells = discCells(centre, COIL_PULSE.rings)
     const duration = Math.max(lifetime, 100)
-    const state = { ms: 0 }
-    new TWEEN.Tween(state)
-      .to({ ms: duration }, duration)
-      .onUpdate(() => {
-        const { phase, t } = coilPulsePhase(state.ms, duration)
-        if (phase === 'tell') {
-          highlight.tint = TELL_COLOUR
-          highlight.alpha = 0.15 + 0.35 * t
-        } else {
-          highlight.tint = 0xffffff
-          highlight.alpha = 0.75 + 0.25 * Math.sin(t * Math.PI * 6)
-        }
-      })
-      .onComplete(() => {
-        highlight.parent?.removeChild(highlight)
-        highlight.destroy()
-      })
-      .start()
+    const tellMs = Math.max(0, duration - COIL_PULSE.holdMs)
+
+    if (!FxSprite.ready()) {
+      if (tellMs > 0) CellHighlight.flash(tag, cells, TELL_COLOUR, tellMs)
+      CellHighlight.flash(tag, cells, FIELD_COLOUR, duration)
+      return
+    }
+
+    if (tellMs > 0) warnCells(tag, cells, centre, tellMs, TELL_COLOUR)
+
+    let field: ReturnType<typeof stampCells> | undefined
+    let burst: FxSprite | undefined
+    runFor(duration, (elapsed) => {
+      const { phase, t } = coilPulsePhase(elapsed, duration)
+      if (phase !== 'hold') return
+      if (field === undefined) {
+        field = stampCells(layer, 'fx/coil-pulse-cell', cells)
+        const at = Hex.toPosition(cell)
+        burst = standAt(layer, 'fx/coil-pulse-burst', at.x, at.y)
+      }
+      for (const decal of field.decals) decal.through(t)
+      burst?.through(t)
+    }, () => {
+      discard(field?.group)
+      discard(burst)
+    })
   }
 }
 
+/** Where a slowed cue sits on its victim: its feet, as `Unit.feetY` (structural; only units are slowed). */
+function feetOf (owner: GameObject): number {
+  return (owner as unknown as { feetY?: number }).feetY ?? 0
+}
+
 /**
- * Effect 16, slowed (task l1-3): a pale ring at the victim's feet for the
+ * Effect 16, slowed (task l1-3): `slow-status` (Codex `npc-fx-v1`, l1-11,
+ * the package's open foot shackle) looping round the victim's feet for the
  * slow's lifetime. A later cue on the same victim restarts its clock instead
- * of adding a second ring. Placeholder (see above).
+ * of adding a second one. Without the sheet, nothing: the victim's own speed
+ * shows it.
  */
 export class SlowedEffect {
   private static readonly shown = new WeakMap<GameObject, SlowedEffect>()
 
-  private readonly ring = new Graphics()
-  private timer: ReturnType<typeof setTimeout> | undefined
+  private readonly cue = new FxSprite('fx/slow-status')
+  private tween: { stop: () => unknown } | undefined = undefined
+  private readonly startedAt = performance.now()
 
   static show (owner: GameObject, lifetime: number): void {
     const running = SlowedEffect.shown.get(owner)
-    if (running !== undefined && running.ring.parent !== null) {
+    if (running !== undefined && !running.cue.destroyed && running.cue.parent !== null) {
       running.restart(lifetime)
       return
     }
+    if (!FxSprite.ready()) return
     SlowedEffect.shown.set(owner, new SlowedEffect(owner, lifetime))
   }
 
   private constructor (private readonly owner: GameObject, lifetime: number) {
-    const r = Math.max(10, owner.radius) * 1.2
-    this.ring.lineStyle(2, SLOWED_COLOUR, 0.9)
-    this.ring.drawEllipse(0, 0, r, r * 0.45)
-    this.ring.eventMode = 'none'
-    owner.addChild(this.ring)
+    this.cue.y = feetOf(owner)
+    owner.addChild(this.cue)
     this.restart(lifetime)
   }
 
   private restart (lifetime: number): void {
-    if (this.timer !== undefined) clearTimeout(this.timer)
-    this.timer = setTimeout(() => {
-      this.ring.parent?.removeChild(this.ring)
-      this.ring.destroy()
-      SlowedEffect.shown.delete(this.owner)
-    }, Math.max(lifetime, 100))
+    this.tween?.stop()
+    const state = { ms: 0 }
+    const duration = Math.max(lifetime, 100)
+    this.tween = new TWEEN.Tween(state)
+      .to({ ms: duration }, duration)
+      .onUpdate(() => {
+        // Its own loop clock, unbroken by a refresh.
+        this.cue.at((performance.now() - this.startedAt) / 1000)
+      })
+      .onComplete(() => {
+        discard(this.cue)
+        SlowedEffect.shown.delete(this.owner)
+      })
+      .start()
   }
 }

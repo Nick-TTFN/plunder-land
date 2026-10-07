@@ -6,26 +6,29 @@ import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { type GameObject } from '../objects/gameobject'
 import { attackCells, type AttackShape } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
-import { BombEffect } from './bomb.effect'
-import { playBlast } from './blast.effect'
 import { pickReleased } from './broodpick'
+import { burstCells, warnCells } from './npcfx'
 
 // The Broodling's rig (l1-8) draws its own body, cord, tell and detonate;
 // this file is what it doesn't, and the stand-ins for a Broodling whose rig
-// sheet hasn't loaded. PLACEHOLDERS for the art pass (decision #51):
-// - without the rig, the fuse cord is a short Graphics line over its head
-//   that burns down with the fuse left, and `emerge` is a 300 ms fade-in;
-//   with it, the rig's cord is as long as the fuse left (`Mob.fuseEndsAt`)
-//   and `spawn` plays its emerge;
-// - the primed tell (17) also pulses the blast cells like the bomb's fuse;
-//   the rig plays its `detonate` from 0.85 s (`roles.prime`, Dez Q9);
-// - the blast (18) marks the cells with the bomb's flash and the arena
-//   `fx/blast_fire` (the rig's own blast is body-sized);
-// - the release (19) is a pod thrown from the Brood to the cell; the Brood's
-//   rig (l1-9) would play its 1.10 s `spawn` clip, launch at its 0.18 s
-//   event, and drop its unreleased socket children on death.
+// sheet hasn't loaded.
+// - Art from Codex `npc-fx-v1` (l1-11, `vfx/npcfx.ts`): the primed tell (17)
+//   puts the shared warning (`warnCells`) on the blast cells, the package
+//   having no tell art, while the rig plays its `detonate` from 0.85 s
+//   (`roles.prime`, Dez Q9); the blast (18) is `broodling-scorch-cell` on
+//   every cell and `broodling-burst` standing on the Broodling's cell, over
+//   the record's lifetime.
+// - Still drawn in code, the package having no art for them (PLACEHOLDERS,
+//   decision #51): without the rig, the fuse cord is a short Graphics line
+//   over its head that burns down with the fuse left, and `emerge` is a
+//   300 ms fade-in (with it, the rig's cord is as long as the fuse left,
+//   `Mob.fuseEndsAt`, and `spawn` plays its emerge); the release (19) is a
+//   pod thrown from the Brood to the cell; the Brood's rig (l1-9) would play
+//   its 1.10 s `spawn` clip, launch at its 0.18 s event, and drop its
+//   unreleased socket children on death.
 const FUSE_COLOUR = 0xffb02a
 const FUSE_SPENT = 0x3a2a22
+/** Fallback colours for 17 and 18, drawn as cell highlights only while the effects sheet hasn't loaded. */
 const TELL_COLOUR = 0xff3b1f
 const BLAST_COLOUR = 0xffa21f
 const RELEASE_COLOUR = 0xc06aff
@@ -44,10 +47,6 @@ export function broodlingBlastCells (cell: Vector): Array<{ x: number, y: number
   return attackCells(attack, { x: cell.x, y: cell.y })
 }
 
-function blastRings (): number {
-  const attack = ARCHETYPE_INFO.broodling.attack
-  return attack?.kind === 'disc' ? attack.rings : 1
-}
 
 /**
  * The Broodling's fuse cord over its head, burning down over `remainingMs`
@@ -136,12 +135,10 @@ export class BroodlingEffect {
   constructor (cell: Vector, tag: number | undefined, blast: boolean, lifetime: number) {
     const cells = broodlingBlastCells(cell)
     if (!blast) {
-      BombEffect.fuse(tag, cells, lifetime, TELL_COLOUR)
+      warnCells(tag, cells, { x: cell.x, y: cell.y }, lifetime, TELL_COLOUR)
       return
     }
-    CellHighlight.flash(tag, cells, BLAST_COLOUR, Math.max(lifetime, 300))
-    const layer = layerOf(tag)
-    if (layer !== undefined) playBlast(layer, cell, blastRings(), 'fx/blast_fire')
+    burstCells(tag, cells, 'fx/broodling-scorch-cell', lifetime, BLAST_COLOUR, { name: 'fx/broodling-burst', at: Hex.toPosition(cell) })
   }
 }
 
