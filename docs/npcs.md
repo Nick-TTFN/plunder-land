@@ -158,8 +158,10 @@ NPCs are drawn by **`NpcSprite`/`NpcRig`** (`plunder-land-client/src/npcs/`), si
 maths, `layShadow`, `RobotSprite.SCALE` and pace constants, `SHOT.fire`). One hand port per NPC
 in `src/npcs/<key>/rig.ts` of the Codex package's evaluator, as a draw list (images placed by an
 art-pixel to rig-unit matrix, plus ellipses, lines and polygons). `NPC_RIGS` is the table.
-Ported: **Crawler** (`crawler-animations-v4`) and **Broodling** (`npc-refinements/broodling-v3`);
-the other five are l1-9. Packages stay in gitignored `codex_output/`; only fixtures and sheets
+Ported: **Crawler** (`crawler-animations-v4`) and **Broodling** (`npc-refinements/broodling-v3`)
+in l1-8; **Reactor** (`reactor-v6`, `sizeScale` 2.11) and **Compactor** (`compactor-v4`, 1.00) in l1-9,
+both **PROVISIONAL**: delivered, not yet approved by Nick, so expect a re-sync and re-bake after his
+art review (marked in `NPC_RIGS` and the bake tool). Kiln, Coil and Brood still draw `mob/mob`. Packages stay in gitignored `codex_output/`; only fixtures and sheets
 are committed.
 
 - **Tools** (run from the main checkout, which has `codex_output/`; pass the package path in a
@@ -170,9 +172,40 @@ are committed.
   size per part, pngquant + oxipng. `npcrigs.spec.ts` (server) checks each port against its
   fixtures within the package tolerance, the clip table against the manifest, and that every
   drawn art is a sheet frame (`textures.spec.ts` sees only literal names). Fixtures over ~1.5 MB:
-  thin the samples, don't lower the rounding (Crawler's is 1.1 MB, spec-only).
+  thin the samples, don't lower the rounding (Crawler's is 1.1 MB, spec-only). The Reactor's was
+  2.3 MB in full, so the sync tool keeps every 2nd walk, 2nd hit and 3rd fall_apart sample along a
+  (time, base) diagonal, which keeps every package time and every base (1.07 MB); every package
+  sample is still checked against the package's module at sync. The Compactor's fixture (0.97 MB)
+  **leaves out 68 package samples** (hit and fall_apart from the controller's run pose at 1.3 s):
+  their base comes from the package's stateful `NpcController`, which is not ported (the game
+  plays stateless clips, as the robots do); extras from stateless run bases stand in for them.
+- **Draw items** beyond images and shapes: an image may carry `alpha` and `contact` (a painted
+  contact shadow, drawn in turn, never cast); **`NpcMasked`** is a group of images seen only
+  through a mask image's alpha (the package composites offscreen with `destination-in`; the
+  Reactor's core through its aperture), drawn as a container with a sprite mask, never cast.
+- **Draw-time crops.** An image with a clip uses its band frame (`<art>-<top row>`, the Crawler's
+  shell) when the sheet has one, else is cut from the art's frame at draw time
+  (`NpcSprite.cut`: the Compactor's sliding shaft and its front legs' roots), snapped to whole
+  texels and cached in `NpcSprite.cuts` by frame name and texel rectangle. **Bounded by the art,
+  not by play**: a sliding crop makes at most its texel length + 1 entries, a fixed crop one (37
+  today: 36 for the 7x35-texel shaft, 1 for a leg root, shared by every Compactor). **Never
+  evicted**, by decision; each entry holds its sheet's `baseTexture`, so whoever adds sheet
+  unloading must clear this map too.
 - **Scale:** px per rig unit = `RobotSprite.SCALE` x the NPC's multiplier (Crawler 0.89,
   Broodling 0.94; Nick's Q3 on the anchor is open).
+- **Role flags** (`NpcRoles`, Reactor and Compactor both set all three, as their packages ask):
+  `attack.refusesHit` (a hit never cuts the attack clip, it only flashes; otherwise a hit is
+  refused only before the attack's event), `holdGaitOnHit` (the idle/move clock stands still while
+  a hit plays, so the hit hands back to the same gait phase), `death.fromAction` (the death starts
+  from the pose shown, an attack's included, rather than the last idle/move pose).
+- **Attack clips on effects** (l1-9): `Mob.playAttack(leadMs, toward?)` starts the attack clip so
+  its event lands `attackLead(event, leadMs)` seconds later. The wire floors an effect's lifetime
+  to 100 ms, so when the clip's own event falls inside that tenth after the lifetime it is taken
+  as exact (the Compactor's impact 1215 ms arrives as 1200), else the lifetime as received (a
+  retuned server). Effect 14 starts the Compactor's strike (`fire`) aimed at the tip, impact on the
+  server's hit; effect 11 starts the Reactor's `activate` with the tell's lifetime, so its release
+  event lands with effect 12, and effect 12 restarts it with lead 0 (back in step, or the start
+  for a viewer who missed the tell).
 - **Clips:** idle/move by movement, paced like robots; Crawler `fire` on effect 3, started at
   `event - SHOT.fire` so its fire event meets the beam, beam from the sensor (`Mob.eyeGlobal`);
   `hit` on an hp drop plus a 0.12 s red tint (Crawler; the Broodling has no hit clip); death
@@ -187,8 +220,8 @@ are committed.
   load in the background from `Game`'s constructor), else `mob/mob`: old ids and unknown ids
   unchanged. HP bar 60 wide for epic and legendary (and the retired boss). Threat rings include
   NPC attacks (`attackReach`: a Kiln shows 8 rings); whether a lob should be marked by its reach
-  is Dez's to propose after play. `ui/elements/threatmarker.ts` `threatRings` has no caller
-  left (l1-9: delete it or route `game.ts` through it).
+  is Dez's to propose after play. `game.ts` reads them through `ui/elements/threatmarker.ts`
+  `threatRings(archetype)`, which passes the mirror's `attack` (l1-9).
 - Unmeasured: client cost of many rigged NPCs in view (each poses, draws and, with shadows on,
   runs its own `AlphaFilter`); check the FPS overlay on a crowded -1/-2 before release.
 - Known placeholder behaviour: a released Broodling slides for about 1.5 s while it unfolds

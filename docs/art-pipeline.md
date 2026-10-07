@@ -80,10 +80,17 @@ large), which is why a pickup's create carries `loot` since this pass.
 
 ## NPC sheets
 
-`assets/res/npc-<key>.png/json` (#51, l1-8; Crawler 4.3 KB, Broodling 1.1 KB) are baked by
-`tools/bake-npc-atlas.py <npc> [package]` from the Codex package's `rig/parts.json`, each part
-at the largest size it is drawn, texel for pixel as the robot bake, with pngquant and oxipng if
-present; Crawler shell bands become `body-<row>` frames. Pose fixtures come from
+`assets/res/npc-<key>.png/json` (#51, l1-8, l1-9; Crawler 4.3 KB, Broodling 1.1 KB; Reactor
+14.7 KB, 256x258, 26 frames; Compactor 4.5 KB, 256x56, 14 frames; the last two PROVISIONAL until
+Nick approves their packages) are baked by `tools/bake-npc-atlas.py <npc> [package]` from the
+Codex package's `rig/parts.json`, with pngquant and oxipng if present. **Each part is resampled
+once to the most it is ever drawn at**: art px x (the largest rig units per art px it reaches)
+x `TEXELS_PER_UNIT` (the robots') x the NPC's `sizeScale`; the per-part units per pixel are
+written in the tool's header for each NPC (the Compactor's measured over every fixture pose), so
+a retuned rig needs them re-checked. Crawler shell bands become `body-<row>` frames; the
+Compactor's shaft and leg roots are baked whole and cropped at draw time (`docs/npcs.md`).
+**Masks** (the Reactor's `aperture-mask`) are baked as their alpha on white and untrimmed,
+because pixi's sprite mask reads the red channel and the package's mask is black. Pose fixtures come from
 `tools/npc-rig-sync.mjs`. Packages stay in the gitignored `codex_output/` (a worktree has none:
 pass the main checkout's path). Commands, scale and the spec: `docs/npcs.md`.
 
