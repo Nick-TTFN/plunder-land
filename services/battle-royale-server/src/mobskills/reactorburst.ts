@@ -46,8 +46,8 @@ export type ReactorPhase = 'ready' | 'activate' | 'release' | 'settle' | 'cooldo
  * drawn and dealt on the planted cell, so they are the cells it stands on
  * from at most one step after the plant.
  *
- * Every later moment is a `Timers` entry scheduled at the plant, each at its
- * own offset from the plant time (so lateness never accumulates) and **owned
+ * Every later moment is a `Timers` entry scheduled at the plant, all in one
+ * call, each at its offset from the plant (so lateness never accumulates) and **owned
  * by the Reactor**: its death cancels them all (`GameObject.destroy` calls
  * `Timers.cancelOwner`), so a Reactor killed during the tell or the release
  * stops at once, with no posthumous pulse. Timers run at the top of a tick, so
@@ -102,9 +102,10 @@ export default class ReactorBurst implements IAIRoutine {
   private plant (cell: Vector): void {
     const owner = this.owner
     const spec = this.spec
-    const t0 = Date.now()
+    // One clock read per timer, all in this call: the clock never goes back, so
+    // a timer scheduled later is never due earlier, and ties keep their order.
     const at = (offsetMs: number, fn: () => void): void => {
-      Timers.schedule(t0 + offsetMs - Date.now(), fn, owner)
+      Timers.schedule(offsetMs, fn, owner)
     }
 
     this.phase = 'activate'
