@@ -41,12 +41,29 @@ export const STASH_SOFT = 12
 export const STASH_MAX = 100
 /** The account level from which stashed gear may be brought into a run (spec Q4). */
 export const BRING_LEVEL = 3
-/** Tiers 1 to 3. T3 is never found, only merged. */
-export const GEAR_TIERS = 3
+/**
+ * Tiers 1 to 4: Common, Rare, Epic, Legendary (decision #51; `GEAR_TIER_NAMES`).
+ * **T4 is never found, only merged** (3 Epic -> 1 Legendary). T3 drops from
+ * the Epic and Legendary mobs since #51, which amended #49's "T3 is never
+ * found".
+ */
+export const GEAR_TIERS = 4
 /** Quality is an integer 0..`Q_MAX` everywhere (DB, JSON, binary), never a float. */
 export const Q_MAX = 1000
 
-export type GearTier = 1 | 2 | 3
+export type GearTier = 1 | 2 | 3 | 4
+
+/**
+ * What the lobby, the HUD and the stash call each tier, T1 first (decision
+ * #51: mobs and items share one scale). Display only: the stored and wire
+ * numbers stay 1-4 (renames are removals).
+ */
+export const GEAR_TIER_NAMES: readonly string[] = Object.freeze(['COMMON', 'RARE', 'EPIC', 'LEGENDARY'])
+
+/** A tier's display name; `T<n>` for one this build doesn't know. */
+export function tierName (tier: number): string {
+  return GEAR_TIER_NAMES[tier - 1] ?? `T${tier}`
+}
 
 /** One stat roll: a stat id and its quality, an integer 0..1000. */
 export interface GearRoll {
@@ -56,7 +73,8 @@ export interface GearRoll {
 
 /**
  * One item. `skill` is a `utils/skills.ts` id, 0 for a part. A part has no
- * rolls; tier 1 has 1 roll, tiers 2 and 3 have 2, on different stats.
+ * rolls; tier 1 has 1 roll, tiers 2 and 3 have 2, tier 4 has 3, on
+ * different stats.
  * `rowId` is the stash row it came from (lineage): server only, never on the
  * wire, never encoded by `encodeGear`.
  */
@@ -78,7 +96,7 @@ export interface GearStat {
   /** What the lobby and the HUD print (placeholder copy). */
   readonly label: string
   /** Per tier, T1 first. */
-  readonly ranges: readonly [GearRange, GearRange, GearRange]
+  readonly ranges: readonly [GearRange, GearRange, GearRange, GearRange]
   /**
    * Most the bonus can be, summed over both slots; null = no cap (the
    * cooldown roll, which applies only to its own item's skill and never sums).
@@ -88,6 +106,8 @@ export interface GearStat {
 
 /**
  * Spec section 1's table (judgement values, Dez; accepted by Nick 2026-10-04).
+ * **The T4 column is PROVISIONAL (l1-0)**: Dez's `ideas/npc-numbers.md`
+ * section 3 (proposed 2026-10-07, not yet accepted); caps unchanged.
  * - hp, armor, speed: percent of the robot's own base.
  * - damage: added to the robot's `damageScale` (through `Skill.dealt`).
  * - reach: rings added to pickup reach; the effective reach is capped at 2,
@@ -96,12 +116,12 @@ export interface GearStat {
  * - cooldown: percent off **this item's own skill**, never global.
  */
 export const GEAR_STATS: Readonly<Record<GearStatKey, GearStat>> = Object.freeze({
-  hp: Object.freeze({ id: 1, key: 'hp', label: 'Max HP %', ranges: Object.freeze([Object.freeze([4, 8]), Object.freeze([6, 12]), Object.freeze([10, 15])]), cap: 20 }),
-  armor: Object.freeze({ id: 2, key: 'armor', label: 'Max armor %', ranges: Object.freeze([Object.freeze([8, 15]), Object.freeze([12, 25]), Object.freeze([20, 30])]), cap: 40 }),
-  speed: Object.freeze({ id: 3, key: 'speed', label: 'Speed %', ranges: Object.freeze([Object.freeze([2, 4]), Object.freeze([3, 5]), Object.freeze([4, 6])]), cap: 7 }),
-  damage: Object.freeze({ id: 4, key: 'damage', label: 'Damage', ranges: Object.freeze([Object.freeze([0.03, 0.05]), Object.freeze([0.04, 0.07]), Object.freeze([0.06, 0.10])]), cap: 0.12 }),
-  reach: Object.freeze({ id: 5, key: 'reach', label: 'Pickup reach', ranges: Object.freeze([null, null, Object.freeze([1, 1])]), cap: 2 }),
-  cooldown: Object.freeze({ id: 6, key: 'cooldown', label: 'Cooldown % (own skill)', ranges: Object.freeze([Object.freeze([5, 10]), Object.freeze([8, 15]), Object.freeze([12, 20])]), cap: null })
+  hp: Object.freeze({ id: 1, key: 'hp', label: 'Max HP %', ranges: Object.freeze([Object.freeze([4, 8]), Object.freeze([6, 12]), Object.freeze([10, 15]), Object.freeze([13, 18])]), cap: 20 }),
+  armor: Object.freeze({ id: 2, key: 'armor', label: 'Max armor %', ranges: Object.freeze([Object.freeze([8, 15]), Object.freeze([12, 25]), Object.freeze([20, 30]), Object.freeze([26, 35])]), cap: 40 }),
+  speed: Object.freeze({ id: 3, key: 'speed', label: 'Speed %', ranges: Object.freeze([Object.freeze([2, 4]), Object.freeze([3, 5]), Object.freeze([4, 6]), Object.freeze([5, 7])]), cap: 7 }),
+  damage: Object.freeze({ id: 4, key: 'damage', label: 'Damage', ranges: Object.freeze([Object.freeze([0.03, 0.05]), Object.freeze([0.04, 0.07]), Object.freeze([0.06, 0.10]), Object.freeze([0.08, 0.12])]), cap: 0.12 }),
+  reach: Object.freeze({ id: 5, key: 'reach', label: 'Pickup reach', ranges: Object.freeze([null, null, Object.freeze([1, 1]), Object.freeze([1, 1])]), cap: 2 }),
+  cooldown: Object.freeze({ id: 6, key: 'cooldown', label: 'Cooldown % (own skill)', ranges: Object.freeze([Object.freeze([5, 10]), Object.freeze([8, 15]), Object.freeze([12, 20]), Object.freeze([16, 25])]), cap: null })
 } as Record<GearStatKey, GearStat>)
 
 /** Every stat, in id order. */
@@ -116,15 +136,18 @@ export function gearStatById (id: unknown): GearStat | undefined {
   return undefined
 }
 
-/** Rolls on a skill item of `tier`: 1 at T1, 2 at T2 and T3. A part has none. */
+/**
+ * Rolls on a skill item of `tier`: 1 at T1, 2 at T2 and T3, 3 at T4 (T4's
+ * count is PROVISIONAL (l1-0)). A part has none.
+ */
 export function rollCount (tier: number): number {
-  return tier <= 1 ? 1 : 2
+  return tier <= 1 ? 1 : tier <= 3 ? 2 : 3
 }
 
 /**
  * A roll's value: `min + q / 1000 * (max - min)` from the stat's range at
  * `tier`. 0 for an unknown stat, a stat that can't roll at that tier, or a
- * tier outside 1-3. `q` is clamped to 0..1000.
+ * tier outside 1-`GEAR_TIERS`. `q` is clamped to 0..1000.
  */
 export function rollValue (stat: number, tier: number, q: number): number {
   const range = gearStatById(stat)?.ranges[tier - 1]
@@ -244,7 +267,8 @@ export function encodeGear (item: GearInstance): Uint8Array {
  * `encodeGear` read back, from `offset`. Bytes after the rolls are ignored
  * (a later version may append), and so are rolls of a stat id this build
  * doesn't know. Undefined if the buffer is too short for what it declares,
- * the tier is outside 1-3, or the skill is neither 0 nor an id this build
+ * the tier is outside 1-`GEAR_TIERS` (an older build refuses tier 4, hence
+ * PROTOCOL 7), or the skill is neither 0 nor an id this build
  * knows (an item-only skill from a newer server, spec Q14: an older reader
  * can't show or cast it). q is clamped to 0..1000.
  */

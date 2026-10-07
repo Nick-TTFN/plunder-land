@@ -4,11 +4,12 @@ import { type GearInstance } from '../utils/gear'
 import { iconTexture } from '../skills/catalog'
 
 /**
- * Each tier's tint, T1 first: the ring round a gear pickup and the frame of a
- * gear card or bag icon. Placeholder colours (Claude's pick) until the tier
+ * Each tier's tint, T1 first (Common, Rare, Epic, Legendary): the ring round
+ * a gear pickup and the frame of a gear card or bag icon. Placeholder colours
+ * (Claude's pick; Legendary's gold per #51's L1 plan calls) until the tier
  * frames are drawn (art is Nick's; Dez's missing-art list).
  */
-export const GEAR_TIER_TINT: readonly number[] = [0x7ee081, 0x5aa9ff, 0xc77dff]
+export const GEAR_TIER_TINT: readonly number[] = [0x7ee081, 0x5aa9ff, 0xc77dff, 0xffc94a]
 
 /** The tint of `tier`, grey for one this build doesn't know. */
 export function tierTint (tier: number | undefined): number {

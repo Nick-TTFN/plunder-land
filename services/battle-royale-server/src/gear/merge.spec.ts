@@ -42,8 +42,8 @@ function checkRolls (item: GearInstance): void {
 
 test('merge rule table: tier, kind and refusals', () => {
   const r = seeded(1)
-  // Any skill item: a skill item one tier up.
-  for (const tier of [1, 2] as GearTier[]) {
+  // Any skill item: a skill item one tier up (T3 to a Legendary T4 with 3 rolls, #51).
+  for (const tier of [1, 2, 3] as GearTier[]) {
     for (const inputs of [
       [skillItem(tier, 3), part(tier), part(tier)],
       [part(tier), part(tier), skillItem(tier, 3)],
@@ -56,20 +56,22 @@ test('merge rule table: tier, kind and refusals', () => {
       assert.equal(out.rowId, undefined, 'the result carries an input\'s row id')
     }
   }
-  // Parts only: one tier up (T3 stays), a part or a skill item.
-  for (const tier of [1, 2, 3] as GearTier[]) {
+  // Parts only: one tier up (T4 stays), a part or a skill item.
+  for (const tier of [1, 2, 3, 4] as GearTier[]) {
     for (let i = 0; i < 200; i++) {
       const out = mergeOutcome([part(tier), part(tier), part(tier)], undefined, r)
       assert.ok(out !== null)
-      assert.equal(out.tier, Math.min(3, tier + 1))
-      if (tier === 3) assert.ok(out.skill > 0, '3 T3 parts gave a part')
+      assert.equal(out.tier, Math.min(4, tier + 1))
+      if (tier === 4) assert.ok(out.skill > 0, '3 T4 parts gave a part')
       if (out.skill > 0) assert.ok(SKILLS.includes(out.skill))
       checkRolls(out)
     }
   }
-  // Refused.
-  assert.equal(mergeOutcome([skillItem(3, 2), part(3), part(3)], undefined, r), null, 'a T3 mix with a skill item')
-  assert.equal(mergeOutcome([skillItem(3, 2), skillItem(3, 2), skillItem(3, 2)], undefined, r), null, '3 T3 skill items')
+  // Refused: no tier 5.
+  assert.equal(mergeOutcome([skillItem(4, 2), part(4), part(4)], undefined, r), null, 'a T4 mix with a skill item')
+  assert.equal(mergeOutcome([skillItem(4, 2), skillItem(4, 2), skillItem(4, 2)], undefined, r), null, '3 T4 skill items')
+  assert.equal(mergeOutcome([part(5 as GearTier), part(5 as GearTier), part(5 as GearTier)], undefined, r), null, 'tier 5 parts')
+  assert.equal(mergeOutcome([part(0 as GearTier), part(0 as GearTier), part(0 as GearTier)], undefined, r), null, 'tier 0 parts')
   assert.equal(mergeOutcome([part(1), part(1), part(2)], undefined, r), null, 'mixed tiers')
   assert.equal(mergeOutcome([skillItem(1, 1), skillItem(2, 1), skillItem(1, 1)], undefined, r), null, 'mixed tiers with skills')
   assert.equal(mergeOutcome([part(1), part(1)], undefined, r), null, '2 inputs')
@@ -110,17 +112,20 @@ test('merge rolls are drawn fresh at the result tier, never copied from the inpu
   assert.equal(JSON.stringify(inputs), frozen, 'the inputs were changed')
   assert.ok(seen.size > 1900, `only ${seen.size} distinct roll sets in 2000`)
   assert.ok(copied < 5, `${copied} results kept the inputs' qualities`)
-  // T3 results can roll reach (T3-only); T2 never.
+  // T3 and T4 results can roll reach (T3 and up); T2 never.
   const t3 = Array.from({ length: 2000 }, () => mergeOutcome([skillItem(2, 1), part(2), part(2)], undefined, r) as GearInstance)
   assert.ok(t3.some((o) => o.rolls.some((roll) => roll.stat === GEAR_STATS.reach.id)), 'no T3 result rolled reach')
+  const t4 = Array.from({ length: 2000 }, () => mergeOutcome([skillItem(3, 1), part(3), part(3)], undefined, r) as GearInstance)
+  assert.ok(t4.every((o) => o.tier === 4 && o.rolls.length === 3))
+  assert.ok(t4.some((o) => o.rolls.some((roll) => roll.stat === GEAR_STATS.reach.id)), 'no T4 result rolled reach')
   const t2 = Array.from({ length: 2000 }, () => mergeOutcome([skillItem(1, 1), part(1), part(1)], undefined, r) as GearInstance)
   assert.ok(!t2.some((o) => o.rolls.some((roll) => roll.stat === GEAR_STATS.reach.id)), 'a T2 result rolled reach')
 })
 
-test('parts-only odds over 100,000 seeded draws: T2 skill 15%, T3 skill 25%, T3 parts 100%; the surprise skill uniform', () => {
+test('parts-only odds over 100,000 seeded draws: T2 skill 15%, T3 skill 25%, T4 skill 35%, T4 parts 100%; the surprise skill uniform', () => {
   const N = 100_000
-  // Bands are about 4.4 standard deviations at N (0.0011 and 0.0014).
-  const bands: Array<[GearTier, number, number]> = [[1, 0.15, 0.005], [2, 0.25, 0.006], [3, 1, 0]]
+  // Bands are about 4.4 standard deviations at N (0.0011, 0.0014 and 0.0015).
+  const bands: Array<[GearTier, number, number]> = [[1, 0.15, 0.005], [2, 0.25, 0.006], [3, 0.35, 0.007], [4, 1, 0]]
   for (const [tier, expected, band] of bands) {
     assert.equal(PART_MERGE_SKILL_CHANCE[tier], expected)
     const r = seeded(100 + tier)
@@ -144,12 +149,12 @@ test('parts-only odds over 100,000 seeded draws: T2 skill 15%, T3 skill 25%, T3 
   }
 })
 
-test('27 T1 parts always reach a T3 skill item (merging greedily, 2,000 seeds)', () => {
+test('81 T1 parts always reach a T4 skill item (merging greedily, 2,000 seeds)', () => {
   for (let seed = 0; seed < 2000; seed++) {
     const r = seeded(seed)
-    let pile: GearInstance[] = Array.from({ length: 27 }, () => part(1))
+    let pile: GearInstance[] = Array.from({ length: 81 }, () => part(1))
     let found = false
-    for (let round = 0; round < 4 && !found; round++) {
+    for (let round = 0; round < 5 && !found; round++) {
       const next: GearInstance[] = []
       for (let i = 0; i + 2 < pile.length; i += 3) {
         const out = mergeOutcome(pile.slice(i, i + 3), undefined, r)
@@ -157,9 +162,9 @@ test('27 T1 parts always reach a T3 skill item (merging greedily, 2,000 seeds)',
         next.push(out)
       }
       pile = next
-      found = pile.some((item) => item.tier === 3 && item.skill > 0)
+      found = pile.some((item) => item.tier === 4 && item.skill > 0)
     }
-    assert.ok(found, `seed ${seed}: no T3 skill item from 27 T1 parts`)
+    assert.ok(found, `seed ${seed}: no T4 skill item from 81 T1 parts`)
   }
 })
 

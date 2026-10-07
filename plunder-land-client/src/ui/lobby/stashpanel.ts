@@ -10,7 +10,7 @@ import {
 import { tierTint } from '../../objects/gearpickup'
 import { iconTexture } from '../../skills/catalog'
 import { itemLines } from '../components/gearpanel'
-import { BRING_LEVEL, GEAR_SLOTS, STASH_SOFT } from '../../utils/gear'
+import { BRING_LEVEL, GEAR_SLOTS, STASH_SOFT, tierName } from '../../utils/gear'
 import { SKILL_LIST, skillById } from '../../utils/skills'
 import { lockBadge, lockTitle } from './locks'
 
@@ -243,7 +243,7 @@ export class StashPanel {
     const focused = this.mode === 'browse' ? this.focus !== undefined && 'item' in this.focus && this.focus.item === item.id : pickedAt >= 0
     const b = el('button', focused ? 'lb-st-cell lb-sel' : 'lb-st-cell')
     b.style.borderColor = focused ? '' : css(tierTint(item.tier))
-    b.append(this.icon(item.skill), el('span', 'lb-st-tier', `T${item.tier}`))
+    b.append(this.icon(item.skill), el('span', 'lb-st-tier', tierName(item.tier)))
     const at = bringSlotOf(shown, item.id)
     if (at >= 0) b.append(el('span', 'lb-lo-badge lb-lo-on', String(3 + at)))
     if (pickedAt >= 0) b.append(el('span', 'lb-st-pickno', String(pickedAt + 1)))
@@ -426,7 +426,7 @@ export class StashPanel {
     const merging = this.mode === 'merge'
     const b = el('button', merging ? 'lb-chip lb-sel' : 'lb-chip', merging ? 'CANCEL MERGE' : 'MERGE')
     b.disabled = view === undefined || (!merging && view.items.length < MERGE_INPUTS) || this.pending?.kind === 'merge'
-    b.title = 'Merge 3 items of one tier into 1 of the next'
+    b.title = 'Merge 3 items of one rarity into 1 of the next'
     b.onclick = () => {
       if (merging) this.mode = 'browse'
       else this.startMerge()
@@ -459,7 +459,7 @@ export class StashPanel {
         slot.append(el('span', 'lb-st-plus', '+'))
       } else {
         slot.style.borderColor = css(tierTint(item.tier))
-        slot.append(this.icon(item.skill), el('span', 'lb-st-tier', `T${item.tier} ${this.shortName(item)}`))
+        slot.append(this.icon(item.skill), el('span', 'lb-st-tier', `${tierName(item.tier)} ${this.shortName(item)}`))
         slot.title = 'Tap to take it out'
         slot.disabled = this.pending !== undefined
         slot.onclick = () => {
@@ -617,7 +617,7 @@ export class StashPanel {
       this.note = { text: 'SCRAP ANSWERED · CHECK THE STASH', bad: false }
     } else if (answer.ok) {
       if (this.focus !== undefined && 'item' in this.focus && this.focus.item === pending.item.id) this.focus = undefined
-      this.note = { text: `SCRAPPED T${pending.item.tier} ${this.shortName(pending.item)}`, bad: false }
+      this.note = { text: `SCRAPPED ${tierName(pending.item.tier)} ${this.shortName(pending.item)}`, bad: false }
     } else {
       this.note = { text: stashEditMessage('scrap', answer.reason ?? 'store'), bad: true }
     }

@@ -10,7 +10,10 @@ import type Player from '../objects/player'
 import GearPickup from '../objects/gearpickup'
 import { GameObject, ObjectType } from '../objects/gameobject'
 import { SKILL_INFO } from '../utils/skills'
-import { GEAR_STATS, type GearInstance } from '../utils/gear'
+import { GEAR_STATS, type GearInstance, decodeGear, encodeGear } from '../utils/gear'
+import { decodeGear as clientDecodeGear, encodeGear as clientEncodeGear } from '../../../../plunder-land-client/src/utils/gear'
+import { stashEvent } from './stash'
+import { onStash } from '../../../../plunder-land-client/src/net/stash'
 import { PROTOCOL } from '../utils/protocol'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
@@ -76,7 +79,7 @@ const T3: GearInstance = Object.freeze({
   rowId: 'stash-row-7'
 })
 
-test('gear is field 25, carried 26 and speed 27, appended; maxVelocity goes out as speed; PROTOCOL is 6', () => {
+test('gear is field 25, carried 26 and speed 27, appended; maxVelocity goes out as speed; PROTOCOL is 7 (L1: tier 4 in 25, 26 and stash)', () => {
   assert.equal(GameObject.fieldOrder.indexOf('gear'), 25)
   assert.equal(GameObject.fieldOrder.indexOf('carried'), 26)
   assert.equal(GameObject.fieldOrder.indexOf('speed'), 27)
@@ -84,7 +87,7 @@ test('gear is field 25, carried 26 and speed 27, appended; maxVelocity goes out 
   // Index 10 stays in the table, never written.
   assert.equal(GameObject.fieldOrder[10], 'maxVelocity')
   assert.equal(GameObject.WIRE_NAME.maxVelocity, 'speed')
-  assert.equal(PROTOCOL, 6)
+  assert.equal(PROTOCOL, 7)
 })
 
 test('a gear pickup\'s create carries type 128 and the instance under 25, no item field, and decodes to the instance without its rowId', () => {
@@ -145,6 +148,35 @@ test('a pickup goes out as a carried delta, and a geared speed as a speed delta,
   // Peep 140 + 5% at T2's max = 147.
   assert.equal(data.maxVelocity, 147)
   assert.equal(player.maxVelocity, 147)
+})
+
+test('a Legendary (T4, #51) item both ways: a pickup\'s 25, a carried delta (26) and the stash event decode on the client; client bytes decode on the server', () => {
+  const T4: GearInstance = Object.freeze({
+    tier: 4,
+    skill: SKILL_INFO.fireball.id,
+    rolls: Object.freeze([{ stat: GEAR_STATS.speed.id, q: 1000 }, { stat: GEAR_STATS.reach.id, q: 0 }, { stat: GEAR_STATS.cooldown.id, q: 777 }])
+  })
+  const plain = { tier: 4, skill: T4.skill, rolls: [...T4.rolls] }
+  // Server to client: the pickup's create.
+  const at = Hex.toPosition(new Vector(20, 20))
+  const pickup = new GearPickup(at.x, at.y, 0, { ...T4, rowId: '9' })
+  const record = pickup.serialiseBinary(pickup.allFields) as Buffer
+  assert.deepEqual(decodeRecord(new Uint8Array(record), GameObject.fieldOrder).gear, plain)
+  assert.deepEqual(Array.from(record.subarray(record.length - 14)), [25, 12, 4, T4.skill, 3, GEAR_STATS.speed.id, 3, 232, GEAR_STATS.reach.id, 0, 0, GEAR_STATS.cooldown.id, 3, 9])
+  // The owner's carried delta, and its speed: Peep 140 + 7% at T4's max = 149.8, the cap.
+  const { player } = join(multiplayer, 'abcdef05')
+  player.dirtyFields.clear()
+  assert.ok(player.addGear(T4))
+  const data = decodeRecord(new Uint8Array(player.serialiseBinary(player.dirtyFields) as Buffer), GameObject.fieldOrder)
+  assert.deepEqual(data.carried, [plain, null, null, null, null, null])
+  assert.equal(data.maxVelocity, 149.8)
+  // The stash event (JSON).
+  const view = onStash(JSON.parse(JSON.stringify(stashEvent([{ rowId: '12', tier: 4, skill: T4.skill, rolls: [...T4.rolls], carried: false, source: 2 }]))))
+  assert.deepEqual(view?.items, [{ id: '12', ...plain }])
+  // Client to server and back: the mirrored codec agrees on T4 bytes.
+  assert.deepEqual(decodeGear(clientEncodeGear(T4)), plain)
+  assert.deepEqual(clientDecodeGear(encodeGear(T4)), plain)
+  assert.equal(clientDecodeGear(new Uint8Array([5, T4.skill, 0])), undefined, 'tier 5')
 })
 
 test('decodeCarried pads a short list, ignores extra entries and skips one it cannot read', () => {

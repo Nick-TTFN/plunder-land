@@ -228,10 +228,13 @@ const armor = GEAR_STATS.armor.id
 const reach = GEAR_STATS.reach.id
 
 test('admin gear: exactly the shapes a found or merged item has; anything else is refused whole', () => {
-  // Valid: a part per tier, a T1 skill item (1 roll), T2 and T3 (2 rolls on different stats; reach only at T3).
+  // Valid: a part per tier, a T1 skill item (1 roll), T2 and T3 (2 rolls on different stats; reach only at T3 and up),
+  // T4 (3 rolls, decision #51).
   for (const item of [
     { tier: 1, skill: 0, rolls: [] },
     { tier: 3, skill: 0, rolls: [] },
+    { tier: 4, skill: 0, rolls: [] },
+    { tier: 4, skill: 8, rolls: [[reach, 500], [armor, 1000], [hp, 0]] },
     { tier: 1, skill: 4, rolls: [[hp, 0]] },
     { tier: 2, skill: 5, rolls: [[hp, 1000], [armor, 3]] },
     { tier: 3, skill: 8, rolls: [[reach, 500], [armor, 1000]] }
@@ -240,7 +243,9 @@ test('admin gear: exactly the shapes a found or merged item has; anything else i
   for (const item of [
     null, [], 'x', {},
     { tier: 0, skill: 0, rolls: [] },
-    { tier: 4, skill: 0, rolls: [] },
+    { tier: 5, skill: 0, rolls: [] },
+    { tier: 4, skill: 8, rolls: [[reach, 500], [armor, 1000]] },
+    { tier: 4, skill: 8, rolls: [[reach, 500], [armor, 1000], [hp, 0], [GEAR_STATS.speed.id, 1]] },
     { tier: 1.5, skill: 0, rolls: [] },
     { tier: '1', skill: 0, rolls: [] },
     { tier: 1, skill: 200, rolls: [[hp, 1]] },

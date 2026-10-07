@@ -9,7 +9,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob, { MobPack } from './mob'
-import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, rollGear } from '../archetypes/archetypes'
+import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, MOB_GEAR_CHANCE, rollGear } from '../archetypes/archetypes'
 import { type GearInstance, type GearTier } from '../utils/gear'
 import { ARCHETYPE_INFO, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
@@ -1067,33 +1067,39 @@ export default class World {
   }
 
   /**
-   * A dead mob's gear drop, beside `createLootFrom` (decision #49, spec
-   * section 3): by the layer's chance for its archetype (`gear.mobChance`; a
-   * key with none is 0), a boss's always a skill item at T1 or T2
-   * (`bossTiers`), a grunt's or gunner's a part or a skill item
-   * (`mobMix`) at `mobTier`. T3 is never dropped. One item at most, on a
-   * `dropCells` cell, expiring after `DROPPED_LOOT_LIFETIME`. `random` is for
-   * specs.
+   * A dead mob's gear drops, beside `createLootFrom` (decision #51 drops,
+   * Dez's table in `ideas/npc-roster.md`): the mob's `gearRolls` (by its
+   * rarity; null drops nothing: the Broodling, robots, the retired rows),
+   * each roll `MOB_GEAR_CHANCE` on its own, so a kill can drop several. A
+   * roll at the mob's `skillTier` is always a skill item; any other is a part
+   * or a skill item by the layer's `mobMix`. T1-T3 only: T4 is never found.
+   * Each item lands on its own `dropCells` cell while distinct ones remain
+   * (then on any of them), expiring after `DROPPED_LOOT_LIFETIME`. `random`
+   * is for specs. Returns what dropped, in roll order.
    */
-  createGearFrom (mob: Unit, random: () => number = Math.random): GearInstance | undefined {
+  createGearFrom (mob: Unit, random: () => number = Math.random): GearInstance[] {
+    const dropped: GearInstance[] = []
     const layer = World.LAYERS.find((l) => l.tag === mob.tag)
-    const key = mob.archetype?.key
-    if (layer === undefined || key === undefined) return undefined
-    const drops = layer.gear
-    const chance = (drops.mobChance as Record<string, number>)[key] ?? 0
-    if (!(chance > 0) || random() >= chance) return undefined
-    let item: GearInstance
-    if (key === 'boss') {
-      const tiers = drops.bossTiers
-      if (tiers === null) return undefined
-      item = rollGear(random() < tiers.t1 ? 1 : 2, 'skill', random)
-    } else {
-      const tier: GearTier = drops.mobTier
-      item = rollGear(tier, random() < drops.mobMix.part ? 'part' : 'skill', random)
+    const drops = mob.archetype?.gearRolls
+    if (layer === undefined || drops === undefined || drops === null) return dropped
+    for (let t = 0; t < drops.rolls.length; t++) {
+      const tier = (t + 1) as GearTier
+      for (let n = 0; n < drops.rolls[t]; n++) {
+        if (random() >= MOB_GEAR_CHANCE) continue
+        const kind = tier === drops.skillTier || random() >= layer.gear.mobMix.part ? 'skill' : 'part'
+        dropped.push(rollGear(tier, kind, random))
+      }
     }
+    if (dropped.length === 0) return dropped
     const free = World.dropCells(mob.cell, mob.tag)
-    this.dropGear(item, free[Math.min(free.length - 1, Math.floor(random() * free.length))], mob.tag)
-    return item
+    const unused = [...free]
+    for (const item of dropped) {
+      const pool = unused.length > 0 ? unused : free
+      const at = Math.min(pool.length - 1, Math.floor(random() * pool.length))
+      const cell = pool === unused ? unused.splice(at, 1)[0] : free[at]
+      this.dropGear(item, cell, mob.tag)
+    }
+    return dropped
   }
 
   private dropGear (item: GearInstance, cell: Vector, tag: number): void {

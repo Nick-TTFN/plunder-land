@@ -9,6 +9,8 @@ import Multiplayer, { ThrottledLog } from '../network/multiplayer'
 import Worlds from '../network/worlds'
 import World from '../objects/world'
 import { PgAccountStore } from '../db/pgstore'
+import { migrate } from '../db/migrate'
+import { MIGRATIONS } from '../db/migrations'
 import { GearLedger } from './ledger'
 import type { StashEvent } from './stash'
 import { BRING_LEVEL, GEAR_STATS, type GearInstance } from '../utils/gear'
@@ -144,4 +146,81 @@ test('pg: bring two stash items, extract, and the stash event shows them stashed
   }
   // Keep the import: multiplayer enters the module graph first.
   assert.ok(Multiplayer !== undefined)
+})
+
+test('pg: a merge to Legendary before migration 7 answers store and keeps its inputs; after it, merged (l1-2)', async (t) => {
+  if (URL === undefined || URL === '') {
+    t.skip('TEST_DATABASE_URL not set')
+    return
+  }
+  assert.ok(isLocalDatabase(URL), 'TEST_DATABASE_URL is not on 127.0.0.1, localhost or ::1: refusing to touch it')
+  const url = await ownDatabase()
+  // This build on a v6 schema: the deploy is up, its migration not yet run.
+  const store = new PgAccountStore({ connectionString: url, migrations: MIGRATIONS.filter((m) => m.version <= 6) })
+  await store.migrateOnce()
+  store.ready = true
+  const ledger = new GearLedger(store, { timeoutMs: 3000 })
+  const savedLog = Worlds.ACCOUNTS_LOG
+  const savedReport = Worlds.accountReport
+  const savedRandom = Worlds.mergeRandom
+  const reported: unknown[] = []
+  Worlds.ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000, () => Date.now(), () => {})
+  Worlds.accountReport = (e) => { reported.push(e) }
+  // Under every chance: 3 Epic parts make a Legendary skill item.
+  Worlds.mergeRandom = () => 0
+  try {
+    await ledger.beat()
+    const { account, token } = await store.create()
+    const epic: GearInstance = { tier: 3, skill: 0, rolls: [] }
+    const ids = (await store.settleGear(account.publicId, ledger.holder, [], [epic, epic, epic])).stash.map((row) => row.rowId)
+    assert.equal(ids.length, 3)
+
+    const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), accounts: store, ledger })
+    const handlers: Record<string, (data?: unknown) => void> = {}
+    const stash: StashEvent[] = []
+    const merged: unknown[] = []
+    const socket = {
+      id: 'pg-legendary',
+      handshake: { query: { frames: '1' }, auth: { token } },
+      on: (event: string, cb: (data?: unknown) => void) => { handlers[event] = cb },
+      emit: (event: string, data?: unknown) => {
+        if (event === 'stash') stash.push(data as StashEvent)
+        if (event === 'merged') merged.push(data)
+        return true
+      },
+      conn: { write: () => {}, close: () => { handlers.disconnect?.() } }
+    } as unknown as Socket
+    worlds.onConnection(socket)
+    await until('the stash on connect', () => stash.length === 1)
+
+    handlers.merge({ ids })
+    await until('the refused merge', () => merged.length === 1 && stash.length === 2)
+    assert.deepEqual(merged[0], { ok: false, reason: 'store' })
+    assert.deepEqual(stash[1].items.map((i) => [i.id, i.tier, i.skill]), ids.map((id) => [id, 3, 0]), 'the inputs did not survive')
+    assert.equal(reported.length, 1, 'the CHECK failure was not reported')
+    assert.match(String((reported[0] as Error).message), /check/i)
+
+    // Migration 7 lands under the running server; the same merge now works.
+    const admin = new PgClient({ connectionString: url })
+    await admin.connect()
+    try {
+      assert.deepEqual(await migrate(admin), [7])
+    } finally {
+      await admin.end()
+    }
+    handlers.merge({ ids })
+    await until('the merge', () => merged.length === 2 && stash.length === 3)
+    const ok = merged[1] as { ok: boolean, item: { id: string, tier: number, skill: number, rolls: unknown[] } }
+    assert.equal(ok.ok, true)
+    assert.deepEqual([ok.item.tier, ok.item.skill > 0, ok.item.rolls.length], [4, true, 3])
+    assert.deepEqual(stash[2].items.map((i) => [i.id, i.tier]), [[ok.item.id, 4]])
+    const rows = (await store.pool.query('SELECT tier FROM stash_items ORDER BY id')).rows
+    assert.deepEqual(rows.map((r) => r.tier), [4], 'not one T4 row in the table')
+  } finally {
+    Worlds.ACCOUNTS_LOG = savedLog
+    Worlds.accountReport = savedReport
+    Worlds.mergeRandom = savedRandom
+    await ledger.close()
+    await store.close()
+  }
 })

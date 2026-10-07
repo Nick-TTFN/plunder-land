@@ -11,13 +11,15 @@ import { type GearInstance, type GearTier, GEAR_TIERS } from '../utils/gear'
 
 /**
  * Chance that a merge of three parts gives a skill item, by the inputs' tier
- * (spec section 5, judgement values: Dez, accepted by Nick 2026-10-04). 3 T1
+ * (spec section 5, judgement values: Dez, accepted by Nick 2026-10-04; T3 and
+ * T4 from #51, Nick 2026-10-07, "Dez's numbers as a first value"). 3 T1
  * parts give a T2 skill item 15% of the time, else a T2 part; 3 T2 parts a T3
- * skill item 25%, else a T3 part; **3 T3 parts always a T3 skill item** (the
- * floor, and the one merge that stays at its tier), so 27 T1 parts always
- * reach a T3 skill item.
+ * skill item 25%, else a T3 part; 3 T3 parts a T4 (Legendary) skill item 35%,
+ * else a T4 part; **3 T4 parts always a T4 skill item** (the floor, and the
+ * one merge that stays at its tier), so 81 T1 parts always reach a T4 skill
+ * item.
  */
-export const PART_MERGE_SKILL_CHANCE: Readonly<Record<GearTier, number>> = Object.freeze({ 1: 0.15, 2: 0.25, 3: 1 })
+export const PART_MERGE_SKILL_CHANCE: Readonly<Record<GearTier, number>> = Object.freeze({ 1: 0.15, 2: 0.25, 3: 0.35, 4: 1 })
 
 /** Inputs a merge takes. */
 export const MERGE_INPUTS = 3
@@ -29,8 +31,9 @@ export const MERGE_INPUTS = 3
  * - **any skill item among them**: a skill item of the next tier with
  *   `keep`'s skill. `keep` is the row id of one of the skill-item inputs;
  *   absent (undefined or null) means the first skill item in input order.
- *   Any other `keep` is refused. At tier 3 there is no next tier: refused.
- * - **parts only**: tier + 1 (tier 3 stays 3), a skill item with
+ *   Any other `keep` is refused. At `GEAR_TIERS` (4) there is no next
+ *   tier: refused.
+ * - **parts only**: tier + 1 (tier 4 stays 4), a skill item with
  *   `PART_MERGE_SKILL_CHANCE` of the input tier, else a part. A `keep` with no
  *   skill input is refused (it names nothing the result could keep).
  *

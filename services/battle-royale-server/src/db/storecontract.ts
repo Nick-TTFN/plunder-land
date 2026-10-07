@@ -381,7 +381,7 @@ export async function adminContract (store: GearTestStore & AdminStore, hooks: G
 
   // Not storable: throws, nothing written.
   const before = (await hooks.allRowIds()).length
-  await assert.rejects(store.adminGrantGear(id, [T1, { tier: 4, skill: 1, rolls: [] } as unknown as GearInstance]))
+  await assert.rejects(store.adminGrantGear(id, [T1, { tier: 5, skill: 1, rolls: [] } as unknown as GearInstance]))
   await rowCount(hooks, before, 'a refused admin grant wrote')
 
   // STASH_MAX: all or none. 3 rows now; fill to 99, then 2 don't fit and 1 does.
@@ -405,6 +405,8 @@ export async function adminContract (store: GearTestStore & AdminStore, hooks: G
 const P2: GearInstance = { tier: 2, skill: 0, rolls: [] }
 const P3: GearInstance = { tier: 3, skill: 0, rolls: [] }
 const T3: GearInstance = { tier: 3, skill: 2, rolls: [{ stat: 1, q: 10 }, { stat: 5, q: 20 }] }
+const P4: GearInstance = { tier: 4, skill: 0, rolls: [] }
+const T4: GearInstance = { tier: 4, skill: 2, rolls: [{ stat: 1, q: 10 }, { stat: 5, q: 20 }, { stat: 3, q: 1000 }] }
 
 /** One merge that must be refused and change nothing, anywhere. */
 async function refusedMerge (store: GearTestStore, hooks: GearHooks, publicId: string, ids: string[], mergeRule: MergeRule, message: string): Promise<void> {
@@ -454,7 +456,7 @@ async function mergeAndScrap (store: GearTestStore, hooks: GearHooks): Promise<v
     assert.deepEqual(idsOf(await store.loadStash(other.publicId)), [o])
     await refusedMerge(store, hooks, a.publicId, [x, y, part], rule(1, part), 'keep names a part')
     await refusedMerge(store, hooks, a.publicId, [x, y, part], rule(1, w), 'keep names a row not merged')
-    await refusedMerge(store, hooks, a.publicId, [x, y, part], () => ({ tier: 4, skill: 1, rolls: [] }) as unknown as GearInstance, 'an unstorable outcome')
+    await refusedMerge(store, hooks, a.publicId, [x, y, part], () => ({ tier: 5, skill: 1, rolls: [] }) as unknown as GearInstance, 'an unstorable outcome')
     const holder = await liveHolder(store)
     assert.deepEqual(await bring(store, a.publicId, [w], holder), [w])
     await refusedMerge(store, hooks, a.publicId, [x, y, w], rule(1), 'a carried row')
@@ -463,17 +465,31 @@ async function mergeAndScrap (store: GearTestStore, hooks: GearHooks): Promise<v
     await store.uncarry(holder, [w])
   }
 
-  // Tier 3: three parts always make a skill item; anything with a skill item is refused.
+  // Tier 3 merges up to Legendary (decision #51, l1-2): any skill item makes
+  // a T4 skill item with 3 rolls, three parts a T4 part or skill item, and
+  // the T4 rows are stored and read back. Tier 4 is the top: three parts
+  // always make a T4 skill item; anything with a skill item is refused.
   {
     const a = await stocked(store, [P3, P3, P3, T3, P3, P3, T3, T3, T3])
     const ids = idsOf(a.rows)
-    const merged = await store.mergeGear(a.publicId, ids.slice(0, 3), rule(4))
-    assert.deepEqual([merged.item?.tier, (merged.item?.skill ?? 0) > 0, merged.item?.rolls.length], [3, true, 2], '3 T3 parts')
-    await refusedMerge(store, hooks, a.publicId, ids.slice(3, 6), rule(4), 'a T3 mix with a skill item')
-    await refusedMerge(store, hooks, a.publicId, ids.slice(6, 9), rule(4), '3 T3 skill items')
+    const parts = await store.mergeGear(a.publicId, ids.slice(0, 3), rule(4))
+    assert.equal(parts.item?.tier, 4, '3 T3 parts')
+    assert.equal(parts.item?.rolls.length, (parts.item?.skill ?? 0) > 0 ? 3 : 0, '3 T3 parts: rolls')
+    const mixed = await store.mergeGear(a.publicId, ids.slice(3, 6), rule(4))
+    assert.deepEqual([mixed.item?.tier, mixed.item?.skill, mixed.item?.rolls.length, mixed.item?.source], [4, T3.skill, 3, GEAR_SOURCE.merged], 'a T3 mix with a skill item')
+    const skilled = await store.mergeGear(a.publicId, ids.slice(6, 9), rule(4))
+    assert.deepEqual([skilled.item?.tier, skilled.item?.skill, skilled.item?.rolls.length], [4, T3.skill, 3], '3 T3 skill items')
+    assert.deepEqual(skilled.stash, await store.loadStash(a.publicId), 'the T4 rows read back as written')
+    assert.deepEqual(skilled.stash.map((r) => r.tier), [4, 4, 4])
+    const b = await stocked(store, [P4, P4, P4, T4, P4, P4, T4, T4, T4])
+    const top = idsOf(b.rows)
+    const floor = await store.mergeGear(b.publicId, top.slice(0, 3), rule(4))
+    assert.deepEqual([floor.item?.tier, (floor.item?.skill ?? 0) > 0, floor.item?.rolls.length], [4, true, 3], '3 T4 parts')
+    await refusedMerge(store, hooks, b.publicId, top.slice(3, 6), rule(4), 'a T4 mix with a skill item')
+    await refusedMerge(store, hooks, b.publicId, top.slice(6, 9), rule(4), '3 T4 skill items')
     // Parts at T2 go up a tier, as a part or a skill item.
-    const b = await stocked(store, [P2, P2, P2])
-    assert.equal((await store.mergeGear(b.publicId, idsOf(b.rows), rule(5))).item?.tier, 3)
+    const c = await stocked(store, [P2, P2, P2])
+    assert.equal((await store.mergeGear(c.publicId, idsOf(c.rows), rule(5))).item?.tier, 3)
   }
 
   // Scrap: this account's stashed rows only, and nothing comes back for it.
@@ -520,7 +536,7 @@ async function stashBasics (store: GearTestStore, hooks: GearHooks): Promise<voi
 
   // What a row can't hold is dropped, not a failed settle (which would undo the keeps).
   const bad = [
-    { tier: 4, skill: 1, rolls: [] }, { tier: 0, skill: 1, rolls: [] }, { tier: 1, skill: 256, rolls: [] },
+    { tier: 5, skill: 1, rolls: [] }, { tier: 0, skill: 1, rolls: [] }, { tier: 1, skill: 256, rolls: [] },
     { tier: 1, skill: 1, rolls: [{ stat: 1, q: 1001 }] }, { tier: 1, skill: 1, rolls: [{ stat: 1, q: 0.5 }] },
     { tier: 1, skill: 1, rolls: Array.from({ length: 9 }, () => ({ stat: 1, q: 1 })) }
   ] as unknown as GearInstance[]

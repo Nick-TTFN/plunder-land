@@ -172,6 +172,13 @@ export interface Archetype extends ArchetypeInfo {
    * (`npcKillStats`), never `bossKills`.
    */
   killStats: KillStat[]
+  /**
+   * The gear a kill of this unit rolls for (decision #51, `MOB_GEAR_ROLLS`
+   * by its rarity, `mobGearRolls`); null drops none (robots, the retired
+   * grunt, gunner and boss, and the Broodling). Required, so a new row has to
+   * say which: a forgotten one would drop nothing and say nothing.
+   */
+  gearRolls: MobGearRolls | null
   skills: SkillSpec[]
   routines: RoutineSpec[]
 }
@@ -247,6 +254,7 @@ function robot (info: ArchetypeInfo): Archetype {
     // `Mob.touch` on a player.
     contact: { damage: 0, cooldownMs: 0, rings: 0 },
     killStats: [],
+    gearRolls: null,
     // A player's skills come from its kit (`buildKit`, #48 step 4), not its robot.
     skills: [],
     routines: []
@@ -270,6 +278,7 @@ const grunt: Archetype = {
   loot: 50,
   contact: { damage: 10, cooldownMs: 1000, rings: 1 },
   killStats: ['mobKills'],
+  gearRolls: null,
   skills: [],
   routines: [GUARD]
 }
@@ -288,6 +297,7 @@ const boss: Archetype = {
   loot: 500,
   contact: { damage: 30, cooldownMs: 1000, rings: 1 },
   killStats: ['mobKills', 'bossKills'],
+  gearRolls: null,
   skills: [{ skill: FireBreath }],
   // Guard first: it picks the target that UseSkillOnTarget breathes at.
   routines: [GUARD, { kind: 'useSkillOnTarget', skill: 0 }]
@@ -314,6 +324,7 @@ const gunner: Archetype = {
   // what decides it).
   contact: { damage: 0, cooldownMs: 0, rings: 1 },
   killStats: ['mobKills'],
+  gearRolls: null,
   // Range 6 cells, the same as `withinCells` below, so every target it fires
   // at is on its line's reach (decision #25; it was 300 units, #24). Read from
   // the mirrored row, which is also what the client draws the beam at.
@@ -342,6 +353,49 @@ const gunner: Archetype = {
 export function npcKillStats (rarity: Rarity | null): KillStat[] {
   if (rarity === null) throw new Error('an NPC needs a rarity in utils/archetypes.ts')
   return ['mobKills', `${rarity}Kills`]
+}
+
+/**
+ * What a kill of one mob rarity rolls (decision #51 drops, Dez's table in
+ * `ideas/npc-roster.md` "Drop table by mob rarity", ACCEPTED by Nick
+ * 2026-10-07). Each roll succeeds at `MOB_GEAR_CHANCE` on its own and gives
+ * one item, so a kill can drop several.
+ */
+export interface MobGearRolls {
+  /** Rolls at T1 (Common), T2 (Rare) and T3 (Epic). No T4: Legendary is merge only. */
+  readonly rolls: readonly [number, number, number]
+  /**
+   * The tier whose rolls are always skill items (the mob's own tier, Rare and
+   * up: the headline roll); null for Common, whose rolls all go by the
+   * layer's `mobMix`.
+   */
+  readonly skillTier: GearTier | null
+}
+
+/** Every mob gear roll's chance, whatever the mob or layer (#51: flat 4%; depth pays through which mobs live there). */
+export const MOB_GEAR_CHANCE = 0.04
+
+/**
+ * Rolls per mob rarity: a mob rolls once at its own tier, twice the tier
+ * below, four times the one below that. The Legendary Brood's own-tier roll
+ * becomes a third Epic roll (T4 is never found): 8 / 4 / 3, all 3 Epic rolls
+ * skill items. Items per kill 0.04 / 0.12 / 0.28 / 0.60 (derived). The
+ * Broodling is Common but drops nothing (its row sets null).
+ */
+export const MOB_GEAR_ROLLS: Readonly<Record<Rarity, MobGearRolls>> = Object.freeze({
+  common: Object.freeze({ rolls: Object.freeze([1, 0, 0]) as readonly [number, number, number], skillTier: null }),
+  rare: Object.freeze({ rolls: Object.freeze([2, 1, 0]) as readonly [number, number, number], skillTier: 2 as GearTier }),
+  epic: Object.freeze({ rolls: Object.freeze([4, 2, 1]) as readonly [number, number, number], skillTier: 3 as GearTier }),
+  legendary: Object.freeze({ rolls: Object.freeze([8, 4, 3]) as readonly [number, number, number], skillTier: 3 as GearTier })
+})
+
+/**
+ * The gear rolls of a mob of `rarity`, the one place an NPC row reads its
+ * drops from its rarity (`MOB_GEAR_ROLLS`).
+ */
+export function mobGearRolls (rarity: Rarity | null): MobGearRolls {
+  if (rarity === null) throw new Error('an NPC needs a rarity in utils/archetypes.ts')
+  return MOB_GEAR_ROLLS[rarity]
 }
 
 /**
@@ -431,6 +485,7 @@ function npc (info: ArchetypeInfo, n: NpcNumbers): Archetype {
     // `rings` also floors the chase stop, as the gunner's does with no damage.
     contact: { damage: n.contact, cooldownMs: n.contact > 0 ? 1000 : 0, rings: 1 },
     killStats: npcKillStats(info.rarity),
+    gearRolls: mobGearRolls(info.rarity),
     skills: [],
     routines: [guard]
   }
@@ -466,7 +521,9 @@ const reactor: Archetype = {
 }
 const coil: Archetype = npc(ARCHETYPE_INFO.coil, NPC_NUMBERS.coil)
 const brood: Archetype = npc(ARCHETYPE_INFO.brood, NPC_NUMBERS.brood)
-const broodling: Archetype = npc(ARCHETYPE_INFO.broodling, NPC_NUMBERS.broodling)
+// Common, but drops no gear (#51, Nick 2026-10-07): an endless stream, so the
+// Brood's own rolls are the reward for killing the source.
+const broodling: Archetype = { ...npc(ARCHETYPE_INFO.broodling, NPC_NUMBERS.broodling), gearRolls: null }
 
 /**
  * A layer's mob entries from `NPC_NUMBERS.layers[i]`: the Crawler packs (with
@@ -597,8 +654,10 @@ export interface GearMix { part: number, t1: number, t2: number }
 
 /**
  * A layer's gear drops (decision #49, spec `ideas/skill-items-and-stash.md`
- * section 3, verbatim; all judgement, Dez). Read by 49-2 (caches and mob
- * drops) and 49-5. T3 is never found, only merged.
+ * section 3; all judgement, Dez). Read by 49-2 (caches and mob drops) and
+ * 49-5. What a kill rolls is the mob's (`Archetype.gearRolls`, by rarity,
+ * #51); the layer only decides part or skill item (`mobMix`). T4 is never
+ * found, only merged; caches give T2 at most.
  */
 export interface GearDrops {
   /** Natural caches standing on the layer. */
@@ -607,16 +666,12 @@ export interface GearDrops {
   cacheRespawnMs: number
   /** What a cache holds: a part, a T1 skill item or a T2 skill item. */
   cacheMix: GearMix
-  /** The chance a kill of this mob drops a gear item, by archetype key (0 = never). */
-  mobChance: { grunt: number, gunner: number, boss: number }
   /**
-   * A grunt's or gunner's item: part or skill item. Spec section 3 gives no
-   * tier for these; T1 (`mobTier`) is assumed (49-1, for Dez to confirm).
+   * A mob's item, part or skill item, for every roll but the mob's own-tier
+   * roll on Rare and higher (`MobGearRolls.skillTier`), which is always a
+   * skill item.
    */
   mobMix: { part: number, skill: number }
-  mobTier: GearTier
-  /** A boss's item is always a skill item, T1 or T2 by these shares; null where no boss lives. */
-  bossTiers: { t1: number, t2: number } | null
 }
 
 /**
@@ -710,10 +765,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       caches: 1,
       cacheRespawnMs: 180000,
       cacheMix: { part: 0.75, t1: 0.22, t2: 0.03 },
-      mobChance: { grunt: 0.03, gunner: 0, boss: 0 },
-      mobMix: { part: 0.8, skill: 0.2 },
-      mobTier: 1,
-      bossTiers: null
+      mobMix: { part: 0.8, skill: 0.2 }
     }
   },
   {
@@ -735,10 +787,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       caches: 1,
       cacheRespawnMs: 120000,
       cacheMix: { part: 0.65, t1: 0.28, t2: 0.07 },
-      mobChance: { grunt: 0.04, gunner: 0.08, boss: 0.5 },
-      mobMix: { part: 0.75, skill: 0.25 },
-      mobTier: 1,
-      bossTiers: { t1: 0.7, t2: 0.3 }
+      mobMix: { part: 0.75, skill: 0.25 }
     }
   },
   {
@@ -760,10 +809,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       caches: 2,
       cacheRespawnMs: 90000,
       cacheMix: { part: 0.55, t1: 0.33, t2: 0.12 },
-      mobChance: { grunt: 0.05, gunner: 0.1, boss: 0.5 },
-      mobMix: { part: 0.7, skill: 0.3 },
-      mobTier: 1,
-      bossTiers: { t1: 0.5, t2: 0.5 }
+      mobMix: { part: 0.7, skill: 0.3 }
     }
   }
 ])

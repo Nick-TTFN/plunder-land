@@ -9,6 +9,7 @@ import { PAYOUT_DELAY_MS, seasonEndMs, seasonStart } from '../progress/seasons'
 import { MIGRATIONS, type Migration } from './migrations'
 import { adminContract, gearContract, type GearHooks, PART, seeded, storeContract, T1, T2 } from './storecontract'
 import { mergeOutcome } from '../gear/merge'
+import { type GearInstance } from '../utils/gear'
 
 /**
  * The Postgres store and the migration runner against a real database, only
@@ -247,7 +248,7 @@ pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v
   const after = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
   assert.deepEqual(after, before, 'migration 3 changed an existing row')
   // The rest, so this release's queries find their tables.
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4, 5, 6])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4, 5, 6, 7])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -340,7 +341,7 @@ pgTest('seasons (migration 4): added to a v3 database it keeps every row, and th
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 4))), [4])
   assert.deepEqual(await snapshot(), before, 'migration 4 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5, 6])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5, 6, 7])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -417,7 +418,7 @@ pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 5))), [5])
   assert.deepEqual(await snapshot(), before, 'migration 5 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6, 7])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -571,7 +572,7 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
     'SELECT a.public_id, a.token_hash, p.xp, l.skills, e.banked, en.stock, en.as_of FROM accounts a JOIN account_progress p ON p.account_id = a.id JOIN loadouts l ON l.account_id = a.id JOIN season_entries e ON e.account_id = a.id JOIN energy en ON en.account_id = a.id ORDER BY a.id')).rows)
   const before = await snapshot()
   assert.equal(before.length, 2)
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 6))), [6])
   assert.deepEqual(await snapshot(), before, 'migration 6 changed an existing row')
 
   // Step 7's queries are this release's resolve, grant, saveLoadout, spend
@@ -608,6 +609,65 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
     // A row without rolls takes the default.
     await insert('tier, skill, source', '1, 0, 1')
     assert.equal((await store.loadStash(made[0].publicId)).length, 3)
+  } finally {
+    await store.close()
+  }
+})
+
+/** The CHECKs on `stash_items.tier`, by name, with their definitions. */
+async function tierChecks (): Promise<Array<{ name: string, def: string }>> {
+  return await withClient(async (client) => (await client.query(
+    `SELECT conname AS name, pg_get_constraintdef(oid) AS def FROM pg_constraint
+     WHERE conrelid = 'stash_items'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%tier%'`
+  )).rows as Array<{ name: string, def: string }>)
+}
+
+pgTest('legendary tier (migration 7): on a v6 database a T4 merge fails the CHECK and changes nothing; after it the same merge lands, every row kept, the CHECK 1-4 under the same name', async () => {
+  const v6 = MIGRATIONS.filter((m) => m.version <= 6)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, v6)), [1, 2, 3, 4, 5, 6])
+  // The auto-named CHECK migration 7 drops: verify the name, not assume it.
+  const old = await tierChecks()
+  assert.equal(old.length, 1)
+  assert.equal(old[0].name, 'stash_items_tier_check')
+  assert.match(old[0].def, /tier >= 1\b.*tier <= 3\b/)
+
+  // This build's store, on the v6 schema (a deploy whose migration hasn't run yet).
+  const store = new PgAccountStore({ connectionString: URL as string, migrations: v6 })
+  try {
+    store.ready = true
+    const { account } = await store.create()
+    const P3: GearInstance = { tier: 3, skill: 0, rolls: [] }
+    const seeded = await store.settleGear(account.publicId, randomUUID(), [], [P3, P3, P3, T1])
+    const ids = seeded.stash.map((r) => r.rowId)
+    const rows = async (): Promise<unknown[]> => (await store.pool.query('SELECT id, account_id, tier, skill, rolls, state, source FROM stash_items ORDER BY id')).rows
+    const before = await rows()
+    assert.equal(before.length, 4)
+    // 3 Epic parts with random 0: a Legendary skill item, which the v6 CHECK refuses.
+    const legendary: MergeRule = (inputs) => mergeOutcome(inputs, undefined, () => 0)
+    await assert.rejects(store.mergeGear(account.publicId, ids.slice(0, 3), legendary), /check/i, 'a T4 row passed the v6 CHECK')
+    assert.deepEqual(await rows(), before, 'a refused T4 merge changed rows (the inputs must survive: never a loss, never a dupe)')
+    await assert.rejects(store.pool.query('INSERT INTO stash_items (account_id, tier, skill, source) SELECT id, 4, 1, 1 FROM accounts LIMIT 1'), /check/i, 'tier 4 at v6')
+
+    assert.deepEqual(await withClient(async (client) => await migrate(client)), [7])
+    assert.deepEqual(await rows(), before, 'migration 7 changed an existing row')
+    const wide = await tierChecks()
+    assert.equal(wide.length, 1)
+    assert.equal(wide[0].name, 'stash_items_tier_check')
+    assert.match(wide[0].def, /tier >= 1\b.*tier <= 4\b/)
+    const insert = async (tier: number): Promise<unknown> =>
+      await store.pool.query('INSERT INTO stash_items (account_id, tier, skill, source) SELECT id, $1, 0, 1 FROM accounts LIMIT 1', [tier])
+    await assert.rejects(insert(5), /check/i, 'tier 5')
+    await assert.rejects(insert(0), /check/i, 'tier 0')
+
+    // The same merge now lands: a T4 skill item with 3 rolls, the inputs gone, read back by loadStash.
+    const merged = await store.mergeGear(account.publicId, ids.slice(0, 3), legendary)
+    assert.ok(merged.item !== null)
+    assert.deepEqual([merged.item.tier, merged.item.skill > 0, merged.item.rolls.length, merged.item.source], [4, true, 3, 2])
+    assert.deepEqual(merged.stash.map((r) => r.rowId), [ids[3], merged.item.rowId])
+    assert.deepEqual(await store.loadStash(account.publicId), merged.stash)
+    // And a raw T4 row inserts.
+    await insert(4)
+    assert.equal((await store.loadStash(account.publicId)).filter((r) => r.tier === 4).length, 2)
   } finally {
     await store.close()
   }
