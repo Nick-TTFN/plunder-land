@@ -202,6 +202,27 @@ export function directionToward (from: Cell, to: Cell): number {
   return facingIndex(dq + dr / 2, dr * Math.sqrt(3) / 2)
 }
 
+/**
+ * The cells of a Compactor's shockwave (effect 14, decision #51, l1-6) from
+ * the caster's cell as the client sees it and the line's uncut tip the effect
+ * carries: the direction snapped from caster to tip (`directionToward`, exact
+ * even when the client places the caster a cell off), the origin `length`
+ * steps back from the tip, and `attackCells`' line from there, cut at the
+ * first cell `onMap` refuses, as server `Shockwave.lineCells` cuts at the
+ * map's edge. `shockwave.spec.ts` checks it against the server.
+ */
+export function lineFromTip (casterCell: Cell, tip: Cell, length: number, onMap: (q: number, r: number) => boolean): Cell[] {
+  const direction = directionToward(casterCell, tip)
+  const step = DIRECTIONS[direction]
+  const origin = { x: tip.x - step.x * length, y: tip.y - step.y * length }
+  const result: Cell[] = []
+  for (const cell of attackCells({ kind: 'line', length }, origin, direction)) {
+    if (!onMap(cell.x, cell.y)) break
+    result.push(cell)
+  }
+  return result
+}
+
 export interface Body {
   /** Where the viewer draws the unit. */
   x: number

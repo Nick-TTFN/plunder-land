@@ -40,6 +40,7 @@ import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
 import { ReactorEffect } from './vfx/reactor.effect'
 import { KilnLobEffect } from './vfx/kilnlob.effect'
+import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
@@ -106,6 +107,13 @@ export class Game extends Container {
    * a counter, not a warning, in case it doesn't.
    */
   static EFFECTS_UNHELD = 0
+
+  /**
+   * A knockback of our own player (effect 15) waiting for the update header
+   * of the same flush, whose `lastInputSeq` `LocalPlayer.knockback` needs.
+   * Effects come before the update in every flush, framed or not.
+   */
+  private _knockback: Vector | undefined
   /**
    * The object id a dead player watches (spectate, decision #47), from the
    * server's `spectate` event; undefined when not spectating.
@@ -308,6 +316,7 @@ export class Game extends Container {
     // Stops predicting the last run's route until the new own create resets it.
     Game.LOCAL.stop()
     Game.LOCAL.ready = false
+    this._knockback = undefined
     Game.PLAYER = undefined
     Game.PLAYER_ID = undefined
     this.LOOKUP = {}
@@ -875,6 +884,15 @@ export class Game extends Container {
       case 4:
         new DefendEffect(target, lifetime)
         break
+
+      case NPC_EFFECT.compactorShockwave:
+        new ShockwaveEffect(target, lifetime, aimCell)
+        break
+
+      case NPC_EFFECT.knockback:
+        new KnockbackEffect(target, lifetime, aimCell)
+        if (target === Game.PLAYER && aimCell !== undefined) this._knockback = aimCell
+        break
     }
   }
 
@@ -887,9 +905,14 @@ export class Game extends Container {
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     // [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]
     this.serverTick = view.getUint32(0)
-    // Read for the record; movement no longer reconciles against them.
-    void view.getUint16(4)
+    // lastInputSeq: read only by a knockback (l1-6). ackElapsedMs: unread.
+    const lastInputSeq = view.getUint16(4)
     void view.getUint16(6)
+    // Before the records, so the position in them meets the landing cell.
+    if (this._knockback !== undefined) {
+      Game.LOCAL.knockback(this._knockback, lastInputSeq)
+      this._knockback = undefined
+    }
 
     const now = performance.now()
     Session.onPacket(now)

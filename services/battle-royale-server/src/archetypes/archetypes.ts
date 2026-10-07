@@ -14,6 +14,7 @@ import { Throwicicle } from '../skills/throwicicle'
 import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
 import { KilnLob } from '../mobskills/kilnlob'
+import { Shockwave, ShockwaveRoutine } from '../mobskills/shockwave'
 import { ARCHETYPE_INFO, type ArchetypeInfo, type Rarity } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
 import { type SkillKey, skillById, SKILL_LIST } from '../utils/skills'
@@ -97,7 +98,18 @@ export interface UseSkillOnTargetSpec {
   withinCells?: number
 }
 
-export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec
+/**
+ * The Compactor's slam (#51 L1, `mobskills/shockwave.ts`): cast the skill at
+ * index `skill`, a `Shockwave`, at the target once it is within `withinCells`,
+ * and stand still from the cast to the impact.
+ */
+export interface ShockwaveSpec {
+  kind: 'shockwave'
+  skill: number
+  withinCells: number
+}
+
+export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec | ShockwaveSpec
 
 /**
  * The redis `stats-<player>` hash keys a kill of this unit increments, besides
@@ -425,10 +437,10 @@ export function mobGearRolls (rarity: Rarity | null): MobGearRolls {
  * 30 (not from l1-0).
  *
  * Each guard is `GuardSpec` (rings). Contact is 0 for every NPC but the
- * Reactor (l1-0): until l1-3, l1-5..l1-7 add their attacks, Compactor, Coil,
- * Brood and Broodling chase and deal no damage. The Kiln keeps l1-0's 5-6
- * band (`GuardSpec.retreat`) and lobs (l1-4); the Brood stands off at 5, the
- * band's low edge, until l1-7.
+ * Reactor (l1-0): until l1-3 and l1-7 add their attacks, Coil, Brood and
+ * Broodling chase and deal no damage. The Compactor slams (l1-6). The Kiln
+ * keeps l1-0's 5-6 band (`GuardSpec.retreat`) and lobs (l1-4); the Brood
+ * stands off at 5, the band's low edge, until l1-7.
  */
 const NPC_NUMBERS = Object.freeze({
   crawler: {
@@ -440,6 +452,13 @@ const NPC_NUMBERS = Object.freeze({
     guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 4 }
   },
   compactor: { maxHp: 60, body: 30, loot: 50, contact: 0, guard: { acquire: 4, lose: 5, chaseSpeed: 100, standoff: 0 } },
+  /**
+   * The Compactor's Shockwave (l1-6): 35 to each player on the line (its
+   * length is `NPC_SHARED.compactorLine`, mirrored), knocked back 2 cells,
+   * cast within 2 rings, every 3600 ms (the strike clip), the hit 1215 ms
+   * after the cast (the clip's impact frame; it lands on the tick after, 1250).
+   */
+  compactorShockwave: { damage: 35, cooldownMs: 3600, withinCells: 2, knockback: 2, impactMs: 1215 },
   // Band 5-6 (l1-0 Q1, not the roster's 7-9), lob 30 on a 1-ring blast
   // after 1250 ms (Q2), every 3500 ms, cast within 7 cells (the mirrored
   // `attack.range`). `standoff` is unread with a band; set to its top.
@@ -488,9 +507,10 @@ const NPC_NUMBERS = Object.freeze({
 type NpcNumbers = typeof NPC_NUMBERS.compactor & { guard: { retreat?: { min: number, max: number } } }
 
 /**
- * An NPC row from its numbers: a guard and contact only. What Compactor, Kiln,
- * Reactor, Coil, Brood and Broodling are until their own attacks land
- * (l1-3..l1-7); the Crawler adds its shot, the Reactor its burst (l1-5).
+ * An NPC row from its numbers: a guard and contact only. What Coil, Brood and
+ * Broodling are until their own attacks land (l1-3, l1-7); the Crawler adds
+ * its shot, the Compactor its slam (l1-6), the Kiln its lob (l1-4) and the
+ * Reactor its burst (l1-5).
  */
 function npc (info: ArchetypeInfo, n: NpcNumbers): Archetype {
   const guard: GuardSpec = Object.freeze({
@@ -530,7 +550,27 @@ const crawler: Archetype = {
     { kind: 'useSkillOnTarget', skill: 0, withinCells: rangedCellsOf(ARCHETYPE_INFO.crawler) }
   ]
 }
-const compactor: Archetype = npc(ARCHETYPE_INFO.compactor, NPC_NUMBERS.compactor)
+/** The Compactor's Shockwave with its numbers: a `SkillClass` is built from its owner alone. */
+class CompactorsShockwave extends Shockwave {
+  constructor (owner: Unit) {
+    super(owner, NPC_NUMBERS.compactorShockwave)
+  }
+}
+
+/**
+ * Melee chaser (#51, the grunt's role): no contact damage; it slams a line
+ * of cells toward its target, hurting and knocking back players (l1-6).
+ */
+const compactorBase = npc(ARCHETYPE_INFO.compactor, NPC_NUMBERS.compactor)
+const compactor: Archetype = {
+  ...compactorBase,
+  skills: [{ skill: CompactorsShockwave }],
+  // Guard first: it picks the target, and the slam's hold overrides its step goal.
+  routines: [
+    ...compactorBase.routines,
+    { kind: 'shockwave', skill: 0, withinCells: NPC_NUMBERS.compactorShockwave.withinCells }
+  ]
+}
 /** The Kiln's lob with its numbers: a `SkillClass` is built from its owner alone. */
 class KilnsLob extends KilnLob {
   constructor (owner: Unit) {
@@ -945,6 +985,11 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
       }
       case 'reactorBurst':
         return new ReactorBurst(owner, spec)
+      case 'shockwave': {
+        const skill = skills[spec.skill]
+        if (!(skill instanceof Shockwave)) throw new Error(`${archetype.key}: no Shockwave at index ${spec.skill}`)
+        return new ShockwaveRoutine(owner, skill, spec.withinCells)
+      }
     }
     throw new Error(`${archetype.key}: unknown routine ${(spec as { kind: string }).kind}`)
   })

@@ -34,6 +34,8 @@
  * `net/stash.ts` `itemOf`: tier above its `GEAR_TIERS` of 3). The new NPC archetype ids 9-15 are drawn
  * by an older client as the old mob sprite. Telegraph effect types 9-19 are
  * never drawn by an older client: a silent misbehaviour, attacks that can be
- * dodged arriving with no warning.
+ * dodged arriving with no warning. An older client also ignores effect 15
+ * (knockback) on its own player and so never applies its own knockback: it
+ * walks on predicting the old route and is rubber-banded back by the server.
  */
 export const PROTOCOL = 7

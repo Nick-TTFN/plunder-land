@@ -963,3 +963,142 @@ test('mirror: Hopper\'s client and server walk the same track through a wall', (
   const track = run(player, local, 12)
   assertSameTrack(track)
 })
+
+// --- Knockback (decision #51, l1-6): Player.knockback against LocalPlayer.knockback ---
+//
+// The server moves the player (a Compactor's slam) and sends effect 15 aimed
+// at the landing cell; the client jumps there on the effect, which arrives
+// `delay` ticks later with the update header of the same flush, whose
+// `lastInputSeq` says which route the server held when it moved the player.
+// Here the input is real too: the client's `sample` packets go through the
+// server's own `Multiplayer.onPointer` a tick after they are sent.
+
+interface KnockLocal extends Local {
+  sample: (now: number) => ArrayBuffer | null
+  knockback: (cell: { x: number, y: number }, ackedSeq: number) => void
+}
+
+interface KnockRun {
+  server: Vector[]
+  client: Vector[]
+  player: Player
+  local: KnockLocal
+  landing: Vector
+}
+
+/**
+ * The client clicks a cell east at tick 0; the server knocks the player
+ * south-east `cells` cells at the start of tick `knockAt`; the client hears tick
+ * n's flush (effect, then header and record) at tick n + `delay`; `click`, if
+ * given, is a second click the client makes at tick `click.at`: after that
+ * tick's flush is handled, or with `unsent` before it, so the knockback finds
+ * it not yet sent.
+ */
+function knockRun (delay: number, knockAt: number, click?: { at: number, cell: Vector, unsent?: boolean }, cells = 2, ticks = 40): KnockRun {
+  const player = playerOn(TOP, new Vector(26, 40))
+  const local = localFor(player) as KnockLocal
+  const connection = { player, lastWaypoints: [] as Vector[], lastInputSeq: 0, ackElapsedMs: 0 }
+  player.connection = connection as unknown as Player['connection']
+  const onPointer = (Multiplayer.prototype as unknown as { onPointer: (c: unknown, d: unknown) => void }).onPointer
+  const dest = Hex.toPosition(new Vector(34, 40))
+  local.setDestination(dest.x, dest.y)
+
+  const inFlight: Array<{ due: number, data: Buffer }> = []
+  const server: Vector[] = []
+  const client: Vector[] = []
+  let landing: Vector | undefined
+  let acked = -1
+  for (let n = 0; n < ticks; n++) {
+    for (const packet of inFlight.filter((p) => p.due === n)) onPointer.call({}, connection, packet.data)
+    if (n === knockAt) {
+      landing = player.knockback(1, cells)
+      assert.ok(landing !== undefined, 'the knockback found no landing')
+      acked = connection.lastInputSeq
+    }
+    player.update(TICK)
+    server.push(player.position)
+
+    const clickNow = (): void => {
+      if (click === undefined || n !== click.at) return
+      const at = Hex.toPosition(click.cell)
+      local.setDestination(at.x, at.y)
+    }
+    // An unsent click: made in the frames before the flush lands, not sampled yet.
+    if (click?.unsent === true) clickNow()
+    const heard = n - delay
+    if (heard === knockAt && landing !== undefined) local.knockback(landing, acked)
+    if (heard >= 0) local.reconcile(server[heard].x, server[heard].y)
+    if (click?.unsent !== true) clickNow()
+    local.predict(TICK)
+    client.push(new Vector(local.x, local.y))
+    const data = local.sample((n + 1) * TICK * 1000)
+    if (data !== null) inFlight.push({ due: n + 1, data: Buffer.from(data) })
+  }
+  assert.ok(landing !== undefined)
+  return { server, client, player, local, landing }
+}
+
+/** Identical, and standing on `at`, over the last `settled` ticks. */
+function assertSettled (track: KnockRun, at: Vector, settled = 4): void {
+  const end = track.server.length
+  for (let i = end - settled; i < end; i++) {
+    assert.ok(same(track.server[i], track.client[i]), `tick ${i + 1}: server (${track.server[i].x}, ${track.server[i].y}) vs client (${track.client[i].x}, ${track.client[i].y})`)
+    assert.ok(same(track.server[i], at), `tick ${i + 1}: settled at (${track.server[i].x}, ${track.server[i].y}), not (${at.x}, ${at.y})`)
+  }
+  assert.deepEqual(track.player.path, [])
+  assert.deepEqual(track.local.path, [])
+}
+
+for (const delay of [1, 2, 3]) {
+  test(`mirror: a knockback mid-walk ends the route on both sides, on the landing cell (effect ${delay} tick${delay > 1 ? 's' : ''} late)`, () => {
+    const track = knockRun(delay, 4)
+    assertSettled(track, Hex.toPosition(track.landing))
+    assert.deepEqual(track.local.waypoints, [], 'the next packet still asks for the old route')
+  })
+
+  test(`mirror: a knockback of a player standing at its destination leaves both on the landing cell (effect ${delay} tick${delay > 1 ? 's' : ''} late)`, () => {
+    const track = knockRun(delay, 25)
+    assertSettled(track, Hex.toPosition(track.landing))
+  })
+
+  test(`mirror: a one-cell knockback, inside the dead zone reconcile ignores, still moves the client (effect ${delay} late)`, () => {
+    const track = knockRun(delay, 25, undefined, 1)
+    assertSettled(track, Hex.toPosition(track.landing))
+  })
+
+  for (const offset of delay > 1 ? [0, delay - 1] : [0]) {
+    test(`mirror: a click ${offset} tick${offset === 1 ? '' : 's'} after the knockback, before its effect (${delay} late), is walked from the landing cell on both sides`, () => {
+      const target = new Vector(30, 46)
+      const track = knockRun(delay, 4, { at: 4 + offset, cell: target })
+      assertSettled(track, Hex.toPosition(target))
+    })
+  }
+
+  test(`mirror: a click not yet sent when the knockback's effect lands is kept, sent, and walked from the landing cell on both sides (${delay} late)`, () => {
+    const target = new Vector(30, 46)
+    const track = knockRun(delay, 4, { at: 4 + delay, cell: target, unsent: true })
+    assertSettled(track, Hex.toPosition(target))
+  })
+
+  // Archie's l1-6 review, F1: a re-click of the knocked route's own
+  // destination before the next sample was never sent (the client still held
+  // it as sent) and, sent, was dropped by the server as a repeat.
+  test(`mirror: a re-click of the knocked route's destination as the effect lands is walked on both sides (${delay} late)`, () => {
+    const dest = new Vector(34, 40)
+    const track = knockRun(delay, 4, { at: 4 + delay, cell: dest })
+    assertSettled(track, Hex.toPosition(dest))
+  })
+
+  test(`mirror: the same re-click a tick later is walked on both sides too (${delay} late)`, () => {
+    const dest = new Vector(34, 40)
+    const track = knockRun(delay, 4, { at: 5 + delay, cell: dest })
+    assertSettled(track, Hex.toPosition(dest))
+  })
+
+  test(`mirror: a click the server had before the knockback is ended by it on both sides (effect ${delay} late)`, () => {
+    // Sent two ticks before the knock, so the server applied it first and
+    // the knockback stopped it: both stand on the landing cell.
+    const track = knockRun(delay, 4, { at: 2, cell: new Vector(30, 46) })
+    assertSettled(track, Hex.toPosition(track.landing))
+  })
+}
