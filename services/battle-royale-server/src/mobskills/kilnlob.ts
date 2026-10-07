@@ -85,8 +85,9 @@ export function landLob (kiln: Unit, cell: Vector, tag: number, damage: number, 
   Multiplayer.Instance.effectAt(NPC_EFFECT.kilnBlast, kiln.id, BLAST_SHOW_MS, cell, tag)
 
   for (const unit of World.FIND_IN_CELLS(cell, rings, tag, ObjectType.Player)) {
-    // A corpse stays in the index until the next sweep; an extracted player
-    // is destroyed too.
+    // A corpse stays in the index until the next sweep. An extracted player is
+    // `exited`, not destroyed, and also stays until the sweep: `Player.hit`
+    // refuses it.
     if (unit.destroyed) continue
     if (unit.hit(damage)) kiln.onKill(unit)
   }
