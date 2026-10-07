@@ -1,0 +1,304 @@
+import { AlphaFilter, Assets, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
+import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcRig } from './npcrig'
+import { RobotSprite } from '../robots/robotsprite'
+import { SHOT } from '../robots/eyeshot'
+import { layShadow } from '../objects/shadow'
+
+/** A clip played over the idle/move loop, then gone (death holds). */
+interface Action {
+  role: 'attack' | 'hit' | 'death' | 'spawn'
+  clip: string
+  /** Clip seconds; negative while an attack waits to line its event up with the beam. */
+  t: number
+  /** Ground direction it points (an attack at its target). */
+  aim: { x: number, y: number } | undefined
+  /** The pose shown when it began, which the package's actions start from. */
+  from: NpcPose | undefined
+}
+
+/**
+ * An NPC drawn from its rig (`NpcRig`, `src/npcs/npcrig.ts`; l1-8, decision
+ * #51), the sibling of `RobotSprite`: every frame the rig's pose becomes a
+ * draw list (`NpcRig.draw`), its images placed as sprites from the NPC's sheet
+ * (`npc-<key>.json`, `tools/bake-npc-atlas.py`) and its shapes (shadows,
+ * fuse, sensor, blast) drawn into `Graphics` between them, in the package's
+ * order. Drawn at `RobotSprite.SCALE` pixels per rig unit times the NPC's
+ * `sizeScale`, so it keeps its size against the robots (Nick, 2026-10-07).
+ *
+ * - The idle/move loop follows movement (`setMoving`), along the ground
+ *   direction it last moved in (`setDirection`): an NPC's body never turns,
+ *   its gait points. The move loop runs at `RobotSprite.RUN_RATE` times the
+ *   ground speed over `STRIDE_SPEED`, like the robots' (`setPace`).
+ * - `play` lays an action over it: an attack (aimed, and started so that its
+ *   event, the Crawler's shot at 0.34 s, lands `SHOT.fire` after the effect,
+ *   when `RangedAttackEffect` fires the beam), a hit (with a code hit flash,
+ *   which the packages leave to the game), a death (from `death.from`, held at
+ *   its end) or a spawn (the Broodling's emerge, drawn in place). A death is
+ *   never replaced; a hit doesn't cut an attack before its event or a spawn.
+ *
+ * Its own contact shadows are the package's; with `castShadow` it also casts
+ * a silhouette (its images again in black under one `AlphaFilter`, laid by
+ * `layShadow`), as every unit does. The ticker listener lives while `host` is
+ * in the scene, as `RobotSprite`'s.
+ */
+export class NpcSprite extends Container {
+  /** How long a hit tints it, seconds. */
+  static readonly HIT_FLASH_S = 0.12
+  /** The hit flash's tint (a tint can only darken: red reads as a flash on these colours). */
+  static readonly HIT_TINT = 0xff6a5a
+  /** The cast shadow's opacity, as the robots' (`RobotSprite.CAST_ALPHA`). */
+  static readonly CAST_ALPHA = RobotSprite.CAST_ALPHA
+
+  /** True once its sheet is loaded; `Mob` draws `mob/mob` otherwise. */
+  static ready (rig: NpcRig): boolean {
+    return Assets.cache.has(`npc-${rig.key}/body.png`)
+  }
+
+  /** CSS px from the ground to the top of its reference pose. */
+  readonly standHeight: number
+  /** CSS px per rig unit. */
+  private readonly pxPerUnit: number
+
+  private readonly rig = new Container()
+  private readonly ground = new Graphics()
+  private readonly sprites: Sprite[] = []
+  private readonly marks: Graphics[] = []
+  private readonly cast: Container | undefined
+  private readonly castRig = new Container()
+  private readonly castSprites: Sprite[] = []
+  private readonly scratch = new Matrix()
+  private readonly muzzle = new Point()
+
+  private moving = false
+  private baseTime = 0
+  private pace = 1
+  private direction = { x: 0, y: 1 }
+  private action: Action | undefined
+  private last: NpcPose | undefined
+  private flashLeft = 0
+  private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
+  private ticking = false
+
+  constructor (private readonly host: Container, readonly npc: NpcRig, castShadow = false) {
+    super()
+    this.pxPerUnit = RobotSprite.SCALE * npc.sizeScale
+    this.standHeight = npc.referenceUnits * this.pxPerUnit
+    this.rig.scale.set(this.pxPerUnit)
+    if (castShadow) {
+      this.cast = new Container()
+      this.cast.filters = [new AlphaFilter(NpcSprite.CAST_ALPHA)]
+      layShadow(this.cast)
+      this.castRig.scale.set(this.pxPerUnit)
+      this.cast.addChild(this.castRig)
+      this.addChild(this.cast)
+    }
+    this.addChild(this.ground)
+    this.ground.scale.set(this.pxPerUnit)
+    this.addChild(this.rig)
+
+    host.on('added', this.start, this)
+    host.on('removed', this.stop, this)
+    if (host.parent !== null) this.start()
+    this.update(0)
+  }
+
+  setMoving (moving: boolean): void {
+    if (moving !== this.moving) this.baseTime = 0
+    this.moving = moving
+  }
+
+  /** The ground direction it moves along (world x and y); a zero vector keeps the last. */
+  setDirection (x: number, y: number): void {
+    if (Math.hypot(x, y) > 1e-6) this.direction = { x, y }
+  }
+
+  /** Ground speed over `RobotSprite.STRIDE_SPEED`; scales the move loop only. */
+  setPace (pace: number): void {
+    this.pace = Math.min(RobotSprite.MAX_PACE, Math.max(RobotSprite.MIN_PACE, pace))
+  }
+
+  /** Whether it has a clip for `role`. */
+  has (role: Action['role']): boolean {
+    return this.clipFor(role) !== undefined
+  }
+
+  private clipFor (role: Action['role']): string | undefined {
+    const roles = this.npc.roles
+    if (role === 'attack') return roles.attack?.clip
+    if (role === 'hit') return roles.hit
+    if (role === 'death') return roles.death?.clip
+    return roles.spawn?.clip
+  }
+
+  /** Lays an action over the loop (see the class comment); `aim` is a ground direction. False if it has no such clip or it was refused. */
+  play (role: Action['role'], aim?: { x: number, y: number }): boolean {
+    const clip = this.clipFor(role)
+    if (clip === undefined) return false
+    const current = this.action
+    if (current?.role === 'death') return false
+    if (role === 'hit') {
+      this.flashLeft = NpcSprite.HIT_FLASH_S
+      if (current?.role === 'spawn') return false
+      if (current?.role === 'attack' && current.t < (this.npc.roles.attack?.event ?? 0)) return false
+    }
+    const roles = this.npc.roles
+    const t = role === 'attack' ? roles.attack!.event - SHOT.fire
+      : role === 'death' ? roles.death!.from
+        : role === 'spawn' ? roles.spawn!.from
+          : 0
+    this.action = { role, clip, t, aim, from: this.last }
+    return true
+  }
+
+  get dying (): boolean {
+    return this.action?.role === 'death'
+  }
+
+  /** How long a death plays from its start before it can go: to its end, then a moment held. */
+  get deathSeconds (): number {
+    const death = this.npc.roles.death
+    if (death === undefined) return 0
+    return this.npc.clips[death.clip].duration - death.from + 0.5
+  }
+
+  /** Where a shot leaves it, on screen (global), as last drawn. */
+  muzzleGlobal (): Point {
+    return this.rig.toGlobal(this.muzzle)
+  }
+
+  start (): void {
+    if (this.ticking) return
+    this.ticking = true
+    Ticker.shared.add(this.tick)
+  }
+
+  stop (): void {
+    if (!this.ticking) return
+    this.ticking = false
+    Ticker.shared.remove(this.tick)
+  }
+
+  destroy (): void {
+    this.stop()
+    this.host.off('added', this.start, this)
+    this.host.off('removed', this.stop, this)
+    super.destroy({ children: true })
+  }
+
+  /** Whether anything above would draw this: fogged, hidden or off its plane costs no pose. */
+  private shown (): boolean {
+    if (!this.visible || !this.renderable) return false
+    let o: DisplayObject | null = this.parent
+    while (o !== null) {
+      if (!o.visible || !o.renderable) return false
+      o = o.parent
+    }
+    return true
+  }
+
+  update (dt: number): void {
+    this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * this.pace : dt
+    this.flashLeft = Math.max(0, this.flashLeft - dt)
+    const action = this.action
+    if (action !== undefined) {
+      action.t += dt
+      const duration = this.npc.clips[action.clip].duration
+      const spawn = this.npc.roles.spawn
+      const done = action.role === 'spawn' && spawn !== undefined && this.moving && action.t >= spawn.ready
+      if (action.role !== 'death' && (action.t >= duration || done)) this.action = undefined
+    }
+    if (dt > 0 && !this.shown()) return
+
+    const playing = this.action
+    const roles = this.npc.roles
+    const clip = playing?.clip ?? (this.moving ? roles.move : roles.idle)
+    const t = playing === undefined ? this.baseTime : Math.min(Math.max(0, playing.t), this.npc.clips[playing.clip].duration)
+    const pose = this.npc.pose(clip, t, this.direction, playing?.aim, playing?.from)
+    if (playing === undefined) this.last = pose
+    if (pose.muzzle !== undefined) this.muzzle.set(pose.muzzle.x, pose.muzzle.y)
+    this.drawList(this.npc.draw(pose, { inPlace: true }))
+  }
+
+  private drawList (list: NpcDrawList): void {
+    const g = this.ground
+    g.clear()
+    for (const e of list.ground) {
+      if (e.alpha > 0) g.beginFill(e.color, e.alpha).drawEllipse(e.x, e.y, e.rx, e.ry).endFill()
+    }
+
+    const order: DisplayObject[] = []
+    let sprites = 0
+    let graphics = 0
+    let open: Graphics | undefined
+    const tint = this.flashLeft > 0 ? NpcSprite.HIT_TINT : 0xffffff
+    for (const item of list.items) {
+      if (item.kind === 'image') {
+        open = undefined
+        const sprite = this.sprites[sprites] ?? (this.sprites[sprites] = new Sprite())
+        this.place(sprite, item)
+        sprite.tint = tint
+        order.push(sprite)
+        if (this.cast !== undefined) {
+          const shade = this.castSprites[sprites] ?? (this.castSprites[sprites] = Object.assign(new Sprite(), { tint: 0x000000 }))
+          this.place(shade, item)
+        }
+        sprites++
+        continue
+      }
+      if (open === undefined) {
+        open = this.marks[graphics] ?? (this.marks[graphics] = new Graphics())
+        open.clear()
+        graphics++
+        order.push(open)
+      }
+      NpcSprite.drawMark(open, item)
+    }
+    const children = this.rig.children
+    if (children.length !== order.length || order.some((o, i) => children[i] !== o)) {
+      this.rig.removeChildren()
+      if (order.length > 0) this.rig.addChild(...order)
+    }
+    if (this.cast !== undefined) {
+      const shades = this.castSprites.slice(0, sprites)
+      const now = this.castRig.children
+      if (now.length !== shades.length || shades.some((s, i) => now[i] !== s)) {
+        this.castRig.removeChildren()
+        if (shades.length > 0) this.castRig.addChild(...shades)
+      }
+    }
+  }
+
+  /** The frame for an image: the art, or the band of it a clip cuts (the Crawler's shell sections, `body-<top row>`). */
+  private place (sprite: Sprite, item: NpcImage): void {
+    const name = `npc-${this.npc.key}/${item.art}${item.clip === undefined ? '' : `-${item.clip.y}`}.png`
+    const texture = Texture.from(name)
+    if (sprite.texture !== texture) sprite.texture = texture
+    const art = this.npc.arts[item.art]
+    const ox = item.clip?.x ?? 0
+    const oy = item.clip?.y ?? 0
+    // Stretch the frame, whatever its resolution, over the art (or band) it stands for.
+    const fx = (item.clip?.w ?? art.w) / texture.width
+    const fy = (item.clip?.h ?? art.h) / texture.height
+    const m = item.m
+    this.scratch.set(m.a * fx, m.b * fx, m.c * fy, m.d * fy, m.a * ox + m.c * oy + m.x, m.b * ox + m.d * oy + m.y)
+    sprite.transform.setFromMatrix(this.scratch)
+  }
+
+  private static drawMark (g: Graphics, mark: NpcMark): void {
+    if (mark.alpha <= 0) return
+    if (mark.kind === 'ellipse') {
+      if (mark.stroke !== undefined) g.lineStyle(mark.stroke, mark.color, mark.alpha).drawEllipse(mark.x, mark.y, mark.rx, mark.ry).lineStyle(0)
+      else g.beginFill(mark.color, mark.alpha).drawEllipse(mark.x, mark.y, mark.rx, mark.ry).endFill()
+      return
+    }
+    if (mark.kind === 'line') {
+      g.lineStyle({ width: mark.width, color: mark.color, alpha: mark.alpha, cap: LINE_CAP.ROUND, join: LINE_JOIN.ROUND })
+      g.moveTo(mark.points[0], mark.points[1])
+      for (let k = 2; k < mark.points.length; k += 2) g.lineTo(mark.points[k], mark.points[k + 1])
+      g.lineStyle(0)
+      return
+    }
+    if (mark.stroke !== undefined) g.lineStyle(mark.stroke.width, mark.stroke.color, mark.alpha)
+    g.beginFill(mark.color, mark.alpha).drawPolygon([...mark.points]).endFill().lineStyle(0)
+  }
+}

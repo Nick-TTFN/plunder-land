@@ -97,8 +97,10 @@ export default class Unit extends GameObject {
       this.shadow.y += this.animation.height / 3
     }
 
-    // A fixed width, wider for a boss so it reads as one at a glance.
-    this.hpBar = new UnitBar(archetype?.key === 'boss' ? 60 : 36, THEME.danger)
+    // A fixed width, wider for the top mobs so they read as such at a glance:
+    // Epic and Legendary (decision #51), and the retired boss an old server may still send.
+    const wide = archetype?.key === 'boss' || archetype?.rarity === 'epic' || archetype?.rarity === 'legendary'
+    this.hpBar = new UnitBar(wide ? 60 : 36, THEME.danger)
     this.hpBar.y = this.headY - UnitBar.HEIGHT - 6
     this.addChild(this.hpBar)
   }

@@ -14,7 +14,8 @@ import { Vector } from './utils/vector'
 import { Hex } from './utils/hex'
 import { archetypeById } from './utils/archetypes'
 import { PathMarker } from './ui/elements/pathmarker'
-import { ThreatMarker, threatRings, type Threat } from './ui/elements/threatmarker'
+import { ThreatMarker, type Threat } from './ui/elements/threatmarker'
+import { threatRingsOf } from './vfx/cells'
 import { Timer } from './ui/elements/timer'
 import { ExtractRing } from './ui/elements/extractring'
 import { Throwable, PROJECTILE } from './objects/throwable'
@@ -229,7 +230,13 @@ export class Game extends Container {
     this.mapSize = 4000
     Player.wallAt = (q, r, tag) => Game.WALLS.get(tag)?.has(Hex.key(q, r)) === true
 
+    // The NPC rigs' sheets (l1-8), in the background: a mob created before
+    // they land draws `mob/mob` (`Mob.initAnimation`, `NpcSprite.ready`).
+    void Assets.load(Game.NPC_SHEETS).catch((e) => { console.warn('NPC sheets did not load', e) })
   }
+
+  /** `tools/bake-npc-atlas.py` writes one per NPC rig (`src/npcs/npcrig.ts` `NPC_RIGS`). */
+  static readonly NPC_SHEETS = ['./res/npc-crawler.json', './res/npc-broodling.json']
 
   clear (): void {
     if (this.layers != null) {
@@ -1176,8 +1183,9 @@ export class Game extends Container {
   }
 
   /**
-   * The threat cells on the player's plane: every boss and gunner the player
-   * can see (not hidden by fog, not out of view), at the cell it is drawn on.
+   * The threat cells on the player's plane: every mob with a reach the player
+   * can see (not hidden by fog, not out of view), at the cell it is drawn on:
+   * a shot's range, or an NPC's attack cells (`threatRingsOf`).
    * Re-parented like the route marker.
    */
   updateThreatMarker (): void {
@@ -1190,7 +1198,9 @@ export class Game extends Container {
       if (layer !== undefined && marker.parent !== layer) layer.addChild(marker)
       for (const mob of Game.MOBS) {
         if (mob.tag !== Game.LOCAL.tag || mob.killed || !mob.visible || !mob.renderable) continue
-        const rings = threatRings(mob.archetype)
+        // An NPC's reach from its own attack cells (`attack` in the mirror), else its shot.
+        const a = mob.archetype
+        const rings = a === undefined ? 0 : threatRingsOf(a.key, a.kind, a.rangedCells, a.attack)
         if (rings > 0) threats.push({ cell: Hex.toCell(new Vector(mob.x, mob.y)), rings })
       }
     }
