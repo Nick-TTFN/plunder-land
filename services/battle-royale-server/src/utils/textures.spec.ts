@@ -22,7 +22,7 @@ import { join, relative } from 'node:path'
 
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client')
 const SRC = join(CLIENT, 'src')
-const ATLASES = ['assets/res/atlas.json', 'assets/res/hex.json', 'assets/res/ground.json', 'assets/res/arena.json', 'assets/res/blasts.json', 'assets/res/peep.json', 'assets/res/magnet.json', 'assets/res/peep-lobby.json', 'assets/res/magnet-lobby.json', 'assets/res/periscope.json', 'assets/res/periscope-lobby.json', 'assets/res/npc-crawler.json', 'assets/res/npc-broodling.json', 'assets/res/npc-reactor.json', 'assets/res/npc-compactor.json', 'assets/res/npc-fx.json'].map((f) => join(CLIENT, f))
+const ATLASES = ['assets/res/atlas.json', 'assets/res/hex.json', 'assets/res/ground.json', 'assets/res/arena.json', 'assets/res/blasts.json', 'assets/res/peep.json', 'assets/res/magnet.json', 'assets/res/peep-lobby.json', 'assets/res/magnet-lobby.json', 'assets/res/periscope.json', 'assets/res/periscope-lobby.json', 'assets/res/npc-crawler.json', 'assets/res/npc-broodling.json', 'assets/res/npc-reactor.json', 'assets/res/npc-compactor.json', 'assets/res/npc-fx.json', 'assets/res/npc-kiln.json', 'assets/res/npc-coil.json', 'assets/res/npc-brood.json'].map((f) => join(CLIENT, f))
 
 /**
  * Files nothing imports, whose names are known to be missing. Each must say

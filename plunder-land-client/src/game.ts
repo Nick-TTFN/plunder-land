@@ -246,7 +246,7 @@ export class Game extends Container {
   }
 
   /** `tools/bake-npc-atlas.py` writes one per NPC rig (`src/npcs/npcrig.ts` `NPC_RIGS`). */
-  static readonly NPC_SHEETS = ['./res/npc-crawler.json', './res/npc-broodling.json', './res/npc-reactor.json', './res/npc-compactor.json']
+  static readonly NPC_SHEETS = ['./res/npc-crawler.json', './res/npc-broodling.json', './res/npc-reactor.json', './res/npc-compactor.json', './res/npc-kiln.json', './res/npc-coil.json', './res/npc-brood.json']
 
   clear (): void {
     if (this.layers != null) {
@@ -884,6 +884,8 @@ export class Game extends Container {
     if (type === NPC_EFFECT.kilnLob || type === NPC_EFFECT.kilnBlast) {
       const blast = type === NPC_EFFECT.kilnBlast
       if (aimCell !== undefined) new KilnLobEffect(aimCell, Game.LOCAL.tag, blast, lifetime, blast ? undefined : target)
+      // Its rig's lob (l1-9), from the launch (lead 0): the marker comes at the server's cast.
+      if (!blast && target instanceof Mob) target.playAttack(0, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
       return
     }
 
@@ -891,6 +893,8 @@ export class Game extends Container {
     // to viewers on its layer, like the bomb. The Coil itself is not looked up.
     if (type === NPC_EFFECT.coilPulse) {
       if (aimCell !== undefined) new CoilPulseEffect(aimCell, Game.LOCAL.tag, lifetime)
+      // Its rig's charge (l1-9), sent at its start (alive, so the id is its own): the hold ends with the lifetime.
+      if (target instanceof Mob) target.playAttack(lifetime)
       return
     }
 
@@ -911,6 +915,8 @@ export class Game extends Container {
       // Its create came earlier in this flush (creates before effects): the
       // new Broodling emerges now, and only for a viewer who saw the release.
       if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME)
+      // Its rig's release (l1-9), from its launch (lead 0), as the Broodling emerges.
+      if (target instanceof Mob) target.playAttack(0, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
       return
     }
 

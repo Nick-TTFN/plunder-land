@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Bake an NPC's rig parts into `assets/res/npc-<npc>.png` + `npc-<npc>.json`
-(l1-8, decision #51): the Crawler and the Broodling; the Reactor and the
-Compactor since l1-9 (PROVISIONAL: their packages await Nick's art review,
-so expect to re-bake them).
+(l1-8, decision #51): the Crawler and the Broodling; the Reactor, the
+Compactor, the Kiln, the Coil and the Brood since l1-9 (PROVISIONAL: their
+packages await Nick's art review, so expect to re-bake them).
 
-    python3 tools/bake-npc-atlas.py <npc> [package-dir]    # crawler, broodling, reactor, compactor
+    python3 tools/bake-npc-atlas.py <npc> [package-dir]    # crawler, broodling, reactor, compactor, kiln, coil, brood
 
 The source is the NPC's Codex package, not checked in (like every art drop):
 `rig/parts.json` names each part's PNG (`art/<part>.png`, `parts/<part>.png`)
@@ -21,7 +21,7 @@ resampled once, from the full-size art, to the most it is ever drawn at:
 `RobotSprite.PEEP_HEIGHT` (53) over Peep's 245.5 reference units, a texel per
 device pixel on a 2x screen (the sheet is at scale 2). `SIZE_SCALE` is the
 NPC's `sizeScale` (Nick, 2026-10-07: Crawler 0.89, Broodling 0.94, Reactor
-2.11, Compactor 1.00): change both together.
+2.11, Compactor 1.00, Kiln 1.00, Coil 1.21, Brood 2.06): change both together.
 
 The units per pixel are the evaluators', and each is the largest the part
 reaches, so nothing is ever drawn bigger than its texture:
@@ -47,6 +47,14 @@ reaches, so nothing is ever drawn bigger than its texture:
   the joints 15 / 300; the piston parts 1 / 8; the shadows 1.305 x 1.219 and
   0.1313 x 0.1365. The shaft and the front legs' roots are cropped at draw
   time (`NpcSprite.cut`), from the whole part.
+- Kiln, Coil, Brood (l1-9): likewise the largest over every pose in their
+  fixtures (measured, 2026-10-07), rounded up. The Kiln's furnace atlases and
+  the Brood's lamp atlases are not baked: the ports draw them in code (see
+  their `rig.ts`), so only the Kiln's cold cavity (`furnace-off`) and shadow,
+  and the Brood's lens covers (`lowerOff`, `lowerDead`), come from the
+  packages' effect PNGs. The Kiln's parts are named by their PNG (its
+  `parts.json` lists bindings: `leg_-1_1_root` draws `upper`); the Brood's
+  PNG paths are relative to `rig/`.
 
 The Crawler's fall_apart splits its shell into three row bands of the body
 art (`SHELLS` in `src/npcs/crawler/rig.ts`); each band is its own frame,
@@ -139,6 +147,54 @@ NPCS = {
         },
         'bands': [],
     },
+    # PROVISIONAL (l1-9): kiln-v3, delivered 2026-10-07, not yet approved by Nick (v2 was).
+    'kiln': {
+        'package': 'npc-refinements/kiln-v3',
+        'size_scale': 1.0,
+        'parts': {
+            'base': (0.1365, 0.1399),
+            'canister': (0.1642, 0.1678),
+            'upper': (0.1266, 0.1266),
+            'lower': (0.1440, 0.1440),
+            'joint': (0.05, 0.0492),
+            'furnace-off': (0.3344, 0.3417),
+            'shadow': (0.5513, 0.6094),
+        },
+        'bands': [],
+    },
+    # PROVISIONAL (l1-9): coil-v5, delivered 2026-10-07, not yet approved by Nick (v4 was).
+    'coil': {
+        'package': 'npc-refinements/coil-v5',
+        'size_scale': 1.21,
+        'parts': {
+            **{part: (0.095, 0.095) for part in ['body', 'dark', 'heat', 'bloom']},
+            'upper': (0.0844, 0.0844),
+            'lower': (0.0972, 0.0972),
+            'foot': (0.0561, 0.0561),
+            'rearfoot': (0.0351, 0.0351),
+            'shadow': (0.25, 0.25),
+            'foot-shadow': (0.25, 0.25),
+            'rear-shadow': (0.25, 0.25),
+            'ring': (0.125, 0.125),
+            'ring-charge': (0.125, 0.125),
+            'local-glow': (0.125, 0.125),
+        },
+        'bands': [],
+    },
+    # PROVISIONAL (l1-9): brood-v15, delivered 2026-10-07, not yet approved by Nick (v14 was).
+    'brood': {
+        'package': 'npc-refinements/brood-v15',
+        'size_scale': 2.06,
+        'parts': {
+            'body': (0.145, 0.145),
+            'upper': (0.0761, 0.0761),
+            'lower': (0.0897, 0.0897),
+            'lowerOff': (0.0897, 0.0897),
+            'lowerDead': (0.0897, 0.0897),
+            'joint': (0.0429, 0.0437),
+        },
+        'bands': [],
+    },
 }
 
 
@@ -150,7 +206,13 @@ def bake():
     spec = NPCS[npc]
     source = args[0] if args else os.path.join(DROPS, spec['package'])
     parts = json.load(open(os.path.join(source, 'rig', 'parts.json')))
-    pngs = {p['id']: (p['png'], tuple(p['size'])) for p in parts['parts']}
+    # By id, and by the PNG's own name (the Kiln's ids are bindings).
+    pngs = {os.path.splitext(os.path.basename(p['png']))[0]: (p['png'], tuple(p['size'])) for p in parts['parts']}
+    pngs.update({p['id']: (p['png'], tuple(p['size'])) for p in parts['parts']})
+
+    def path_of(file):
+        # The Brood's paths are relative to `rig/parts.json`.
+        return os.path.normpath(os.path.join(source, 'rig', file) if file.startswith('../') else os.path.join(source, file))
     density = TEXELS_PER_UNIT * spec['size_scale']
     out_name = f'npc-{npc}'
     tiles = {}
@@ -174,12 +236,12 @@ def bake():
 
     for name in spec['parts']:
         file, size = pngs[name]
-        art = Image.open(os.path.join(source, file)).convert('RGBA')
+        art = Image.open(path_of(file)).convert('RGBA')
         if art.size != size:
             sys.exit(f'{file} is {art.size}, parts.json says {size}')
         add(name, art, (0, 0) + art.size, name)
     for name, top, rows in spec['bands']:
-        art = Image.open(os.path.join(source, pngs[name][0])).convert('RGBA')
+        art = Image.open(path_of(pngs[name][0])).convert('RGBA')
         add(f'{name}-{top}', art, (0, top, art.size[0], top + rows), name)
 
     frames, (sw, sh) = pack({n: t[0] for n, t in tiles.items()}, 256)

@@ -44,10 +44,23 @@
  * `NpcController` (not ported: the game plays the stateless clips) are left
  * out; extras from stateless run bases stand in for them.
  *
+ * The Kiln, the Coil and the Brood (l1-9, PROVISIONAL likewise) record
+ * through the options of `recorder` below: the Kiln's furnace and the
+ * Brood's lamps are PNG atlases in their packages, each frame a rasterised
+ * call of the package's own effect code (`fire.mjs` `drawFurnace`, the
+ * ember-less copy `bake-parts.mjs` makes; `bake-effects.mjs` `emission`);
+ * the ports draw those calls in code, so a frame drawn is recorded as that
+ * call, at the frame's parameters, through the frame's place (the Kiln's
+ * opacity carried into it). Curves are flattened (`ARC_STEPS`...). The
+ * Coil's offscreen mix of its body and cooled body is recorded as the port
+ * draws it, the cooled body over the body at its weight (the package's mix is
+ * checked to be exactly that pair first). The Kiln's lob projectile is the
+ * game's and is left out.
+ *
  * The art goes separately, through `tools/bake-npc-atlas.py`.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isDeepStrictEqual } from 'node:util'
 
@@ -58,7 +71,12 @@ const NPCS = {
   broodling: { pkg: 'npc-refinements/broodling-v3', module: 'broodling.mjs' },
   // PROVISIONAL (l1-9): delivered 2026-10-07, not yet approved by Nick.
   reactor: { pkg: 'npc-refinements/reactor-v6', module: 'reactor.mjs' },
-  compactor: { pkg: 'npc-refinements/compactor-v4', module: 'rig.mjs' }
+  compactor: { pkg: 'npc-refinements/compactor-v4', module: 'rig.mjs' },
+  // PROVISIONAL (l1-9): delivered 2026-10-07, not yet approved by Nick (kiln-v2, coil-v4 and brood-v14 were).
+  kiln: { pkg: 'npc-refinements/kiln-v3', module: 'kiln.mjs' },
+  coil: { pkg: 'npc-refinements/coil-v5', module: 'coil.mjs' },
+  // The portable copy in `rig/`, which exports its `art` and `effects` (`tools/brood.mjs` imports them).
+  brood: { pkg: 'npc-refinements/brood-v15', module: '../rig/brood.mjs' }
 }
 const key = process.argv[2]
 if (NPCS[key] === undefined) {
@@ -130,11 +148,12 @@ const mul = (p, q) => [p[0] * q[0] + p[2] * q[1], p[1] * q[0] + p[3] * q[1], p[0
  * stroke width. Fills that aren't plain colours (the sensor's gradients) and
  * the `skip` colours are left out.
  */
-function record (paint, artSizes, skip = [], { alpha = false } = {}) {
+function record (paint, artSizes, skip = [], { alpha = false, ...opts } = {}) {
   const images = []
   const marks = []
-  const ctx = recorder(images, marks, skip, alpha)
+  const ctx = recorder(images, marks, skip, alpha, null, opts)
   const imgs = Object.fromEntries(Object.entries(artSizes).map(([art, s]) => [art, { art, width: s.w, height: s.h }]))
+  opts.prepare?.(imgs)
   paint(ctx, imgs)
   return { images, marks }
 }
@@ -153,7 +172,25 @@ function surface (width, height) {
   return s
 }
 
-function recorder (images, marks, skip, withAlpha, owner = null) {
+/**
+ * `opts` (l1-9, the Kiln, the Coil and the Brood; none of it is used by the
+ * four NPCs before them, whose fixtures it leaves byte-identical):
+ * - `points`: every ellipse and arc is recorded as its points (`ARC_STEPS`
+ *   to a full turn, rotation and start/end angles honoured, through the
+ *   whole transform, shear included), cubic and quadratic curves as
+ *   `CUBIC_STEPS`/`QUAD_STEPS` points, and every fill as closed (Canvas
+ *   closes a filled path). The Kiln's port flattens the same way.
+ * - `atlas(img, args, ctx)`: called first on every drawImage; true means it
+ *   was dealt with (the furnace and lamp atlases are drawn as the package's
+ *   own code that baked them, the projectile left out, the Coil's mix).
+ * - `dropInvisible`: an image drawn at opacity 0 draws nothing and is left out.
+ * - `blendTag`: an image drawn with `screen` is tagged 'screen' (the Coil's bloom).
+ */
+export const ARC_STEPS = 32
+export const CUBIC_STEPS = 12
+export const QUAD_STEPS = 8
+
+function recorder (images, marks, skip, withAlpha, owner = null, opts = {}) {
   const fresh = () => ({ m: [1, 0, 0, 1, 0, 0], alpha: 1, lineWidth: 1, strokeStyle: '#000000', fillStyle: '#000000', clip: null, gco: 'source-over' })
   let cur = fresh()
   const stack = []
@@ -179,11 +216,19 @@ function recorder (images, marks, skip, withAlpha, owner = null) {
         continue
       }
       if (sub.points.length < 2) continue
-      head[1] = sub.closed === true ? 'c' : 'o'
+      head[1] = sub.closed === true || (opts.points === true && kind === 'fill') ? 'c' : 'o'
       marks.push([...head, sub.points.length / 2, ...thin(sub.points).map(round5)])
     }
   }
   const noop = () => {}
+  /** The current point, back through the current transform. */
+  const local = () => {
+    const s = current()
+    const [X, Y] = s.points.slice(-2)
+    const m = cur.m
+    const det = m[0] * m[3] - m[1] * m[2]
+    return [(m[3] * (X - m[4]) - m[2] * (Y - m[5])) / det, (m[0] * (Y - m[5]) - m[1] * (X - m[4])) / det]
+  }
   const ctx = {
     save: () => stack.push({ ...cur }),
     restore: () => { cur = stack.pop() },
@@ -195,11 +240,40 @@ function recorder (images, marks, skip, withAlpha, owner = null) {
     moveTo: (x, y) => { path.push({ points: apply(cur.m, x, y), scale: scaleOf(cur.m) }) },
     lineTo: (x, y) => { const s = current(); s.scale ??= scaleOf(cur.m); s.points.push(...apply(cur.m, x, y)) },
     closePath: () => { current().closed = true },
-    ellipse: (x, y, rx, ry) => {
+    ellipse: (x, y, rx, ry, rot = 0, start = 0, end = Math.PI * 2) => {
       const s = scaleOf(cur.m)
-      path.push({ ellipse: [...apply(cur.m, x, y), rx * s, ry * s], scale: s })
+      if (opts.points !== true) { path.push({ ellipse: [...apply(cur.m, x, y), rx * s, ry * s], scale: s }); return }
+      const span = end - start
+      const n = Math.max(1, Math.ceil(ARC_STEPS * span / (Math.PI * 2)))
+      const points = []
+      for (let k = 0; k <= n; k++) {
+        const t = start + span * k / n
+        const ex = rx * Math.cos(t)
+        const ey = ry * Math.sin(t)
+        points.push(...apply(cur.m, x + ex * Math.cos(rot) - ey * Math.sin(rot), y + ex * Math.sin(rot) + ey * Math.cos(rot)))
+      }
+      path.push({ points, scale: s })
     },
-    arc: (x, y, r) => { ctx.ellipse(x, y, r, r) },
+    arc: (x, y, r, start, end) => { if (opts.points === true) ctx.ellipse(x, y, r, r, 0, start, end); else ctx.ellipse(x, y, r, r) },
+    // The current point in the current transform's own coordinates (Canvas transforms each point when it is added).
+    bezierCurveTo: (c1x, c1y, c2x, c2y, x, y) => {
+      const [px, py] = local()
+      const s = current()
+      for (let k = 1; k <= CUBIC_STEPS; k++) {
+        const t = k / CUBIC_STEPS
+        const a = 1 - t
+        s.points.push(...apply(cur.m, a * a * a * px + 3 * a * a * t * c1x + 3 * a * t * t * c2x + t * t * t * x, a * a * a * py + 3 * a * a * t * c1y + 3 * a * t * t * c2y + t * t * t * y))
+      }
+    },
+    quadraticCurveTo: (cx, cy, x, y) => {
+      const [px, py] = local()
+      const s = current()
+      for (let k = 1; k <= QUAD_STEPS; k++) {
+        const t = k / QUAD_STEPS
+        const a = 1 - t
+        s.points.push(...apply(cur.m, a * a * px + 2 * a * t * cx + t * t * x, a * a * py + 2 * a * t * cy + t * t * y))
+      }
+    },
     rect: (x, y, w, h) => { rect = { x, y, w, h } },
     clip: () => { cur.clip = rect },
     fill: () => emit('fill'),
@@ -210,6 +284,8 @@ function recorder (images, marks, skip, withAlpha, owner = null) {
     setTransform: (a, b, c, d, e, f) => { cur.m = [a, b, c, d, e, f] },
     clearRect: () => { images.length = 0; if (owner !== null) owner.mask = null },
     drawImage: (img, ...args) => {
+      if (opts.atlas !== undefined && opts.atlas(img, args, ctx)) return
+      if (opts.dropInvisible === true && cur.alpha === 0) return
       let x, y, w, h
       let clip = cur.clip === null ? null : [cur.clip.x, cur.clip.y, cur.clip.w, cur.clip.h]
       if (args.length === 8) {
@@ -242,7 +318,7 @@ function recorder (images, marks, skip, withAlpha, owner = null) {
       const pts = []
       for (const [u, v] of [[x, y], [x + w, y], [x, y + h]]) pts.push(...apply(cur.m, u, v).map(owner === null ? round5 : (n) => n))
       const entry = [img.art, clip, ...pts]
-      if (withAlpha) entry.push(owner === null ? round5(cur.alpha) : cur.alpha, '')
+      if (withAlpha) entry.push(owner === null ? round5(cur.alpha) : cur.alpha, opts.blendTag === true && cur.gco === 'screen' ? 'screen' : '')
       if (owner !== null && cur.gco === 'destination-in') owner.mask = entry
       else images.push(entry)
     }
@@ -371,6 +447,154 @@ if (key === 'crawler') {
   for (const t of [0.1, 0.36, 0.6]) take('hit', t, { base: run })
   for (const t of [0.1, 0.5, 1.4, 2.8]) take('fall_apart', t, { base: run })
   for (const t of [0.3, 2.8]) take('fall_apart', t, { base: { clip: 'fire', time: 1.215, options: {} } })
+} else if (key === 'kiln') {
+  const fire = await import(pathToFileURL(join(pkg, 'tools', 'fire.mjs')).href)
+  // The bank without embers, made as the package's own bake makes it (`tools/bake-parts.mjs`).
+  const source = readFileSync(join(pkg, 'tools', 'fire.mjs'), 'utf8')
+  const EMBERS = 'for(const [i,start]of [.65,.72].entries())'
+  if (!source.includes(EMBERS)) throw Error('fire.mjs: the ember loop the clean bank leaves out has changed')
+  // eslint-disable-next-line no-new-func
+  const clean = new Function(source.replace(/export /g, '').replace(EMBERS, 'for(const [i,start]of [].entries())') + ';return drawFurnace;')()
+  // `bake-parts.mjs`'s `identity`: drawFurnace's own transform undone, so it draws in the furnace's units.
+  const IDENTITY = { a: 55 / 336, b: 0, c: 0, d: 55 / 336, x: -168 * 55 / 336, y: -91 * 55 / 336 }
+  const atlas = (img, args, ctx) => {
+    if (img.art === 'projectile') return true
+    const bank = /^furnace-(legacy|clean)-(\d)$/.exec(img.art)
+    if (bank === null) return false
+    const [sx, sy, sw, sh, dx, dy, dw, dh] = args
+    if (args.length !== 8 || sw !== 144 || sh !== 192 || dx !== -24 || dy !== -52 || dw !== 48 || dh !== 64) throw Error(`a furnace frame drawn otherwise: ${args}`)
+    const frame = sy / 192 * 12 + sx / 144
+    // The frame is drawn at the furnace's life: every opacity inside it is multiplied by it.
+    const life = ctx.globalAlpha
+    const at = new Proxy(ctx, {
+      get: (t, k) => k === 'globalAlpha' ? t.globalAlpha / life : t[k],
+      set: (t, k, v) => { if (k === 'globalAlpha') t.globalAlpha = v * life; else t[k] = v; return true }
+    })
+    ;(bank[1] === 'clean' ? clean : fire.drawFurnace)(at, IDENTITY, { state: { animation: { name: 'idle', time: frame / 30 }, fireTime: frame / 30, presence: { charge: +bank[2] / 8 } } })
+    return true
+  }
+  const arts = Object.fromEntries(parts.parts.map((p) => [basename(p.png, '.png'), { w: p.size[0], h: p.size[1] }]))
+  const build = (b) => rig.animationPose(b.clip, b.time, b.options)
+  const take = (name, time, options) => {
+    const pose = rig.animationPose(name, time, withBase(options, build))
+    const drawn = record((ctx, images) => rig.drawPose(ctx, images, pose, 0, 0, 1), arts, [], { alpha: true, points: true, atlas })
+    const [paths, values] = flatten(pose.state)
+    out.push({ name, time, options, shape: shapeOf(paths), values, ...drawn })
+  }
+  for (const s of samples.samples) {
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(rig.animationPose(s.name, s.time, s.options).state)), s.state)) throw Error(`the package's module no longer gives its sample: ${s.name} ${s.time}`)
+    take(s.name, s.time, s.options)
+  }
+  // The game's own use: a run any way, the idle's toe lift, the lob aimed
+  // from a run on the furnace's own clock, a hit from a run, and the fall
+  // apart from a run and from the launch.
+  for (const [x, y] of [[1, 0], [-0.6, 0.8], [0.7, -0.7]]) for (const t of [0.2, 0.9]) take('run', t, { directionX: x, directionY: y })
+  for (const t of [5.5, 5.9]) take('idle', t, {})
+  const run = { clip: 'run', time: 0.47, options: { directionX: 1, directionY: 0 } }
+  for (const t of [0, 0.3, 0.58, 1.0, 1.7]) take('fire', t, { aimX: -1, aimY: 0.3, base: run, fireTime: 12.34 + t })
+  for (const t of [0.05, 0.2, 0.5]) take('hit', t, { base: run })
+  for (const t of [0.1, 0.3, 1, 2.8]) take('fall_apart', t, { base: run })
+  for (const t of [0.3, 2.8]) take('fall_apart', t, { base: { clip: 'fire', time: 0.58, options: { aimX: -1, aimY: 0.3 } } })
+  // The furnace in its ember window (phase 0.65-0.9: an idle 4.4 s in): the
+  // idle draws them, the hit and the fall apart (the bank without) don't.
+  const embers = { clip: 'idle', time: 4.4, options: {} }
+  take('idle', 4.5, {})
+  for (const t of [0.05, 0.1]) { take('hit', t, { base: embers }); take('fall_apart', t, { base: embers }) }
+} else if (key === 'coil') {
+  // The offscreen mix (`cooledBody`), recorded as what it is drawn from, checked to be exactly the pair the port draws.
+  let imgs = null
+  const prepare = (i) => {
+    imgs = i
+    const draws = []
+    const mctx = { globalAlpha: 1, globalCompositeOperation: 'source-over', clearRect: () => { draws.length = 0 }, drawImage: (img) => { draws.push([img.art, mctx.globalAlpha, mctx.globalCompositeOperation]) } }
+    i._mix = { mix: true, width: 1536, height: 1024, draws, getContext: () => mctx }
+  }
+  const atlas = (img, args, ctx) => {
+    if (img.mix !== true) return false
+    const [[a, wa, ca], [b, k, cb]] = img.draws
+    if (img.draws.length !== 2 || a !== 'body' || b !== 'dark' || ca !== 'source-over' || cb !== 'lighter' || wa !== 1 - k) throw Error(`the cooled body's mix has changed: ${JSON.stringify(img.draws)}`)
+    const [x, y, w, h] = args
+    const alpha = ctx.globalAlpha
+    ctx.drawImage(imgs.body, x, y, w, h)
+    ctx.globalAlpha = alpha * k
+    ctx.drawImage(imgs.dark, x, y, w, h)
+    ctx.globalAlpha = alpha
+    return true
+  }
+  const build = (b) => rig.pose(b.time, b.options)
+  /** How the port makes a base pose: `basePose` at a time, a mode and maybe a direction; checked against the sample's. */
+  const describe = (b) => {
+    for (const options of [{ mode: b.mode }, { mode: b.mode, direction: { x: 1, y: 0 } }]) {
+      if (isDeepStrictEqual(JSON.parse(JSON.stringify(build({ time: b.time, options }))), JSON.parse(JSON.stringify(b)))) return { time: b.time, options }
+    }
+    throw Error(`no stateless base for ${b.mode} ${b.time}`)
+  }
+  const take = (name, time, options) => {
+    const state = rig.pose(time, options.base === undefined ? options : { mode: options.mode, basePose: build(options.base) })
+    const drawn = record((ctx, images) => rig.drawCoil(ctx, images, state, 0, 0, 1), artSizes, [], { alpha: true, dropInvisible: true, blendTag: true, prepare, atlas })
+    const [paths, values] = flatten(state)
+    out.push({ name, time, options, shape: shapeOf(paths), values, ...drawn })
+  }
+  for (const s of samples.samples) {
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(rig.pose(s.time, s.options))), s.state)) throw Error(`the package's module no longer gives its sample: ${s.name} ${s.time}`)
+    take(s.name, s.time, s.options.basePose === undefined ? s.options : { mode: s.options.mode, base: describe(s.options.basePose) })
+  }
+  // The game's own use: a move any way, a hit from a diagonal move, and the
+  // fall apart from the hold and from a move.
+  for (const [x, y] of [[-0.6, 0.8], [0.7, -0.7], [0, -1], [-1, 0]]) for (const t of [0.3, 1.1]) take('move', t, { mode: 'move', direction: { x, y } })
+  const move = { time: 0.4, options: { mode: 'move', direction: { x: -0.6, y: 0.8 } } }
+  for (const t of [0.1, 0.3]) take('hit', t, { mode: 'hit', base: move })
+  for (const t of [0.1, 0.3, 1, 2.8]) take('fall_apart', t, { mode: 'fall_apart', base: move })
+  for (const t of [0.2, 2.8]) take('fall_apart', t, { mode: 'fall_apart', base: { time: 2.1, options: { mode: 'charge' } } })
+} else if (key === 'brood') {
+  // The lamps' emission as the package's bake draws each atlas frame (`tools/bake-effects.mjs`).
+  const bake = readFileSync(join(pkg, 'tools', 'bake-effects.mjs'), 'utf8')
+  const from = bake.indexOf('const poly=')
+  const to = bake.indexOf('for(const [i,ps]of')
+  if (from < 0 || to < from) throw Error('bake-effects.mjs: emission() not where it was')
+  // eslint-disable-next-line no-new-func
+  const { emission } = new Function(bake.slice(from, to) + ';return { poly, emission };')()
+  const lamps = [...rig.art.body.lamps, rig.art.lower.lamp]
+  const atlas = (img, args, ctx) => {
+    const lamp = /^light(\d)$/.exec(img.art)
+    if (lamp === null) return false
+    const fx = rig.effects[img.art]
+    const [sx, sy, sw, sh, dx, dy, dw, dh] = args
+    if (args.length !== 8 || sw !== fx.w || sh !== fx.h || dx !== fx.x || dy !== fx.y || dw !== fx.w || dh !== fx.h) throw Error(`a lamp frame drawn otherwise: ${args}`)
+    const n = sy / fx.h * fx.columns + sx / fx.w
+    ctx.save()
+    emission(ctx, lamps[+lamp[1]], n / 256)
+    ctx.restore()
+    return true
+  }
+  const build = (b) => rig.sample(b.clip, b.time, b.options)
+  /** How the port makes a captured pose: `sample` of a clip at a time on a clock; checked against the sample's. */
+  const describe = (b) => {
+    const base = { clip: b.clip, time: b.time, options: { clock: b.clock, seed: b.seed, direction: b.direction } }
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(build(base))), JSON.parse(JSON.stringify(b)))) throw Error(`no stateless base for ${b.clip} ${b.time}`)
+    return base
+  }
+  const take = (name, time, options) => {
+    const { base, ...rest } = options
+    const state = rig.evaluatePose(name, time, base === undefined ? rest : { ...rest, fromPose: build(base) })
+    const drawn = record((ctx, images) => rig.drawBrood(ctx, images, state, 0, 0, 1), artSizes, [], { alpha: true, atlas })
+    const [paths, values] = flatten(state)
+    out.push({ name, time, options, shape: shapeOf(paths), values, ...drawn })
+  }
+  for (const s of samples.samples) {
+    if (!isDeepStrictEqual(JSON.parse(JSON.stringify(rig.evaluatePose(s.name, s.time, s.options))), s.state)) throw Error(`the package's module no longer gives its sample: ${s.name} ${s.time}`)
+    const { fromPose, ...rest } = s.options
+    take(s.name, s.time, fromPose === undefined ? rest : { ...rest, base: describe(fromPose) })
+  }
+  // The game's own use: a move any way on a running clock, the release on a
+  // clock, a hit from a diagonal move, and the death from the release, from a
+  // hit and from a move.
+  for (let i = 1; i < 8; i += 2) for (const t of [0.3, 1.7]) take('move', t, { direction: { x: Math.cos(i * Math.PI / 4), y: Math.sin(i * Math.PI / 4) }, clock: 40.2 + t })
+  for (const t of [0.05, 0.18, 0.5, 1.1]) take('spawn', t, { clock: 17.3 + t })
+  const move = { clip: 'move', time: 0.9, options: { direction: { x: -0.6, y: 0.8 }, clock: 33.1 } }
+  for (const t of [0.1, 0.4]) take('hit', t, { base: move })
+  for (const t of [0.1, 0.5, 2.8]) take('death', t, { base: { clip: 'spawn', time: 0.3, options: { clock: 9 } } })
+  for (const t of [0.1, 0.9]) take('death', t, { base: move })
 } else {
   const take = (name, time, options) => {
     const state = rig.sample(name, time, options)
@@ -399,5 +623,7 @@ for (const sample of out) {
   else last = sample.regions
 }
 const paths = [...shapes.keys()].map((sig) => sig.split(' '))
-writeFileSync(file, JSON.stringify({ package: pkg.split('/codex_output/').pop(), tolerance: samples.tolerance, manifest: manifest.clips, deathHolds: manifest.deathHolds, paths, samples: out }) + '\n')
+// The Kiln's curves are flattened (`points`): the spec holds the port's steps to these.
+const flattening = key === 'kiln' ? { flattening: { arc: ARC_STEPS, cubic: CUBIC_STEPS, quad: QUAD_STEPS } } : {}
+writeFileSync(file, JSON.stringify({ package: pkg.split('/codex_output/').pop(), tolerance: samples.tolerance, manifest: manifest.clips, deathHolds: manifest.deathHolds, ...flattening, paths, samples: out }) + '\n')
 console.log(`${key}: ${out.length} poses (${samples.samples.length} from the package), ${Math.round(readFileSync(file).length / 1024)} KB`)

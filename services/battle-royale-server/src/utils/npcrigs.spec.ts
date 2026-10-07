@@ -11,6 +11,10 @@ import * as crawler from '../../../../plunder-land-client/src/npcs/crawler/rig'
 import * as broodling from '../../../../plunder-land-client/src/npcs/broodling/rig'
 import * as reactor from '../../../../plunder-land-client/src/npcs/reactor/rig'
 import * as compactor from '../../../../plunder-land-client/src/npcs/compactor/rig'
+import * as kiln from '../../../../plunder-land-client/src/npcs/kiln/rig'
+import * as coil from '../../../../plunder-land-client/src/npcs/coil/rig'
+import * as brood from '../../../../plunder-land-client/src/npcs/brood/rig'
+import { COIL_PULSE } from '../../../../plunder-land-client/src/vfx/coilfield'
 import { NPC_RIGS, attackLead, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
 
@@ -37,6 +41,12 @@ import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archet
  * entries carry the opacity and a tag ('' drawn, 'in' seen through the mask,
  * 'mask' the Reactor's aperture), and a sample's `base` says how to make the
  * pose an action starts from.
+ *
+ * The Kiln, the Coil and the Brood (l1-9, PROVISIONAL likewise): the Kiln's
+ * flame and the Brood's lamps, baked to atlases in their packages, are
+ * recorded as the package's own code that baked each frame and drawn by the
+ * ports as shapes (the Kiln's curves flattened as the sync tool does:
+ * `flattening`); the Coil's bloom is tagged 'screen'.
  */
 
 type Leaf = number | string | boolean
@@ -56,6 +66,7 @@ interface Sample {
 
 interface Fixtures {
   package: string
+  flattening?: { arc: number, cubic: number, quad: number }
   tolerance: number
   manifest: Record<string, { duration: number, loop: boolean, events: Array<{ time: number, name: string }> }>
   deathHolds: boolean
@@ -116,7 +127,8 @@ function drawn (list: NpcDrawList, arts: NpcRig['arts']): { images: Image[], mar
   }
   for (const item of [...list.ground, ...list.items]) {
     if (item.kind === 'image') {
-      image(item, '')
+      // An image the package composites differently carries it as its tag (the Coil's bloom, 'screen').
+      image(item, item.blend ?? '')
       continue
     }
     if (item.kind === 'masked') {
@@ -178,8 +190,10 @@ function checkManifest (rig: NpcRig, f: Fixtures): void {
   for (const role of [rig.roles.idle, rig.roles.move, rig.roles.attack?.clip, rig.roles.hit, rig.roles.death?.clip, rig.roles.spawn?.clip, rig.roles.prime?.clip]) {
     if (role !== undefined) assert.ok(rig.clips[role] !== undefined, `role clip ${role}`)
   }
-  // An attack is held to the clip's own event of that name.
-  if (rig.roles.attack !== undefined) assert.ok(rig.clips[rig.roles.attack.clip].events.some((e) => e.time === rig.roles.attack!.event), 'attack event')
+  // An attack is held to the clip's own event of that name. The Coil's charge
+  // names none (its package invents none): its moment is the hold's end, held
+  // to the package's phases in its own test below.
+  if (rig.roles.attack !== undefined && rig.key !== 'coil') assert.ok(rig.clips[rig.roles.attack.clip].events.some((e) => e.time === rig.roles.attack!.event), 'attack event')
 }
 
 test('crawler: the clip table is the package manifest\'s', () => {
@@ -323,6 +337,166 @@ test('the Reactor\'s activation rides the idle clock it started from', () => {
   const charge = reactor.REACTOR_RIG.pose('activate', 0, { x: 0, y: 1 }, undefined, idle).state as reactor.ReactorState
   assert.ok(Math.abs(charge.bob - (idle.state as reactor.ReactorState).bob) < 1e-12)
   assert.equal(charge.time, 2.25)
+})
+
+test('kiln: the clip table is the package manifest\'s', () => {
+  checkManifest(kiln.KILN_RIG, load('kiln'))
+})
+
+test('kiln: the port matches the package on every sampled pose, its flame included', () => {
+  const f = load('kiln')
+  assert.ok(f.samples.length >= 157, 'every package sample and the extras')
+  for (const name of ['reference', 'idle', 'run', 'fire', 'hit', 'fall_apart']) assert.ok(f.samples.some((s) => s.name === name), name)
+  // The port flattens curves as the sync tool recorded them.
+  assert.deepEqual(f.flattening, { arc: kiln.ARC_STEPS, cubic: kiln.CUBIC_STEPS, quad: kiln.QUAD_STEPS })
+  // Flames from both banks are in the fixtures (the hit's and the death's have no embers).
+  assert.ok(f.samples.some((s) => s.name === 'idle' && s.marks.length > 8), 'an idle flame')
+  assert.ok(f.samples.some((s) => s.name === 'fall_apart' && s.time >= 0.42 && s.marks.length === 0), 'a furnace out')
+  // Embers in the ember window from the idle's bank, never from the hit's and the death's (v3's clean bank).
+  const embers = (s: Sample): boolean => s.marks.some((m) => m[2] === 0xffa342 || m[2] === 0xffd97b)
+  assert.ok(f.samples.some((s) => s.name === 'idle' && embers(s)), 'an idle with embers')
+  assert.ok(f.samples.some((s) => s.name === 'hit' && (s.options.base as { time?: number } | undefined)?.time === 4.4), 'a hit in the ember window')
+  assert.ok(!f.samples.some((s) => (s.name === 'hit' || s.name === 'fall_apart') && embers(s)), 'no embers on a hit or a death')
+  for (const s of f.samples) {
+    const where = `kiln ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    const { base, ...rest } = s.options as { base?: { clip: string, time: number, options: kiln.KilnOptions } } & kiln.KilnOptions
+    const pose = kiln.animationPose(s.name, s.time, base === undefined ? rest : { ...rest, basePose: kiln.animationPose(base.clip, base.time, base.options) })
+    checkState(pose.state, f, s, where)
+    checkDrawing(kiln.draw(pose), kiln.KILN_RIG.arts, s, where)
+  }
+})
+
+test('coil: the clip table is the package manifest\'s', () => {
+  checkManifest(coil.COIL_RIG, load('coil'))
+})
+
+test('coil: the port matches the package on every sampled pose', () => {
+  const f = load('coil')
+  assert.ok(f.samples.length >= 159, 'every package sample and the extras')
+  for (const name of ['idle', 'move', 'charge', 'hit', 'fall_apart']) assert.ok(f.samples.some((s) => s.name === name), name)
+  assert.ok(f.samples.some((s) => s.images.some((i) => i[9] === 'screen')), 'a bloom drawn with screen')
+  assert.ok(f.samples.some((s) => s.images.some((i) => i[0] === 'dark' && (i[8] as number) > 0 && (i[8] as number) < 1)), 'a cooled body mixed over the body')
+  for (const s of f.samples) {
+    const where = `coil ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    const { base, mode } = s.options as { base?: { time: number, options: coil.CoilOptions }, mode?: string } & coil.CoilOptions
+    const state = base === undefined
+      ? coil.basePose(s.time, s.options as coil.CoilOptions)
+      : coil.actionPose(mode as 'hit' | 'fall_apart', s.time, coil.basePose(base.time, base.options))
+    checkState(state, f, s, where)
+    checkDrawing(coil.draw(state), coil.COIL_RIG.arts, s, where)
+  }
+})
+
+test('brood: the clip table is the package manifest\'s', () => {
+  checkManifest(brood.BROOD_RIG, load('brood'))
+})
+
+test('brood: the port matches the package on every sampled pose, its lamps included', () => {
+  const f = load('brood')
+  assert.ok(f.samples.length >= 134, 'every package sample and the extras')
+  for (const name of ['idle', 'move', 'spawn', 'hit', 'death']) assert.ok(f.samples.some((s) => s.name === name), name)
+  // A lamp's core shows only above 0.6 (the release lights them all).
+  assert.ok(f.samples.some((s) => s.marks.some((m) => m[2] === 0xfff8c2)), 'a lamp at full')
+  for (const s of f.samples) {
+    const where = `brood ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    const { base, ...rest } = s.options as { base?: { clip: string, time: number, options: brood.BroodOptions } } & brood.BroodOptions
+    const state = brood.evaluatePose(s.name, s.time, base === undefined ? rest : { ...rest, fromPose: brood.sample(base.clip, base.time, base.options) })
+    checkState(state, f, s, where)
+    checkDrawing(brood.draw(state), brood.BROOD_RIG.arts, s, where)
+  }
+})
+
+// l1-9: the Kiln's lob, the Coil's charge and the Brood's release against
+// their effects. The Kiln's 9 comes at the server's cast (the launch): the
+// clip starts on its `attack` event. The Coil's 13 comes at the charge's
+// start with tell + hold as its lifetime: the clip starts at 0, the hold
+// ending with the server's field. The Brood's 19 comes with the release, on
+// which the Broodling emerges: the clip starts on its `spawn` event.
+test('the Kiln launches on effect 9, the Coil holds its field with the server\'s and the Brood launches on effect 19', () => {
+  const wire = (ms: number): number => Multiplayer.effectLifetime(ms) * 100
+  const lob = kiln.KILN_RIG.roles.attack!
+  assert.equal(lob.clip, 'fire')
+  assert.equal(lob.event, kiln.LAUNCH)
+  assert.deepEqual(kiln.CLIPS.fire.events, [{ time: kiln.LAUNCH, name: 'attack' }])
+  assert.equal(lob.event - attackLead(lob.event, 0), kiln.LAUNCH, 'started on the launch')
+  const k = ARCHETYPES.kiln
+  assert.ok(k.skills.length > 0)
+
+  const field = ARCHETYPES.coil.routines.find((r) => r.kind === 'coilField') as Extract<RoutineSpec, { kind: 'coilField' }>
+  const charge = coil.COIL_RIG.roles.attack!
+  assert.equal(charge.clip, 'charge')
+  assert.equal(charge.event * 1000, field.tellMs + field.holdMs, 'the hold ends with the field')
+  assert.equal(COIL_PULSE.tellMs + COIL_PULSE.holdMs, field.tellMs + field.holdMs)
+  // The package's own phases: the tell (gather and release) to 1.5 s, the hold to 3.0 s.
+  assert.equal(coil.basePose(field.tellMs / 1000 - 0.001, { mode: 'charge' }).phaseName, 'Release')
+  assert.equal(coil.basePose(field.tellMs / 1000, { mode: 'charge' }).phaseName, 'Hold / white-hot')
+  assert.equal(coil.basePose(charge.event - 0.001, { mode: 'charge' }).phaseName, 'Hold / white-hot')
+  assert.equal(coil.basePose(charge.event, { mode: 'charge' }).phaseName, 'Cool / settle')
+  // 3000 ms arrives as 3000: the clip starts at 0.
+  assert.equal(charge.event - attackLead(charge.event, wire(field.tellMs + field.holdMs)), 0)
+  // The clip (4.2 s) outlasts the plant (tell + hold + cool, 3.7 s) only by its idle tail.
+  assert.equal(coil.basePose(field.tellMs / 1000 + field.holdMs / 1000 + field.coolMs / 1000, { mode: 'charge' }).phaseName, 'Idle')
+
+  const release = ARCHETYPES.brood.routines.find((r) => r.kind === 'brood') as Extract<RoutineSpec, { kind: 'brood' }>
+  const spawn = brood.BROOD_RIG.roles.attack!
+  assert.equal(spawn.clip, 'spawn')
+  assert.equal(spawn.event, brood.SPAWN_EVENT)
+  assert.deepEqual(brood.CLIPS.spawn.events, [{ name: 'spawn', time: brood.SPAWN_EVENT }])
+  assert.equal(brood.CLIPS.spawn.duration * 1000, release.releaseMs, 'effect 19\'s lifetime is the clip')
+  assert.equal(spawn.event - attackLead(spawn.event, 0), brood.SPAWN_EVENT, 'started on the launch')
+})
+
+// All three packages reject a hit over their attack and ask for the gait to
+// wait while a hit plays; all three fall apart from the pose shown.
+test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the gait on a hit and die from the pose shown', () => {
+  for (const rig of [kiln.KILN_RIG, coil.COIL_RIG, brood.BROOD_RIG]) {
+    assert.equal(rig.roles.attack?.refusesHit, true, rig.key)
+    assert.equal(rig.roles.holdGaitOnHit, true, rig.key)
+    assert.equal(rig.roles.death?.fromAction, true, rig.key)
+    assert.equal(rig.roles.death?.from, 0, rig.key)
+  }
+  const down = { x: 0, y: 1 }
+  // Deaths from an attack's pose.
+  const lob = kiln.KILN_RIG.pose('fire', 0.6, down, { x: 1, y: 0 })
+  assert.equal((kiln.KILN_RIG.pose('fall_apart', 2.8, down, undefined, lob).state as kiln.KilnPose).state.detached, true)
+  const hold = coil.COIL_RIG.pose('charge', 2.1, down)
+  assert.equal((coil.COIL_RIG.pose('fall_apart', 2.8, down, undefined, hold).state as coil.CoilState).settled, true)
+  const spawn = brood.BROOD_RIG.pose('spawn', 0.3, down)
+  assert.equal((brood.BROOD_RIG.pose('death', 2.8, down, undefined, spawn).state as brood.BroodState).settled, true)
+  // A hit ends on the pose it began from (the gait waits for it).
+  const idle = kiln.KILN_RIG.pose('idle', 0.7, down)
+  assert.deepEqual((kiln.KILN_RIG.pose('hit', 0.7, down, undefined, idle).state as kiln.KilnPose).state.legs, (idle.state as kiln.KilnPose).state.legs)
+  const move = coil.COIL_RIG.pose('move', 0.4, { x: -0.6, y: 0.8 })
+  const coilHit = (t: number): coil.CoilState => coil.COIL_RIG.pose('hit', t, down, undefined, move).state as coil.CoilState
+  assert.deepEqual(coilHit(0.72).legs.map((l) => l.knee), (move.state as coil.CoilState).legs.map((l) => l.knee))
+  // A Coil dying during a hit starts from the hit's source, exactly.
+  assert.deepEqual(coil.hitSource(coilHit(0.3)), move.state)
+  // The rigs never throw for a hit over their attack (the sprite never asks; a frame must not die).
+  assert.doesNotThrow(() => kiln.KILN_RIG.pose('hit', 0.3, down, undefined, lob))
+  assert.doesNotThrow(() => coil.COIL_RIG.pose('hit', 0.3, down, undefined, hold))
+  assert.doesNotThrow(() => brood.BROOD_RIG.pose('hit', 0.3, down, undefined, spawn))
+})
+
+// The Kiln's furnace and the Brood's lamps run on the sprite's clock
+// (`NpcPoseOptions.clock`), not the clip's, as their packages ask.
+test('the Kiln\'s furnace and the Brood\'s lamps run on the clock they are given', () => {
+  const down = { x: 0, y: 1 }
+  const furnace = (clip: string, clock?: number): number => (kiln.KILN_RIG.pose(clip, 0.5, down, undefined, undefined, clock === undefined ? undefined : { clock }).state as kiln.KilnPose).state.fireTime
+  // The idle's own seconds, wrapped to its 8.4 s loop.
+  assert.ok(Math.abs(furnace('idle') - 0.5) < 1e-12)
+  assert.equal(furnace('idle', 37.25), 37.25)
+  assert.equal(furnace('run', 37.25), 37.25)
+  assert.equal(furnace('fire', 37.25), 37.25)
+  // The hit and the death carry on from the pose they start from.
+  const idle = kiln.KILN_RIG.pose('idle', 0.5, down, undefined, undefined, { clock: 20 })
+  assert.equal((kiln.KILN_RIG.pose('hit', 0.3, down, undefined, idle).state as kiln.KilnPose).state.fireTime, 20.3)
+  // A different clock is a different flame frame.
+  const frame = (clock: number): number => kiln.furnaceFrame(kiln.KILN_RIG.pose('idle', 0.5, down, undefined, undefined, { clock }).state as kiln.KilnPose).frame
+  assert.notEqual(frame(1), frame(3))
+  const lights = (clock?: number): number[] => (brood.BROOD_RIG.pose('idle', 0.5, down, undefined, undefined, clock === undefined ? undefined : { clock }).state as brood.BroodState).lights
+  assert.deepEqual(lights(), brood.sample('idle', 0.5).lights)
+  assert.deepEqual(lights(81.5), brood.sample('idle', 0.5, { clock: 81.5 }).lights)
+  assert.notDeepEqual(lights(81.5), lights())
 })
 
 test('every NPC rig is keyed by a mob in the mirror, with a sheet name the bake writes', () => {

@@ -3,6 +3,9 @@ import { CRAWLER_RIG } from './crawler/rig'
 import { BROODLING_RIG } from './broodling/rig'
 import { REACTOR_RIG } from './reactor/rig'
 import { COMPACTOR_RIG } from './compactor/rig'
+import { KILN_RIG } from './kiln/rig'
+import { COIL_RIG } from './coil/rig'
+import { BROOD_RIG } from './brood/rig'
 
 /**
  * What `NpcSprite` needs to draw one NPC (l1-8, decision #51): the sibling of
@@ -22,7 +25,7 @@ import { COMPACTOR_RIG } from './compactor/rig'
  */
 export interface NpcRig {
   /** The key in the mirror (`utils/archetypes.ts`), and its sheet `npc-<key>.json` (`tools/bake-npc-atlas.py`). */
-  readonly key: 'crawler' | 'broodling' | 'reactor' | 'compactor'
+  readonly key: 'crawler' | 'broodling' | 'reactor' | 'compactor' | 'kiln' | 'coil' | 'brood'
   /** Every clip, from the package's `rig/animation-manifest.json` (`npcrigs.spec.ts` checks the table against it). */
   readonly clips: Readonly<Record<string, NpcClip>>
   /**
@@ -97,6 +100,12 @@ export interface NpcRoles {
 export interface NpcPoseOptions {
   /** The Broodling's cord length, 0.25-2 times its default (`sample`'s `fuseLength`); undefined is the default. */
   readonly fuseLength?: number
+  /**
+   * Seconds the sprite has lived, a clock that never resets with the clip
+   * (l1-9): the Kiln's furnace and the Brood's lamps run on it, as their
+   * packages ask; undefined is the clip's own time (the packages' stateless default).
+   */
+  readonly clock?: number
 }
 
 /** An evaluated pose: the port's own state, opaque to the sprite. */
@@ -123,6 +132,10 @@ export interface NpcImage {
   readonly alpha?: number
   /** A contact shadow painted as an image (the Reactor's, the Compactor's): drawn in turn, never cast. */
   readonly contact?: boolean
+  /** An emission layer (the Coil's rings, glow, bloom and heat, l1-9): never cast, never tinted by a hit. */
+  readonly effect?: boolean
+  /** Composited as the package does it; undefined is normal (source-over). The Coil's bloom is `screen`. */
+  readonly blend?: 'screen'
 }
 
 /**
@@ -206,5 +219,11 @@ export const NPC_RIGS: Readonly<Partial<Record<string, NpcRig>>> = Object.freeze
   reactor: REACTOR_RIG,
   // PROVISIONAL (l1-9): compactor-v4 is delivered but not yet approved by Nick
   // (v3 was); re-sync after his art review (`tools/npc-rig-sync.mjs compactor`, `tools/bake-npc-atlas.py compactor`).
-  compactor: COMPACTOR_RIG
+  compactor: COMPACTOR_RIG,
+  // PROVISIONAL (l1-9): kiln-v3, coil-v5 and brood-v15 are delivered but not
+  // yet approved by Nick (kiln-v2, coil-v4 and brood-v14 were); re-sync after
+  // his art review (`tools/npc-rig-sync.mjs <npc>`, `tools/bake-npc-atlas.py <npc>`).
+  kiln: KILN_RIG,
+  coil: COIL_RIG,
+  brood: BROOD_RIG
 })

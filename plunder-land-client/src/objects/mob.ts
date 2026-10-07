@@ -137,7 +137,10 @@ export default class Mob extends Unit {
    * position) if given. The Compactor's strike on its shockwave (14, the
    * impact `lifetime` after the cast); the Reactor's activation on its tell
    * (11, the release `lifetime` after) and again on its release (12, lead 0:
-   * back in step with the server). False without a rig.
+   * back in step with the server); the Kiln's lob on its marker (9, lead 0:
+   * the launch is the cast); the Coil's charge on its pulse (13, the hold's
+   * end `lifetime` after); the Brood's release on its 19 (lead 0: the launch,
+   * as the Broodling emerges). False without a rig.
    */
   playAttack (leadMs: number, toward?: { x: number, y: number }): boolean {
     const event = this.npc?.npc.roles.attack?.event

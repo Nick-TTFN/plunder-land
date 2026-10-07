@@ -1,4 +1,4 @@
-import { AlphaFilter, Assets, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Rectangle, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
+import { AlphaFilter, Assets, BLEND_MODES, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Rectangle, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
 import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig } from './npcrig'
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
@@ -54,8 +54,11 @@ interface Action {
  *
  * Its own contact shadows are the package's; with `castShadow` it also casts
  * a silhouette (its images again in black under one `AlphaFilter`, laid by
- * `layShadow`), as every unit does, leaving out painted contact shadows and
- * masked images. An image with a clip is drawn from its band frame
+ * `layShadow`), as every unit does, leaving out painted contact shadows,
+ * emission layers (`effect`, never tinted either) and masked images. An image
+ * may be composited `screen` (the Coil's bloom, l1-9). The rig is also given
+ * the sprite's age as a clock that never resets with the clip
+ * (`NpcPoseOptions.clock`: the Kiln's furnace and the Brood's lamps). An image with a clip is drawn from its band frame
  * (`<art>-<top row>`, the Crawler's shell) when the sheet has one, else cut
  * from its art's frame at draw time (`cut`: the Compactor's shaft, whose
  * crop slides, and its front legs' roots). The ticker listener lives while `host` is
@@ -103,6 +106,8 @@ export class NpcSprite extends Container {
   /** The last pose shown, an action's included: what a `fromAction` death starts from. */
   private shownPose: NpcPose | undefined
   private flashLeft = 0
+  /** Seconds since it was made, for the rigs' own clocks (`NpcPoseOptions.clock`: the Kiln's furnace, the Brood's lamps). */
+  private age = 0
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
   private ticking = false
   /**
@@ -248,6 +253,7 @@ export class NpcSprite extends Container {
     const holding = this.action?.role === 'hit' && this.npc.roles.holdGaitOnHit === true
     if (!holding) this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * this.pace : dt
     this.flashLeft = Math.max(0, this.flashLeft - dt)
+    this.age += dt
     const action = this.action
     if (action !== undefined) {
       action.t += dt
@@ -272,7 +278,7 @@ export class NpcSprite extends Container {
     const roles = this.npc.roles
     const clip = playing?.clip ?? (this.moving ? roles.move : roles.idle)
     const t = playing === undefined ? this.baseTime : Math.min(Math.max(0, playing.t), this.npc.clips[playing.clip].duration)
-    const pose = this.npc.pose(clip, t, this.direction, playing?.aim, playing?.from, this.poseOptions?.())
+    const pose = this.npc.pose(clip, t, this.direction, playing?.aim, playing?.from, { ...this.poseOptions?.(), clock: this.age })
     if (playing === undefined) this.last = pose
     this.shownPose = pose
     if (pose.muzzle !== undefined) this.muzzle.set(pose.muzzle.x, pose.muzzle.y)
@@ -298,9 +304,11 @@ export class NpcSprite extends Container {
         open = undefined
         const sprite = this.sprites[sprites] ?? (this.sprites[sprites] = new Sprite())
         this.place(sprite, item)
-        sprite.tint = item.contact === true ? 0xffffff : tint
+        const glow = item.contact === true || item.effect === true
+        sprite.tint = glow ? 0xffffff : tint
+        sprite.blendMode = item.blend === 'screen' ? BLEND_MODES.SCREEN : BLEND_MODES.NORMAL
         order.push(sprite)
-        if (this.cast !== undefined && item.contact !== true) {
+        if (this.cast !== undefined && !glow) {
           const shade = this.castSprites[shades.length] ?? (this.castSprites[shades.length] = Object.assign(new Sprite(), { tint: 0x000000 }))
           this.place(shade, item)
           // The silhouette is solid; its opacity is the filter's.
