@@ -3,6 +3,7 @@ import { type Skill } from '../skills/skill'
 import { type IAIRoutine } from '../ai/airoutine'
 import GuardPosition from '../ai/guardposition'
 import UseSkillOnTarget from '../ai/useskillontarget'
+import ReactorBurst, { type ReactorBurstSpec } from '../mobskills/reactorburst'
 import { Dash } from '../skills/dash'
 import { MeleeAttack } from '../skills/meleeattack'
 import { RangedAttack } from '../skills/rangedattack'
@@ -85,7 +86,7 @@ export interface UseSkillOnTargetSpec {
   withinCells?: number
 }
 
-export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec
+export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec
 
 /**
  * The redis `stats-<player>` hash keys a kill of this unit increments, besides
@@ -370,6 +371,16 @@ const NPC_NUMBERS = Object.freeze({
   kiln: { maxHp: 80, body: 30, loot: 100, contact: 0, guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 5 } },
   coil: { maxHp: 70, body: 32, loot: 75, contact: 0, guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 2 } },
   reactor: { maxHp: 360, body: 40, loot: 500, contact: 15, guard: { acquire: 5, lose: 6, chaseSpeed: 110, standoff: 0 } },
+  /**
+   * The Reactor's burst (l1-5): plants within 2 rings, 25 to each player on
+   * the disc at each of the release's 4 pulses (100 to one who stays),
+   * cooldown 2000 ms after the settle. The disc's rings are the mirror's
+   * `attack` (`NPC_SHARED.reactorBurst`). The three timings are not l1-0's:
+   * they are the approved Reactor clip's (`codex_output/npc-refinements/
+   * reactor-v6/rig/activate.json`, decision #51 addenda): 1 s activate, 1 s
+   * release, 0.35 s settle (0.5 s on the server at 250 ms ticks).
+   */
+  reactorBurst: { plantRings: 2, damage: 25, pulses: 4, cooldownMs: 2000, activateMs: 1000, releaseMs: 1000, settleMs: 350 },
   brood: { maxHp: 400, body: 40, loot: 800, contact: 0, guard: { acquire: 7, lose: 9, chaseSpeed: 60, standoff: 5 } },
   // Any hit sets it off (l1-7). Drops nothing, pays nothing (#51). Idle speed:
   // l1-0 gives none (it is never idle once l1-7 spawns it); 30 like the rest.
@@ -397,7 +408,7 @@ type NpcNumbers = typeof NPC_NUMBERS.compactor
 /**
  * An NPC row from its numbers: a guard and contact only. What Compactor, Kiln,
  * Reactor, Coil, Brood and Broodling are until their own attacks land
- * (l1-3..l1-7); the Crawler adds its shot.
+ * (l1-3..l1-7); the Crawler adds its shot, the Reactor its burst (l1-5).
  */
 function npc (info: ArchetypeInfo, n: NpcNumbers): Archetype {
   const guard: GuardSpec = Object.freeze({
@@ -438,7 +449,21 @@ const crawler: Archetype = {
 }
 const compactor: Archetype = npc(ARCHETYPE_INFO.compactor, NPC_NUMBERS.compactor)
 const kiln: Archetype = npc(ARCHETYPE_INFO.kiln, NPC_NUMBERS.kiln)
-const reactor: Archetype = npc(ARCHETYPE_INFO.reactor, NPC_NUMBERS.reactor)
+/** A mirrored row's disc `attack` rings, for an NPC whose attack is a disc round itself. */
+function discRingsOf (info: ArchetypeInfo): number {
+  if (info.attack?.kind !== 'disc') throw new Error(`${info.key}: needs a disc attack in utils/archetypes.ts`)
+  return info.attack.rings
+}
+
+/** Charges in, plants, bursts (l1-5, `mobskills/reactorburst.ts`). Guard first: it picks the target and chases. */
+const reactorBase = npc(ARCHETYPE_INFO.reactor, NPC_NUMBERS.reactor)
+const reactor: Archetype = {
+  ...reactorBase,
+  routines: [
+    ...reactorBase.routines,
+    Object.freeze({ kind: 'reactorBurst', ...NPC_NUMBERS.reactorBurst, rings: discRingsOf(ARCHETYPE_INFO.reactor) })
+  ]
+}
 const coil: Archetype = npc(ARCHETYPE_INFO.coil, NPC_NUMBERS.coil)
 const brood: Archetype = npc(ARCHETYPE_INFO.brood, NPC_NUMBERS.brood)
 const broodling: Archetype = npc(ARCHETYPE_INFO.broodling, NPC_NUMBERS.broodling)
@@ -823,6 +848,8 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
         if (skill === undefined) throw new Error(`${archetype.key}: no skill at index ${spec.skill}`)
         return new UseSkillOnTarget(owner, skill, spec.withinCells)
       }
+      case 'reactorBurst':
+        return new ReactorBurst(owner, spec)
     }
     throw new Error(`${archetype.key}: unknown routine ${(spec as { kind: string }).kind}`)
   })

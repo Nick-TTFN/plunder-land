@@ -38,6 +38,8 @@ import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
+import { ReactorEffect } from './vfx/reactor.effect'
+import { NPC_EFFECT } from './vfx/npceffects'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
 import { itemById } from './utils/items'
@@ -817,6 +819,19 @@ export class Game extends Container {
     // the blast the thrower may be dead and its id reused.
     if (type === 7 || type === 8) {
       if (aimCell !== undefined) new BombEffect(aimCell, Game.LOCAL.tag, type === 8, lifetime)
+      return
+    }
+
+    // The Reactor's tell (11) and release (12) on the disc round its planted
+    // cell (decision #51, l1-5). Sent by the cell like the bomb's, so the
+    // viewer's layer is the right one. The originator is looked up only to end
+    // the effect early if this client sees it die (the server stops its burst
+    // then); a Reactor out of sight plays it out.
+    if (type === NPC_EFFECT.reactorTell || type === NPC_EFFECT.reactorRelease) {
+      if (aimCell === undefined) return
+      const reactor = target
+      new ReactorEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.reactorRelease, lifetime,
+        () => reactor instanceof Unit && reactor.hp === 0)
       return
     }
 
