@@ -44,6 +44,7 @@ import { KilnLobEffect } from './vfx/kilnlob.effect'
 import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
 import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
+import { BroodlingEffect, BroodReleaseEffect, attachFuse, emerge } from './vfx/brood.effect'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
 import { itemById } from './utils/items'
@@ -708,7 +709,11 @@ export class Game extends Container {
     // Not on a projectile, whose lifetime ends nothing (the server bursts it at
     // the end of its line). No tint any more: it turned the arena art amber.
     const projectile = (obj as unknown) instanceof Throwable
-    if (data.lifetime !== undefined && !projectile) {
+    // A Broodling's `lifetime` is its fuse left (#51, l1-7): a cord, not a ring.
+    const broodling = obj instanceof Mob && obj.archetype?.key === 'broodling'
+    if (broodling) emerge(obj)
+    if (data.lifetime !== undefined && broodling) attachFuse(obj, data.lifetime)
+    else if (data.lifetime !== undefined && !projectile) {
       obj.addChild(new Timer(data.lifetime / 1000))
     }
 
@@ -867,6 +872,20 @@ export class Game extends Container {
     // to viewers on its layer, like the bomb. The Coil itself is not looked up.
     if (type === NPC_EFFECT.coilPulse) {
       if (aimCell !== undefined) new CoilPulseEffect(aimCell, Game.LOCAL.tag, lifetime)
+      return
+    }
+
+    // A Broodling's primed tell (17) and blast (18) (#51, l1-7), on their
+    // cell, sent by the cell like the bomb's; the Broodling is not looked up.
+    if (type === NPC_EFFECT.broodlingPrimed || type === NPC_EFFECT.broodlingBlast) {
+      if (aimCell !== undefined) new BroodlingEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.broodlingBlast, lifetime)
+      return
+    }
+
+    // A Brood's release (19), drawn on the Brood, aimed at the new Broodling's cell.
+    if (type === NPC_EFFECT.broodRelease) {
+      if (target !== undefined) new BroodReleaseEffect(target, aimCell, lifetime)
+      else Game.EFFECTS_UNHELD++
       return
     }
 

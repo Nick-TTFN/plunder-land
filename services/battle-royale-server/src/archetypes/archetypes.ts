@@ -16,6 +16,8 @@ import { IceBreath } from '../skills/icebreath'
 import { FireBreath } from '../skills/firebreath'
 import { KilnLob } from '../mobskills/kilnlob'
 import { Shockwave, ShockwaveRoutine } from '../mobskills/shockwave'
+import BroodRelease, { type BroodSpec } from '../mobskills/brood'
+import BroodlingFuse, { type BroodlingSpec } from '../mobskills/broodling'
 import { ARCHETYPE_INFO, type ArchetypeInfo, type Rarity } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
 import { type SkillKey, skillById, SKILL_LIST } from '../utils/skills'
@@ -132,7 +134,7 @@ export interface CoilFieldSpec {
   cooldownMs: number
 }
 
-export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec | ShockwaveSpec | CoilFieldSpec
+export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec | ShockwaveSpec | CoilFieldSpec | BroodSpec | BroodlingSpec
 
 /**
  * The redis `stats-<player>` hash keys a kill of this unit increments, besides
@@ -470,11 +472,10 @@ export function mobGearRolls (rarity: Rarity | null): MobGearRolls {
  * 30 (not from l1-0).
  *
  * Each guard is `GuardSpec` (rings). Contact is 0 for every NPC but the
- * Reactor (l1-0): until l1-7 adds its attacks, Brood and Broodling chase
- * and deal no damage. The Compactor slams (l1-6). The Coil deals none by
+ * Reactor (l1-0). The Compactor slams (l1-6). The Coil deals none by
  * design; it slows (`coilField`, l1-3). The Kiln keeps l1-0's 5-6 band
- * (`GuardSpec.retreat`) and lobs (l1-4); the Brood stands off at 5, the
- * band's low edge, until l1-7.
+ * (`GuardSpec.retreat`) and lobs (l1-4); the Brood keeps the same band and
+ * releases Broodlings (l1-7).
  */
 const NPC_NUMBERS = Object.freeze({
   crawler: {
@@ -525,10 +526,35 @@ const NPC_NUMBERS = Object.freeze({
    * release, 0.35 s settle (0.5 s on the server at 250 ms ticks).
    */
   reactorBurst: { plantRings: 2, damage: 25, pulses: 4, cooldownMs: 2000, activateMs: 1000, releaseMs: 1000, settleMs: 350 },
-  brood: { maxHp: 400, body: 40, loot: 800, contact: 0, guard: { acquire: 7, lose: 9, chaseSpeed: 60, standoff: 5 } },
-  // Any hit sets it off (l1-7). Drops nothing, pays nothing (#51). Idle speed:
-  // l1-0 gives none (it is never idle once l1-7 spawns it); 30 like the rest.
-  broodling: { maxHp: 1, body: 16, loot: 0, contact: 0, guard: { acquire: 8, lose: 10, chaseSpeed: 130, standoff: 0 } },
+  /**
+   * Keeps 5-6 off its target (the Kiln's band, l1-0 Q1) and releases one
+   * Broodling every 4000 ms while it has a target, at most 3 alive (l1-7,
+   * `mobskills/brood.ts`). `releaseMs` is not l1-0's: it is the approved
+   * Brood clip's `spawn` action, 1.10 s (`codex_output/npc-refinements/
+   * brood-v15/rig/animation-contract.json`), effect 19's lifetime, looks only.
+   */
+  brood: {
+    maxHp: 400,
+    body: 40,
+    loot: 800,
+    contact: 0,
+    release: { intervalMs: 4000, cap: 3, releaseMs: 1100 },
+    guard: { acquire: 7, lose: 9, chaseSpeed: 60, standoff: 6, retreat: { min: 5, max: 6 } }
+  },
+  /**
+   * Fuse 6000 ms from its release, a 500 ms tell once a player is adjacent,
+   * a 25 blast on the cell + 1 ring (the mirror's `attack`) to players and
+   * mobs; any hit sets it off (l1-7, `mobskills/broodling.ts`). Drops
+   * nothing, pays nothing (#51). Idle speed: l1-0 gives none; 30 like the rest.
+   */
+  broodling: {
+    maxHp: 1,
+    body: 16,
+    loot: 0,
+    contact: 0,
+    fuse: { fuseMs: 6000, tellMs: 500, damage: 25 },
+    guard: { acquire: 8, lose: 10, chaseSpeed: 130, standoff: 0 }
+  },
   /** Every NPC guard's idle speed, wander and refresh (today's). */
   idleSpeed: 30,
   wander: 1,
@@ -657,10 +683,27 @@ const coil: Archetype = {
   // field then pins the Coil by clearing the step goal the guard just set.
   routines: [...coilBase.routines, Object.freeze({ kind: 'coilField' as const, ...NPC_NUMBERS.coilField })]
 }
-const brood: Archetype = npc(ARCHETYPE_INFO.brood, NPC_NUMBERS.brood)
 // Common, but drops no gear (#51, Nick 2026-10-07): an endless stream, so the
-// Brood's own rolls are the reward for killing the source.
-const broodling: Archetype = { ...npc(ARCHETYPE_INFO.broodling, NPC_NUMBERS.broodling), gearRolls: null }
+// Brood's own rolls are the reward for killing the source. Guard first: it
+// picks the player to chase; the fuse then decides when to go off.
+const broodlingBase = npc(ARCHETYPE_INFO.broodling, NPC_NUMBERS.broodling)
+const broodling: Archetype = {
+  ...broodlingBase,
+  gearRolls: null,
+  routines: [
+    ...broodlingBase.routines,
+    Object.freeze({ kind: 'broodling', ...NPC_NUMBERS.broodling.fuse, rings: discRingsOf(ARCHETYPE_INFO.broodling) })
+  ]
+}
+/** Keeps its distance and releases Broodlings (l1-7). Guard first: it picks the target. */
+const broodBase = npc(ARCHETYPE_INFO.brood, NPC_NUMBERS.brood)
+const brood: Archetype = {
+  ...broodBase,
+  routines: [
+    ...broodBase.routines,
+    Object.freeze({ kind: 'brood', child: broodling, ...NPC_NUMBERS.brood.release })
+  ]
+}
 
 /**
  * A layer's mob entries from `NPC_NUMBERS.layers[i]`: the Crawler packs (with
@@ -1040,6 +1083,10 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
       }
       case 'coilField':
         return new CoilField(owner, spec, discRingsOf(archetype))
+      case 'brood':
+        return new BroodRelease(owner, spec)
+      case 'broodling':
+        return new BroodlingFuse(owner, spec)
     }
     throw new Error(`${archetype.key}: unknown routine ${(spec as { kind: string }).kind}`)
   })

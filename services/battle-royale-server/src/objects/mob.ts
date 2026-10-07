@@ -49,6 +49,14 @@ export default class Mob extends Unit {
    * alone. Set after construction, never by a base constructor.
    */
   pack: MobPack | undefined = undefined
+  /**
+   * Takes over `hit` while set: the Broodling's fuse routine (task l1-7,
+   * `mobskills/broodling.ts`), which goes off on any damaging hit, not only
+   * a lethal one. Returns what `hit` returns: true if this hit destroyed the
+   * mob, so the caller credits the kill. Set by a routine built in this
+   * constructor's body, after this initialiser has run.
+   */
+  onHit: ((value: number) => boolean) | undefined = undefined
 
   /** `archetype` defaults to the grunt, which is what a plain `Mob` always was. */
   constructor (x: number, y: number, tag: number, archetype: Archetype = ARCHETYPES.grunt) {
@@ -69,6 +77,12 @@ export default class Mob extends Unit {
   update (dt: number): void {
     super.update(dt)
     if (!this.destroyed) this.touch()
+  }
+
+  /** `Unit.hit`, unless a routine has hooked it (`onHit`). A corpse is never hit. */
+  hit (value: number): boolean {
+    if (this.onHit !== undefined && !this.destroyed) return this.onHit(value)
+    return super.hit(value)
   }
 
   /**
