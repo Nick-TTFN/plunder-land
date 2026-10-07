@@ -44,7 +44,7 @@ import { KilnLobEffect } from './vfx/kilnlob.effect'
 import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
 import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
-import { BroodlingEffect, BroodReleaseEffect, attachFuse, emerge } from './vfx/brood.effect'
+import { BroodlingEffect, BroodReleaseEffect, attachFuse, emergeReleased, primeBroodling } from './vfx/brood.effect'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
 import { itemById } from './utils/items'
@@ -709,11 +709,14 @@ export class Game extends Container {
     // Not on a projectile, whose lifetime ends nothing (the server bursts it at
     // the end of its line). No tint any more: it turned the arena art amber.
     const projectile = (obj as unknown) instanceof Throwable
-    // A Broodling's `lifetime` is its fuse left (#51, l1-7): a cord, not a ring.
+    // A Broodling's `lifetime` is its fuse left (#51, l1-7): a cord, not a
+    // ring. A rigged one draws its own cord, as long as the fuse left
+    // (`Mob.fuseEndsAt`); without a rig, a code-drawn one.
     const broodling = obj instanceof Mob && obj.archetype?.key === 'broodling'
-    if (broodling) emerge(obj)
-    if (data.lifetime !== undefined && broodling) attachFuse(obj, data.lifetime)
-    else if (data.lifetime !== undefined && !projectile) {
+    if (data.lifetime !== undefined && broodling) {
+      (obj as Mob).fuseEndsAt = performance.now() + data.lifetime
+      if ((obj as Mob).npc === undefined) attachFuse(obj, data.lifetime)
+    } else if (data.lifetime !== undefined && !projectile) {
       obj.addChild(new Timer(data.lifetime / 1000))
     }
 
@@ -876,9 +879,12 @@ export class Game extends Container {
     }
 
     // A Broodling's primed tell (17) and blast (18) (#51, l1-7), on their
-    // cell, sent by the cell like the bomb's; the Broodling is not looked up.
+    // cell, sent by the cell like the bomb's. Only the tell looks the
+    // Broodling up (alive then, so its id is its own), to play its rig's
+    // tell; by the blast it is gone and its id may be reused.
     if (type === NPC_EFFECT.broodlingPrimed || type === NPC_EFFECT.broodlingBlast) {
       if (aimCell !== undefined) new BroodlingEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.broodlingBlast, lifetime)
+      if (type === NPC_EFFECT.broodlingPrimed && target instanceof Mob) primeBroodling(target)
       return
     }
 
@@ -886,6 +892,9 @@ export class Game extends Container {
     if (type === NPC_EFFECT.broodRelease) {
       if (target !== undefined) new BroodReleaseEffect(target, aimCell, lifetime)
       else Game.EFFECTS_UNHELD++
+      // Its create came earlier in this flush (creates before effects): the
+      // new Broodling emerges now, and only for a viewer who saw the release.
+      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell)
       return
     }
 

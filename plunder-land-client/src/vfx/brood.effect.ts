@@ -1,6 +1,6 @@
 import TWEEN from '@tweenjs/tween.js'
 import { Graphics } from 'pixi.js'
-import { type Vector } from '../utils/vector'
+import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { type GameObject } from '../objects/gameobject'
@@ -9,21 +9,20 @@ import { CellHighlight, layerOf } from './cellhighlight'
 import { BombEffect } from './bomb.effect'
 import { playBlast } from './blast.effect'
 
-// PLACEHOLDERS (art pass, decision #51): until the Brood and Broodling rigs
-// are ported (l1-8/l1-9) and their effect art lands, every look here is a
-// stand-in, listed for the art pass:
-// - the Broodling's fuse cord is a short Graphics line over its head that
-//   burns down with the remaining fuse (Codex leaves the cord to the port;
-//   the rig's 0.25x-2x cord length is not the fuse time);
-// - `emerge` is a 300 ms fade-in of the Broodling on its create;
-// - the primed tell (17) is the bomb fuse's pulse on the blast cells; the rig
-//   would play the approved `detonate` contraction's last 0.5 s (Dez Q9:
-//   the clip's event is at 1.35 s, so from 0.85 s);
-// - the blast (18) is the bomb's: a flash and the arena `fx/blast_fire`; the
-//   rig's `detonate` on the Broodling's destroy is not drawn;
-// - the release (19) is a pulse on the Brood and a flash on the cell the
-//   Broodling lands on; the rig would play the Brood's 1.10 s `spawn` clip,
-//   and its unreleased socket children falling with it on death.
+// The Broodling's rig (l1-8) draws its own body, cord, tell and detonate;
+// this file is what it doesn't, and the stand-ins for a Broodling whose rig
+// sheet hasn't loaded. PLACEHOLDERS for the art pass (decision #51):
+// - without the rig, the fuse cord is a short Graphics line over its head
+//   that burns down with the fuse left, and `emerge` is a 300 ms fade-in;
+//   with it, the rig's cord is as long as the fuse left (`Mob.fuseEndsAt`)
+//   and `spawn` plays its emerge;
+// - the primed tell (17) also pulses the blast cells like the bomb's fuse;
+//   the rig plays its `detonate` from 0.85 s (`roles.prime`, Dez Q9);
+// - the blast (18) marks the cells with the bomb's flash and the arena
+//   `fx/blast_fire` (the rig's own blast is body-sized);
+// - the release (19) is a pod thrown from the Brood to the cell; the Brood's
+//   rig (l1-9) would play its 1.10 s `spawn` clip, launch at its 0.18 s
+//   event, and drop its unreleased socket children on death.
 const FUSE_COLOUR = 0xffb02a
 const FUSE_SPENT = 0x3a2a22
 const TELL_COLOUR = 0xff3b1f
@@ -91,10 +90,43 @@ export function attachFuse (broodling: GameObject, remainingMs: number): void {
     .start()
 }
 
-/** The Broodling's `emerge`, placeholder: a short fade-in. */
+/** The Broodling's `emerge` without a rig, placeholder: a short fade-in. */
 export function emerge (broodling: GameObject): void {
   broodling.alpha = 0
   new TWEEN.Tween(broodling).to({ alpha: 1 }, 300).start()
+}
+
+/** What `emergeReleased` and `primeBroodling` need of a client `Mob` (structural: `Mob` imports the rigs). */
+interface BroodlingLike extends GameObject {
+  archetype?: { key: string }
+  npc?: { play: (role: 'spawn' | 'prime') => boolean }
+}
+
+/**
+ * Effect 19 (l1-7 F2): the live Broodling on `tag` standing on `cell`, which
+ * the Brood has just released, plays its rig's `spawn` (emerge), or the
+ * fade-in without a rig. Its create came earlier in the same flush
+ * (`Multiplayer.order`: creates before effects). A late viewer, who gets
+ * only the create, sees no emerge.
+ */
+export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector): void {
+  for (const mob of mobs as BroodlingLike[]) {
+    if (mob.archetype?.key !== 'broodling' || mob.killed || mob.tag !== tag) continue
+    const at = Hex.toCell(new Vector(mob.x, mob.y))
+    if (at.x !== cell.x || at.y !== cell.y) continue
+    if (mob.npc !== undefined) mob.npc.play('spawn')
+    else emerge(mob)
+    return
+  }
+}
+
+/**
+ * Effect 17 (l1-7 F5): a rigged Broodling plays its tell, the end of its
+ * `detonate` (`roles.prime`), which its death then carries on.
+ */
+export function primeBroodling (mob: GameObject): void {
+  const broodling = mob as BroodlingLike
+  if (broodling.archetype?.key === 'broodling') broodling.npc?.play('prime')
 }
 
 /**

@@ -21,6 +21,16 @@ export default class Mob extends Unit {
   /** Where a rigged NPC's feet are below the unit's position, as a rigged robot's (`Player.PEEP_FEET_Y`). */
   static readonly NPC_FEET_Y = 16
 
+  /**
+   * A Broodling's fuse end on `performance.now()`'s clock, from its create's
+   * `lifetime` (the fuse left, l1-7; `Game.onObjectCreated`); undefined for
+   * every other mob. The client never learns the full fuse.
+   */
+  fuseEndsAt: number | undefined = undefined
+
+  /** Fuse left per unit of the rig's cord length: 3 s draws the default cord (Archie, l1-7 F4). */
+  static readonly FUSE_MS_PER_CORD = 3000
+
   /** When `applyPosition` last ran, and the smoothed ground speed it fed the rig, as `Player`'s. */
   private lastMovedAt = 0
   private pace = 1
@@ -31,8 +41,10 @@ export default class Mob extends Unit {
     if (rig !== undefined && NpcSprite.ready(rig)) {
       this.npc = new NpcSprite(this, rig, SETTINGS.value.shadows)
       this.npc.y = Mob.NPC_FEET_Y
+      this.npc.poseOptions = () => this.poseOptions()
       this.addChild(this.npc)
-      this.npc.play('spawn')
+      // No emerge here: a create is also a late viewer's, so the Broodling's
+      // spawn plays on the Brood's release (effect 19, `Game.onEffect`).
       return
     }
 
@@ -49,6 +61,17 @@ export default class Mob extends Unit {
 
     const targetScale = (this.radius * 3) / 64
     this.animation.scale = new Point(targetScale, targetScale)
+  }
+
+  /**
+   * The rig's cord, as long as the fuse left: `remaining / 3000` times its
+   * default length, 0.25-2 (the package's range), counting down from the
+   * create. Undefined (the default cord) for a mob with no fuse.
+   */
+  private poseOptions (): { fuseLength: number } | undefined {
+    if (this.fuseEndsAt === undefined) return undefined
+    const left = Math.max(0, this.fuseEndsAt - performance.now())
+    return { fuseLength: Math.min(2, Math.max(0.25, left / Mob.FUSE_MS_PER_CORD)) }
   }
 
   // Unit's, plus the rig. (`super.headY` on an accessor doesn't typecheck here.)

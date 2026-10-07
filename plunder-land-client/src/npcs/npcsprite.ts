@@ -1,12 +1,12 @@
 import { AlphaFilter, Assets, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
-import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcRig } from './npcrig'
+import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig } from './npcrig'
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
 
 /** A clip played over the idle/move loop, then gone (death holds). */
 interface Action {
-  role: 'attack' | 'hit' | 'death' | 'spawn'
+  role: 'attack' | 'hit' | 'death' | 'spawn' | 'prime'
   clip: string
   /** Clip seconds; negative while an attack waits to line its event up with the beam. */
   t: number
@@ -33,8 +33,13 @@ interface Action {
  *   event, the Crawler's shot at 0.34 s, lands `SHOT.fire` after the effect,
  *   when `RangedAttackEffect` fires the beam), a hit (with a code hit flash,
  *   which the packages leave to the game), a death (from `death.from`, held at
- *   its end) or a spawn (the Broodling's emerge, drawn in place). A death is
- *   never replaced; a hit doesn't cut an attack before its event or a spawn.
+ *   its end), a spawn (the Broodling's emerge, drawn in place, on the Brood's
+ *   release) or a prime (the Broodling's tell, l1-7: the end of its
+ *   detonate, which a death then carries on rather than restarts). A death
+ *   is never replaced; a hit doesn't cut an attack before its event, a spawn
+ *   or a prime.
+ * - `poseOptions` feeds the package's pose parameters each frame (the
+ *   Broodling's cord length from its fuse left).
  *
  * Its own contact shadows are the package's; with `castShadow` it also casts
  * a silhouette (its images again in black under one `AlphaFilter`, laid by
@@ -78,6 +83,11 @@ export class NpcSprite extends Container {
   private flashLeft = 0
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
   private ticking = false
+  /**
+   * Read every frame for the package's pose parameters (the Broodling's cord
+   * length from its fuse left, l1-7); undefined for the defaults.
+   */
+  poseOptions: (() => NpcPoseOptions | undefined) | undefined = undefined
 
   constructor (private readonly host: Container, readonly npc: NpcRig, castShadow = false) {
     super()
@@ -127,6 +137,7 @@ export class NpcSprite extends Container {
     if (role === 'attack') return roles.attack?.clip
     if (role === 'hit') return roles.hit
     if (role === 'death') return roles.death?.clip
+    if (role === 'prime') return roles.prime?.clip
     return roles.spawn?.clip
   }
 
@@ -138,14 +149,23 @@ export class NpcSprite extends Container {
     if (current?.role === 'death') return false
     if (role === 'hit') {
       this.flashLeft = NpcSprite.HIT_FLASH_S
-      if (current?.role === 'spawn') return false
+      if (current?.role === 'spawn' || current?.role === 'prime') return false
       if (current?.role === 'attack' && current.t < (this.npc.roles.attack?.event ?? 0)) return false
     }
     const roles = this.npc.roles
+    // A death on the clip a prime is already playing (the Broodling's
+    // detonate) carries on from where the prime is, never earlier than the
+    // death's own start: no restart, and the blast is never drawn late.
+    if (role === 'death' && current?.role === 'prime' && current.clip === clip) {
+      current.role = 'death'
+      current.t = Math.max(current.t, roles.death!.from)
+      return true
+    }
     const t = role === 'attack' ? roles.attack!.event - SHOT.fire
       : role === 'death' ? roles.death!.from
         : role === 'spawn' ? roles.spawn!.from
-          : 0
+          : role === 'prime' ? roles.prime!.from
+            : 0
     this.action = { role, clip, t, aim, from: this.last }
     return true
   }
@@ -213,7 +233,7 @@ export class NpcSprite extends Container {
     const roles = this.npc.roles
     const clip = playing?.clip ?? (this.moving ? roles.move : roles.idle)
     const t = playing === undefined ? this.baseTime : Math.min(Math.max(0, playing.t), this.npc.clips[playing.clip].duration)
-    const pose = this.npc.pose(clip, t, this.direction, playing?.aim, playing?.from)
+    const pose = this.npc.pose(clip, t, this.direction, playing?.aim, playing?.from, this.poseOptions?.())
     if (playing === undefined) this.last = pose
     if (pose.muzzle !== undefined) this.muzzle.set(pose.muzzle.x, pose.muzzle.y)
     this.drawList(this.npc.draw(pose, { inPlace: true }))

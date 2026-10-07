@@ -39,9 +39,11 @@ export interface NpcRig {
    * The pose at `seconds` into `clip`, for a unit heading along ground
    * direction `direction` (any length). An action (attack, hit, death) points
    * along ground direction `aim` and starts from `from`, the pose shown when
-   * it began, as the package's controller captures it.
+   * it began, as the package's controller captures it. `options` are the
+   * package's own pose parameters (the Broodling's cord length); a rig
+   * without them ignores them.
    */
-  readonly pose: (clip: string, seconds: number, direction: { x: number, y: number }, aim?: { x: number, y: number }, from?: NpcPose) => NpcPose
+  readonly pose: (clip: string, seconds: number, direction: { x: number, y: number }, aim?: { x: number, y: number }, from?: NpcPose, options?: NpcPoseOptions) => NpcPose
   /** What to draw for a pose (`NpcSprite`). */
   readonly draw: (pose: NpcPose, options?: NpcDrawOptions) => NpcDrawList
   /** Every image the draw list may name, with its full size in the package's art pixels. */
@@ -63,8 +65,20 @@ export interface NpcRoles {
   readonly hit?: string
   /** Played on death; with `deathHolds`, from `death.from` seconds in (the Broodling's blast). */
   readonly death?: { readonly clip: string, readonly from: number }
-  /** Played on create, from `spawn.from` seconds in. */
+  /** Played when it is released (the Broodling on the Brood's effect 19), from `spawn.from` seconds in. */
   readonly spawn?: { readonly clip: string, readonly from: number, readonly ready: number }
+  /**
+   * Played on its primed tell (the Broodling's effect 17, l1-7), from
+   * `prime.from` seconds in, so that the tell's length later it is where
+   * `death.from` starts: a death then carries on the same clip.
+   */
+  readonly prime?: { readonly clip: string, readonly from: number }
+}
+
+/** Per-pose parameters a package takes besides the clip and time. */
+export interface NpcPoseOptions {
+  /** The Broodling's cord length, 0.25-2 times its default (`sample`'s `fuseLength`); undefined is the default. */
+  readonly fuseLength?: number
 }
 
 /** An evaluated pose: the port's own state, opaque to the sprite. */

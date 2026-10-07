@@ -149,7 +149,7 @@ function checkManifest (rig: NpcRig, f: Fixtures): void {
     assert.deepEqual(rig.clips[name].events, clip.events, name)
   }
   assert.equal(rig.deathHolds, f.deathHolds)
-  for (const role of [rig.roles.idle, rig.roles.move, rig.roles.attack?.clip, rig.roles.hit, rig.roles.death?.clip, rig.roles.spawn?.clip]) {
+  for (const role of [rig.roles.idle, rig.roles.move, rig.roles.attack?.clip, rig.roles.hit, rig.roles.death?.clip, rig.roles.spawn?.clip, rig.roles.prime?.clip]) {
     if (role !== undefined) assert.ok(rig.clips[role] !== undefined, `role clip ${role}`)
   }
   // An attack is held to the clip's own event of that name.
@@ -224,4 +224,38 @@ test('in place (the game), a Broodling emerging draws no socket and stays on its
   }
   // The package moves it 64 units forward out of its socket; in place it doesn't move.
   assert.ok(Math.abs(body(full).y - body(inPlace).y - 64 * broodling.CFG.tilt * broodling.CFG.renderScale) < 1e-9)
+})
+
+// l1-7 F5: the Broodling's tell (effect 17, 500 ms on the server) is the end
+// of its detonate, timed so that the death (the blast) carries straight on:
+// prime.from + the tell = death.from = the package's detonation event.
+test('the Broodling\'s prime is its detonate from 0.85 s, so the server\'s 500 ms tell ends on the blast at 1.35 s', () => {
+  const roles = broodling.BROODLING_RIG.roles
+  assert.deepEqual(roles.prime, { clip: 'detonate', from: 0.85 })
+  assert.equal(roles.death?.clip, roles.prime?.clip, 'the death must carry on the prime\'s clip')
+  assert.ok(Math.abs((roles.prime?.from ?? 0) + 0.5 - (roles.death?.from ?? 0)) < 1e-9)
+  const event = broodling.CLIPS.detonate.events.find((e) => e.name === 'detonate')
+  assert.equal(event?.time, roles.death?.from)
+})
+
+// l1-7 F4: the rig's pose passes its cord length through (`NpcPoseOptions`),
+// which `Mob` sets from the fuse left; undefined is the package's default.
+test('the Broodling rig\'s pose takes the cord length, clamped to the package\'s 0.25-2, and defaults to 1', () => {
+  const pose = (fuseLength?: number): number =>
+    (broodling.BROODLING_RIG.pose('idle', 1, { x: 1, y: 0 }, undefined, undefined, fuseLength === undefined ? undefined : { fuseLength }).state as broodling.BroodlingState).fuseLength
+  assert.equal(pose(), 1)
+  assert.equal(pose(0.5), 0.5)
+  assert.equal(pose(0.1), 0.25)
+  assert.equal(pose(5), 2)
+  // And it reaches the drawing: a shorter cord ends nearer the collar.
+  const tip = (fuseLength: number): number => {
+    const pts = broodling.fusePoints(broodling.BROODLING_RIG.pose('idle', 1, { x: 1, y: 0 }, undefined, undefined, { fuseLength }).state as broodling.BroodlingState)
+    const a = pts[0]
+    const b = pts[pts.length - 1]
+    return Math.hypot(b.x - a.x, b.y - a.y)
+  }
+  assert.ok(tip(0.5) < tip(2))
+  // The Crawler has no such parameter and ignores it.
+  const crawlerPose = (o?: { fuseLength: number }): unknown => crawler.CRAWLER_RIG.pose('idle', 1, { x: 1, y: 0 }, undefined, undefined, o).state
+  assert.deepEqual(crawlerPose({ fuseLength: 0.5 }), crawlerPose())
 })

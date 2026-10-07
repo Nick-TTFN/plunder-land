@@ -1,6 +1,6 @@
 import { type Matrix, multiply } from '../../peep/rig'
 import { cssColour } from '../colour'
-import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcDrawOptions, type NpcEllipse, type NpcPose, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcDrawOptions, type NpcEllipse, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
 
 /**
  * The Broodling (l1-8): a hand port of `tools/broodling.mjs` in its Codex
@@ -340,12 +340,15 @@ export const BROODLING_RIG: NpcRig = Object.freeze({
     // A Broodling's death is its blast: from the detonation on, the contraction already over.
     death: Object.freeze({ clip: 'detonate', from: 1.35 }),
     // Out of the floor and unfolding (the socket's crop is over by 1.3 s); ready by 2.8 s.
-    spawn: Object.freeze({ clip: 'emerge', from: 1.3, ready: 2.8 })
+    spawn: Object.freeze({ clip: 'emerge', from: 1.3, ready: 2.8 }),
+    // The primed tell (effect 17, 500 ms on the server): the contraction's
+    // last 0.5 s, so 0.85 + 0.5 lands on the detonation at 1.35 (Dez Q9).
+    prime: Object.freeze({ clip: 'detonate', from: 0.85 })
   }),
-  pose: (clip: string, seconds: number, direction: { x: number, y: number }): NpcPose => {
+  pose: (clip: string, seconds: number, direction: { x: number, y: number }, _aim?: { x: number, y: number }, _from?: NpcPose, options?: NpcPoseOptions): NpcPose => {
     // Its walk faces the way it goes; at rest the package's default, right.
     const dir = Math.hypot(direction.x, direction.y) > 0 ? direction : { x: 1, y: 0 }
-    return { clip, time: seconds, state: sample(clip, seconds, { direction: dir }) }
+    return { clip, time: seconds, state: sample(clip, seconds, { direction: dir, fuseLength: options?.fuseLength }) }
   },
   draw: (pose: NpcPose, options?: NpcDrawOptions): NpcDrawList => draw(pose.state as BroodlingState, options),
   arts: ARTS
