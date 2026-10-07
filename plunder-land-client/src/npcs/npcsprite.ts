@@ -371,7 +371,10 @@ export class NpcSprite extends Container {
     else {
       const band = `npc-${this.npc.key}/${item.art}-${clip.y}.png`
       if (Assets.cache.has(band)) texture = Texture.from(band)
-      else ({ texture, clip } = NpcSprite.cut(Texture.from(`npc-${this.npc.key}/${item.art}.png`), art, clip))
+      else {
+        const frame = `npc-${this.npc.key}/${item.art}.png`
+        ;({ texture, clip } = NpcSprite.cut(frame, Texture.from(frame), art, clip))
+      }
     }
     if (sprite.texture !== texture) sprite.texture = texture
     sprite.alpha = item.alpha ?? 1
@@ -385,15 +388,22 @@ export class NpcSprite extends Container {
     sprite.transform.setFromMatrix(this.scratch)
   }
 
-  /** Cut textures, by frame and texel rectangle: a sliding crop makes a few dozen at most. */
+  /**
+   * Cut textures, by frame name and texel rectangle. Bounded by the art, not
+   * by play: a sliding crop makes at most (its texel length + 1) entries and a
+   * fixed crop one, so today 36 for the Compactor's shaft (a 7x35-texel frame)
+   * plus 1 for its `upper` leg root, shared by every Compactor. Never evicted,
+   * by decision. Each holds its sheet's `baseTexture`: whoever adds sheet
+   * unloading must clear this map too.
+   */
   private static readonly cuts = new Map<string, Texture>()
 
   /**
-   * `clip` (art pixels) of the art's frame `full`, snapped to whole texels:
+   * `clip` (art pixels) of the art's frame `full` (named `frame`, the cache key), snapped to whole texels:
    * the texture, and the clip it really shows, in art pixels. Works on a
    * trimmed frame (`orig`/`trim`), so the bake may trim as for any part.
    */
-  static cut (full: Texture, art: { w: number, h: number }, clip: { x: number, y: number, w: number, h: number }): { texture: Texture, clip: { x: number, y: number, w: number, h: number } } {
+  static cut (frame: string, full: Texture, art: { w: number, h: number }, clip: { x: number, y: number, w: number, h: number }): { texture: Texture, clip: { x: number, y: number, w: number, h: number } } {
     const sx = full.orig.width / art.w
     const sy = full.orig.height / art.h
     const x0 = Math.round(clip.x * sx)
@@ -401,7 +411,7 @@ export class NpcSprite extends Container {
     const x1 = Math.max(x0 + 1, Math.round((clip.x + clip.w) * sx))
     const y1 = Math.max(y0 + 1, Math.round((clip.y + clip.h) * sy))
     const shown = { x: x0 / sx, y: y0 / sy, w: (x1 - x0) / sx, h: (y1 - y0) / sy }
-    const key = `${full.textureCacheIds[0] ?? ''}:${x0},${y0},${x1},${y1}`
+    const key = `${frame}:${x0},${y0},${x1},${y1}`
     let texture = NpcSprite.cuts.get(key)
     if (texture === undefined) {
       // The trimmed frame's pixels inside the cut, in the untrimmed frame's coordinates.
