@@ -103,8 +103,18 @@ both sides in the same task (details in `docs/wire-format.md`):
   `gear/stasheditclient.spec.ts`, which runs the client's `mergeCheck` against the server's
   `mergeOutcome`). `run_end`'s `gear_brought`, `gear_found`, `gear_kept` are append-only like every
   GA param. Migration 6 (`stash_items`, `gear_holders`) is additive only, as every migration.
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 6 since #49, 49-2): bump it with any change an older
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 7 since L1, l1-2, not yet live; 6 since #49, 49-2): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
+- **The NPC roster (#51, L1):** the mirrored `utils/archetypes.ts` rows 9-15 with `rarity` and
+  `attack` (`NPC_SHARED`; the client draws and threat-marks `attackCells`, `effectcells.spec.ts`);
+  effect types 9-19 (server `archetypes/npceffects.ts` `NPC_EFFECT`, client `vfx/npceffects.ts`,
+  `npceffects.spec.ts`; append-only; drawn in `game.ts` `onEffect` and `src/vfx/*.effect.ts`); the
+  knockback mirror, server `Player.knockback` against client `LocalPlayer.knockback` with `Game`
+  applying effect 15 after the same flush's `lastInputSeq` (`extract.spec.ts`); a Broodling's
+  remaining fuse in `lifetime` (9) on its create (server `mobskills/broodling.ts`, client
+  `objects/mob.ts` `fuseEndsAt`); gear tier 4 in fields 25/26 and `stash` (mirrored `utils/gear.ts`,
+  `GEAR_TIERS` 4), migration 7 (`stash_items_tier_check` 1-4), and Redis `stats-*`
+  `commonKills..legendaryKills` (`bossKills` frozen). Docs: `docs/npcs.md`.
 - **Who is sent what is a contract too, though no byte changes** (server fog, #48):
   `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what
   the client draws (`objects/fog.ts`, `Game.onEffect`). `interest.spec.ts` (and
@@ -219,8 +229,15 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges and caps in the mirrored `utils/gear.ts` (both deploys, client first), the drops in `LAYERS[].gear` in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). Dez states values in the spec and Beck applies them.
+  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). And for the NPCs (#51, L1, PROVISIONAL until Nick accepts l1-0): `NPC_NUMBERS` in
+  `archetypes/archetypes.ts` (stats, guards, attacks, timings, pack sizes, per-layer populations;
+  server only) and `NPC_SHARED` in the mirrored `utils/archetypes.ts` (Crawler range and every
+  attack's cells; both deploys, client first); NPC kill XP in `PROGRESSION.kills.mob`. Some
+  timings in `NPC_NUMBERS` are the approved clips' (Reactor, Coil, Brood release): retuning them
+  desyncs the art. Dez states values in the spec and Beck applies them.
 - **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See `docs/world.md`,
   Known-unfixed.
-- Art is Nick's boundary. Every unit and two player clips are still missing (the arena pass of
-  2026-09-28 covered everything else); list them, don't make them.
+- Art is Nick's boundary. Two player clips are still missing (the arena pass of 2026-09-28
+  covered everything else); of the NPCs, Crawler and Broodling are drawn from their rigs (l1-8)
+  and five wait on Codex packages Nick approves (l1-9); every NPC effect is a placeholder
+  (BACKLOG "Art pass: NPC effects"). List them, don't make them.

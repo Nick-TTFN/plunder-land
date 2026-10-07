@@ -78,6 +78,15 @@ for the robot-preview milestone. JetBrains Mono (the HUD's `THEME.font`) ships i
 Loot crystals are picked by value (`Consumable.TIERS`: under 25 small, under 50 medium, else
 large), which is why a pickup's create carries `loot` since this pass.
 
+## NPC sheets
+
+`assets/res/npc-<key>.png/json` (#51, l1-8; Crawler 4.3 KB, Broodling 1.1 KB) are baked by
+`tools/bake-npc-atlas.py <npc> [package]` from the Codex package's `rig/parts.json`, each part
+at the largest size it is drawn, texel for pixel as the robot bake, with pngquant and oxipng if
+present; Crawler shell bands become `body-<row>` frames. Pose fixtures come from
+`tools/npc-rig-sync.mjs`. Packages stay in the gitignored `codex_output/` (a worktree has none:
+pass the main checkout's path). Commands, scale and the spec: `docs/npcs.md`.
+
 ## Unused assets
 
 `tiles/grass.png`, `tiles/ground.png`, `cloud.png` (since the airborne plane went), `exit.png`,

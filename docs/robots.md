@@ -22,6 +22,10 @@ join sees on the wire (Node 22.18+).
 
 ## Rigs
 
+_NPCs (#51) have their own rig framework, `NpcRig`/`NpcSprite` in `src/npcs/`, a sibling of
+`RobotRig`/`RobotSprite` that shares only pure helpers: see `docs/npcs.md` ("Client: rigs and
+sprites"). Nothing below changed for it._
+
 **Peep (every player robot) is a skeletal rig, not a frame sheet** (2026-09-30; v16 since
 2026-10-01, from the drops in `plunder-land-client/codex_output/`, not checked in; it is a custom JS rig, **not
 Spine**). `src/peep/rig.ts` is a hand port of the drop's `rig.mjs` + `legacy-motion.mjs` (pose in,

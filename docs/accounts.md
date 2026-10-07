@@ -45,9 +45,11 @@ Rows are untrusted: `kitFor` checks each at every join. Finishes are not in load
 
 **XP and levels** (#48 step 3, `src/progress/`). Every number is `PROGRESSION` in
 `progress/xp.ts` (Dez's v1, `ideas/meta-progression-numbers.md` §1-2, pinned by `xp.spec.ts`); a
-mob key missing from it pays `mobDefault` 2 (no such mob exists yet; Nick/Dez to confirm 2 or 0
-before a fourth mob type). Kills are tallied by victim from `Player.onKill` (`progress/run.ts`
-`countKill`); time XP uses `run_end`'s rounded `seconds`, so it agrees with GA. `account_progress`
+mob key missing from it pays `mobDefault` 2 (every mob has an entry since L1). Kills are tallied by victim from `Player.onKill` (`progress/run.ts`
+`countKill`); the NPC roster's kill XP (#51) is in `docs/npcs.md`. Redis `stats-<id>` gains
+`commonKills`, `rareKills`, `epicKills` and `legendaryKills` with L1 (every NPC kill credits
+`mobKills` and its rarity's key); **`bossKills` stops growing with L1** and stays readable
+(renames are removals); time XP uses `run_end`'s rounded `seconds`, so it agrees with GA. `account_progress`
 (migration 2) holds the total; the level is derived by the curve and never stored, so a curve
 change re-levels everyone (Nick, #48). One grant per run at its end, from `Multiplayer.destroy` →
 `runEnded` → `Worlds.grant` (death, extraction, disconnect, a drain's cut-off; `Player.runOver`, set at the top of
@@ -107,7 +109,16 @@ round trip (a transaction of four statements) before its `hello`.
 **Stash** (#49, 49-3..49-5, live 2026-10-05; see "Gear" for the items themselves). Migration 6:
 `stash_items` (a row is `state` 0 stashed or 1 carried; a carried row names `holder`, the boot id of
 the process whose memory may hold its copy; `source` 1 found, 2 merged, 3 admin, append-only) and
-`gear_holders` (each process's last heartbeat). **The invariant that keeps items single:** an
+`gear_holders` (each process's last heartbeat). **Migration 7** (#51, l1-2) widens
+`stash_items_tier_check` from 1-3 to 1-4 for Legendary: one `ALTER TABLE` that drops and re-adds
+the constraint under the same name inside the migration's transaction, so there is no moment
+without a CHECK. **Widening a CHECK counts as additive** (every row and write of the old server
+still passes), though it is not literally "no drops". A merge to T4 before it lands fails the
+CHECK and answers `store`, inputs intact (`pgstore.spec`, `stashpg.spec`). `storable()`
+(`db/accounts.ts`) bounds the tier by `GEAR_TIERS`, not a literal. The old server during a drain
+loads a T4 row, carries it with every roll worth 0 (`rollValue` has no T4 range) and returns it
+by `rowId` (an `UPDATE`, never `storable`): no dupe, no loss; old clients never see it (`itemOf`
+refuses tier 4). Same after a rollback: T4 rows stay stored and inert. **The invariant that keeps items single:** an
 instance with a `rowId` only ever moves or deletes its own row, conditionally on `state = 1 AND
 holder = <this boot>`, and is never inserted; only rowless (found) instances are inserted, once, at
 the run end of whoever takes them out, and they come off the player in the same synchronous step.
@@ -159,7 +170,7 @@ on 2026-10-05, before the label, was a slow heartbeat, harmless.
 (boot logs `admin: on`/`admin: off`, never the key). Then, with `Authorization: Bearer <key>`:
 `GET /admin/account/:id`, `POST /admin/account/:id/xp { xp }` (set, 0..10,000,000), `/energy { stock }`
 (0..99, as of now), `/gear { items: [{ tier, skill, rolls: [[stat, q]] }] }` (stashed rows of source 3,
-exactly the shapes `rollGear` makes, all or none within `STASH_MAX`, under `settleGear`'s per-account
+exactly the shapes `rollGear` makes, tier checked against `GEAR_TIERS` (so T4 with 3 rolls since L1), all or none within `STASH_MAX`, under `settleGear`'s per-account
 lock). **A missing or wrong key, or admin off, answers exactly as an unknown route** (404, empty), so
 nothing says the routes exist. The key is kept only as its SHA-256 and compared with `timingSafeEqual`
 over the two hashes; it is never logged, reported or echoed. One log line per call (`admin: <method>

@@ -31,6 +31,18 @@ vision is the smallest, so under server fog it is the cheapest viewer). The ramp
 slightly from `57671dc`). **When the ramp's CPU numbers are noisy** (other lanes or apps on
 the machine, as on 2026-10-03), compare two builds of the tick with `tools/load/tickbench.cjs`
 (deterministic, in-process, 400 players, no sockets), and say that sending isn't in it.
+**What tickbench does not exercise.** Its header says mobs are removed, which is stale: the wipe
+(`World.MOBS.length = 0`) runs at construction, before any mob spawns, and `refillLayer` fills
+every layer within the first ticks, so the bench does tick mobs. But every player joins on layer
+0, so mobs on -1/-2 sit idle, and the bench runs far faster than game time with the real
+`Date.now`, so **`Timers`-driven work (cooldowns, fuses, lobs, bursts, releases) barely fires**.
+Comparing two builds whose difference is NPC behaviour therefore needs a variant that spreads
+the players over the layers and simulates the clock (`Date.now` advanced 250 ms a tick, players
+healed each tick so the population stays engaged, effects counted by type). Release L1 did that
+as a scratch copy (`l1-10-release.md` in the project memory has the numbers); folding it into
+`tickbench.cjs` as options is open. With NPCs that draw from the seeded `Math.random`, two builds
+bench different worlds (check `avgHolders`, `moving`, the counts) and part of any difference is
+the world, not the cost.
 `GEAR=<0-2>` makes every player equip that many max-roll T3 items. **Its world is seeded
 through `Math.random`, and the gear caches (`World.refillCaches`, including its
 `getUnobstructedPosition`) draw from it**, so a build that adds or moves a draw benches a

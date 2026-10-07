@@ -16,7 +16,7 @@ never hardcodes a layer tag** (`hello.layers`). `services/battle-royale-server` 
 name. The world lives in memory only; Postgres holds accounts, progression and the stash,
 Redis cumulative `stats-*`. So: no serverless or sleep-enabled hosting.
 
-Decisions are numbered (#1–#50) in the project memory's `decisions.md`; task records and the
+Decisions are numbered (#1–#51) in the project memory's `decisions.md`; task records and the
 backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 
 ## Where things are documented
@@ -35,6 +35,7 @@ backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 | Accounts, loadouts, XP, seasons, energy, stash store, admin endpoints ("Accounts") | `docs/accounts.md` |
 | Skills, areas of effect, projectiles, StoneWall, gear and merge ("Skills", "Gear") | `docs/skills-and-gear.md` |
 | Bots and spectating | `docs/bots-and-spectate.md` |
+| NPC roster, packs, mob attacks and their timers, Broodlings, NPC rigs ("Attacks", "Client: rigs and sprites") | `docs/npcs.md` |
 
 ## Verification
 
@@ -98,9 +99,9 @@ Old clients stay open across releases and other code reads these formats, so:
   client's `allFields` (the spec's regex stops at the first `]`).
 - **Bump `PROTOCOL`** (`utils/protocol.ts`) for any change an older client can't read or would
   silently misbehave against.
-- Append-only too: frame kinds and version, archetype ids, item/skill/finish/gear-stat ids,
-  projectile kinds, `Standing` statuses, stash `source` values, GA4 event names and params
-  (`src/analytics.ts`), Postgres migrations (`db/migrations.ts`: additive, because the old
+- Append-only too: frame kinds and version, archetype ids, effect types (`NPC_EFFECT`, both
+  sides), item/skill/finish/gear-stat ids, Redis `stats-*` keys, projectile kinds, `Standing`
+  statuses, stash `source` values, GA4 event names and params (`src/analytics.ts`), Postgres migrations (`db/migrations.ts`: additive, because the old
   server runs on the new schema during a drain). **Renames are removals.**
 - `utils/{hex,path,archetypes,items,finishes,protocol,skills,gear}.ts` are **byte-identical in
   both packages** (`mirror.spec.ts`). Change both.
@@ -114,6 +115,13 @@ Old clients stay open across releases and other code reads these formats, so:
 - **Never declare `armor`, `maxArmor` or `kills` on `Unit`/`Player`**: it shadows
   `GameObject`'s accessor and the field is never sent. The server typecheck (TS2610) catches
   it; swc alone does not. Fields a base constructor sets from a hook must be `declare`d.
+- **The client's Babel rejects `declare`.** A client field set from a base-constructor hook
+  gets no initialiser and no `declare` (Babel drops an uninitialised field, as `Mob.npc` and
+  `Player.robot` rely on); an initialiser would reset it after the hook ran.
+- **Mob skills are server classes; never add one to the mirrored `utils/skills.ts`.**
+  `rollGear` picks uniformly over `SKILL_LIST`, so it would drop as a player item.
+- **A status re-applied every tick goes through a one-per-unit buff** (`FieldSlow.apply`), never
+  `Unit.addBuff`, which stacks duplicates and compounds the effect each tick.
 - **Delayed world work goes through `Timers`, never `setTimeout`** (which runs outside the
   tick's error boundary). Give a timer the object whose state it changes as owner.
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`**: an unhandled
@@ -127,8 +135,9 @@ Old clients stay open across releases and other code reads these formats, so:
 - **Type 128 is both `ItemPickup` and `GearPickup`.** Every place that walks `ITEMS` must
   decide what it does with `World.GEAR`; missing it sends nothing and errors nothing.
 - **Projectiles are removed only in `World.updateProjectiles`** (walks backwards).
-- **`LocalPlayer._step` mirrors the server's `Unit.walkPath`**: change one, change the other
-  (`extract.spec.ts` will tell you).
+- **`LocalPlayer._step` mirrors the server's `Unit.walkPath`, and `LocalPlayer.knockback`
+  mirrors `Player.knockback`** (effect 15, applied with the same flush's `lastInputSeq`):
+  change one, change the other (`extract.spec.ts` will tell you).
 - **A new ground-plane overlay needs `onGround`** or it draws unsquashed by the tilt.
 - **`app.stage.hitArea` must cover the canvas** and `onPointerDown` ignores non-stage targets;
   a HUD button listens on its container, not its background.
