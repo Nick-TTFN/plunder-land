@@ -41,6 +41,7 @@ import { BombEffect } from './vfx/bomb.effect'
 import { ReactorEffect } from './vfx/reactor.effect'
 import { KilnLobEffect } from './vfx/kilnlob.effect'
 import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
+import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
@@ -855,6 +856,13 @@ export class Game extends Container {
       return
     }
 
+    // The Coil's pulse (13, l1-3), on the field's cell: sent with `effectAt`
+    // to viewers on its layer, like the bomb. The Coil itself is not looked up.
+    if (type === NPC_EFFECT.coilPulse) {
+      if (aimCell !== undefined) new CoilPulseEffect(aimCell, Game.LOCAL.tag, lifetime)
+      return
+    }
+
     if (target === undefined) {
       // An originator this client doesn't hold. The server sends these types
       // only to holders of the originator (#48 follow-ups), so this should
@@ -892,6 +900,11 @@ export class Game extends Container {
       case NPC_EFFECT.knockback:
         new KnockbackEffect(target, lifetime, aimCell)
         if (target === Game.PLAYER && aimCell !== undefined) this._knockback = aimCell
+        break
+
+      // Slowed by a Coil's field (l1-3), on the victim, for the slow's lifetime.
+      case NPC_EFFECT.slowed:
+        SlowedEffect.show(target, lifetime)
         break
     }
   }

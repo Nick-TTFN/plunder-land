@@ -1,4 +1,4 @@
-import test, { beforeEach } from 'node:test'
+import test, { beforeEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import Module from 'node:module'
 import { join } from 'node:path'
@@ -16,6 +16,8 @@ import { Unit } from './unit'
 import { GameObject, ObjectType } from './gameobject'
 import { ARCHETYPES, ITEMS } from '../archetypes/archetypes'
 import { detonate } from '../items/bomb'
+import FieldSlow from '../buffs/fieldslow'
+import Slowdown from '../buffs/slowdown'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
@@ -1102,3 +1104,89 @@ for (const delay of [1, 2, 3]) {
     assertSettled(track, Hex.toPosition(track.landing))
   })
 }
+
+// --- a slow mid-route (task l1-3, the Coil's field) ------------------------------
+//
+// No new wire: the slowed speed reaches the client as field 27 (`speed`) in
+// the player's own record, and `Game.onObjectUpdated` reconciles the
+// record's position and then sets `LOCAL.maxVelocity`. Until it arrives the
+// client walks at the old speed, so the two drift apart by the speed
+// difference for every tick it is late, at the slow's start and again at its
+// end. Here the position goes back every tick, a tick late (the record of
+// the tick before), and the speed `speedDelay` ticks late (1 = in that same
+// record). A correction means `reconcile` moved the client: the drift was
+// past its dead zone.
+
+interface SlowTrack { corrections: number, worst: number, server: Vector, client: Vector, slowedTicks: number }
+
+function slowMidRoute (t: TestContext, speedDelay: number, slow: (player: Player) => void, slowAt = 3, ticks = 60): SlowTrack {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  try {
+    const player = playerOn(TOP, new Vector(10, 40))
+    const local = localFor(player)
+    routeBoth(player, local, new Vector(40, 40))
+    const positions: Vector[] = []
+    const speeds: number[] = []
+    let corrections = 0
+    let worst = 0
+    let slowedTicks = 0
+    for (let n = 0; n < ticks; n++) {
+      t.mock.timers.tick(250)
+      const from = player.position
+      player.update(TICK)
+      // Walked at a slowed speed this tick (the route is straight and long).
+      if (player.path.length > 0 && player.position.sub(from).getMagnitude() < 140 * TICK - 1e-6) slowedTicks++
+      // After the player's update, as a Coil's (a mob's) comes after it in `World.update`.
+      if (n === slowAt) slow(player)
+      positions.push(player.position)
+      speeds.push(player.maxVelocity)
+
+      if (n >= 1) {
+        const heard = positions[n - 1]
+        worst = Math.max(worst, Math.hypot(heard.x - local.x, heard.y - local.y))
+        const before = [local.x, local.y]
+        local.reconcile(heard.x, heard.y)
+        if (local.x !== before[0] || local.y !== before[1]) corrections++
+      }
+      if (n >= speedDelay) (local as unknown as { maxVelocity: number }).maxVelocity = speeds[n - speedDelay]
+      local.predict(TICK)
+    }
+    return { corrections, worst, server: player.position, client: new Vector(local.x, local.y), slowedTicks }
+  } finally {
+    t.mock.timers.reset()
+  }
+}
+
+const coilSlow = (player: Player): void => { FieldSlow.apply(player, 0.6, Date.now() + 2000) }
+
+for (const speedDelay of [1, 2, 3]) {
+  test(`mirror: a Coil slow mid-route reaching the client ${speedDelay} tick(s) late: no correction, same end cell`, (t) => {
+    const track = slowMidRoute(t, speedDelay, coilSlow)
+    assert.equal(track.slowedTicks, 8, 'the slow did not last 2 s of ticks')
+    // Derived: (140 - 84) x 0.25 = 14 units a tick. At the start the client
+    // runs ahead for each tick late past the first (the slow lands after the
+    // player's update, so its own record carries it); at the end it falls
+    // behind for every tick late (the restore happens inside the update, so
+    // only the next record carries it). Worst 14 x speedDelay against a dead
+    // zone of 0.25 x speed x 2 = 42 at 84 u/s, 70 at 140.
+    assert.ok(track.worst <= 14 * speedDelay + 1e-6, `drifted ${track.worst}`)
+    assert.equal(track.corrections, 0, `reconcile corrected ${track.corrections} time(s), worst drift ${track.worst}`)
+    assert.ok(same(track.server, track.client), `ended apart: server (${track.server.x}, ${track.server.y}) client (${track.client.x}, ${track.client.y})`)
+    assert.ok(same(track.server, Hex.toPosition(new Vector(40, 40))), 'the walk never arrived')
+  })
+}
+
+test('mirror: Coil and Icicle together (x0.3) up to 3 ticks late end on the same cell, never snapping', (t) => {
+  for (const speedDelay of [1, 2, 3]) {
+    const track = slowMidRoute(t, speedDelay, (player) => {
+      coilSlow(player)
+      player.addBuff(new Slowdown(player, 2000))
+    })
+    // (140 - 42) x 0.25 = 24.5 a tick late against a dead zone of 21 at
+    // 42 u/s, so even in-record it can be corrected: eased, never snapped (a
+    // snap is over 220 and drops the route, and the two would end apart).
+    assert.ok(track.worst <= 24.5 * speedDelay + 1e-6, `drifted ${track.worst}`)
+    assert.ok(track.worst < 220)
+    assert.ok(same(track.server, track.client), `${speedDelay} late: ended apart`)
+  }
+})

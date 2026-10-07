@@ -37,5 +37,8 @@
  * dodged arriving with no warning. An older client also ignores effect 15
  * (knockback) on its own player and so never applies its own knockback: it
  * walks on predicting the old route and is rubber-banded back by the server.
+ * A Coil's slow (l1-3) still reaches an older client as its speed (27) and
+ * is predicted, but without the field (13) or the slowed cue (16) it is
+ * slowed with no visible cause.
  */
 export const PROTOCOL = 7

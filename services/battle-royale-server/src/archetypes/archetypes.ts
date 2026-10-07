@@ -4,6 +4,7 @@ import { type IAIRoutine } from '../ai/airoutine'
 import GuardPosition from '../ai/guardposition'
 import UseSkillOnTarget from '../ai/useskillontarget'
 import ReactorBurst, { type ReactorBurstSpec } from '../mobskills/reactorburst'
+import CoilField from '../mobskills/coilfield'
 import { Dash } from '../skills/dash'
 import { MeleeAttack } from '../skills/meleeattack'
 import { RangedAttack } from '../skills/rangedattack'
@@ -109,7 +110,29 @@ export interface ShockwaveSpec {
   withinCells: number
 }
 
-export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec | ShockwaveSpec
+/**
+ * The Coil's slowing field (decision #51, task l1-3; `mobskills/coilfield.ts`).
+ * Every time is ms on the `Date.now()` clock and resolves at tick (250 ms)
+ * resolution. The field's size is the mirrored `attack` disc's rings
+ * (`ARCHETYPE_INFO.coil.attack`), which the client draws.
+ */
+export interface CoilFieldSpec {
+  kind: 'coilField'
+  /** `maxVelocity` multiplier on a slowed player (`FieldSlow`). */
+  slow: number
+  /** Gather + release of the approved clip: the tell, before the field is live. */
+  tellMs: number
+  /** How long the field is live after the tell: players on it are slowed every tick. */
+  holdMs: number
+  /** The clip's cool-down after the hold. The Coil stays planted through it. */
+  coolMs: number
+  /** How long a slow outlasts the hold. */
+  tailMs: number
+  /** Start to start: no new charge sooner than this after the last began. */
+  cooldownMs: number
+}
+
+export type RoutineSpec = GuardSpec | UseSkillOnTargetSpec | ReactorBurstSpec | ShockwaveSpec | CoilFieldSpec
 
 /**
  * The redis `stats-<player>` hash keys a kill of this unit increments, besides
@@ -378,6 +401,16 @@ const gunner: Archetype = {
   ]
 }
 
+/**
+ * A mirrored row's disc `attack` rings, for an NPC whose attack is a disc
+ * round itself (the Reactor's burst, the Coil's field). Anything else is a
+ * table error.
+ */
+function discRingsOf (info: ArchetypeInfo): number {
+  if (info.attack?.kind !== 'disc') throw new Error(`${info.key}: needs a disc attack in utils/archetypes.ts`)
+  return info.attack.rings
+}
+
 /** The stats keys a kill of an NPC of `rarity` credits: every mob kill, and its rarity's. */
 export function npcKillStats (rarity: Rarity | null): KillStat[] {
   if (rarity === null) throw new Error('an NPC needs a rarity in utils/archetypes.ts')
@@ -437,10 +470,11 @@ export function mobGearRolls (rarity: Rarity | null): MobGearRolls {
  * 30 (not from l1-0).
  *
  * Each guard is `GuardSpec` (rings). Contact is 0 for every NPC but the
- * Reactor (l1-0): until l1-3 and l1-7 add their attacks, Coil, Brood and
- * Broodling chase and deal no damage. The Compactor slams (l1-6). The Kiln
- * keeps l1-0's 5-6 band (`GuardSpec.retreat`) and lobs (l1-4); the Brood
- * stands off at 5, the band's low edge, until l1-7.
+ * Reactor (l1-0): until l1-7 adds its attacks, Brood and Broodling chase
+ * and deal no damage. The Compactor slams (l1-6). The Coil deals none by
+ * design; it slows (`coilField`, l1-3). The Kiln keeps l1-0's 5-6 band
+ * (`GuardSpec.retreat`) and lobs (l1-4); the Brood stands off at 5, the
+ * band's low edge, until l1-7.
  */
 const NPC_NUMBERS = Object.freeze({
   crawler: {
@@ -470,7 +504,16 @@ const NPC_NUMBERS = Object.freeze({
     lob: { damage: 30, cooldownMs: 3500, flightMs: 1250 },
     guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 6, retreat: { min: 5, max: 6 } }
   },
-  coil: { maxHp: 70, body: 32, loot: 75, contact: 0, guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 2 } },
+  // Standoff is the field's rings (l1-3, l1-0's "2 (its field)"): it hangs
+  // at the edge of its own field, so whoever it chases is inside it.
+  coil: { maxHp: 70, body: 32, loot: 75, contact: 0, guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: discRingsOf(ARCHETYPE_INFO.coil) } },
+  /**
+   * The Coil's field (l1-3). Slow x0.6, tail 500 and cooldown 6000 (start to
+   * start) are l1-0's. Tell, hold and cool are the approved clip's
+   * (`codex_output/npc-refinements/coil-v4/tools/coil.mjs` `pose`, charge
+   * mode: gather 0-1.2 s, release 1.2-1.5, hold 1.5-3.0, cool 3.0-3.7).
+   */
+  coilField: Object.freeze({ slow: 0.6, tellMs: 1500, holdMs: 1500, coolMs: 700, tailMs: 500, cooldownMs: 6000 }),
   reactor: { maxHp: 360, body: 40, loot: 500, contact: 15, guard: { acquire: 5, lose: 6, chaseSpeed: 110, standoff: 0 } },
   /**
    * The Reactor's burst (l1-5): plants within 2 rings, 25 to each player on
@@ -593,12 +636,6 @@ const kiln: Archetype = {
   ]
 }
 
-/** A mirrored row's disc `attack` rings, for an NPC whose attack is a disc round itself. */
-function discRingsOf (info: ArchetypeInfo): number {
-  if (info.attack?.kind !== 'disc') throw new Error(`${info.key}: needs a disc attack in utils/archetypes.ts`)
-  return info.attack.rings
-}
-
 /** Charges in, plants, bursts (l1-5, `mobskills/reactorburst.ts`). Guard first: it picks the target and chases. */
 const reactorBase = npc(ARCHETYPE_INFO.reactor, NPC_NUMBERS.reactor)
 const reactor: Archetype = {
@@ -608,7 +645,18 @@ const reactor: Archetype = {
     Object.freeze({ kind: 'reactorBurst', ...NPC_NUMBERS.reactorBurst, rings: discRingsOf(ARCHETYPE_INFO.reactor) })
   ]
 }
-const coil: Archetype = npc(ARCHETYPE_INFO.coil, NPC_NUMBERS.coil)
+/**
+ * A Crawler pack's escort (#51; spawned only as one, `LayerPack.escort`): it
+ * shares the pack's home and aggro (`MobPack`), chases to its field's edge
+ * and slows every player on its field (`CoilField`, l1-3). No damage.
+ */
+const coilBase = npc(ARCHETYPE_INFO.coil, NPC_NUMBERS.coil)
+const coil: Archetype = {
+  ...coilBase,
+  // Guard first: it picks the target whose distance starts a charge, and the
+  // field then pins the Coil by clearing the step goal the guard just set.
+  routines: [...coilBase.routines, Object.freeze({ kind: 'coilField' as const, ...NPC_NUMBERS.coilField })]
+}
 const brood: Archetype = npc(ARCHETYPE_INFO.brood, NPC_NUMBERS.brood)
 // Common, but drops no gear (#51, Nick 2026-10-07): an endless stream, so the
 // Brood's own rolls are the reward for killing the source.
@@ -990,6 +1038,8 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
         if (!(skill instanceof Shockwave)) throw new Error(`${archetype.key}: no Shockwave at index ${spec.skill}`)
         return new ShockwaveRoutine(owner, skill, spec.withinCells)
       }
+      case 'coilField':
+        return new CoilField(owner, spec, discRingsOf(archetype))
     }
     throw new Error(`${archetype.key}: unknown routine ${(spec as { kind: string }).kind}`)
   })
