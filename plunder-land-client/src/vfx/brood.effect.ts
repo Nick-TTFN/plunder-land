@@ -1,6 +1,6 @@
 import TWEEN from '@tweenjs/tween.js'
 import { Graphics } from 'pixi.js'
-import { Vector } from '../utils/vector'
+import { type Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { type GameObject } from '../objects/gameobject'
@@ -8,6 +8,7 @@ import { attackCells, type AttackShape } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
 import { BombEffect } from './bomb.effect'
 import { playBlast } from './blast.effect'
+import { pickReleased } from './broodpick'
 
 // The Broodling's rig (l1-8) draws its own body, cord, tell and detonate;
 // this file is what it doesn't, and the stand-ins for a Broodling whose rig
@@ -100,24 +101,20 @@ export function emerge (broodling: GameObject): void {
 interface BroodlingLike extends GameObject {
   archetype?: { key: string }
   npc?: { play: (role: 'spawn' | 'prime') => boolean }
+  createdInFrame: number
 }
 
 /**
- * Effect 19 (l1-7 F2): the live Broodling on `tag` standing on `cell`, which
- * the Brood has just released, plays its rig's `spawn` (emerge), or the
- * fade-in without a rig. Its create came earlier in the same flush
- * (`Multiplayer.order`: creates before effects). A late viewer, who gets
- * only the create, sees no emerge.
+ * Effect 19: the Broodling the Brood has just released (`pickReleased`: one
+ * created in this frame, on the Brood's layer, nearest the release cell)
+ * plays its rig's `spawn` (emerge), or the fade-in without a rig. A late
+ * viewer, whose create came in an earlier frame, sees no emerge.
  */
-export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector): void {
-  for (const mob of mobs as BroodlingLike[]) {
-    if (mob.archetype?.key !== 'broodling' || mob.killed || mob.tag !== tag) continue
-    const at = Hex.toCell(new Vector(mob.x, mob.y))
-    if (at.x !== cell.x || at.y !== cell.y) continue
-    if (mob.npc !== undefined) mob.npc.play('spawn')
-    else emerge(mob)
-    return
-  }
+export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector, frame: number): void {
+  const mob = pickReleased(mobs as unknown as BroodlingLike[], tag, Hex.toPosition(cell), frame)
+  if (mob === undefined) return
+  if (mob.npc !== undefined) mob.npc.play('spawn')
+  else emerge(mob)
 }
 
 /**

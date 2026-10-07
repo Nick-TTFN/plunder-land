@@ -259,3 +259,12 @@ test('the Broodling rig\'s pose takes the cord length, clamped to the package\'s
   const crawlerPose = (o?: { fuseLength: number }): unknown => crawler.CRAWLER_RIG.pose('idle', 1, { x: 1, y: 0 }, undefined, undefined, o).state
   assert.deepEqual(crawlerPose({ fuseLength: 0.5 }), crawlerPose())
 })
+
+// l1-7 F7: `NpcSprite` holds a prime just short of `death.from` until the
+// death arrives (`PRIME_HOLD_S`, 1 ms), because from `death.from` on the rig
+// already draws the Broodling dead with its blast.
+test('the Broodling is whole 1 ms before its death\'s start and blown up at it, which is why a prime holds short of it', () => {
+  const from = broodling.BROODLING_RIG.roles.death?.from ?? 0
+  assert.equal(broodling.sample('detonate', from - 0.001).dead, false)
+  assert.equal(broodling.sample('detonate', from).dead, true)
+})

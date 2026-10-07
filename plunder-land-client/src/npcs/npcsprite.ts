@@ -51,6 +51,8 @@ export class NpcSprite extends Container {
   static readonly HIT_FLASH_S = 0.12
   /** The hit flash's tint (a tint can only darken: red reads as a flash on these colours). */
   static readonly HIT_TINT = 0xff6a5a
+  /** How far short of `roles.death.from` a prime holds: at it, the rig already draws the blast. */
+  static readonly PRIME_HOLD_S = 0.001
   /** The cast shadow's opacity, as the robots' (`RobotSprite.CAST_ALPHA`). */
   static readonly CAST_ALPHA = RobotSprite.CAST_ALPHA
 
@@ -222,10 +224,20 @@ export class NpcSprite extends Container {
     const action = this.action
     if (action !== undefined) {
       action.t += dt
+      // A prime holds just short of the death's start (the Broodling's
+      // 1.35 s, from which the rig draws it dead with its blast) until the
+      // death arrives and carries on from there (l1-7 F7): a late destroy must
+      // not show the blast before the server's, nor end the clip and stand it
+      // back up.
+      const death = this.npc.roles.death
+      if (action.role === 'prime' && death !== undefined && action.clip === death.clip) {
+        action.t = Math.min(action.t, death.from - NpcSprite.PRIME_HOLD_S)
+      }
       const duration = this.npc.clips[action.clip].duration
       const spawn = this.npc.roles.spawn
       const done = action.role === 'spawn' && spawn !== undefined && this.moving && action.t >= spawn.ready
-      if (action.role !== 'death' && (action.t >= duration || done)) this.action = undefined
+      const held = action.role === 'death' || (action.role === 'prime' && death !== undefined && action.clip === death.clip)
+      if (!held && (action.t >= duration || done)) this.action = undefined
     }
     if (dt > 0 && !this.shown()) return
 

@@ -18,15 +18,17 @@ import { PROGRESSION, runXp } from '../progress/xp'
 import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
-// The client's port. It imports nothing, so this pulls no pixi into the server.
+// The client's ports. They import nothing, so this pulls no pixi into the server.
 import { attackCells } from '../../../../plunder-land-client/src/vfx/cells'
+import { pickReleased, PICK_REACH, type ReleaseCandidate } from '../../../../plunder-land-client/src/vfx/broodpick'
 
 /**
  * The Brood carrier's stream and the Broodlings' fuse, tell, shot and chain
  * (decision #51, l1-7): to the tick, with the clock driven as `World.update`
  * drives it: the clock moves 250 ms, due timers run, then the mobs update
- * from the last to the first (a mob released this tick waits for the next),
- * and the dead are swept.
+ * from the last to the first, and the dead are swept. A Broodling released
+ * by a timer is appended to MOBS before that loop, so it gets its first
+ * update, and moves, in the tick it is released (l1-7 F6).
  */
 
 const DT = 0.25
@@ -478,3 +480,59 @@ test('the fuse rides lifetime (9): the first create has 6000, a late viewer\'s c
 })
 
 const LAYER_2 = -2
+
+// l1-7 F6: effect 19 names the release cell, but the Broodling has moved off
+// it by the end of its release tick. The client picks the Broodling created
+// in the same frame nearest the cell's centre (`vfx/broodpick.ts`); here it is
+// run against the server's real positions after the release tick.
+for (const dtMs of [250, 350]) {
+  test(`effect 19 at a ${dtMs} ms tick: the released Broodling is off the release cell, and the client's pick still finds it`, (t) => {
+    mockClock(t)
+    const brood = mobAt(ARCHETYPES.brood)
+    playerAt(6)
+    let checked = false
+    for (let i = 0; i < 40 && !checked; i++) {
+      t.mock.timers.tick(dtMs)
+      Timers.run(Date.now())
+      for (let k = World.MOBS.length - 1; k >= 0; k--) World.MOBS[k].update(dtMs / 1000)
+      const release = releases().find((r) => r.at === Date.now())
+      if (release === undefined) continue
+      checked = true
+      const child = releaseOf(brood).children[0]
+      const centre = Hex.toPosition(release.cell)
+      const off = Math.hypot(child.position.x - centre.x, child.position.y - centre.y)
+      // It chased in its release tick: past the cell's edge (half of Hex.SIZE 45).
+      assert.ok(off > Hex.SIZE / 2, `only ${off.toFixed(1)} px off: the exact-cell rule would still hold`)
+      assert.notDeepEqual(Hex.toCell(child.position), release.cell, 'still on the release cell')
+      assert.ok(off < PICK_REACH, `${off.toFixed(1)} px is beyond the pick's reach`)
+      // Its create, built in its constructor, carried the cell's centre; a
+      // viewer who first sees it through an update gets the moved position.
+      const create = created.find((c) => c.id === child.id)
+      assert.deepEqual([(create?.fields.position as Vector).x, (create?.fields.position as Vector).y], [centre.x, centre.y])
+
+      const FRAME = 7
+      const as = (unit: Unit, frame: number, tag = unit.tag, killed = false): ReleaseCandidate =>
+        ({ x: unit.position.x, y: unit.position.y, tag, killed, archetype: { key: unit.archetype?.key ?? '' }, createdInFrame: frame })
+      const released = as(child, FRAME)
+      const decoy = (dx: number, frame: number, tag = 0, killed = false, key = 'broodling'): ReleaseCandidate =>
+        ({ x: centre.x + dx, y: centre.y, tag, killed, archetype: { key }, createdInFrame: frame })
+      const candidates: ReleaseCandidate[] = [
+        decoy(0, FRAME - 1), // on the centre, but created in an earlier frame (a late viewer's, or an older one)
+        decoy(0, FRAME, -1), // this frame, on the centre, another layer
+        decoy(0, FRAME, 0, true), // this frame, on the centre, already dead
+        decoy(0, FRAME, 0, false, 'crawler'), // this frame, on the centre, not a Broodling
+        decoy(PICK_REACH + 1, FRAME), // this frame, beyond reach
+        decoy(off + 20, FRAME), // this frame, further than the released one
+        released
+      ]
+      assert.equal(pickReleased(candidates, 0, centre, FRAME), released)
+      // The exact-cell rule (F2) finds nothing at the server's position.
+      const onCell = candidates.filter((c) => c.createdInFrame === FRAME && c.tag === 0 && !c.killed &&
+        c.archetype?.key === 'broodling' && key(Hex.toCell(new Vector(c.x, c.y))) === key(release.cell))
+      assert.deepEqual(onCell, [], 'test setup: a decoy sits on the release cell')
+      // Nothing created this frame: no pick.
+      assert.equal(pickReleased(candidates, 0, centre, FRAME + 1), undefined)
+    }
+    assert.ok(checked, 'never released')
+  })
+}

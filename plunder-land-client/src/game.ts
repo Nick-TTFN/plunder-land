@@ -110,6 +110,13 @@ export class Game extends Container {
    * a counter, not a warning, in case it doesn't.
    */
   static EFFECTS_UNHELD = 0
+  /**
+   * Counts frames: bumped by each `update` event, which `unpackFrame` always
+   * emits last in a frame (`net/framedparser.ts`). So everything created and
+   * every effect in one frame see the same value (`Mob.createdInFrame`, the
+   * Brood's release, l1-7 F6).
+   */
+  static FRAME = 0
 
   /**
    * A knockback of our own player (effect 15) waiting for the update header
@@ -713,6 +720,7 @@ export class Game extends Container {
     // ring. A rigged one draws its own cord, as long as the fuse left
     // (`Mob.fuseEndsAt`); without a rig, a code-drawn one.
     const broodling = obj instanceof Mob && obj.archetype?.key === 'broodling'
+    if (obj instanceof Mob) obj.createdInFrame = Game.FRAME
     if (data.lifetime !== undefined && broodling) {
       (obj as Mob).fuseEndsAt = performance.now() + data.lifetime
       if ((obj as Mob).npc === undefined) attachFuse(obj, data.lifetime)
@@ -894,7 +902,7 @@ export class Game extends Container {
       else Game.EFFECTS_UNHELD++
       // Its create came earlier in this flush (creates before effects): the
       // new Broodling emerges now, and only for a viewer who saw the release.
-      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell)
+      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME)
       return
     }
 
@@ -945,6 +953,8 @@ export class Game extends Container {
   }
 
   onObjectsUpdated (data: ArrayBuffer) {
+    // The frame's last event: what comes next is the next frame's.
+    Game.FRAME++
     const buffer = new Uint8Array(data)
     Game.socketBytes += buffer.length
 

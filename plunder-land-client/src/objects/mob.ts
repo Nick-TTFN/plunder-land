@@ -28,6 +28,9 @@ export default class Mob extends Unit {
    */
   fuseEndsAt: number | undefined = undefined
 
+  /** `Game.FRAME` when its create arrived: the Brood's release picks among this frame's (l1-7 F6). */
+  createdInFrame: number = -1
+
   /** Fuse left per unit of the rig's cord length: 3 s draws the default cord (Archie, l1-7 F4). */
   static readonly FUSE_MS_PER_CORD = 3000
 
