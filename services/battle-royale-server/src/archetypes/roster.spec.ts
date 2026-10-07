@@ -75,6 +75,14 @@ test('two simulated minutes: every layer holds its LAYERS population of NPCs, pa
       all[(tick * 31) % all.length].hit(10_000)
       killed++
     }
+    // And wipe one whole pack on every layer once, so a replacement is
+    // certain: whether the scattered kills above ever clear a pack is luck
+    // (it failed 1 run in 10 when this relied on them).
+    if (tick === 200) {
+      for (const layer of LAYERS) {
+        for (const m of packsOn(layer.tag)[0].members) if (!m.destroyed) m.hit(10_000)
+      }
+    }
     for (const layer of LAYERS) {
       const have = counts(layer.tag)
       const want = wanted(layer.tag)
