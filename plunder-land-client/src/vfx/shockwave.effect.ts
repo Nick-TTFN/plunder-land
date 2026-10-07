@@ -49,36 +49,33 @@ export class ShockwaveEffect {
     const step = DIRECTIONS[directionToward(from, tip)]
     const way = Hex.toPosition(new Vector(step.x, step.y))
     const rotation = Math.atan2(way.y, way.x)
-    const delay = (FxSprite.meta('fx/compactor-wave-cell')?.chain?.cellDelay ?? 0.25) * 1000
     const shoe = { x: owner.x, y: owner.y }
 
-    let struck = false
-    let wave: ReturnType<typeof stampCells> | undefined
-    let puff: FxSprite | undefined
-    // Until the last cell's clip ends (the sheet may land during the wind-up).
-    const waveMs = (cells.length - 1) * delay + 1000 * Math.max(FxSprite.durationOf('fx/compactor-wave-cell'), FxSprite.durationOf('fx/compactor-shoe-puff'))
-    runFor(windUp + Math.max(waveMs, IMPACT_FLASH_MS), (elapsed) => {
-      if (elapsed < windUp) return
-      if (!struck) {
-        struck = true
-        if (!FxSprite.ready()) {
-          CellHighlight.flash(tag, cells, IMPACT_COLOUR, IMPACT_FLASH_MS)
-          return
-        }
-        wave = stampCells(layer, 'fx/compactor-wave-cell', cells, rotation)
-        puff = standAt(layer, 'fx/compactor-shoe-puff', shoe.x, shoe.y)
+    // Everything about the impact's art is read at the impact, not the cast:
+    // the sheet may land during the wind-up.
+    const impact = (): void => {
+      if (!FxSprite.ready()) {
+        CellHighlight.flash(tag, cells, IMPACT_COLOUR, IMPACT_FLASH_MS)
+        return
       }
-      const since = elapsed - windUp
-      wave?.decals.forEach((decal, i) => {
-        const own = since - i * delay
-        decal.visible = own >= 0
-        decal.at(own / 1000)
+      const delay = (FxSprite.meta('fx/compactor-wave-cell')?.chain?.cellDelay ?? 0.25) * 1000
+      const wave = stampCells(layer, 'fx/compactor-wave-cell', cells, rotation)
+      const puff = standAt(layer, 'fx/compactor-shoe-puff', shoe.x, shoe.y)
+      // Until the last cell's clip ends, and the puff's.
+      const waveMs = Math.max((cells.length - 1) * delay + 1000 * wave.decals[0].duration, 1000 * puff.duration)
+      runFor(waveMs, (since) => {
+        wave.decals.forEach((decal, i) => {
+          const own = since - i * delay
+          decal.visible = own >= 0
+          decal.at(own / 1000)
+        })
+        puff.at(since / 1000)
+      }, () => {
+        discard(wave.group)
+        discard(puff)
       })
-      puff?.at(since / 1000)
-    }, () => {
-      discard(wave?.group)
-      discard(puff)
-    })
+    }
+    runFor(windUp, () => {}, impact)
   }
 }
 

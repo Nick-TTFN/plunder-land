@@ -12,14 +12,12 @@ import { CellHighlight, layerOf } from './cellhighlight'
  * review. Clips are `fx/<id>`; `meta.clips` gives each its fps, loop and
  * whether it lies on the ground (`docs/art-pipeline.md`).
  *
- * **Loaded in the background when this module is first imported** (by
- * `game.ts`, through the effects), as the NPC rig sheets are from `Game`'s
- * constructor. An effect that arrives before it lands draws its cells as a
- * plain `CellHighlight` (`stampCells`), so a telegraph is never lost, and
- * skips its standing art.
+ * **Loaded in the background from `Game`'s constructor**, with the NPC rig
+ * sheets. An effect that arrives before it lands draws its cells as a plain
+ * `CellHighlight` (`warnCells`, `burstCells`), so a telegraph is never lost,
+ * and skips its standing art.
  */
 export const NPC_FX_SHEET = './res/npc-fx.json'
-void Assets.load(NPC_FX_SHEET).catch((e) => { console.warn('NPC effects sheet did not load', e) })
 
 interface ClipMeta {
   readonly fps: number
@@ -31,8 +29,9 @@ interface ClipMeta {
 /** Ground decals sit here: over the ground (-1000) and the route marker (-1), under every unit (zIndex = its y), as `CellHighlight`. */
 export const GROUND_Z = -0.5
 
+/** The loaded sheet, or undefined: checked first, as `NpcSprite.ready` does, because pixi's `Cache.get` warns on a missing key. */
 function sheet (): any {
-  return Assets.get(NPC_FX_SHEET)
+  return Assets.cache.has(NPC_FX_SHEET) ? Assets.get(NPC_FX_SHEET) : undefined
 }
 
 /**
@@ -52,13 +51,6 @@ export class FxSprite extends Sprite {
   /** The clip's metadata from the sheet (`meta.clips`), undefined for an unknown name or no sheet. */
   static meta (name: string): ClipMeta | undefined {
     return sheet()?.data?.meta?.clips?.[name]
-  }
-
-  /** A clip's own length in seconds, from the sheet; 0 for an unknown name or no sheet. */
-  static durationOf (name: string): number {
-    const frames: unknown[] | undefined = sheet()?.data?.animations?.[name]
-    const fps = FxSprite.meta(name)?.fps
-    return frames !== undefined && fps !== undefined && fps > 0 ? frames.length / fps : 0
   }
 
   readonly frames: Texture[]
@@ -250,6 +242,7 @@ export function burstCells (
 
 /** What a hit spark needs of a mob: where its body is drawn, relative to its position. */
 interface Struck extends Container {
+  killed: boolean
   headY: number
   feetY: number
   radius: number
@@ -263,7 +256,8 @@ interface Struck extends Container {
  * on the upper two thirds of the body. Nothing without the sheet.
  */
 export function hitSpark (mob: Struck): void {
-  if (!FxSprite.ready() || mob.destroyed) return
+  // `killed`, not `destroyed`: a unit is never pixi-destroyed (`dispose` scales it away and removes it).
+  if (!FxSprite.ready() || mob.killed) return
   const spark = new FxSprite('fx/mob-hit-spark')
   const height = mob.feetY - mob.headY
   spark.position.set((Math.random() - 0.5) * mob.radius, mob.headY + height * Math.random() * 2 / 3)

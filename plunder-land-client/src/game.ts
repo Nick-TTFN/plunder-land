@@ -43,6 +43,7 @@ import { KilnLobEffect } from './vfx/kilnlob.effect'
 import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
 import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
+import { NPC_FX_SHEET } from './vfx/npcfx'
 import { BroodlingEffect, BroodReleaseEffect, attachFuse, emergeReleased, primeBroodling } from './vfx/brood.effect'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
@@ -239,7 +240,9 @@ export class Game extends Container {
 
     // The NPC rigs' sheets (l1-8), in the background: a mob created before
     // they land draws `mob/mob` (`Mob.initAnimation`, `NpcSprite.ready`).
-    void Assets.load(Game.NPC_SHEETS).catch((e) => { console.warn('NPC sheets did not load', e) })
+    // With them the NPC effects sheet (l1-11): an effect before it lands
+    // draws plain cell highlights (`vfx/npcfx.ts`, `FxSprite.ready`).
+    void Assets.load([...Game.NPC_SHEETS, NPC_FX_SHEET]).catch((e) => { console.warn('NPC sheets did not load', e) })
   }
 
   /** `tools/bake-npc-atlas.py` writes one per NPC rig (`src/npcs/npcrig.ts` `NPC_RIGS`). */

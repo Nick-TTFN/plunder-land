@@ -20,6 +20,7 @@ const RELEASE_COLOUR = 0xffd21f
 export interface ReactorLike extends Container {
   npc?: { npc: { key: string, sizeScale: number }, destroyed: boolean }
   feetY: number
+  killed: boolean
 }
 
 /** When the release starts in the rig's `activate` clip (`release_start`), seconds. */
@@ -87,6 +88,7 @@ export class ReactorEffect {
       const core = activationPose(RELEASE_START_S + elapsed / 1000).attachments?.coreScreen
       if (core !== undefined) flare.position.set(core.x * px, reactor.feetY + core.y * px)
       flare.through(elapsed / Math.max(lifetime, 1))
-    }, () => { discard(flare) }, () => dead() || reactor.destroyed)
+    // `killed`, not `destroyed`: a unit is never pixi-destroyed (`dispose` scales it away and removes it).
+    }, () => { discard(flare) }, () => dead() || reactor.killed)
   }
 }
