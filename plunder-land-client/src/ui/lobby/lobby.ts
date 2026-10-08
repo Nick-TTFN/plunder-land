@@ -170,6 +170,12 @@ export default class Lobby extends Container {
   private robot: RobotSprite | undefined
   private neighbour: RobotSprite | undefined
   private readonly stage = new Container()
+  private readonly previewLayer = new Container()
+  private readonly previewClip = new Graphics()
+  private readonly preview: HTMLDivElement
+  private readonly content: HTMLDivElement
+  private readonly layoutObserver = new ResizeObserver(() => { this.layout() })
+  private readonly onScroll = (): void => { this.layoutPreview() }
 
   private readonly root: HTMLDivElement
   private readonly pill: HTMLLabelElement
@@ -228,7 +234,9 @@ export default class Lobby extends Container {
     this.ownParty = Lobby.loadParty()
     this.invite = Lobby.loadInvite()
 
-    this.addChild(this.backdrop, this.platform, this.stage)
+    this.previewLayer.addChild(this.platform, this.stage)
+    this.previewLayer.mask = this.previewClip
+    this.addChild(this.backdrop, this.previewLayer, this.previewClip)
 
     Lobby.injectStyle()
     this.root = el('div', 'lb')
@@ -386,7 +394,34 @@ export default class Lobby extends Container {
       if (e.key === 'Enter') this.ready()
     })
 
+    // Keep each section in document flow; Pixi fits the measured preview slot.
+    this.content = el('div', 'lb-content')
+    const main = el('main', 'lb-main')
+    const intro = el('div', 'lb-intro')
+    const identity = el('div', 'lb-identity')
+    identity.append(pill, this.season, this.joinBanner)
+    intro.append(this.root.querySelector('.lb-heading')!, identity)
+    const showcase = el('div', 'lb-showcase')
+    const hero = el('div', 'lb-hero')
+    this.preview = el('div', 'lb-preview')
+    prev.setAttribute('aria-label', 'Previous scavenger')
+    next.setAttribute('aria-label', 'Next scavenger')
+    this.preview.append(prev, next)
+    hero.append(this.preview, plate)
+    showcase.append(stats, hero)
+    main.append(intro, showcase, cards)
+    this.content.append(main)
+    const footer = el('footer', 'lb-footer')
+    const hints = el('div', 'lb-hints')
+    hints.append(this.root.querySelector('.lb-keys')!, this.root.querySelector('.lb-privacy')!)
+    const action = el('div', 'lb-action')
+    action.append(this.fullBanner, ready)
+    footer.append(hints, action)
+    this.root.append(this.content, footer)
+    this.content.addEventListener('scroll', this.onScroll)
     document.body.append(this.root)
+    this.layoutObserver.observe(this.preview)
+    this.layoutObserver.observe(this.content)
     window.addEventListener('keydown', this.onKey, true)
     window.addEventListener('resize', this.onResize)
     window.addEventListener('pointermove', this.onMove)
@@ -784,52 +819,40 @@ export default class Lobby extends Container {
     this.layout()
   }
 
-  /** The size of the big robot: about a quarter of the screen's height, a fifth on a short one. */
-  private scaleFor (h: number): number {
-    return Math.max(2.2, Math.min(5.5, h * (h < 850 ? 0.20 : 0.24) / RobotSprite.PEEP_HEIGHT))
+  private layout (): void {
+    this.paintBackdrop(window.innerWidth, window.innerHeight)
+    this.layoutPreview()
   }
 
-  private layout (): void {
+  /** Fit the canvas art into the same flow layout as its DOM controls, including scrolling. */
+  private layoutPreview (): void {
+    if (this.preview === undefined || this.tornDown) return
     const w = window.innerWidth
     const h = window.innerHeight
-    this.paintBackdrop(w, h)
-    // A phone held sideways (`lobbystyle.ts`, max-height 500): the pill is in
-    // the left column, so the robot has from the top bar down, standing low
-    // enough to leave its name plate room above the bottom edge.
-    const short = h < 500
-    const narrow = w < 720 && !short
-    // On a phone the stats and cards take the lower half, so the robot stands higher.
-    const feetY = short ? h * 0.12 : h * (narrow ? -0.12 : -0.02)
-    // A tall robot (Periscope, drawn 1.35x) is capped to the room between the
-    // name pill and its feet, so its head never reaches the pill.
-    const above = short ? 44 : this.pill.getBoundingClientRect().bottom
-    const room = h / 2 + feetY - above - 16
-    const stand = (this.robot?.standHeight ?? RobotSprite.PEEP_HEIGHT)
-    const scale = Math.min(this.scaleFor(h) * (narrow ? 0.8 : 1), room > 0 ? room / stand : Infinity)
-    const glow = this.platform
-    glow.clear()
+    const box = this.preview.getBoundingClientRect()
+    const viewport = this.content.getBoundingClientRect()
+    const stand = this.robot?.standHeight ?? RobotSprite.PEEP_HEIGHT
+    // Reserve room below the feet for the platform and beside it for arrows.
+    const scale = Math.max(0.1, Math.min(5.5, (box.height - 24) / (stand + 20), (box.width - 112) / 114))
+    const x = box.left + box.width / 2 - w / 2
+    const feetY = box.top + (box.height + stand * scale) / 2 - 10 * scale - h / 2
     const rx = 42 * scale
     const ry = 9 * scale
-    glow.beginFill(0x0a1520, 0.9).drawEllipse(0, feetY + ry * 0.35, rx, ry).endFill()
-    glow.lineStyle(Math.max(2, scale), 0x3de0d0, 0.55).drawEllipse(0, feetY + ry * 0.35, rx, ry)
-    glow.lineStyle(0).beginFill(0x3de0d0, 0.10).drawEllipse(0, feetY + ry * 0.35, rx * 1.35, ry * 1.5).endFill()
+    const glow = this.platform
+    glow.clear()
+    glow.beginFill(0x0a1520, 0.9).drawEllipse(x, feetY + ry * 0.35, rx, ry).endFill()
+    glow.lineStyle(Math.max(2, scale), 0x3de0d0, 0.55).drawEllipse(x, feetY + ry * 0.35, rx, ry)
+    glow.lineStyle(0).beginFill(0x3de0d0, 0.10).drawEllipse(x, feetY + ry * 0.35, rx * 1.35, ry * 1.5).endFill()
     if (this.robot !== undefined) {
       this.robot.scale.set(scale)
-      this.robot.position.set(0, feetY)
+      this.robot.position.set(x, feetY)
     }
-    // The DOM follows the robot: the name plate under the platform, the arrows
-    // either side of its body. Coordinates here are from the screen's centre.
-    const standPx = (this.robot?.standHeight ?? RobotSprite.PEEP_HEIGHT) * scale
-    this.plate.style.top = `${Math.round(h / 2 + feetY + ry * 1.6 + 8)}px`
-    const armsY = Math.round(h / 2 + feetY - standPx / 2 - 30)
-    this.prev.style.top = this.next.style.top = `${armsY}px`
-    this.prev.style.left = `${Math.round(w / 2 - rx - 70)}px`
-    this.next.style.left = `${Math.round(w / 2 + rx + 10)}px`
-    if (this.neighbour !== undefined) {
-      this.neighbour.visible = !narrow && !short
-      this.neighbour.scale.set(scale * 0.62)
-      this.neighbour.position.set(w * 0.30, feetY - 0.06 * h)
-    }
+    // A second floating robot has no reserved space in this layout; the roster previews it.
+    if (this.neighbour !== undefined) this.neighbour.visible = false
+    const top = Math.max(box.top, viewport.top)
+    const bottom = Math.min(box.bottom, viewport.bottom)
+    this.previewClip.clear().beginFill(0xffffff)
+      .drawRect(box.left - w / 2, top - h / 2, box.width, Math.max(0, bottom - top)).endFill()
   }
 
   /** A dark radial backdrop over the whole screen, drawn once per size on a canvas. */
@@ -947,6 +970,8 @@ export default class Lobby extends Container {
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
     window.removeEventListener('pointermove', this.onMove)
+    this.layoutObserver.disconnect()
+    this.content.removeEventListener('scroll', this.onScroll)
     this.root.remove()
     this.robot?.destroy()
     this.neighbour?.destroy()
