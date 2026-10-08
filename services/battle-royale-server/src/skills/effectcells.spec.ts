@@ -273,7 +273,9 @@ test('the client\'s discCells is exactly the cells FIND_IN_CELLS takes', () => {
 test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit RangedAttack hits', () => {
   // Deterministic scatter: players and gunners firing aimed and unaimed shots
   // into a crowd with shared cells, so line order, same-cell nearness, range
-  // and the facing fallback all get compared.
+  // and the facing fallback all get compared. A quarter of the crowd are
+  // players: a gunner's shot passes the mobs and stops at one of them (#51 Q7),
+  // and the client gets only those as bodies, as `RangedAttackEffect` does.
   let seed = 7
   const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
   const offsetCell = (c: Vector, spread: number): Vector =>
@@ -283,6 +285,8 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
   let hits = 0
   let sameCell = 0
   let unaimed = 0
+  let gunnerHits = 0
+  let passedMob = 0
   for (let trial = 0; trial < 400; trial++) {
     World.MOBS.length = 0
     World.PLAYERS.length = 0
@@ -305,9 +309,11 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
 
     const mobs: Unit[] = []
     for (let i = 0; i < 8; i++) {
-      // Every third one shares the previous one's cell.
+      // Every third one shares the previous one's cell; every fourth is a player.
       const cell = i % 3 === 2 ? mobs[i - 1].cell : offsetCell(home, 8)
-      const mob = mobOn(cell)
+      const mob = i % 4 === 1 ? playerOn(cell) : mobOn(cell)
+      mob.armor = 0
+      mob.hp = 1000
       mob.position = mob.position.add(new Vector(rand() * 20 - 10, rand() * 20 - 10))
       mobs.push(mob)
     }
@@ -327,19 +333,21 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
     const aimed = aim !== undefined && (aim.x !== own.x || aim.y !== own.y)
     const toward = aimed ? aim : Hex.neighbour(own, World.FACING_INDEX(shooter.facing))
     const range = Client.rangedRangeCells(archetypeById(shooter.archetype?.id)?.rangedCells, gunnerShot)
-    const got = Client.firstOnLine(
-      Hex.line(own, toward, range),
-      shooter.position.x, shooter.position.y,
-      mobs.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell }))
-    )
-    assert.equal(got, struck, `trial ${trial}`)
+    const line = Hex.line(own, toward, range)
+    const toBodies = (us: Unit[]): Client.Body[] => us.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell }))
+    const bodies = gunnerShot ? mobs.filter((m) => m.type === ObjectType.Player) : mobs
+    const got = Client.firstOnLine(line, shooter.position.x, shooter.position.y, toBodies(bodies))
+    assert.equal(got < 0 ? -1 : mobs.indexOf(bodies[got]), struck, `trial ${trial}`)
     compared++
     if (struck >= 0) hits++
+    if (gunnerShot && struck >= 0) gunnerHits++
+    // A gunner hit with a mob first on the line: the shot went through it.
+    if (gunnerShot && struck >= 0 && mobs[Client.firstOnLine(line, shooter.position.x, shooter.position.y, toBodies(mobs))].type === ObjectType.Mob) passedMob++
     if (struck >= 0 && mobs.some((m, i) => i !== struck && m.cell.x === mobs[struck].cell.x && m.cell.y === mobs[struck].cell.y)) sameCell++
     if (!aimed) unaimed++
   }
-  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50,
-    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed: the sample says too little`)
+  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50 && gunnerHits > 10 && passedMob > 3,
+    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed, ${gunnerHits} gunner hits, ${passedMob} through a mob: the sample says too little`)
 })
 
 test('the client\'s firstOnLine and World.FIRST_ON_LINE agree on a line with two units in one cell', () => {

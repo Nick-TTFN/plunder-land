@@ -166,9 +166,12 @@ test('a damage override is what a shot actually deals', () => {
   const at = Hex.toPosition(Hex.toCell(new Vector(1000, 2000)))
   const shooter = new Mob(at.x, at.y, 0, ARCHETYPES.grunt)
   const [ranged] = buildSkills(shooter, { ...ARCHETYPES.grunt, skills: [{ skill: RangedAttack, damage: 7 }] })
-  const target = new Unit(ObjectType.Mob, at.x + 3 * Hex.SIZE, at.y, 10, 0)
+  // A player: a mob's shot passes through other mobs (#51 Q7).
+  const target = new Player(at.x + 3 * Hex.SIZE, at.y, 0, 'target')
+  target.armor = 0
   target.hp = 100
-  World.MOBS.push(shooter, target)
+  World.MOBS.push(shooter)
+  World.PLAYERS.push(target)
   assert.equal(ranged.execute(), true)
   assert.equal(target.hp, 93, `default ${World.config.ranged} dealt instead of the override`)
 })
