@@ -890,7 +890,7 @@ export class Game extends Container {
     }
 
     // The Coil's pulse (13, l1-3), on the field's cell: sent with `effectAt`
-    // to viewers on its layer, like the bomb. The Coil itself is not looked up.
+    // to viewers on its layer, like the bomb. The Coil is looked up only to play its rig's charge.
     if (type === NPC_EFFECT.coilPulse) {
       if (aimCell !== undefined) new CoilPulseEffect(aimCell, Game.LOCAL.tag, lifetime)
       // Its rig's charge (l1-9), sent at its start (alive, so the id is its own): the hold ends with the lifetime.
