@@ -248,6 +248,11 @@ test('queries find units pushed straight onto the lists, as the specs do', () =>
 
 interface Recorded { event: string, data: unknown }
 
+/** The first player with no live mob within 8 rings, past any layer-0 acquire (Crawler 5, Compactor 4). */
+function clearOfMobs (players: Player[]): Player | undefined {
+  return players.find((p) => !World.MOBS.some((mob) => !mob.destroyed && mob.tag === p.tag && Hex.distance(mob.cell, p.cell) <= 8))
+}
+
 function join (id: string): Player {
   const handlers: Record<string, (data: unknown) => void> = {}
   const sent: Recorded[] = []
@@ -286,9 +291,13 @@ test('a world run through its own paths never rebuilds an index after the first 
     }
     if (tick === 10 && live[0] !== undefined) {
       // A pickup on the player's own cell, standing: taken through PICKUPS.
-      live[0].stop()
-      const at = Hex.toPosition(live[0].cell)
-      crystal = new Consumable(at.x, at.y, live[0].tag, 20 as never, 7)
+      // On a player no mob can reach first: a Compactor's knockback (l1-6)
+      // moves its target 2 cells off the pickup before it is taken (6 of 6
+      // traced failures, 7 runs in 3000).
+      const taker = clearOfMobs(live) ?? live[0]
+      taker.stop()
+      const at = Hex.toPosition(taker.cell)
+      crystal = new Consumable(at.x, at.y, taker.tag, 20 as never, 7)
       World.PICKUPS.push(World.CONSUMABLES, crystal)
     }
     // Taken by a player and out of its list, within a few ticks. Not
@@ -303,10 +312,11 @@ test('a world run through its own paths never rebuilds an index after the first 
     }
     if (tick === 16 && live[0] !== undefined) {
       // Gear (49-2) on the player's own cell: taken through PICKUPS, out of
-      // World.GEAR by World.gearTaken.
-      live[0].stop()
-      const at = Hex.toPosition(live[0].cell)
-      found = new GearPickup(at.x, at.y, live[0].tag, { tier: 1, skill: 0, rolls: [] }, 30000)
+      // World.GEAR by World.gearTaken. Clear of mobs as the crystal above.
+      const taker = clearOfMobs(live) ?? live[0]
+      taker.stop()
+      const at = Hex.toPosition(taker.cell)
+      found = new GearPickup(at.x, at.y, taker.tag, { tier: 1, skill: 0, rolls: [] }, 30000)
       World.PICKUPS.push(World.GEAR, found)
     }
     if (tick >= 17 && tick <= 21 && !ran.gear && found !== undefined) {
