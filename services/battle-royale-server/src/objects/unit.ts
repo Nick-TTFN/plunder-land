@@ -256,6 +256,15 @@ export class Unit extends GameObject {
     return World.isBlocked(q, r, this.tag)
   }
 
+  /**
+   * Rings of body around its cell (`ArchetypeInfo.bodyRings`, ring-footprint):
+   * 1 for a 7-cell body (Reactor, Brood), 0 for everyone else and a bare unit.
+   * A getter, never a field (the `armor` trap).
+   */
+  get bodyRings (): number {
+    return this.archetype?.bodyRings ?? 0
+  }
+
   /** The cell this unit is standing in. */
   get cell (): Vector {
     return Hex.toCell(this.position)
@@ -570,7 +579,7 @@ export class Unit extends GameObject {
     for (const area of World.AREA_EFFECT) {
       if (area.tag !== this.tag) continue
       if (area.target === this) continue
-      if (area.overlaps(this.position)) {
+      if (area.overlaps(this.position, this)) {
         const damage = area.getEffect(dt)
         this.hit(damage)
       }
@@ -597,9 +606,11 @@ export class Unit extends GameObject {
    * Move a mob up to `budget` units by cell steps (decision #31 Q1), carrying
    * what is left at a centre into the next step so it keeps its speed. At a
    * centre it asks `chooseStep` for the next cell, claims that cell and the
-   * one it is leaving (`World.claimStep`: "holds both cells"), and walks
+   * one it is leaving (`World.claimStep`: "holds both cells"; a body holds
+   * both bodies), and walks
    * straight to the new centre; both claims go when it gets there, and from
-   * then on the index holds the cell it stands on. It always finishes a step
+   * then on the index holds the cell it stands on (and `World.BODIES` a
+   * body's ring). It always finishes a step
    * it has started, even if its goal changes: the claim is what keeps two
    * mobs out of one cell, and it is only released on arrival.
    */
@@ -641,7 +652,8 @@ export class Unit extends GameObject {
    *
    * Stay when there is no goal, or the goal is within `within` rings.
    * Otherwise, of the six neighbours a mob may enter (`World.mobCanEnter`:
-   * not blocked, not a gate or arrival cell, not held by another mob), the one
+   * not blocked, not a gate or arrival cell, not held by another mob; for a
+   * body, all 7 cells of its body there), the one
    * nearest the goal by `Hex.distance`, ties to the lowest `Hex.DIRECTIONS`
    * index; and stay if none is nearer than where it stands, which is what
    * keeps a mob with a wall between it and its target still instead of

@@ -55,11 +55,12 @@ export interface BroodSpec {
  * behind the backward loop, first updates on the next tick (a beat's child
  * still updates in its own tick, l1-7 F6); its emerge hold makes that moot.
  *
- * **A release** puts a Broodling (`child`) on the free neighbour of the
- * Brood's cell nearest its target (`World.mobCellFree`; ties to the lowest
- * `Hex.DIRECTIONS` index), through `World.addUnit(World.MOBS, …)`, never
- * through `LAYERS`, and sends effect 19 on the Brood, aimed at that cell. No
- * free neighbour skips the beat. A child is a whole mob from then on: it
+ * **A release** puts a Broodling (`child`) on the free cell just outside the
+ * Brood's body (ring 2 of its 7-cell body, ring-footprint) nearest its target
+ * (`World.mobCellFree`; ties to the first in `World.ringCells` order),
+ * through `World.addUnit(World.MOBS, …)`, never through `LAYERS`, and sends
+ * effect 19 on the Brood, aimed at that cell. No free cell there skips the
+ * beat. A child is a whole mob from then on: it
  * carries no loot (its row's 0), drops nothing, and keeps its own fuse when
  * the Brood dies (#51 Q12). The children still in their sockets (the client
  * draws them) die with it, which on the server is nothing: they are not units.
@@ -142,14 +143,18 @@ export default class BroodRelease implements IAIRoutine {
     return Hex.toCell(target.position)
   }
 
-  /** True if a Broodling was put down. */
+  /**
+   * True if a Broodling was put down. On the ring just outside the Brood's
+   * body (ring-footprint): ring 2 for its 7-cell body, the neighbours for a
+   * Brood without one (`World.ringCells` order, which for ring 1 is
+   * `Hex.DIRECTIONS`).
+   */
   private release (targetCell: Vector): boolean {
     const owner = this.owner
     const here = owner.cell
     let best: Vector | undefined
     let bestDistance = Infinity
-    for (let i = 0; i < Hex.DIRECTIONS.length; i++) {
-      const cell = Hex.neighbour(here, i)
+    for (const cell of World.ringCells(here, owner.bodyRings + 1)) {
       if (!World.mobCellFree(cell.x, cell.y, owner.tag)) continue
       const distance = Hex.distance(cell, targetCell)
       if (distance < bestDistance) {

@@ -156,7 +156,7 @@ test('the rows are the l1-0 provisional numbers: Brood band 5-6, every 4000 ms, 
   assert.deepEqual([ARCHETYPES.broodling.maxHp, ARCHETYPES.broodling.loot, ARCHETYPES.broodling.gearRolls], [1, 0, null])
 })
 
-test('a Brood with a target releases one every 4000 ms onto the free neighbour nearest it, up to 3 alive, and replaces a dead one at the next beat', (t) => {
+test('a Brood with a target releases one every 4000 ms onto the free cell just outside its body (ring 2) nearest it, up to 3 alive, and replaces a dead one at the next beat', (t) => {
   mockClock(t)
   const brood = mobAt(INERT_BROOD)
   const player = playerAt(6)
@@ -174,15 +174,15 @@ test('a Brood with a target releases one every 4000 ms onto the free neighbour n
     assert.deepEqual([s.originator, s.tag, s.lifetime], [brood.id, 0, 1100])
   }
   // Held at 6 rings (the band), so it never moved: the first release goes on
-  // the neighbour nearest the player (east, direction 0), the next on the
-  // nearest free one, and so on.
+  // the ring-2 cell nearest the player (east), just outside its 7-cell body
+  // (ring-footprint), the next on the nearest free one, and so on.
   assert.deepEqual([brood.position.x, brood.position.y], [at(0).x, at(0).y])
   const cells = releases().map((s) => s.cell)
-  for (const cell of cells) assert.equal(Hex.distance(cell, HOME), 1)
-  assert.deepEqual(cells[0], cellAt(1))
-  assert.equal(Hex.distance(cells[1], player.cell), 6, 'the second was not on the next-nearest free neighbour')
+  for (const cell of cells) assert.equal(Hex.distance(cell, HOME), 2)
+  assert.deepEqual(cells[0], cellAt(2))
+  assert.equal(Hex.distance(cells[1], player.cell), 5, 'the second was not on the next-nearest free ring-2 cell')
   // The fourth went where the dead first one stood, now free again.
-  assert.deepEqual(cells[3], cellAt(1))
+  assert.deepEqual(cells[3], cellAt(2))
   // Each child stands on its cell and is in the index as a mob, so no spawn shares a cell.
   for (const child of releaseOf(brood).children) {
     assert.ok(World.MOBS.includes(child))
@@ -214,14 +214,14 @@ test('a Brood releases nothing without a target, stops when its target goes, and
   const next = playerAt(-6, 0, 'p2')
   for (let i = 0; i < 40 && releases().length === 1; i++) tick(t)
   assert.equal(releases().length, 2)
-  assert.equal(Hex.distance(releases()[1].cell, next.cell), 5, 'released away from the new target')
+  assert.equal(Hex.distance(releases()[1].cell, next.cell), 4, 'released away from the new target')
 })
 
-test('a Brood with no free neighbour skips the beat', (t) => {
+test('a Brood with no free cell just outside its body (ring 2) skips the beat', (t) => {
   mockClock(t)
   const brood = mobAt(INERT_BROOD)
   playerAt(6)
-  for (let d = 0; d < 6; d++) World.block(Hex.neighbour(HOME, d).x, Hex.neighbour(HOME, d).y, 0)
+  for (const cell of World.ringCells(HOME, 2)) World.block(cell.x, cell.y, 0)
   for (let i = 0; i < 20; i++) tick(t)
   assert.equal(releases().length, 0)
   assert.equal(releaseOf(brood).children.length, 0)

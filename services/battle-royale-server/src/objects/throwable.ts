@@ -148,6 +148,8 @@ export default class Throwable extends GameObject {
    * crossed cell can itself be a line cell (the next one, or the one before
    * if a unit stepped onto it since), which is why "on the line" is not just
    * "on the crossed cell". Found through `World.UNITS`: 7 cell lookups.
+   * A body (ring-footprint, `World.BODIES`) stands on each of its 7 cells,
+   * ranked by the best of them in the swath: 7 more lookups.
    */
   findHit (index: number): Unit | undefined {
     const cell = this.line[index]
@@ -162,6 +164,13 @@ export default class Throwable extends GameObject {
         if (unit.destroyed) continue
         if (rank < hitRank || (rank === hitRank && hit !== undefined && unit.id < hit.id)) {
           hit = unit
+          hitRank = rank
+        }
+      }
+      const body = World.bodyAt(this.tag, key)
+      if (body !== undefined && body !== this.owner) {
+        if (rank < hitRank || (rank === hitRank && hit !== undefined && body.id < hit.id)) {
+          hit = body
           hitRank = rank
         }
       }

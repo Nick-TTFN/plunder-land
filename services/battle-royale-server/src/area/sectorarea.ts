@@ -70,9 +70,20 @@ export default class SectorArea extends Area {
     return new Vector(origin.x + step.x * this.rings, origin.y + step.y * this.rings)
   }
 
-  overlaps (value: Vector) {
+  /**
+   * True if the cone covers the cell under `value`, or, with a bodied `unit`
+   * (ring-footprint), any cell of its body: a breath hits the Reactor or the
+   * Brood on any of its 7 cells. Both callers (`Unit.update`'s damage and
+   * `GuardPosition`'s provoke) pass the unit, so the two agree.
+   */
+  overlaps (value: Vector, unit?: Unit) {
     const cell = Hex.toCell(value)
-    return this.currentCells().has(Hex.key(cell.x, cell.y))
+    const cells = this.currentCells()
+    const rings = unit?.bodyRings ?? 0
+    if (rings <= 0) return cells.has(Hex.key(cell.x, cell.y))
+    let hit = false
+    World.forKeysWithin(cell, rings, (key) => { if (cells.has(key)) hit = true })
+    return hit
   }
 
   private currentDirection (): number {

@@ -108,6 +108,17 @@ export interface ArchetypeInfo {
   readonly rarity: Rarity | null
   /** An NPC's attack cells (see `NpcAttack`); undefined for any other row and for an NPC with none. */
   readonly attack?: NpcAttack
+  /**
+   * Rings of body around the cell under its centre (ring-footprint, decision
+   * #52 open item 6): 0 is one cell, 1 a 7-cell body (Reactor and Brood).
+   * The server hits a body with a player's attack on any of its cells, keeps
+   * other mobs off them, and steps and spawns it only where all of them are
+   * free (`World.BODIES`); players still walk through. The client stops a
+   * player's beam at the body's edge (`vfx/cells.ts` `firstOnLine`). Data,
+   * not derived from the drawn size, which is client-only. An older client
+   * ignores it and draws the beam to the centre: no PROTOCOL bump.
+   */
+  readonly bodyRings: 0 | 1
 }
 
 /**
@@ -134,40 +145,40 @@ const NPC_SHARED = Object.freeze({
 // with #16's stats and #43's standard vision.
 export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Object.freeze({
   peep: Object.freeze({
-    id: 1, key: 'peep', kind: 'robot', unlockLevel: 1, rarity: null, passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 1, key: 'peep', kind: 'robot', unlockLevel: 1, rarity: null, bodyRings: 0, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 100, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   periscope: Object.freeze({
-    id: 2, key: 'periscope', kind: 'robot', unlockLevel: 5, rarity: null, passesObstacles: false, vision: 10, rangedCells: 6,
+    id: 2, key: 'periscope', kind: 'robot', unlockLevel: 5, rarity: null, bodyRings: 0, passesObstacles: false, vision: 10, rangedCells: 6,
     stats: Object.freeze({ maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   magnet: Object.freeze({
-    id: 3, key: 'magnet', kind: 'robot', unlockLevel: 3, rarity: null, passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 3, key: 'magnet', kind: 'robot', unlockLevel: 3, rarity: null, bodyRings: 0, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 25, speed: 140, pickupReach: 3, damageScale: 1 })
   }),
   // Its trait, passing through obstacle cells (#15), is flagged but not built.
   hopper: Object.freeze({
-    id: 4, key: 'hopper', kind: 'robot', unlockLevel: 8, rarity: null, passesObstacles: true, vision: 6, rangedCells: 6,
+    id: 4, key: 'hopper', kind: 'robot', unlockLevel: 8, rarity: null, bodyRings: 0, passesObstacles: true, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   // HP and armor paid for in speed (#16).
   waddle: Object.freeze({
-    id: 5, key: 'waddle', kind: 'robot', unlockLevel: 12, rarity: null, passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 5, key: 'waddle', kind: 'robot', unlockLevel: 12, rarity: null, bodyRings: 0, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 130, armor: 100, speed: 120, pickupReach: 1, damageScale: 1 })
   }),
   // Retired (#51): kept, ids reserved, spawned by no layer.
-  grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', unlockLevel: null, rarity: null, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
-  boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', unlockLevel: null, rarity: null, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
-  gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', unlockLevel: null, rarity: null, passesObstacles: false, vision: null, rangedCells: 6, stats: null }),
+  grunt: Object.freeze({ id: 6, key: 'grunt', kind: 'mob', unlockLevel: null, rarity: null, bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
+  boss: Object.freeze({ id: 7, key: 'boss', kind: 'mob', unlockLevel: null, rarity: null, bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
+  gunner: Object.freeze({ id: 8, key: 'gunner', kind: 'mob', unlockLevel: null, rarity: null, bodyRings: 0, passesObstacles: false, vision: null, rangedCells: 6, stats: null }),
   // The NPC roster (decision #51, L1). Rarity is Nick's; the rest NPC_SHARED.
-  crawler: Object.freeze({ id: 9, key: 'crawler', kind: 'mob', unlockLevel: null, rarity: 'common', passesObstacles: false, vision: null, rangedCells: NPC_SHARED.crawlerRangedCells, stats: null }),
-  kiln: Object.freeze({ id: 10, key: 'kiln', kind: 'mob', unlockLevel: null, rarity: 'rare', passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.kilnLob }),
-  reactor: Object.freeze({ id: 11, key: 'reactor', kind: 'mob', unlockLevel: null, rarity: 'epic', passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.reactorBurst }),
-  coil: Object.freeze({ id: 12, key: 'coil', kind: 'mob', unlockLevel: null, rarity: 'rare', passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.coilField }),
-  compactor: Object.freeze({ id: 13, key: 'compactor', kind: 'mob', unlockLevel: null, rarity: 'common', passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.compactorLine }),
+  crawler: Object.freeze({ id: 9, key: 'crawler', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: NPC_SHARED.crawlerRangedCells, stats: null }),
+  kiln: Object.freeze({ id: 10, key: 'kiln', kind: 'mob', unlockLevel: null, rarity: 'rare', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.kilnLob }),
+  reactor: Object.freeze({ id: 11, key: 'reactor', kind: 'mob', unlockLevel: null, rarity: 'epic', bodyRings: 1, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.reactorBurst }),
+  coil: Object.freeze({ id: 12, key: 'coil', kind: 'mob', unlockLevel: null, rarity: 'rare', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.coilField }),
+  compactor: Object.freeze({ id: 13, key: 'compactor', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.compactorLine }),
   // No attack cells of its own: it releases Broodlings (l1-7).
-  brood: Object.freeze({ id: 14, key: 'brood', kind: 'mob', unlockLevel: null, rarity: 'legendary', passesObstacles: false, vision: null, rangedCells: null, stats: null }),
-  broodling: Object.freeze({ id: 15, key: 'broodling', kind: 'mob', unlockLevel: null, rarity: 'common', passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.broodlingBlast })
+  brood: Object.freeze({ id: 14, key: 'brood', kind: 'mob', unlockLevel: null, rarity: 'legendary', bodyRings: 1, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
+  broodling: Object.freeze({ id: 15, key: 'broodling', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.broodlingBlast })
 })
 
 /** The robots a player may pick at join, by key, in the lobby's order. */

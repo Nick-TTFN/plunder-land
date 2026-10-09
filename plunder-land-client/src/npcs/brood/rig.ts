@@ -50,7 +50,10 @@ export const CONFIG = Object.freeze({ tilt: 0.68, period: 1.3, duty: 0.72, strid
  * `gaitClock` derives the rate from the sweep and the size. At 2.06 planted
  * feet at the chase's 60 u/s needed 8.1 steps a second per leg, over
  * `maxSteps` 6, so they slid 26%; at 3.2 (size review, 2026-10-09) they
- * need 5.2: planted at chase and idle (2.6 steps), up to 69 u/s. `minPace`
+ * needed 5.2: planted at chase and idle (2.6 steps), up to 69 u/s. At 2.5
+ * (ring footprint, 2026-10-09) they need 6.67 at the chase, over the cap, so
+ * they slide 10% there (planted up to 54 u/s; `npcrigs.spec`'s `cappedSlide`
+ * arithmetic); idle (3.3 steps) stays planted. `minPace`
  * and `groundTilt` as the Crawler's.
  */
 export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.stride / CONFIG.duty / CONFIG.period, period: CONFIG.period, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
@@ -499,7 +502,8 @@ export const BROOD_RIG: NpcRig = Object.freeze({
   clips: CLIPS,
   // Nick, 2026-10-07: 206% of its own rig (ideas/npc-roster.md; the package's reviewGameScale 0.824 is 0.4 x 2.06).
   // Nick, 2026-10-09 (size review): 2.06 -> 3.2; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
-  sizeScale: 3.2,
+  // Nick, 2026-10-09 (#52 open item 6, ring footprint): 3.2 -> 2.5, so the drawing fits its 7-cell body (3 cells across).
+  sizeScale: 2.5,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
   gait: GAIT,

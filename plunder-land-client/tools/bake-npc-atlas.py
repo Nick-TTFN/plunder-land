@@ -21,7 +21,8 @@ resampled once, from the full-size art, to the most it is ever drawn at:
 `RobotSprite.PEEP_HEIGHT` (53) over Peep's 245.5 reference units, a texel per
 device pixel on a 2x screen (the sheet is at scale 2). `SIZE_SCALE` is the
 NPC's `sizeScale` (Nick, 2026-10-09 size review: Crawler 1.31, Broodling 1.49,
-Reactor 2.92, Compactor 1.78, Kiln 1.65, Coil 2.32, Brood 3.2; 2026-10-07 was
+Reactor 2.92, Compactor 1.78, Kiln 1.65, Coil 2.32, Brood 3.2, then 2.5 for its
+ring footprint; 2026-10-07 was
 0.89, 0.94, 2.11, 1.00, 1.00, 1.21, 2.06): change both together.
 
 The units per pixel are the evaluators', and each is the largest the part
@@ -185,7 +186,8 @@ NPCS = {
     # PROVISIONAL (l1-9): brood-v15, delivered 2026-10-07, not yet approved by Nick (v14 was).
     'brood': {
         'package': 'npc-refinements/brood-v15',
-        'size_scale': 3.2,
+        # 3.2 -> 2.5 (ring footprint, #52 open item 6): fits its 7-cell body.
+        'size_scale': 2.5,
         'parts': {
             'body': (0.145, 0.145),
             'upper': (0.0761, 0.0761),
