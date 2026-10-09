@@ -361,3 +361,46 @@ test('a Compactor chasing a player stands still from the first tick at rest afte
     if (end !== undefined) assert.equal(end.goal, true, 'still held past 1750')
   }
 })
+
+/**
+ * A Brood whose beat found it mid-step (`pending`), then one of three things
+ * before the step lands (Archie's lane-2 review): its children reach the cap,
+ * it dies, or its target goes. None of them may release, and a live Brood
+ * leaves `pending` once at rest.
+ */
+for (const what of ['cap', 'death', 'target'] as const) {
+  test(`a Brood with a pending release does not release when ${what === 'cap' ? 'its children reach the cap' : what === 'death' ? 'it dies' : 'its target goes'} before it comes to rest`, (t) => {
+    mockClock(t)
+    const brood = mobAt(INERT_BROOD)
+    const player = playerAt(6)
+    const release = brood.routines.find((r) => r instanceof BroodRelease) as BroodRelease
+    const toward = (): void => {
+      const d = brood.position.sub(player.position)
+      const n = Math.hypot(d.x, d.y)
+      if (n > 0) walk(player, new Vector(d.x / n, d.y / n), 50)
+    }
+    // Children die at once until the first pending beat, so only the cap set below counts.
+    for (let i = 0; i < 90 && !release.pending; i++) {
+      run(t, brood, 1, () => {
+        toward()
+        for (const child of release.children) if (!child.destroyed) child.destroy()
+      }, () => false)
+    }
+    assert.ok(release.pending, 'test setup: no beat found the Brood mid-step')
+    assert.ok(brood.stepTo !== undefined, 'test setup: pending at rest')
+    const before = (casts.get(brood.id) ?? []).length
+    if (what === 'cap') {
+      // Three live children: the cap (3).
+      for (let c = 0; c < 3; c++) release.children.push(mobAt({ ...ARCHETYPES.broodling, routines: [] }, 20 + c, 20))
+    } else if (what === 'death') {
+      brood.destroy()
+    } else {
+      player.destroy()
+    }
+    // Long enough for the step to land, well short of the next beat (4000 ms).
+    run(t, brood, 6, () => {}, () => false)
+    assert.equal((casts.get(brood.id) ?? []).length, before, `released after ${what}`)
+    // At rest at some tick in between (a targetless Brood may wander on after): pending is over.
+    if (what !== 'death') assert.equal(release.pending, false, 'pending outlived the rest')
+  })
+}
