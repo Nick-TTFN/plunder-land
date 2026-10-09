@@ -5,6 +5,7 @@ import { Vector } from '../utils/vector'
 import { onGround } from '../objects/tilt'
 import { type Cell } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
+import { sparkX } from '../npcs/npcrig'
 
 /**
  * The NPC effects sheet (task l1-11, decision #51): Codex's `npc-fx-v1`
@@ -246,6 +247,8 @@ interface Struck extends Container {
   headY: number
   feetY: number
   radius: number
+  /** Its drawn body's extent across, px (a rigged NPC's); without it the spark spreads over `radius`. */
+  bodySpan?: { left: number, right: number }
 }
 
 /**
@@ -253,14 +256,16 @@ interface Struck extends Container {
  * l1-11), a neutral metallic spark, at its own rate, on a point of the body
  * between its feet and its head, a child of the mob so it moves with it. The
  * client is not told where the hit landed, so the point is picked at random
- * on the upper two thirds of the body. Nothing without the sheet.
+ * on the upper two thirds of the body, and across the middle of its drawn
+ * width (`sparkX`; `radius` wide for a robot or an unrigged mob). Nothing
+ * without the sheet.
  */
 export function hitSpark (mob: Struck): void {
   // `killed`, not `destroyed`: a unit is never pixi-destroyed (`dispose` scales it away and removes it).
   if (!FxSprite.ready() || mob.killed) return
   const spark = new FxSprite('fx/mob-hit-spark')
   const height = mob.feetY - mob.headY
-  spark.position.set((Math.random() - 0.5) * mob.radius, mob.headY + height * Math.random() * 2 / 3)
+  spark.position.set(sparkX(mob.bodySpan, mob.radius, Math.random()), mob.headY + height * Math.random() * 2 / 3)
   mob.addChild(spark)
   runFor(spark.duration * 1000, (elapsed) => { spark.at(elapsed / 1000) }, () => { discard(spark) })
 }

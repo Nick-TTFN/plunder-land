@@ -1,5 +1,7 @@
 import test, { afterEach, beforeEach, mock, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer from '../network/multiplayer'
 import World from '../objects/world'
@@ -20,7 +22,7 @@ import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 // The client's ports. They import nothing, so this pulls no pixi into the server.
 import { attackCells } from '../../../../plunder-land-client/src/vfx/cells'
-import { pickReleased, PICK_REACH, type ReleaseCandidate } from '../../../../plunder-land-client/src/vfx/broodpick'
+import { emergeDepth, EMERGE_ABOVE_MS, pickReleased, PICK_REACH, type ReleaseCandidate } from '../../../../plunder-land-client/src/vfx/broodpick'
 
 /**
  * The Brood carrier's stream and the Broodlings' fuse, tell, shot and chain
@@ -536,3 +538,32 @@ for (const dtMs of [250, 350]) {
     assert.ok(checked, 'never released')
   })
 }
+
+// Decision #52 open items (5): a released Broodling is drawn over its Brood
+// for its emerge (the server's `emergeMs`, held still there), then by its y.
+test('a Broodling emerging is drawn over the Brood that released it for the server\'s emerge, then by its y', () => {
+  const fuse = ARCHETYPES.broodling.routines.find((r) => r.kind === 'broodling') as { emergeMs: number }
+  assert.equal(EMERGE_ABOVE_MS, fuse.emergeMs)
+  const parent = { y: 500, killed: false, destroyed: false }
+  const above = { parent, until: 1000 + EMERGE_ABOVE_MS }
+  // North of the Brood (lower y, drawn under it by y): over it while emerging.
+  assert.ok(emergeDepth(460, above, 1000) > parent.y)
+  assert.ok(emergeDepth(460, above, 1000 + EMERGE_ABOVE_MS - 1) > parent.y)
+  // Then by its own y again.
+  assert.equal(emergeDepth(460, above, 1000 + EMERGE_ABOVE_MS), 460)
+  // South of it (already in front): its own y.
+  assert.equal(emergeDepth(540, above, 1000), 540)
+  // The Brood dead or gone: its own y.
+  assert.equal(emergeDepth(460, { parent: { ...parent, killed: true }, until: above.until }, 1000), 460)
+  assert.equal(emergeDepth(460, { parent: { ...parent, destroyed: true }, until: above.until }, 1000), 460)
+  // Not released by a Brood this client saw: its own y.
+  assert.equal(emergeDepth(460, undefined, 1000), 460)
+  // It follows the Brood's y this frame, not a depth captured at the release.
+  assert.ok(emergeDepth(460, { parent: { ...parent, y: 470 }, until: above.until }, 1000) > 470)
+  // The game wires it so (pixi modules, read as source): the release hands
+  // the Brood on, the pick stamps the window, and a mob's update sets its depth from it.
+  const client = (f: string): string => readFileSync(join(__dirname, '../../../../plunder-land-client/src', f), 'utf8')
+  assert.match(client('game.ts'), /emergeReleased\(Game\.MOBS, target\.tag, aimCell, Game\.FRAME, target\)/)
+  assert.match(client('vfx/brood.effect.ts'), /mob\.emergeAbove = \{ parent, until: performance\.now\(\) \+ EMERGE_ABOVE_MS \}/)
+  assert.match(client('objects/mob.ts'), /super\.update\(dt\)\n {4}if \(this\.emergeAbove === undefined\) return\n {4}const now = performance\.now\(\)\n {4}this\.zIndex = emergeDepth\(this\.y, this\.emergeAbove, now\)/)
+})

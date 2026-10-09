@@ -146,6 +146,49 @@ export function gaitClock (rig: { readonly gait?: NpcGait, readonly sizeScale: n
   return Math.min(planted, gait.maxSteps * gait.period) * stretch
 }
 
+/**
+ * How far its body is drawn left and right of its ground point, rig units:
+ * the x extent of every image of its idle pose (east, in place), contact
+ * shadows and emission layers left out. An NPC's body never turns, so one
+ * pose stands for it. Where a hit spark may land (`sparkX`; Archie, lane 4
+ * F1: the wire `radius` bunched the sparks in the middle of the big NPCs).
+ */
+export function bodySpan (rig: Pick<NpcRig, 'roles' | 'pose' | 'draw' | 'arts'>): { left: number, right: number } {
+  const list = rig.draw(rig.pose(rig.roles.idle, 0, { x: 1, y: 0 }), { inPlace: true })
+  let left = Infinity
+  let right = -Infinity
+  const image = (item: NpcImage): void => {
+    if (item.contact === true || item.effect === true) return
+    const c = item.clip ?? { x: 0, y: 0, ...rig.arts[item.art] }
+    const m = item.m
+    for (const [u, v] of [[c.x, c.y], [c.x + c.w, c.y], [c.x, c.y + c.h], [c.x + c.w, c.y + c.h]]) {
+      const x = m.a * u + m.c * v + m.x
+      left = Math.min(left, x)
+      right = Math.max(right, x)
+    }
+  }
+  for (const item of list.items) {
+    if (item.kind === 'image') image(item)
+    else if (item.kind === 'masked') image(item.mask)
+  }
+  return left <= right ? { left, right } : { left: 0, right: 0 }
+}
+
+/**
+ * Where across a body a hit spark lands, px from the ground point, for a
+ * random `u` in [0, 1): over the middle `SPARK_SPAN` of the drawn body
+ * (`span`, px), or without one (a robot, an unrigged mob) `radius` wide
+ * about the middle, as before.
+ */
+export function sparkX (span: { left: number, right: number } | undefined, radius: number, u: number): number {
+  if (span === undefined) return (u - 0.5) * radius
+  const mid = (span.left + span.right) / 2
+  return mid + (u - 0.5) * SPARK_SPAN * (span.right - span.left)
+}
+
+/** The share of a body's drawn width hit sparks spread over: its edges are legs and rims. */
+export const SPARK_SPAN = 0.7
+
 export interface NpcClip {
   readonly duration: number
   readonly loop: boolean

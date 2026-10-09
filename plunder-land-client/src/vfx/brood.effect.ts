@@ -6,7 +6,7 @@ import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { type GameObject } from '../objects/gameobject'
 import { attackCells, type AttackShape } from './cells'
 import { CellHighlight, layerOf } from './cellhighlight'
-import { pickReleased } from './broodpick'
+import { EMERGE_ABOVE_MS, type EmergeAbove, pickReleased } from './broodpick'
 import { burstCells, warnCells } from './npcfx'
 
 // The Broodling's rig (l1-8) draws its own body, cord, tell and detonate;
@@ -101,17 +101,21 @@ interface BroodlingLike extends GameObject {
   archetype?: { key: string }
   npc?: { play: (role: 'spawn' | 'prime') => boolean }
   createdInFrame: number
+  emergeAbove?: EmergeAbove
 }
 
 /**
  * Effect 19: the Broodling the Brood has just released (`pickReleased`: one
  * created in this frame, on the Brood's layer, nearest the release cell)
- * plays its rig's `spawn` (emerge), or the fade-in without a rig. A late
- * viewer, whose create came in an earlier frame, sees no emerge.
+ * plays its rig's `spawn` (emerge), or the fade-in without a rig, drawn
+ * over `parent` (the Brood) for `EMERGE_ABOVE_MS` (`Mob.update`,
+ * `emergeDepth`). A late viewer, whose create came in an earlier frame, sees
+ * no emerge.
  */
-export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector, frame: number): void {
+export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector, frame: number, parent?: GameObject): void {
   const mob = pickReleased(mobs as unknown as BroodlingLike[], tag, Hex.toPosition(cell), frame)
   if (mob === undefined) return
+  if (parent !== undefined) mob.emergeAbove = { parent, until: performance.now() + EMERGE_ABOVE_MS }
   if (mob.npc !== undefined) mob.npc.play('spawn')
   else emerge(mob)
 }

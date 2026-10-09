@@ -3,7 +3,7 @@ import {
   blinkClosure, multiply, regionMatrix,
   type ClipName, type EyeBone, type Matrix as RigMatrix, type Pose
 } from '../peep/rig'
-import { actionOnMove, type LoopClip, type RobotRig, PEEP_RIG } from './robotrig'
+import { actionOnMove, type LoopClip, type RobotRig, PEEP_RIG, runClock } from './robotrig'
 import { chargedEyeMarks, SHOT, type ShotEye } from './eyeshot'
 import { SPRING_STROKES, springPoints } from '../hopper/rig'
 import { layShadow } from '../objects/shadow'
@@ -500,7 +500,8 @@ export class RobotSprite extends Container {
     // the run loop plays backwards (Nick, 2026-09-30). `clipTime` wraps it.
     const facingNow = this.action?.facing ?? this.shot?.facing ?? this.lookFacing ?? this.moveFacing
     const backwards = facingNow !== this.moveFacing ? -1 : 1
-    this.baseTime += this.base === 'run' ? dt * RobotSprite.RUN_RATE * (this.character.runRate ?? 1) * this.pace * backwards : dt
+    // `runClock`: RUN_RATE x runRate x pace, or a gait's planted rate (Peep, #52).
+    this.baseTime += this.base === 'run' ? dt * runClock(this.character, this.pace, RobotSprite) * backwards : dt
     this.eyeClock += dt
     const now = this.eyeClock
     if (this.pendingExpression === 'smile' && now >= this.smileUntil) {
