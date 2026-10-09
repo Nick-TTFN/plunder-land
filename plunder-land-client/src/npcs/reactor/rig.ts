@@ -1,6 +1,6 @@
 import { type Matrix, multiply } from '../../peep/rig'
 import { deepClone } from '../clone'
-import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcImage, type NpcPose, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcGait, type NpcImage, type NpcPose, type NpcRig } from '../npcrig'
 
 /**
  * The Reactor Spider (l1-9): a hand port of `tools/reactor.mjs` in its Codex
@@ -25,6 +25,20 @@ import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcImage, type N
 const TAU = Math.PI * 2
 
 export const CONFIG = Object.freeze({ tilt: 0.68, upper: 37, lower: 32, period: 1.6, duty: 0.68, stride: 12, lift: 7 })
+
+/**
+ * The game's gait (decision #52 lane 4, the Crawler's treatment; PROVISIONAL
+ * until Nick has seen it), at the package's own stride. The package's walk
+ * slid 93% at the chase's 110 u/s (strand B). Its painted legs stand at 0.91
+ * of their reach at rest and the walk takes them to 0.976; past 1 the
+ * package throws ('Rigid leg target outside its reach', from stride 18), so
+ * no longer stride is clean. `gaitClock` derives the rate from the sweep and
+ * the size: planted feet at chase would need 13.7 steps a second per leg;
+ * `maxSteps` holds it at 6, so at 110 u/s the feet slide 56%, along the
+ * motion only; under 48 u/s, idle wander (30 u/s, 3.7 steps) included,
+ * they stay planted. `minPace` and `groundTilt` as the Crawler's.
+ */
+export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.stride / CONFIG.duty / CONFIG.period, period: CONFIG.period, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
 /** Rig A, 'Low circular core', the one painted. */
 const A = Object.freeze({ ring: 44, top: 29, shell: 39, rim: 39, aperture: 26, foot: 98 })
 
@@ -507,6 +521,7 @@ export const REACTOR_RIG: NpcRig = Object.freeze({
   sizeScale: 2.11,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
+  gait: GAIT,
   roles: Object.freeze({
     idle: 'idle',
     move: 'walk',

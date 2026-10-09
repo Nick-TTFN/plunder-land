@@ -688,7 +688,7 @@ test('kiln: at the game\'s stride no knee goes straighter than 0.9 of its reach 
 })
 
 /** The rigs with a gait of their own (decision #52 lanes 3 and 4); the rest run as before. */
-const GAITED = ['crawler', 'kiln', 'compactor']
+const GAITED = ['crawler', 'kiln', 'compactor', 'reactor']
 
 /** A package's own draw scale on top of `sizeScale` (the Broodling's `renderScale`): its feet are drawn that much larger. */
 const DRAWN: Readonly<Record<string, number>> = { broodling: broodling.CFG.renderScale }
