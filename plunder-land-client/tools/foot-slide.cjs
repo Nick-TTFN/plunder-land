@@ -16,7 +16,8 @@
  *
  * What it models (each read from the code, see `constants()`):
  * - Clip clock as the sprites advance it: robots `RobotSprite.update`,
- *   `baseTime += dt * RUN_RATE * (runRate ?? 1) * pace`, pace = speed /
+ *   `baseTime += dt * runClock(rig, pace)` (`RUN_RATE * (runRate ?? 1) * pace`,
+ *   or a `RobotGait`'s capped planted rate: Peep, #52), pace = speed /
  *   STRIDE_SPEED clamped to [MIN_PACE, maxPace ?? MAX_PACE]; Hopper's loop is
  *   its jump clip's segments (`RobotRig.loops`). NPCs `NpcSprite.update`,
  *   `baseTime += dt * RUN_RATE * pace` on `roles.move`, pace clamped the same
@@ -82,7 +83,7 @@ function constants () {
   const npc = fs.readFileSync(path.join(CLIENT, 'src/npcs/npcsprite.ts'), 'utf8')
   if (!/this\.baseTime \+= this\.moving \? dt \* gaitClock\(this\.npc, this\.pace, this\.stretch, RobotSprite\) : dt/.test(npc)) throw Error('NpcSprite.update changed: update foot-slide.cjs')
   if (!/gaitDirection\(this\.npc\.gait, x, y, TILT\)/.test(npc) || !/gaitPace\(this\.npc\.gait, pace, RobotSprite\.MIN_PACE, RobotSprite\.MAX_PACE\)/.test(npc)) throw Error('NpcSprite.setDirection/setPace changed: update foot-slide.cjs')
-  if (!/RobotSprite\.RUN_RATE \* \(this\.character\.runRate \?\? 1\) \* this\.pace/.test(sprite)) throw Error('RobotSprite.update changed: update foot-slide.cjs')
+  if (!/this\.baseTime \+= this\.base === 'run' \? dt \* runClock\(this\.character, this\.pace, RobotSprite\) \* backwards : dt/.test(sprite)) throw Error('RobotSprite.update changed: update foot-slide.cjs')
   const { Hex } = require(path.join(CLIENT, 'src/utils/hex.ts'))
   const row = Hex.SIZE * Math.sqrt(3) / 2
   const { PEEP_RIG } = require(path.join(CLIENT, 'src/robots/robotrig.ts'))
@@ -124,6 +125,7 @@ function speeds () {
  * in world units, and whether it is planted.
  */
 function robotAdapter (key, rig, C) {
+  const { runClock } = require(path.join(CLIENT, 'src/robots/robotrig.ts'))
   const ppu = C.SCALE * rig.drawScale
   const loop = rig.loops?.run
   const loopTime = (seconds) => {
@@ -148,7 +150,7 @@ function robotAdapter (key, rig, C) {
     kind: 'robot',
     period,
     pace: (speed) => Math.min(rig.maxPace ?? C.MAX_PACE, Math.max(C.MIN_PACE, speed / C.STRIDE_SPEED)),
-    rate (speed) { return C.RUN_RATE * (rig.runRate ?? 1) * this.pace(speed) },
+    rate (speed) { return runClock(rig, this.pace(speed), C) },
     rateNoRunRate (speed) { return C.RUN_RATE * this.pace(speed) },
     contactSource: bones.every((b) => rig.animationPose(clip, 0, {}).state[b].contact !== undefined) ? 'rig foot_*.contact' : 'foot rig y within 1e-6 of its lowest (no contact flag)',
     feet (t, dir) {

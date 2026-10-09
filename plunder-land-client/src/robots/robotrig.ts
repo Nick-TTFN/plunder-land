@@ -59,7 +59,62 @@ export interface RobotRig {
    * rate through a dash (Nick, 2026-10-01).
    */
   readonly maxPace?: number
+  /**
+   * Its run loop timed from its own stride and size, as an NPC's (`RobotGait`,
+   * `runClock`). Peep only, a trial (decision #52 open items, 3).
+   */
+  readonly gait?: RobotGait
 }
+
+/**
+ * A robot's run timed from its stride (decision #52 open items, 3: "try a
+ * faster robot walk, 6 steps/s cap, on Peep only"; PROVISIONAL until Nick
+ * has looked). `NpcGait`'s idea for the side-view robots: the loop runs at
+ * the rate a planted foot would keep still east and west, capped at
+ * `maxSteps` a second per leg, and never slower than it ran before (so a
+ * dash's legs are as fast as they were). A rate can't plant a side-view
+ * foot going north or south: there the foot sweeps across the motion.
+ */
+export interface RobotGait {
+  /** How fast a planted foot sweeps back, in rig units per clip second (the drop's stride over its contact time). */
+  readonly groundSpeed: number
+  /** One leg's step cycle, clip seconds. */
+  readonly period: number
+  /** The most steps a second one leg takes. */
+  readonly maxSteps: number
+}
+
+/** `RobotSprite`'s numbers `runClock` needs (the class itself fits; it is a pixi module, so the spec passes copies). */
+export interface RunSprite {
+  readonly RUN_RATE: number
+  readonly STRIDE_SPEED: number
+  readonly SCALE: number
+}
+
+/**
+ * Clip seconds a second of `rig`'s run loop at `pace` (ground speed over
+ * `STRIDE_SPEED`, as `RobotSprite.setPace` clamps it): what
+ * `RobotSprite.update` adds to its clock, before the sign for running
+ * backwards. Without a gait, `RUN_RATE x runRate x pace`, as every robot ran
+ * before. With one, the planted rate, ground speed / (`groundSpeed` x
+ * `SCALE` x `drawScale`), capped at `maxSteps x period`, but never below the
+ * rate without it.
+ */
+export function runClock (rig: Pick<RobotRig, 'gait' | 'runRate' | 'drawScale'>, pace: number, sprite: RunSprite): number {
+  const before = sprite.RUN_RATE * (rig.runRate ?? 1) * pace
+  const gait = rig.gait
+  if (gait === undefined) return before
+  const planted = pace * sprite.STRIDE_SPEED / (gait.groundSpeed * sprite.SCALE * rig.drawScale)
+  return Math.max(before, Math.min(planted, gait.maxSteps * gait.period))
+}
+
+/**
+ * Peep's run (`peep/rig.ts` `foot`): a foot sweeps back 24 rig units over
+ * the first 0.38 of the 0.6 s loop, and each leg steps once a loop. Planted
+ * at its 140 u/s that is 11.4 steps a second; capped at 6, 3.6 clip seconds
+ * a second, 1.8x the 2 it ran at.
+ */
+const PEEP_GAIT: RobotGait = Object.freeze({ groundSpeed: 24 / 0.38 / 0.6, period: 0.6, maxSteps: 6 })
 
 /** A movement loop made of another clip, or of stretches of one. */
 export interface LoopClip {
@@ -93,7 +148,8 @@ export const PEEP_RIG: RobotRig = Object.freeze({
   // Measured from the drop's reference pose.
   referenceUnits: 245.5,
   shadow: Object.freeze({ x: 0, rx: 70, ry: 9, jumpHeight: 48 }),
-  debrisShadow: Object.freeze({ head: 53, torso: 29 })
+  debrisShadow: Object.freeze({ head: 53, torso: 29 }),
+  gait: PEEP_GAIT
 })
 
 /** Numbers from the v2 drop (unchanged in v3): `rig/character.json` and `drawAnimation` in `tools/animations.mjs`. */

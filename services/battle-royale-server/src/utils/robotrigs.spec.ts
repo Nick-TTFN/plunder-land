@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type ClipName, type EyeBone, type Matrix, type PoseOptions, multiply, regionMatrix } from '../../../../plunder-land-client/src/peep/rig'
-import { ROBOT_RIGS, actionOnMove, type RobotRig } from '../../../../plunder-land-client/src/robots/robotrig'
+import { ROBOT_RIGS, actionOnMove, runClock, type RobotRig } from '../../../../plunder-land-client/src/robots/robotrig'
+import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
 import { chargedEyeMarks, SHOT } from '../../../../plunder-land-client/src/robots/eyeshot'
 import { SPRING_STROKES } from '../../../../plunder-land-client/src/hopper/rig'
 
@@ -172,4 +173,124 @@ test('a moving robot\'s shot turns into the eye shot and its swing ends from its
     for (const t of [0, SHOT.fire - 0.01, SHOT.fire, 0.7]) assert.equal(actionOnMove(rig, 'shoot', t), 'eye', `${rig.sheet} ${t}`)
     assert.equal(actionOnMove(rig, 'fall_apart', 0.5), 'play', rig.sheet)
   }
+})
+
+// Decision #52 open items (3): Peep's run timed from its stride, capped at 6
+// steps a second per leg, never slower than before; the other robots as they
+// were. `RobotSprite`'s numbers parsed from its source (a pixi module).
+const SPRITE = (() => {
+  const src = readFileSync(join(__dirname, '../../../../plunder-land-client/src/robots/robotsprite.ts'), 'utf8')
+  const num = (re: RegExp): number => {
+    const m = src.match(re)
+    assert.ok(m !== null, `robotsprite.ts no longer has ${String(re)}`)
+    return Number(m[1])
+  }
+  // The clock `update` adds, so the numbers below are the game's.
+  assert.match(src, /this\.baseTime \+= this\.base === 'run' \? dt \* runClock\(this\.character, this\.pace, RobotSprite\) \* backwards : dt/)
+  assert.match(src, /this\.pace = Math\.min\(this\.character\.maxPace \?\? RobotSprite\.MAX_PACE, Math\.max\(RobotSprite\.MIN_PACE, pace\)\)/)
+  return {
+    RUN_RATE: num(/static readonly RUN_RATE = ([\d.]+)/),
+    STRIDE_SPEED: num(/static readonly STRIDE_SPEED = ([\d.]+)/),
+    MIN_PACE: num(/static readonly MIN_PACE = ([\d.]+)/),
+    MAX_PACE: num(/static readonly MAX_PACE = ([\d.]+)/),
+    SCALE: num(/static readonly PEEP_HEIGHT = ([\d.]+)/) / ROBOT_RIGS.peep.referenceUnits
+  }
+})()
+
+/** A foot bone's `contact` (Peep's, Magnet's and Periscope's feet carry one). */
+const planted = (bone: object): boolean => (bone as { contact?: boolean }).contact === true
+
+const runPace = (rig: RobotRig, v: number): number => Math.min(rig.maxPace ?? SPRITE.MAX_PACE, Math.max(SPRITE.MIN_PACE, v / SPRITE.STRIDE_SPEED))
+
+/**
+ * A planted foot's mean velocity over the ground, world u/s, for a robot
+ * running east at `v` as `RobotSprite` plays its run (`runClock`): the
+ * unit's velocity plus the foot's in the sprite (rig x at `SCALE x
+ * drawScale`; rig y is up the screen, still while planted). Zero is planted.
+ */
+function robotPlanted (rig: RobotRig, v: number): { x: number, y: number, n: number } {
+  const ppu = SPRITE.SCALE * rig.drawScale
+  const rate = runClock(rig, runPace(rig, v), SPRITE)
+  const bones = Object.keys(rig.animationPose('run', 0, {}).matrices).filter((b) => /^foot(_|$)/.test(b))
+  const h = 1e-5
+  let sx = 0
+  let sy = 0
+  let n = 0
+  const period = rig.clips.run.duration
+  for (let i = 0; i < 600; i++) {
+    const t = period * i / 600
+    const [lo, hi] = [rig.animationPose('run', t - h, {}), rig.animationPose('run', t + h, {})]
+    for (const b of bones) {
+      if (!planted(lo.state[b]) || !planted(hi.state[b])) continue
+      sx += v + rate * ppu * (hi.matrices[b].x - lo.matrices[b].x) / (2 * h)
+      sy += rate * ppu * (hi.matrices[b].y - lo.matrices[b].y) / (2 * h)
+      n++
+    }
+  }
+  return { x: sx / n, y: sy / n, n }
+}
+
+test('runClock: RUN_RATE x runRate x pace without a gait; with one, the planted rate capped at maxSteps, never below that', () => {
+  const sprite = { RUN_RATE: 2, STRIDE_SPEED: 140, SCALE: 0.5 }
+  assert.equal(runClock({ drawScale: 3 }, 0.7, sprite), 1.4)
+  assert.ok(Math.abs(runClock({ drawScale: 3, runRate: 1.5 }, 0.7, sprite) - 2.1) < 1e-12)
+  const gait = { groundSpeed: 40, period: 0.5, maxSteps: 6 }
+  // 70 u/s over (40 x 0.5 x 2) = 1.75 clip seconds a second (3.5 steps): under the cap of 6 x 0.5 = 3, over the 1 it ran at.
+  assert.ok(Math.abs(runClock({ gait, drawScale: 2 }, 0.5, sprite) - 1.75) < 1e-12)
+  // 280 u/s would need 7, capped at 3; but it ran at RUN_RATE x pace = 4 before, so 4.
+  assert.ok(Math.abs(runClock({ gait, drawScale: 2 }, 2, sprite) - 4) < 1e-12)
+  // 210 u/s: planted 5.25, capped 3, before 3: 3.
+  assert.ok(Math.abs(runClock({ gait, drawScale: 2 }, 1.5, sprite) - 3) < 1e-12)
+  // drawScale counts: twice as big, half the planted rate.
+  assert.ok(Math.abs(runClock({ gait, drawScale: 4 }, 0.5, sprite) - 1) < 1e-12)
+})
+
+test('only Peep\'s run has a gait: its period is the loop\'s step cycle and its groundSpeed the planted sweep; the rest run as before', () => {
+  assert.deepEqual(Object.values(ROBOT_RIGS).filter((r) => r.gait !== undefined).map((r) => r.sheet), ['peep'])
+  for (const rig of Object.values(ROBOT_RIGS)) {
+    if (rig.gait !== undefined) continue
+    for (const pace of [0.5, 1, 2.5]) assert.equal(runClock(rig, pace, SPRITE), SPRITE.RUN_RATE * (rig.runRate ?? 1) * pace, rig.sheet)
+  }
+  const rig = ROBOT_RIGS.peep
+  const gait = rig.gait!
+  const clip = rig.clips.run.duration
+  const bones = Object.keys(rig.animationPose('run', 0, {}).matrices).filter((b) => /^foot(_|$)/.test(b))
+  assert.equal(bones.length, 2)
+  const n = 4000
+  const contact = (t: number): boolean[] => bones.map((b) => planted(rig.animationPose('run', t, {}).state[b]))
+  const downs = bones.map(() => 0)
+  let before = contact(clip * (n - 1) / n)
+  for (let i = 0; i < n; i++) {
+    const now = contact(clip * i / n)
+    now.forEach((c, k) => { if (c && !before[k]) downs[k]++ })
+    before = now
+  }
+  for (const d of downs) assert.equal(d, Math.round(clip / gait.period), 'touchdowns per leg a loop')
+  assert.ok(Math.abs(clip / gait.period - Math.round(clip / gait.period)) < 1e-9, 'the loop is whole steps')
+  assert.equal(gait.maxSteps, 6)
+})
+
+test('Peep runs planted east and west until 6 steps a second, then slides only the capped share; a dash is as fast as before', () => {
+  const rig = ROBOT_RIGS.peep
+  const gait = rig.gait!
+  const base = ARCHETYPE_INFO.peep.stats.speed
+  const plantedRate = (v: number): number => runPace(rig, v) * SPRITE.STRIDE_SPEED / (gait.groundSpeed * SPRITE.SCALE * rig.drawScale)
+  // Under the cap (it binds from 73.6 u/s; 70 is the pace floor 0.5): planted, at 1% of the ground speed.
+  for (const v of [70, 72, 73]) {
+    assert.ok(plantedRate(v) < gait.maxSteps * gait.period, `${v} is under the cap`)
+    const w = robotPlanted(rig, v)
+    assert.ok(w.n > 0)
+    assert.ok(Math.hypot(w.x, w.y) < 0.01 * v, `at ${v} u/s a planted foot moves ${w.x.toFixed(2)},${w.y.toFixed(2)}`)
+  }
+  // At its own speed: 6 steps a second (3.6 clip s a second, 1.8x the 2 before), the capped share of the slide along the motion.
+  const rate = runClock(rig, runPace(rig, base), SPRITE)
+  assert.ok(Math.abs(rate / gait.period - 6) < 1e-9, `steps a second ${rate / gait.period}`)
+  assert.ok(Math.abs(rate / (SPRITE.RUN_RATE * runPace(rig, base)) - 1.8) < 1e-9)
+  const want = 1 - rate / plantedRate(base)
+  const w = robotPlanted(rig, base)
+  assert.ok(Math.abs(w.x - want * base) < 0.01 * base && Math.abs(w.y) < 0.01 * base, `at ${base} a planted foot moves ${w.x.toFixed(2)},${w.y.toFixed(2)}, want ${(want * base).toFixed(2)},0`)
+  // Measured 47.4% (70.8% before).
+  assert.ok(Math.abs(want - 0.474) < 0.001, `slide ${want}`)
+  // A dash (2.5x): the legs run as before, not slowed to the cap.
+  assert.equal(runClock(rig, 2.5, SPRITE), SPRITE.RUN_RATE * 2.5)
 })
