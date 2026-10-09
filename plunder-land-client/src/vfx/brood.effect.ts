@@ -23,9 +23,8 @@ import { burstCells, warnCells } from './npcfx'
 //   over its head that burns down with the fuse left, and `emerge` is a
 //   300 ms fade-in (with it, the rig's cord is as long as the fuse left,
 //   `Mob.fuseEndsAt`, and `spawn` plays its emerge); the release (19) is a
-//   pod thrown from the Brood to the cell; the Brood's rig (l1-9) would play
-//   its 1.10 s `spawn` clip, launch at its 0.18 s event, and drop its
-//   unreleased socket children on death.
+//   pod thrown from the Brood to the cell when no Broodling is launched off
+//   its socket (with both rigs, "loaded + launch", `broodlaunch.ts`).
 const FUSE_COLOUR = 0xffb02a
 const FUSE_SPENT = 0x3a2a22
 /** Fallback colours for 17 and 18, drawn as cell highlights only while the effects sheet hasn't loaded. */
@@ -102,6 +101,8 @@ interface BroodlingLike extends GameObject {
   npc?: { play: (role: 'spawn' | 'prime') => boolean }
   createdInFrame: number
   emergeAbove?: EmergeAbove
+  /** `Mob.launchFrom`: true if it now flies off the Brood's socket. */
+  launchFrom?: (brood: unknown) => boolean
 }
 
 /**
@@ -109,15 +110,21 @@ interface BroodlingLike extends GameObject {
  * created in this frame, on the Brood's layer, nearest the release cell)
  * plays its rig's `spawn` (emerge), or the fade-in without a rig, drawn
  * over `parent` (the Brood) for `EMERGE_ABOVE_MS` (`Mob.update`,
- * `emergeDepth`). A late viewer, whose create came in an earlier frame, sees
- * no emerge.
+ * `emergeDepth`). With both rigs drawn it is launched off the Brood's
+ * socket and flies down to its cell, curled, and unfolds there
+ * (`Mob.launchFrom`, `broodlaunch.ts`); true then, and the caller draws no
+ * pod. A late viewer, whose create came in an earlier frame, sees no emerge.
  */
-export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector, frame: number, parent?: GameObject): void {
+export function emergeReleased (mobs: readonly GameObject[], tag: number | undefined, cell: Vector, frame: number, parent?: GameObject): boolean {
   const mob = pickReleased(mobs as unknown as BroodlingLike[], tag, Hex.toPosition(cell), frame)
-  if (mob === undefined) return
+  if (mob === undefined) return false
   if (parent !== undefined) mob.emergeAbove = { parent, until: performance.now() + EMERGE_ABOVE_MS }
-  if (mob.npc !== undefined) mob.npc.play('spawn')
-  else emerge(mob)
+  if (mob.npc === undefined) {
+    emerge(mob)
+    return false
+  }
+  mob.npc.play('spawn')
+  return parent !== undefined && mob.launchFrom?.(parent) === true
 }
 
 /**
@@ -148,12 +155,15 @@ export class BroodlingEffect {
 
 /**
  * Effect 19: the Brood releases a Broodling onto `cell` (the record's aim).
- * Sent to the Brood's holders (`effect`), so the Brood is held here.
+ * Sent to the Brood's holders (`effect`), so the Brood is held here. The
+ * cell flashes; the pod is thrown only when no Broodling was launched off a
+ * socket (`pod`: no rig, or one not picked).
  */
 export class BroodReleaseEffect {
-  constructor (brood: GameObject, cell: Vector | undefined, lifetime: number) {
+  constructor (brood: GameObject, cell: Vector | undefined, lifetime: number, pod = true) {
     const duration = Math.max(lifetime, 100)
     if (cell !== undefined) CellHighlight.flash(brood.tag, [{ x: cell.x, y: cell.y }], RELEASE_COLOUR, duration)
+    if (!pod) return
 
     const layer = layerOf(brood.tag)
     if (layer === undefined) return

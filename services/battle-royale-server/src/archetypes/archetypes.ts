@@ -554,8 +554,9 @@ const NPC_NUMBERS = Object.freeze({
   reactorBurst: { plantRings: 2, damage: 25, pulses: 4, cooldownMs: 2000, activateMs: 1000, releaseMs: 1000, settleMs: 350 },
   /**
    * Keeps 5-6 off its target (the Kiln's band, l1-0 Q1) and releases one
-   * Broodling every 4000 ms while it has a target, at most 3 alive (l1-7,
-   * `mobskills/brood.ts`). `releaseMs` is not l1-0's: it is the approved
+   * Broodling every 1000 ms while it has a target, at most 6 alive (l1-7,
+   * `mobskills/brood.ts`; l1-0's 4000 and 3 until Nick's "Brood stream",
+   * 2026-10-09). `releaseMs` is not l1-0's: it is the approved
    * Brood clip's `spawn` action, 1.10 s (`codex_output/npc-refinements/
    * brood-v15/rig/animation-contract.json`), effect 19's lifetime, looks only.
    */
@@ -566,7 +567,7 @@ const NPC_NUMBERS = Object.freeze({
     contact: 0,
     // `holdMs`: rest, release, then stand still this long from the release
     // (#52 lane 2, accepted 2026-10-09; 2 ticks).
-    release: { intervalMs: 4000, cap: 3, releaseMs: 1100, holdMs: 500 },
+    release: { intervalMs: 1000, cap: 6, releaseMs: 1100, holdMs: 500 },
     guard: { acquire: 7, lose: 9, chaseSpeed: 60, standoff: 6, retreat: { min: 5, max: 6 } }
   },
   /**

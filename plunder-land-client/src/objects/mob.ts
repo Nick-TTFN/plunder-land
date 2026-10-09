@@ -8,6 +8,21 @@ import { RobotSprite } from '../robots/robotsprite'
 import { SETTINGS } from '../net/settings'
 import { hitSpark } from '../vfx/npcfx'
 import { type EmergeAbove, emergeDepth } from '../vfx/broodpick'
+import { BROODLING_RIG } from '../npcs/broodling/rig'
+import { BroodSockets } from '../vfx/broodsockets'
+import { LAUNCH_MS, flightAt, type Point as ScreenPoint } from '../vfx/broodlaunch'
+import { TILT } from './tilt'
+
+/** A launched Broodling's flight off its Brood's socket (`Mob.launchFrom`). */
+interface Launch {
+  readonly from: Mob
+  readonly socket: number
+  /** Effect 19's arrival, `performance.now()` ms. */
+  readonly start: number
+  /** Its ground point in the socket, and the Brood's ground line, screen space (`broodlaunch.ts`); followed until the launch. */
+  seat: ScreenPoint
+  floorY: number
+}
 
 export default class Mob extends Unit {
   /**
@@ -19,6 +34,16 @@ export default class Mob extends Unit {
    * rejects `declare`).
    */
   npc: NpcSprite | undefined
+
+  /**
+   * A Brood's loaded sockets (`BroodSockets`), when both its rig and the
+   * Broodling's are loaded; undefined otherwise. Set from `initAnimation`,
+   * so no initialiser, as `npc`.
+   */
+  sockets: BroodSockets | undefined
+
+  /** A released Broodling's flight from its Brood's socket to its cell (`launchFrom`); undefined once landed. */
+  launch: Launch | undefined = undefined
 
   /** Where a rigged NPC's feet are below the unit's position, as a rigged robot's (`Player.PEEP_FEET_Y`). */
   static readonly NPC_FEET_Y = 16
@@ -51,6 +76,7 @@ export default class Mob extends Unit {
       this.npc.y = Mob.NPC_FEET_Y
       this.npc.poseOptions = () => this.poseOptions()
       this.addChild(this.npc)
+      if (rig.key === 'brood' && NpcSprite.ready(BROODLING_RIG)) this.sockets = new BroodSockets(this.npc)
       // No emerge here: a create is also a late viewer's, so the Broodling's
       // spawn plays on the Brood's release (effect 19, `Game.onEffect`).
       return
@@ -98,13 +124,95 @@ export default class Mob extends Unit {
     return this.animation !== undefined ? this.animation.y : 10
   }
 
-  /** As Unit's, then its depth: over its Brood while it emerges (#52 open items, 5), else its `y`. */
+  /**
+   * As Unit's, then its depth: over its Brood while it emerges (#52 open
+   * items, 5), else its `y`; and a launched Broodling's flight (`fly`).
+   */
   update (dt: number): void {
     super.update(dt)
-    if (this.emergeAbove === undefined) return
     const now = performance.now()
-    this.zIndex = emergeDepth(this.y, this.emergeAbove, now)
-    if (now >= this.emergeAbove.until) this.emergeAbove = undefined
+    if (this.emergeAbove !== undefined) {
+      this.zIndex = emergeDepth(this.y, this.emergeAbove, now)
+      if (now >= this.emergeAbove.until) this.emergeAbove = undefined
+    }
+    if (this.launch !== undefined) this.fly(now)
+  }
+
+  /**
+   * Where socket `i`'s Broodling stands on this Brood as last drawn, and the
+   * Brood's ground line, in the layer's screen space (`broodlaunch.ts`);
+   * undefined once it is dying or gone, or before it is drawn.
+   */
+  seatOf (i: number): { seat: ScreenPoint, floorY: number } | undefined {
+    const npc = this.npc
+    if (this.sockets === undefined || npc === undefined || this.killed || this.destroyed || npc.dying) return undefined
+    const seat = this.sockets.seat(i)
+    if (seat === undefined) return undefined
+    const floorY = this.y * TILT + npc.y
+    return { seat: { x: this.x + npc.x + seat.x, y: floorY + seat.y }, floorY }
+  }
+
+  /**
+   * Effect 19's Broodling (`emergeReleased`), launched off `brood`'s socket
+   * nearest its way (`BroodSockets.launch`): drawn sitting in the socket
+   * from now, flown down to its own cell from the Brood's launch
+   * (`LAUNCH_MS`), landing `FLIGHT_MS` later (`flightAt`). False, and
+   * nothing changes, if `brood` has no loaded sockets drawn or this has no
+   * rig: then it emerges where it stands, as before.
+   */
+  launchFrom (brood: unknown): boolean {
+    if (this.npc === undefined || !(brood instanceof Mob) || brood.sockets === undefined) return false
+    const now = performance.now()
+    const toward = { x: this.x - brood.x, y: (this.y - brood.y) * TILT }
+    const socket = brood.sockets.launch(toward, now, now + LAUNCH_MS)
+    const at = socket < 0 ? undefined : brood.seatOf(socket)
+    if (at === undefined) return false
+    this.launch = { from: brood, socket, start: now, seat: at.seat, floorY: at.floorY }
+    this.fly(now)
+    return true
+  }
+
+  /**
+   * Draws the launched Broodling where `flightAt` says: its rig moved to the
+   * ground point under it and raised by `lift`, its HP bar hidden. Until the
+   * launch the seat follows the Brood (its bob, a hit's jolt); from the launch
+   * the path is fixed, so the Brood's death mid-flight changes nothing. Ends,
+   * back on its own cell, when it lands, or at once when it is killed (its
+   * blast, which the server sets off on that cell, plays there) or goes.
+   */
+  private fly (now: number): void {
+    const launch = this.launch
+    const npc = this.npc
+    if (launch === undefined || npc === undefined) return
+    const elapsed = now - launch.start
+    if (elapsed < LAUNCH_MS) {
+      const at = launch.from.seatOf(launch.socket)
+      if (at !== undefined) {
+        launch.seat = at.seat
+        launch.floorY = at.floorY
+      }
+    }
+    const landing = { x: this.x, y: this.y * TILT + Mob.NPC_FEET_Y }
+    const at = this.killed || this.destroyed ? undefined : flightAt(elapsed, launch.seat, launch.floorY, landing)
+    if (at === undefined) {
+      this.land()
+      return
+    }
+    npc.position.set(at.ground.x - this.x, at.ground.y - this.y * TILT)
+    npc.lift = at.lift
+    this.hpBar.visible = false
+  }
+
+  /** Ends a flight: the rig back on its own cell, the HP bar shown. */
+  private land (): void {
+    if (this.launch === undefined) return
+    this.launch = undefined
+    const npc = this.npc
+    if (npc !== undefined && !npc.destroyed) {
+      npc.position.set(0, Mob.NPC_FEET_Y)
+      npc.lift = 0
+    }
+    this.hpBar.visible = true
   }
 
   /** As Unit's; a rigged NPC's gait also follows the way it goes and how fast, as a robot's run does. */
@@ -194,6 +302,9 @@ export default class Mob extends Unit {
   }
 
   dispose (): void {
+    // Killed or gone mid-flight: its death (the blast) plays on its own cell,
+    // where the server sets it off; a removed mob gets no more updates.
+    this.land()
     const npc = this.npc
     if (npc === undefined || (this.hp ?? 0) > 0 || !npc.play('death')) {
       super.dispose()

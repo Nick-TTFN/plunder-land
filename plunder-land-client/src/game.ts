@@ -926,12 +926,13 @@ export class Game extends Container {
 
     // A Brood's release (19), drawn on the Brood, aimed at the new Broodling's cell.
     if (type === NPC_EFFECT.broodRelease) {
-      if (target !== undefined) new BroodReleaseEffect(target, aimCell, lifetime)
-      else Game.EFFECTS_UNHELD++
       // Its create came earlier in this flush (creates before effects): the
       // new Broodling emerges now, and only for a viewer who saw the release.
-      // Drawn over the Brood while it emerges (#52 open items, 5).
-      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME, target)
+      // Drawn over the Brood while it emerges (#52 open items, 5), launched
+      // off its socket when both rigs are drawn ("loaded + launch").
+      const launched = target !== undefined && aimCell !== undefined && emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME, target)
+      if (target !== undefined) new BroodReleaseEffect(target, aimCell, lifetime, !launched)
+      else Game.EFFECTS_UNHELD++
       // Its rig's release (l1-9) from the start of its wind-up (#52 lane 2:
       // the server holds it still from the release), 0.18 s before its
       // launch; the clip then ends with the effect's lifetime. Drawn where

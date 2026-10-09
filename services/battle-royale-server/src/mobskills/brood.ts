@@ -50,7 +50,8 @@ export interface BroodSpec {
  * releases on the first tick at rest (re-checking the target and the cap
  * then; no target there calls it off). The clock was already re-armed at the
  * beat, so the cadence holds. From a release it clears `stepGoal` every tick
- * until a `holdMs` timer owned by the Brood ends the hold. A pending release
+ * until a `holdMs` timer owned by the Brood ends the hold; a release inside
+ * a hold starts it afresh (one hold timer at a time). A pending release
  * runs inside the Brood's own update, so its child, appended to `MOBS`
  * behind the backward loop, first updates on the next tick (a beat's child
  * still updates in its own tick, l1-7 F6); its emerge hold makes that moot.
@@ -75,6 +76,8 @@ export default class BroodRelease implements IAIRoutine {
   /** True from a release until `holdMs` after it. */
   holding = false
   private clock: Timer | undefined
+  /** Ends the hold of the last release. */
+  private holdTimer: Timer | undefined
 
   constructor (owner: Unit, spec: BroodSpec) {
     this.owner = owner
@@ -132,7 +135,12 @@ export default class BroodRelease implements IAIRoutine {
     if (!this.release(targetCell)) return
     this.holding = true
     this.owner.stepGoal = undefined
-    Timers.schedule(this.spec.holdMs, () => { this.holding = false }, this.owner)
+    // A release inside the last one's hold (a pending release that waited
+    // for a step, then the next beat at once: possible since the beat is
+    // shorter than a step plus the hold) restarts the hold, so the old timer
+    // must not end the new one.
+    Timers.cancel(this.holdTimer)
+    this.holdTimer = Timers.schedule(this.spec.holdMs, () => { this.holding = false }, this.owner)
   }
 
   /** The cell of its live, unextracted player target, or undefined. */

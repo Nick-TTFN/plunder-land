@@ -168,8 +168,11 @@ function checkRestThenHold (mob: Mob, frames: Frame[], holdMs: number, label: st
       assert.deepEqual([f.x, f.y], [cast.x, cast.y], `${label}: moved at +${f.at - T0}, inside the hold from +${cast.at - T0}`)
       assert.equal(f.goal, false, `${label}: a step goal at +${f.at - T0}, inside the hold`)
     }
+    // Free again on the first tick past the hold, unless another cast came
+    // inside it (a Brood beat soon after a release that waited for a step),
+    // whose own hold then runs on.
     const end = frames.find((f) => f.at >= cast.at + holdMs)
-    if (end !== undefined) assert.equal(end.goal, true, `${label}: still held at +${end.at - T0}, past the hold from +${cast.at - T0}`)
+    if (end !== undefined && !list.some((c) => c.at > cast.at && c.at <= end.at)) assert.equal(end.goal, true, `${label}: still held at +${end.at - T0}, past the hold from +${cast.at - T0}`)
 
     // The wait before it: the due ticks just before the cast that began mid-step.
     let i = frames.findIndex((f) => f.at === cast.at) - 1
@@ -255,7 +258,7 @@ const INERT_BROOD: Archetype = {
   routines: ARCHETYPES.brood.routines.map((r) => r.kind === 'brood' ? { ...r, child: { ...ARCHETYPES.broodling, routines: [] } } : r)
 }
 
-test('a Brood chased by a player: it comes to rest, releases on a centre, stands still 500 ms, and keeps its 4000 ms beat', (t) => {
+test('a Brood chased by a player: it comes to rest, releases on a centre, stands still 500 ms, and keeps its 1000 ms beat', (t) => {
   mockClock(t)
   const brood = mobAt(INERT_BROOD)
   const player = playerAt(6)
@@ -267,6 +270,7 @@ test('a Brood chased by a player: it comes to rest, releases on a centre, stands
     if (n > 0) walk(player, new Vector(d.x / n, d.y / n), 50)
   }
   // Children die at once, so the cap never stops a beat.
+  const interval = (ARCHETYPES.brood.routines.find((r) => r.kind === 'brood') as { intervalMs: number }).intervalMs
   const frames = run(t, brood, 90, () => {
     toward()
     for (const child of release.children) if (!child.destroyed) child.destroy()
@@ -275,13 +279,19 @@ test('a Brood chased by a player: it comes to rest, releases on a centre, stands
   assert.ok(waited > 0, 'no release waited for a step to land')
   assert.ok(longestWaitMs <= stepTicks(speed) * TICK_MS, `waited ${longestWaitMs} ms, over one step`)
   // The clock re-arms at the beat, not at the release: every release is
-  // within one step of its beat, beats 4000 ms apart.
+  // within one step of its beat, beats `interval` apart. At 1000 ms a
+  // release that waited is often followed by the next beat's at once, 250 or
+  // 500 ms later: still one per beat.
   const first = casts[0].at
   const beat0 = frames.find((f) => f.dueBefore)?.at ?? first
   casts.forEach((c, i) => {
-    const beat = Math.min(first, beat0) + 4000 * i
+    const beat = Math.min(first, beat0) + interval * i
     assert.ok(c.at - beat >= 0 && c.at - beat <= stepTicks(speed) * TICK_MS, `release ${i} at +${c.at - T0}, its beat at +${beat - T0}`)
   })
+  // Some release came inside the last one's hold, so the hold restarted
+  // there (`checkRestThenHold` saw it stand still to the second hold's end):
+  // the first hold's timer must not end the second (`BroodRelease.holdTimer`).
+  assert.ok(casts.some((c, i) => i > 0 && c.at - casts[i - 1].at < 500), 'no release inside a hold: the restart was not exercised')
 })
 
 test('a Brood at rest at its beat releases in that tick, as before, and its pending flag never rises', (t) => {
@@ -293,9 +303,10 @@ test('a Brood at rest at its beat releases in that tick, as before, and its pend
   const frames = run(t, brood, 20, () => {}, () => release.pending)
   assert.ok(frames.every((f) => !f.dueBefore))
   const list = casts.get(brood.id) ?? []
-  assert.equal(list.length, 1)
-  // Armed on its first tick (+250), released one interval later.
-  assert.equal(list[0].at - T0, 250 + 4000)
+  const interval = (ARCHETYPES.brood.routines.find((r) => r.kind === 'brood') as { intervalMs: number }).intervalMs
+  assert.ok(list.length >= 2, `only ${list.length} releases`)
+  // Armed on its first tick (+250), released one interval later, and every interval after.
+  assert.deepEqual(list.map((c) => c.at - T0), list.map((_, i) => 250 + interval * (i + 1)))
 })
 
 test('a new Broodling stands on its release cell for 1500 ms, then chases', (t) => {
@@ -380,7 +391,8 @@ for (const what of ['cap', 'death', 'target'] as const) {
       if (n > 0) walk(player, new Vector(d.x / n, d.y / n), 50)
     }
     // Children die at once until the first pending beat, so only the cap set below counts.
-    for (let i = 0; i < 90 && !release.pending; i++) {
+    // Pending with its step still to land (a step can also land in the beat's own tick).
+    for (let i = 0; i < 90 && !(release.pending && brood.stepTo !== undefined); i++) {
       run(t, brood, 1, () => {
         toward()
         for (const child of release.children) if (!child.destroyed) child.destroy()
@@ -390,14 +402,14 @@ for (const what of ['cap', 'death', 'target'] as const) {
     assert.ok(brood.stepTo !== undefined, 'test setup: pending at rest')
     const before = (casts.get(brood.id) ?? []).length
     if (what === 'cap') {
-      // Three live children: the cap (3).
-      for (let c = 0; c < 3; c++) release.children.push(mobAt({ ...ARCHETYPES.broodling, routines: [] }, 20 + c, 20))
+      // Live children up to the cap.
+      for (let c = 0; c < release.spec.cap; c++) release.children.push(mobAt({ ...ARCHETYPES.broodling, routines: [] }, 20 + c, 20))
     } else if (what === 'death') {
       brood.destroy()
     } else {
       player.destroy()
     }
-    // Long enough for the step to land, well short of the next beat (4000 ms).
+    // Long enough for the step to land; the beats in between find the cap, no target or no Brood.
     run(t, brood, 6, () => {}, () => false)
     assert.equal((casts.get(brood.id) ?? []).length, before, `released after ${what}`)
     // At rest at some tick in between (a targetless Brood may wander on after): pending is over.

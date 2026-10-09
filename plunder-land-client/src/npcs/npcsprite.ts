@@ -126,6 +126,17 @@ export class NpcSprite extends Container {
    * length from its fuse left, l1-7); undefined for the defaults.
    */
   poseOptions: (() => NpcPoseOptions | undefined) | undefined = undefined
+  /** Called after each frame it draws (the Brood's `BroodSockets` follow its sockets). */
+  onPosed: (() => void) | undefined = undefined
+  /**
+   * Where its pose's sockets are (`NpcPose.sockets`), CSS px in this
+   * sprite's own space, as last drawn, the hit's jolt and `lift` included;
+   * empty for a rig without sockets or before it is first drawn.
+   */
+  readonly socketPoints: Array<{ x: number, y: number }> = []
+  /** A pose drawn once and held (`pin`), with no shadows: a Broodling sitting in a socket. */
+  private pinned: { clip: string, t: number } | undefined = undefined
+  private lifted = 0
 
   constructor (private readonly host: Container, readonly npc: NpcRig, castShadow = false) {
     super()
@@ -172,6 +183,37 @@ export class NpcSprite extends Container {
   /** Ground speed over `RobotSprite.STRIDE_SPEED`; scales the move loop only. */
   setPace (pace: number): void {
     this.pace = gaitPace(this.npc.gait, pace, RobotSprite.MIN_PACE, RobotSprite.MAX_PACE)
+  }
+
+  /**
+   * Draws `clip` at `t` seconds and holds it there for good, with no ground
+   * or cast shadows and no ticking: a Broodling sitting curled in its
+   * Brood's socket (`BroodSockets`), which moves only with its parent.
+   */
+  pin (clip: string, t: number): void {
+    this.pinned = { clip, t }
+    this.stop()
+    this.host.off('added', this.start, this)
+    this.ground.clear()
+    if (this.cast !== undefined) this.cast.visible = false
+    const pose = this.npc.pose(clip, t, this.direction, undefined, undefined, { ...this.poseOptions?.(), clock: 0 })
+    this.drawList({ ground: [], items: this.npc.draw(pose, { inPlace: true }).items })
+  }
+
+  /**
+   * How high above its ground point the body is drawn, CSS px (a launched
+   * Broodling in flight, `Mob.update`). While lifted its ground and cast
+   * shadows are hidden: they would lie where it took off from.
+   */
+  get lift (): number {
+    return this.lifted
+  }
+
+  set lift (px: number) {
+    this.lifted = Math.max(0, px)
+    this.rig.y = -this.lifted
+    this.ground.visible = this.lifted === 0
+    if (this.cast !== undefined) this.cast.visible = this.lifted === 0
   }
 
   /** Whether it has a clip for `role`. */
@@ -275,6 +317,7 @@ export class NpcSprite extends Container {
   }
 
   update (dt: number): void {
+    if (this.pinned !== undefined) return
     this.baseTime += this.moving ? dt * gaitClock(this.npc, this.pace, this.stretch, RobotSprite) : dt
     this.hitShown.advance(dt)
     this.age += dt
@@ -313,6 +356,14 @@ export class NpcSprite extends Container {
     this.shownPose = pose
     if (pose.muzzle !== undefined) this.muzzle.set(pose.muzzle.x, pose.muzzle.y)
     this.drawList(this.npc.draw(pose, { inPlace: true }))
+    const sockets = pose.sockets
+    if (sockets !== undefined) {
+      this.socketPoints.length = sockets.length
+      for (let i = 0; i < sockets.length; i++) {
+        this.socketPoints[i] = { x: sockets[i].x * this.pxPerUnit + this.rig.x, y: sockets[i].y * this.pxPerUnit + this.rig.y }
+      }
+    }
+    this.onPosed?.()
   }
 
   private drawList (list: NpcDrawList): void {

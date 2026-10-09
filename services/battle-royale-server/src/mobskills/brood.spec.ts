@@ -138,13 +138,13 @@ const INERT_BROOD: Archetype = {
   routines: ARCHETYPES.brood.routines.map((r) => r.kind === 'brood' ? { ...r, child: INERT } : r)
 }
 
-test('the rows are the l1-0 provisional numbers: Brood band 5-6, every 4000 ms, cap 3, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
+test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
   const guard = ARCHETYPES.brood.routines[0] as GuardSpec
   assert.equal(guard.kind, 'guard', 'the guard must run first: it picks the target')
   assert.deepEqual(guard.retreat, { min: 5, max: 6 })
   assert.deepEqual([guard.acquire, guard.lose, guard.chaseSpeed], [7, 9, 60])
   const release = releaseSpec(ARCHETYPES.brood)
-  assert.deepEqual({ ...release, child: release.child.key }, { kind: 'brood', child: 'broodling', intervalMs: 4000, cap: 3, releaseMs: 1100, holdMs: 500 })
+  assert.deepEqual({ ...release, child: release.child.key }, { kind: 'brood', child: 'broodling', intervalMs: 1000, cap: 6, releaseMs: 1100, holdMs: 500 })
   assert.equal(release.child, ARCHETYPES.broodling)
 
   const lingGuard = ARCHETYPES.broodling.routines[0] as GuardSpec
@@ -156,20 +156,20 @@ test('the rows are the l1-0 provisional numbers: Brood band 5-6, every 4000 ms, 
   assert.deepEqual([ARCHETYPES.broodling.maxHp, ARCHETYPES.broodling.loot, ARCHETYPES.broodling.gearRolls], [1, 0, null])
 })
 
-test('a Brood with a target releases one every 4000 ms onto the free cell just outside its body (ring 2) nearest it, up to 3 alive, and replaces a dead one at the next beat', (t) => {
+test('a Brood with a target releases one every 1000 ms onto the free cell just outside its body (ring 2) nearest it, up to 6 alive, and replaces a dead one at the next beat', (t) => {
   mockClock(t)
   const brood = mobAt(INERT_BROOD)
   const player = playerAt(6)
-  for (let i = 0; i < 84; i++) {
+  for (let i = 0; i < 40; i++) {
     tick(t)
-    // Kill one child just after the cap has held a beat (16000): replaced at 20000.
-    if (Date.now() - T0 === 17000) releaseOf(brood).children[0].hit(1)
+    // Kill one child just after the cap has held a beat (7250): replaced at 8250.
+    if (Date.now() - T0 === 7500) releaseOf(brood).children[0].hit(1)
   }
 
-  assert.deepEqual(releases().map((s) => s.at - T0), [4250, 8250, 12250, 20250])
+  assert.deepEqual(releases().map((s) => s.at - T0), [1250, 2250, 3250, 4250, 5250, 6250, 8250])
   // The first tick (T0 + 250) notices the player and arms the clock.
-  assert.equal(releaseOf(brood).live, 3)
-  assert.equal(broodlings().filter((m) => !m.destroyed).length, 3)
+  assert.equal(releaseOf(brood).live, 6)
+  assert.equal(broodlings().filter((m) => !m.destroyed).length, 6)
   for (const s of releases()) {
     assert.deepEqual([s.originator, s.tag, s.lifetime], [brood.id, 0, 1100])
   }
@@ -181,8 +181,10 @@ test('a Brood with a target releases one every 4000 ms onto the free cell just o
   for (const cell of cells) assert.equal(Hex.distance(cell, HOME), 2)
   assert.deepEqual(cells[0], cellAt(2))
   assert.equal(Hex.distance(cells[1], player.cell), 5, 'the second was not on the next-nearest free ring-2 cell')
-  // The fourth went where the dead first one stood, now free again.
-  assert.deepEqual(cells[3], cellAt(2))
+  // Six on six of the twelve ring-2 cells, all different.
+  assert.equal(new Set(cells.slice(0, 6).map(key)).size, 6)
+  // The seventh went where the dead first one stood, now free again.
+  assert.deepEqual(cells[6], cellAt(2))
   // Each child stands on its cell and is in the index as a mob, so no spawn shares a cell.
   for (const child of releaseOf(brood).children) {
     assert.ok(World.MOBS.includes(child))
@@ -205,7 +207,7 @@ test('a Brood releases nothing without a target, stops when its target goes, and
     if (noticed === undefined && brood.target === player) noticed = Date.now()
   }
   assert.ok(noticed !== undefined && noticed - T0 > 10_000, 'test setup: noticed too early')
-  assert.deepEqual(releases().map((s) => s.at), [noticed + 4000])
+  assert.deepEqual(releases().map((s) => s.at), [noticed + 1000])
   // The target extracts: the next beat finds none and does not re-arm.
   player.exited = true
   for (let i = 0; i < 40; i++) tick(t)
@@ -225,13 +227,35 @@ test('a Brood with no free cell just outside its body (ring 2) skips the beat', 
   for (let i = 0; i < 20; i++) tick(t)
   assert.equal(releases().length, 0)
   assert.equal(releaseOf(brood).children.length, 0)
+  // The skipped beats kept the clock going: one cell freed at +5000, the
+  // release comes at the next beat (+5250), on that cell; its child then
+  // holds the only free cell, so the beats after it skip again.
+  const freed = cellAt(-2)
+  World.unblock(freed.x, freed.y, 0)
+  for (let i = 0; i < 8; i++) tick(t)
+  assert.deepEqual(releases().map((s) => [s.at - T0, key(s.cell)]), [[5250, key(freed)]])
+})
+
+test('six live Broodlings round a Brood (its cap) never take more than six of the twelve ring-2 cells; with every other one blocked it still releases', (t) => {
+  mockClock(t)
+  const brood = mobAt(INERT_BROOD)
+  playerAt(6)
+  // Block six ring-2 cells (every other one): exactly six stay free for six children.
+  const ring = World.ringCells(HOME, 2)
+  assert.equal(ring.length, 12)
+  ring.forEach((cell, i) => { if (i % 2 === 1) World.block(cell.x, cell.y, 0) })
+  for (let i = 0; i < 40; i++) tick(t)
+  assert.equal(releases().length, 6)
+  assert.equal(releaseOf(brood).live, 6)
+  assert.equal(new Set(releases().map((s) => key(s.cell))).size, 6)
+  for (const s of releases()) assert.equal(World.ringCells(HOME, 2).findIndex((c) => key(c) === key(s.cell)) % 2, 0)
 })
 
 test('a Brood\'s death stops the stream at once; what it released keeps its fuse and goes off', (t) => {
   mockClock(t)
   const brood = mobAt(ARCHETYPES.brood)
   playerAt(6)
-  for (let i = 0; i < 17; i++) tick(t)
+  for (let i = 0; i < 5; i++) tick(t)
   assert.equal(releases().length, 1)
   const child = releaseOf(brood).children[0]
   assert.equal(child.destroyed, false)
@@ -565,5 +589,12 @@ test('a Broodling emerging is drawn over the Brood that released it for the serv
   const client = (f: string): string => readFileSync(join(__dirname, '../../../../plunder-land-client/src', f), 'utf8')
   assert.match(client('game.ts'), /emergeReleased\(Game\.MOBS, target\.tag, aimCell, Game\.FRAME, target\)/)
   assert.match(client('vfx/brood.effect.ts'), /mob\.emergeAbove = \{ parent, until: performance\.now\(\) \+ EMERGE_ABOVE_MS \}/)
-  assert.match(client('objects/mob.ts'), /super\.update\(dt\)\n {4}if \(this\.emergeAbove === undefined\) return\n {4}const now = performance\.now\(\)\n {4}this\.zIndex = emergeDepth\(this\.y, this\.emergeAbove, now\)/)
+  assert.match(client('objects/mob.ts'), /super\.update\(dt\)\n {4}const now = performance\.now\(\)\n {4}if \(this\.emergeAbove !== undefined\) \{\n {6}this\.zIndex = emergeDepth\(this\.y, this\.emergeAbove, now\)/)
+  // Loaded + launch (brood-stream): the pick launches a rigged Broodling off
+  // the Brood's socket, a mob's update flies it, a death lands it, and a
+  // launch throws no pod.
+  assert.match(client('vfx/brood.effect.ts'), /return parent !== undefined && mob\.launchFrom\?\.\(parent\) === true/)
+  assert.match(client('objects/mob.ts'), /if \(this\.launch !== undefined\) this\.fly\(now\)/)
+  assert.match(client('objects/mob.ts'), /dispose \(\): void \{\n(?: {4}\/\/.*\n)* {4}this\.land\(\)/)
+  assert.match(client('game.ts'), /new BroodReleaseEffect\(target, aimCell, lifetime, !launched\)/)
 })

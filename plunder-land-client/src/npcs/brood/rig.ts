@@ -532,7 +532,9 @@ export const BROOD_RIG: NpcRig = Object.freeze({
     } else {
       state = sample(clip, seconds, clip === 'move' ? { direction, clock } : { clock })
     }
-    return { clip, time: seconds, state }
+    // The package's three visible sockets (crown, left, right: the open dark
+    // facets of the shell), moving with the body in every clip.
+    return { clip, time: seconds, state, sockets: state.sockets.map((s) => s.screen) }
   },
   draw: (p: NpcPose): NpcDrawList => draw(p.state as BroodState),
   arts: ARTS

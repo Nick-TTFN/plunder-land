@@ -247,6 +247,11 @@ export interface NpcPose {
   readonly time: number
   /** Where a shot leaves it, rig units, if it shoots. */
   readonly muzzle?: { readonly x: number, readonly y: number }
+  /**
+   * Where its sockets are, rig units, if it carries anything in them: the
+   * Brood's three open facets, where its Broodlings sit (`BroodSockets`).
+   */
+  readonly sockets?: ReadonlyArray<{ readonly x: number, readonly y: number }>
   readonly state: unknown
 }
 
