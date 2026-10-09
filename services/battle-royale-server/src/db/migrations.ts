@@ -181,5 +181,23 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX stash_items_holder ON stash_items (holder) WHERE state = 1;
       CREATE TABLE gear_holders (holder uuid PRIMARY KEY, seen_at timestamptz NOT NULL)
     `
+  },
+  {
+    version: 7,
+    name: 'legendary tier',
+    // Gear tier 4, Legendary (decision #51, task l1-2): widens migration 6's
+    // `tier BETWEEN 1 AND 3` to 1-4. Postgres named that column CHECK
+    // `stash_items_tier_check` (pgstore.spec.ts reads the name from
+    // pg_constraint before and after). Dropping it and adding the wider one
+    // is additive in effect: every row and every write the previous release
+    // makes still passes, and it never writes tier 4 (its
+    // `mergeOutcome` refuses inputs above its `GEAR_TIERS` of 3, so it can't
+    // make one). A merge to T4 tried before this lands fails the old CHECK,
+    // rolls back with its three inputs intact, and answers `store`.
+    sql: `
+      ALTER TABLE stash_items
+        DROP CONSTRAINT stash_items_tier_check,
+        ADD CONSTRAINT stash_items_tier_check CHECK (tier BETWEEN 1 AND 4)
+    `
   }
 ]

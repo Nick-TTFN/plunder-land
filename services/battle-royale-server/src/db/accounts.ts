@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { type EnergyRecord, refundAt, spendAt } from '../progress/energy'
-import { type GearInstance, type GearRoll, type GearTier, Q_MAX, STASH_MAX } from '../utils/gear'
+import { type GearInstance, type GearRoll, type GearTier, GEAR_TIERS, Q_MAX, STASH_MAX } from '../utils/gear'
 import {
   compareEntries, dueStarts, eligible, type LastPayout, type PaidSeason, type SeasonBoard, type SeasonCredit,
   type SeasonEntry, seasonEndMs, seasonPayouts, seasonStart, type SeasonView, seasonView, tierPlaces
@@ -330,14 +330,14 @@ export function checkHolder (holder: string): void {
 }
 
 /**
- * Whether `item` fits a stash row: tier 1-3, skill 0-255, at most 8 rolls of
+ * Whether `item` fits a stash row: tier 1-`GEAR_TIERS`, skill 0-255, at most 8 rolls of
  * whole stats 0-255 and qualities 0..1000. A found item that doesn't is
  * dropped by `settleGear` (both stores alike) rather than failing the
  * transaction, which would also undo the run's keeps.
  */
 export function storable (item: GearInstance): boolean {
   if (item === null || typeof item !== 'object') return false
-  if (!Number.isInteger(item.tier) || item.tier < 1 || item.tier > 3) return false
+  if (!Number.isInteger(item.tier) || item.tier < 1 || item.tier > GEAR_TIERS) return false
   if (!Number.isInteger(item.skill) || item.skill < 0 || item.skill > 255) return false
   if (!Array.isArray(item.rolls) || item.rolls.length > 8) return false
   return item.rolls.every((r) => r !== null && typeof r === 'object' &&

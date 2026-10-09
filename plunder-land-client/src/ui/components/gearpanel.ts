@@ -9,7 +9,7 @@ import { skillFor } from '../../skills/catalog'
 import { Game } from '../../game'
 import { type GameObject } from '../../objects/gameobject'
 import { tierTint } from '../../objects/gearpickup'
-import { type GearInstance, type GearRoll, gearStatById, itemCooldownMs, rollValue } from '../../utils/gear'
+import { type GearInstance, type GearRoll, gearStatById, itemCooldownMs, rollValue, tierName } from '../../utils/gear'
 import { skillById } from '../../utils/skills'
 
 /** How long a press must be held on touch to show an item's lines instead of using it, ms. */
@@ -33,10 +33,10 @@ export function rollLine (roll: GearRoll, tier: number, duplicate: boolean): str
   }
 }
 
-/** An item's card text: its tier and skill (or PART), whether it is already in the kit, and its rolls. */
+/** An item's card text: its rarity (`tierName`) and skill (or PART), whether it is already in the kit, and its rolls. */
 export function itemLines (item: GearInstance, duplicate: boolean): string[] {
   const name = item.skill === 0 ? 'PART' : (skillById(item.skill)?.label ?? 'SKILL').toUpperCase()
-  const lines = [`T${item.tier} ${name}`]
+  const lines = [`${tierName(item.tier)} ${name}`]
   if (item.skill !== 0 && duplicate) lines.push('ALREADY IN KIT')
   for (const roll of item.rolls) {
     const line = rollLine(roll, item.tier, duplicate)

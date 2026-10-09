@@ -532,10 +532,10 @@ test('account carries loadoutsFor for a persisted account, none offline; the cli
 
 // --- PROTOCOL (criterion 9) ----------------------------------------------------------------
 
-test('PROTOCOL is 6, and welcome sends it', async () => {
-  // 6 since gear in the run (49-2): new field indices 25-27.
-  assert.equal(PROTOCOL, 6)
+test('PROTOCOL is 7, and welcome sends it', async () => {
+  // 7 since the L1 release (l1-2, #51): gear tier 4, NPC ids 9-15, telegraph effects 9-19.
+  assert.equal(PROTOCOL, 7)
   const client = new Client('a')
   makeWorlds(new SaveStore()).onConnection(client.socket)
-  assert.deepEqual(client.events('welcome'), [{ protocol: 6 }])
+  assert.deepEqual(client.events('welcome'), [{ protocol: 7 }])
 })

@@ -13,7 +13,8 @@ import { SHOT } from '../robots/eyeshot'
 
 /**
  * A beam from the caster to where the shot stops: the first unit on its hex
- * line (decision #25, N4), or the end of its range.
+ * line (decision #25, N4), or the end of its range. A mob's shot skips other
+ * mobs and stops at the first player (decision #51 Q7).
  *
  * The line is `Hex.line` from the caster's cell through the aimed cell the
  * record carries, on to the range in cells, which is the same call on the same
@@ -54,11 +55,15 @@ export class RangedAttackEffect {
     // The shooter's archetype's range; an unknown archetype falls back to the
     // unit type's default (rangedRangeCells).
     const archetype = owner instanceof Unit ? owner.archetype : undefined
-    const range = rangedRangeCells(archetype?.rangedCells, (Game.MOBS as GameObject[]).includes(owner))
+    const isMob = (Game.MOBS as GameObject[]).includes(owner)
+    const range = rangedRangeCells(archetype?.rangedCells, isMob)
     const line: Cell[] = Hex.line(ownCell, toward, range).map((c) => ({ x: c.x, y: c.y }))
 
+    // A mob's shot passes through other mobs to the first player (decision
+    // #51 Q7, the server's `RangedAttack.stopsOn`); a player's stops at anyone.
     const candidates: GameObject[] = []
-    for (const unit of [...Game.PLAYERS, ...Game.MOBS] as GameObject[]) {
+    const stoppers = (isMob ? Game.PLAYERS : [...Game.PLAYERS, ...Game.MOBS]) as GameObject[]
+    for (const unit of stoppers) {
       if (unit === owner || unit.killed || !unit.visible || unit.tag !== owner.tag) continue
       candidates.push(unit)
     }

@@ -5,7 +5,7 @@ import '../network/multiplayer'
 import { MERGE_INPUTS as SERVER_INPUTS, mergeOutcome, mergedItem, parseMerge, parseScrap } from './merge'
 import { stashEvent } from './stash'
 import type { StashItem as ServerRow } from '../db/accounts'
-import { GEAR_STATS, type GearTier } from '../utils/gear'
+import { GEAR_STATS, GEAR_TIERS, type GearTier } from '../utils/gear'
 import { SKILL_INFO } from '../utils/skills'
 import {
   MERGE_INPUTS, type StashItem, type StashView, keepChoices, keepFor, mergeCheck, mergeHeading, mergeMessage, onMerged,
@@ -34,12 +34,12 @@ test('mergeCheck agrees with the server\'s mergeOutcome on every tier and parts/
   let both = 0
   let refused = 0
   // Every tier per input (so mixed tiers too) and part or skill item per input.
-  for (let code = 0; code < 6 ** 3; code++) {
+  for (let code = 0; code < 8 ** 3; code++) {
     const inputs: StashItem[] = []
     let c = code
     for (let i = 0; i < 3; i++) {
-      const tier = (1 + (c % 3)) as GearTier
-      c = Math.floor(c / 3)
+      const tier = (1 + (c % GEAR_TIERS)) as GearTier
+      c = Math.floor(c / GEAR_TIERS)
       const skill = c % 2 === 0 ? 0 : (i === 1 ? ICICLE : FIREBALL)
       c = Math.floor(c / 2)
       inputs.push(item(String(10 + i), skill, tier))
@@ -69,11 +69,15 @@ test('mergeCheck agrees with the server\'s mergeOutcome on every tier and parts/
 })
 
 test('mergeCheck: the reasons, the keep and the preview', () => {
-  const v = view(item('1', 0), item('2', 0), item('3', FIREBALL), item('4', ICICLE), item('5', 0, 2), item('6', FIREBALL, 3), item('7', 0, 3), item('8', 0, 3), item('9', 0, 3))
+  const v = view(item('1', 0), item('2', 0), item('3', FIREBALL), item('4', ICICLE), item('5', 0, 2), item('6', FIREBALL, 3), item('7', 0, 3), item('8', 0, 3), item('9', 0, 3),
+    item('20', FIREBALL, 4), item('21', 0, 4), item('22', 0, 4), item('23', 0, 4))
   assert.deepEqual(mergeCheck(v, [], null), { ok: false, reason: 'PICK 3 ITEMS OF ONE TIER' })
   assert.deepEqual(mergeCheck(v, ['1'], null), { ok: false, reason: 'PICK 2 MORE OF THE SAME TIER' })
   assert.deepEqual(mergeCheck(v, ['1', '2', '5'], null), { ok: false, reason: 'ALL 3 MUST BE THE SAME TIER' })
-  assert.deepEqual(mergeCheck(v, ['6', '7', '8'], null), { ok: false, reason: 'T3 SKILL ITEMS CAN\'T MERGE · ONLY T3 PARTS' })
+  assert.deepEqual(mergeCheck(v, ['20', '21', '22'], null), { ok: false, reason: 'LEGENDARY SKILL ITEMS CAN\'T MERGE · ONLY LEGENDARY PARTS' })
+  const epic = mergeCheck(v, ['6', '7', '8'], null)
+  assert.ok(epic.ok, 'an Epic skill item merges up to Legendary (#51)')
+  assert.equal(epic.preview, 'MAKES A LEGENDARY THROW FIREBALL · FRESH ROLLS')
   assert.deepEqual(mergeCheck(undefined, ['1', '2', '3'], null), { ok: false, reason: 'NO STASH' })
   assert.equal(mergeCheck(v, ['1', '2', '404'], null).ok, false, 'a row no longer in the stash')
 
@@ -84,13 +88,13 @@ test('mergeCheck: the reasons, the keep and the preview', () => {
   assert.ok(p.ok)
   assert.equal(p.keep, '3', 'default keep: the first skill item')
   assert.deepEqual(p.ids, ['2', '1', '3'], 'order kept')
-  assert.equal(p.preview, 'MAKES A T2 THROW FIREBALL · FRESH ROLLS')
+  assert.equal(p.preview, 'MAKES A RARE THROW FIREBALL · FRESH ROLLS')
   assert.deepEqual(mergeMessage(p), { ids: ['2', '1', '3'], keep: '3' })
 
   const k = mergeCheck(v, ['3', '4', '1'], '4')
   assert.ok(k.ok)
   assert.equal(k.keep, '4')
-  assert.equal(k.preview, 'MAKES A T2 THROW ICICLE · FRESH ROLLS')
+  assert.equal(k.preview, 'MAKES A RARE THROW ICICLE · FRESH ROLLS')
   const stale = mergeCheck(v, ['3', '1', '2'], '4')
   assert.ok(stale.ok)
   assert.equal(stale.keep, '3', 'a keep not among the inputs falls back to the first skill item')
@@ -99,10 +103,13 @@ test('mergeCheck: the reasons, the keep and the preview', () => {
   assert.ok(only.ok)
   assert.equal(only.keep, null, 'parts only: no keep')
   assert.deepEqual(mergeMessage(only), { ids: ['1', '2', '3'] }, 'and none sent')
-  assert.equal(only.preview, 'MAKES A T2 PART · OR, BY CHANCE, A SKILL ITEM')
+  assert.equal(only.preview, 'MAKES A RARE PART · OR, BY CHANCE, A SKILL ITEM')
   const t3 = mergeCheck(v, ['7', '8', '9'], null)
   assert.ok(t3.ok)
-  assert.equal(t3.preview, 'MAKES A T3 SKILL ITEM · ALWAYS')
+  assert.equal(t3.preview, 'MAKES A LEGENDARY PART · OR, BY CHANCE, A SKILL ITEM')
+  const t4 = mergeCheck(v, ['21', '22', '23'], null)
+  assert.ok(t4.ok)
+  assert.equal(t4.preview, 'MAKES A LEGENDARY SKILL ITEM · ALWAYS')
 })
 
 test('keepChoices: one per skill, in pick order; keepFor falls back to the first', () => {
@@ -142,7 +149,9 @@ test('onMerged reads the server\'s answers; the next stash shows the result and 
   assert.deepEqual(onMerged({ ok: false, reason: 'later' }), { ok: false, reason: 'store' }, 'an unknown reason')
   assert.deepEqual(onMerged({ ok: false }), { ok: false, reason: 'store' })
   assert.equal(onMerged({ ok: true }), undefined)
-  assert.equal(onMerged({ ok: true, item: { id: '1', tier: 4, skill: 0, rolls: [] } }), undefined)
+  assert.equal(onMerged({ ok: true, item: { id: '1', tier: 5, skill: 0, rolls: [] } }), undefined)
+  assert.deepEqual(onMerged({ ok: true, item: mergedItem(serverRow('41', FIREBALL, 4)) }),
+    { ok: true, item: { id: '41', tier: 4, skill: FIREBALL, rolls: [{ stat: GEAR_STATS.damage.id, q: 700 }] } }, 'a Legendary result')
   assert.equal(onMerged(null), undefined)
   assert.equal(onMerged({ reason: 'busy' }), undefined)
 
@@ -166,8 +175,9 @@ test('onScrapped reads the server\'s answers', () => {
 test('mergeHeading: SURPRISE only when parts alone made a skill item', () => {
   const part = item('1', 0)
   assert.equal(mergeHeading([part, part, part], item('9', FIREBALL, 2)), 'SURPRISE: SKILL ITEM')
-  assert.equal(mergeHeading([part, part, part], item('9', 0, 2)), 'NEW: T2 PART')
-  assert.equal(mergeHeading([part, item('2', ICICLE), part], item('9', ICICLE, 2)), 'NEW: T2 THROW ICICLE')
+  assert.equal(mergeHeading([part, part, part], item('9', 0, 2)), 'NEW: RARE PART')
+  assert.equal(mergeHeading([part, item('2', ICICLE), part], item('9', ICICLE, 2)), 'NEW: RARE THROW ICICLE')
+  assert.equal(mergeHeading([item('1', 0, 3), item('2', ICICLE, 3), item('3', 0, 3)], item('9', ICICLE, 4)), 'NEW: LEGENDARY THROW ICICLE')
   assert.equal(mergeHeading([item('7', 0, 3), item('8', 0, 3), item('9', 0, 3)], item('10', FIREBALL, 3)), 'SURPRISE: SKILL ITEM')
 })
 

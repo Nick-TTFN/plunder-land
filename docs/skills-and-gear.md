@@ -71,15 +71,24 @@ the other's cell. The skip is what makes a stone's unconditional unblock safe.
 
 **Skill items and parts** (decision #49, live 2026-10-05 as `cb645f2`; design
 `ideas/skill-items-and-stash.md` in the project memory; the stash is under Accounts). An instance is
-`{ tier 1-3, skill, rolls, rowId? }`: `skill` a `utils/skills.ts` id, 0 for a part (no rolls, only for
-merging); T1 one roll, T2-T3 two, on different stats; each roll a stat id and a quality `q`, an
+`{ tier 1-4, skill, rolls, rowId? }`: `skill` a `utils/skills.ts` id, 0 for a part (no rolls, only for
+merging); T1 one roll, T2-T3 two, T4 three, on different stats (`rollCount`); tiers are shown by
+rarity name, COMMON/RARE/EPIC/LEGENDARY (`GEAR_TIER_NAMES`, `tierName`; display only, the stored
+and wire number is unchanged; the client reads every tier through the mirror, no literal); each roll a stat id and a quality `q`, an
 **integer 0-1000 everywhere** (database, JSON, binary), turned into a value by `rollValue`, so the
 lobby and the HUD print the same number; `rowId`, the stash row it came from, is server-only.
 `utils/gear.ts` is mirrored: `GEAR_STATS` (ids append-only, per-tier ranges, caps summed over both
 slots), `GEAR_SLOTS` 2, `GEAR_BAG` 4, `STASH_SOFT` 12, `STASH_MAX` 100, `BRING_LEVEL` 3, and
 `encodeGear`/`decodeGear`. The ranges are mirrored because the client prints values and an item
-skill's cooldown, so a retune needs both deploys, client first. The drops are server-only, in
-`LAYERS[].gear` (caches, respawn, mixes, mob chances; T3 is never found or dropped).
+skill's cooldown, so a retune needs both deploys, client first. The drops are server-only:
+caches, respawn and the part/skill mixes in `LAYERS[].gear`; mob drops by rarity (#51, l1-2) in
+`MOB_GEAR_ROLLS`, on each archetype as the required `gearRolls` (a forgotten row is a type error,
+not a silent no-drop). Every roll is a flat `MOB_GEAR_CHANCE` 4% on its own; rolls at T1/T2/T3 are
+common 1/0/0, rare 2/1/0, epic 4/2/1, legendary 8/4/3 (the Brood's own-tier roll becomes a third
+Epic one), so 0.04 / 0.12 / 0.28 / 0.60 items per kill. **The own-tier roll from Rare up is
+always a skill item**; every other roll goes by the layer's `mobMix`. Broodlings, robots and the
+retired grunt/gunner/boss drop nothing. **T4 (Legendary) is merge only**: never found, never
+dropped, from any mob or cache. The T4 stat column and `rollCount(4)` are PROVISIONAL (l1-0).
 
 **Stats go through the existing paths, cached once at `Player.equipGear`, nothing per tick:**
 damage through the `Unit.damageScale` getter that `Skill.dealt` reads; max HP and armor
@@ -94,7 +103,8 @@ existing instance and shares its cooldown; its cooldown roll doesn't apply, its 
 **In the run** (49-2): natural caches per layer (`gear.caches`, no expiry) are placed one a tick
 while the layer is short, and a taken one comes back after `cacheRespawnMs` on a timer owned by the
 world (`CACHES_PENDING`), not refilled every tick like medkits, which would make gear unbounded. Mobs
-drop by `World.createGearFrom` beside `createLootFrom`; drops expire after 30 s. A skill item goes
+drop by `World.createGearFrom` beside `createLootFrom`, several items per kill, each on its own
+`dropCells` cell while distinct free ones remain, then on any of them; drops expire after 30 s. A skill item goes
 into the first empty key (3 or 4), else the bag; a part, and everything a bot takes, into the bag;
 with no room the pickup stays. Nothing moves between bag and keys mid-run (Nick, #49). Death and
 disconnect drop keys and bag (`takeGear`, `rowId` kept). The HUD's keys 3-4 are gear cards
@@ -105,8 +115,20 @@ for a part).
 
 **Merge** (`gear/merge.ts` `mergeOutcome`, 49-5): 3 stashed items of one tier. Any skill item among
 them makes a skill item of the next tier with the kept input's skill and fresh rolls. Parts only: T1
-makes a T2 skill item 15% of the time, T2 a T3 one 25% (`PART_MERGE_SKILL_CHANCE`), else a part of
-the next tier; 3 T3 parts make a T3 skill item, always (so 27 T1 parts always reach one). A T3 merge
-with a skill item is refused: there is no tier 4 (Beck's rule; the spec is silent, flagged to Nick).
+makes a T2 skill item 15% of the time, T2 a T3 one 25%, T3 a T4 one 35% (`PART_MERGE_SKILL_CHANCE`
+`{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; 0.35 is #51's first value), else a part of the next tier; 3 T4
+parts make a T4 skill item, always (so 81 T1 parts always reach one). 3 T3 items with a skill item
+make a T4 skill item (#51, l1-2). A T4 merge with a skill item is refused: there is no tier 5.
+`mergeOutcome` and the client's `mergeCheck` are written against `GEAR_TIERS`, and
+`stasheditclient.spec.ts` holds them equal over tiers 1-4.
 A scrap pays nothing: loot is not a currency (#48, #49). Q11, an ad-gated reroll of a merge result,
 is open: not built, not ruled out.
+
+## Mob skills
+
+NPC attacks (#51, L1) are server-side mob skills and routines under `src/mobskills/`, never in the
+mirrored `utils/skills.ts` (a mob skill there would drop as a player item: `rollGear` picks
+uniformly over `SKILL_LIST`). They are hex-cell sets like every area of effect above and hit
+players only, except the Broodling blast. Each one, its timings and its timer ownership: see
+`docs/npcs.md` ("Attacks"). The Coil's slow is a new buff, `FieldSlow` (one per unit, refreshed
+through `FieldSlow.apply`, never `addBuff`), that multiplies with the Icicle's `Slowdown`.

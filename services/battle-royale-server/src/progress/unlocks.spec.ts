@@ -44,7 +44,8 @@ const preset = (key: string): Finish => (FINISH_PRESETS.find((p) => p.key === ke
 test('the unlock table is Dez\'s section 3 v1', () => {
   assert.deepEqual(Object.values(ARCHETYPE_INFO).map((a) => [a.key, a.unlockLevel]), [
     ['peep', 1], ['periscope', 5], ['magnet', 3], ['hopper', 8], ['waddle', 12],
-    ['grunt', null], ['boss', null], ['gunner', null]
+    ['grunt', null], ['boss', null], ['gunner', null],
+    ['crawler', null], ['kiln', null], ['reactor', null], ['coil', null], ['compactor', null], ['brood', null], ['broodling', null]
   ])
   assert.deepEqual(PALETTE.map((c) => [c.id, c.label, c.unlockLevel]), [
     [1, 'MINT', 1], [2, 'CREAM', 1], [3, 'OLIVE', 2], [4, 'SAND', 1], [5, 'ICE', 4],

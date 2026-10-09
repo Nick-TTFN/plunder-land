@@ -54,7 +54,11 @@ test('archetype ids are the ones already on the wire (append-only)', () => {
     Object.fromEntries(KEYS.map((key) => [key, ARCHETYPE_INFO[key].id])),
     // robot-select (#42), deliberate: magnet appended at 3.
     // #43, deliberate: periscope at 2. 2026-10-01, deliberate: hopper 4, waddle 5.
-    { peep: 1, periscope: 2, magnet: 3, hopper: 4, waddle: 5, grunt: 6, boss: 7, gunner: 8 }
+    // #51 L1, deliberate: the NPC roster appended at 9-15; 6-8 kept, reserved.
+    {
+      peep: 1, periscope: 2, magnet: 3, hopper: 4, waddle: 5, grunt: 6, boss: 7, gunner: 8,
+      crawler: 9, kiln: 10, reactor: 11, coil: 12, compactor: 13, brood: 14, broodling: 15
+    }
   )
 })
 
@@ -74,16 +78,17 @@ test('archetypeById finds every entry, and nothing for 0, undefined or an unknow
   for (const key of KEYS) assert.equal(archetypeById(ARCHETYPE_INFO[key].id), ARCHETYPE_INFO[key])
   assert.equal(archetypeById(0), undefined)
   assert.equal(archetypeById(undefined), undefined)
-  assert.equal(archetypeById(9), undefined, 'an unused id resolved')
+  assert.equal(archetypeById(16), undefined, 'an unused id resolved')
   assert.equal(archetypeById(200), undefined)
 })
 
-test('the server table has exactly the mirrored keys, and takes the six shared fields from the mirror', () => {
+test('the server table has exactly the mirrored keys, and takes the shared fields from the mirror', () => {
   assert.deepEqual(Object.keys(ARCHETYPES).sort(), [...KEYS].sort())
   for (const key of KEYS) {
     const row: Archetype = ARCHETYPES[key]
     const info = ARCHETYPE_INFO[key]
-    for (const field of ['id', 'key', 'kind', 'passesObstacles', 'vision', 'rangedCells'] as const) {
+    // rarity and attack since #51 L1.
+    for (const field of ['id', 'key', 'kind', 'passesObstacles', 'vision', 'rangedCells', 'rarity', 'attack'] as const) {
       assert.equal(row[field], info[field], `${key}.${field} is written down twice and disagrees`)
     }
   }
@@ -108,7 +113,14 @@ function units (): Array<[string, Unit, number]> {
     ['peep', new Player(X, Y, 0, 'p1'), 1],
     ['grunt', new Mob(X, Y, 0, ARCHETYPES.grunt), 6],
     ['boss', new Mob(X, Y, 0, ARCHETYPES.boss), 7],
-    ['gunner', new Mob(X, Y, 0, ARCHETYPES.gunner), 8]
+    ['gunner', new Mob(X, Y, 0, ARCHETYPES.gunner), 8],
+    ['crawler', new Mob(X, Y, 0, ARCHETYPES.crawler), 9],
+    ['kiln', new Mob(X, Y, 0, ARCHETYPES.kiln), 10],
+    ['reactor', new Mob(X, Y, 0, ARCHETYPES.reactor), 11],
+    ['coil', new Mob(X, Y, 0, ARCHETYPES.coil), 12],
+    ['compactor', new Mob(X, Y, 0, ARCHETYPES.compactor), 13],
+    ['brood', new Mob(X, Y, 0, ARCHETYPES.brood), 14],
+    ['broodling', new Mob(X, Y, 0, ARCHETYPES.broodling), 15]
   ]
 }
 

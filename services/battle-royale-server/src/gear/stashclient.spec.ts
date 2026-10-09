@@ -54,7 +54,7 @@ test('onStash drops a row it can\'t read, not the view; rejects a malformed even
   const event = {
     items: [
       { id: '1', tier: 1, skill: FIREBALL, rolls: [[GEAR_STATS.hp.id, 2000], [250, 10]] },
-      { id: '2', tier: 4, skill: FIREBALL, rolls: [] },
+      { id: '2', tier: 5, skill: FIREBALL, rolls: [] },
       { id: '3', tier: 1, skill: 250, rolls: [] },
       { id: 'x', tier: 1, skill: 0, rolls: [] },
       { id: '1', tier: 1, skill: 0, rolls: [] },

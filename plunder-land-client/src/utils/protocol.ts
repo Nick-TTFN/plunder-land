@@ -28,5 +28,17 @@
  * and 27 `speed`: an older client stops parsing its own player's create at
  * 26/27 (and so loses its speed, which now goes out as 27 only) and drops a
  * gear pickup's fields.
+ * 7: the L1 release (decision #51), one bump for all of it. Gear tier 4
+ * (Legendary) can now be in `carried` (26), a gear pickup's `gear` (25) and
+ * the `stash` event, all of which an older client refuses (`decodeGear`,
+ * `net/stash.ts` `itemOf`: tier above its `GEAR_TIERS` of 3). The new NPC archetype ids 9-15 are drawn
+ * by an older client as the old mob sprite. Telegraph effect types 9-19 are
+ * never drawn by an older client: a silent misbehaviour, attacks that can be
+ * dodged arriving with no warning. An older client also ignores effect 15
+ * (knockback) on its own player and so never applies its own knockback: it
+ * walks on predicting the old route and is rubber-banded back by the server.
+ * A Coil's slow (l1-3) still reaches an older client as its speed (27) and
+ * is predicted, but without the field (13) or the slowed cue (16) it is
+ * slowed with no visible cause.
  */
-export const PROTOCOL = 6
+export const PROTOCOL = 7

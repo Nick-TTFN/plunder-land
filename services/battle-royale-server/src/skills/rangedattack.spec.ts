@@ -70,6 +70,13 @@ function mobAt (at: Vector): Unit {
 
 const mobOn = (cell: Vector): Unit => mobAt(Hex.toPosition(cell))
 
+/** A player target on `cell`'s centre, 1000 hp and no armour, so a hit reads as -damage. */
+function playerOn (cell: Vector, name = 'target'): Player {
+  const player = playerAt(Hex.toPosition(cell), name)
+  player.hp = 1000
+  return player
+}
+
 /** Every 3-unit (or `step`) grid point whose cell is `cell`. */
 function pointsIn (cell: Vector, step: number): Vector[] {
   const c = Hex.toPosition(cell)
@@ -206,10 +213,11 @@ test('a gunner\'s line is 6 cells: it does not reach a 7th', () => {
   World.MOBS.push(gunner)
   const skill = (gunner.routines[1] as UseSkillOnTarget).skill
   const aim = HOME_CELL.add(new Vector(3, 0))
-  const seventh = mobOn(HOME_CELL.add(new Vector(7, 0)))
+  // Players: a gunner's shot passes through mobs (#51 Q7).
+  const seventh = playerOn(HOME_CELL.add(new Vector(7, 0)))
   assert.equal(skill.execute(aim), true)
   assert.equal(seventh.hp, 1000)
-  const sixth = mobOn(HOME_CELL.add(new Vector(6, 0)))
+  const sixth = playerOn(HOME_CELL.add(new Vector(6, 0)))
   skill.executeTime = 0
   assert.equal(skill.execute(aim), true)
   assert.equal(sixth.hp, 1000 - 10)
@@ -294,4 +302,57 @@ test('a unit on the other plane is not on the line', () => {
   assert.equal(fire(shooter, aim), true)
   assert.equal(other.hp, 1000)
   assert.equal(target.hp, 1000 - World.config.ranged)
+})
+
+// --- who stops a shot (decision #51 Q7) -------------------------------------------
+
+/** A Crawler on `cell`'s centre with 1000 hp, and its ranged skill. */
+function crawlerOn (cell: Vector): { mob: Mob, skill: RangedAttack } {
+  const at = Hex.toPosition(cell)
+  const mob = new Mob(at.x, at.y, 0, ARCHETYPES.crawler)
+  mob.hp = 1000
+  World.MOBS.push(mob)
+  const use = mob.routines.find((r) => (r as Partial<UseSkillOnTarget>).skill instanceof RangedAttack) as UseSkillOnTarget | undefined
+  assert.ok(use !== undefined, 'the Crawler has no RangedAttack')
+  return { mob, skill: use.skill as RangedAttack }
+}
+
+const crawler = (): { mob: Mob, skill: RangedAttack } => crawlerOn(HOME_CELL)
+
+test('a Crawler\'s shot passes its pack mate on the line and hits the player behind', () => {
+  const { skill } = crawler()
+  const aim = HOME_CELL.add(new Vector(4, 0))
+  const mate = crawlerOn(HOME_CELL.add(new Vector(2, 0))).mob
+  const player = playerOn(aim)
+  assert.equal(skill.execute(aim), true)
+  assert.equal(mate.hp, 1000, 'the pack mate took the shot')
+  assert.equal(player.hp, 1000 - 8, 'the player behind the mate was not hit for the Crawler\'s 8')
+})
+
+test('a mob\'s shot with only mobs on its line hits nothing', () => {
+  const { skill } = crawler()
+  const aim = HOME_CELL.add(new Vector(4, 0))
+  const mates = [1, 2, 4].map((q) => crawlerOn(HOME_CELL.add(new Vector(q, 0))).mob)
+  assert.equal(skill.execute(aim), true)
+  for (const m of mates) assert.equal(m.hp, 1000)
+})
+
+test('a player\'s shot still stops at a mob in front of the aimed mob', () => {
+  const shooter = playerAt(HOME)
+  const aim = HOME_CELL.add(new Vector(4, 0))
+  const front = mobOn(HOME_CELL.add(new Vector(2, 0)))
+  const behind = mobOn(aim)
+  assert.equal(fire(shooter, aim), true)
+  assert.equal(front.hp, 1000 - World.config.ranged)
+  assert.equal(behind.hp, 1000)
+})
+
+test('a player\'s shot at a player behind a mob hits the mob', () => {
+  const shooter = playerAt(HOME)
+  const aim = HOME_CELL.add(new Vector(4, 0))
+  const front = mobOn(HOME_CELL.add(new Vector(2, 0)))
+  const behind = playerOn(aim)
+  assert.equal(fire(shooter, aim), true)
+  assert.equal(front.hp, 1000 - World.config.ranged)
+  assert.equal(behind.hp, 1000)
 })

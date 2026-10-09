@@ -35,12 +35,15 @@ export class BombEffect {
     playBlast(layer, cell, ITEM_INFO.bomb.rings, 'fx/blast_fire')
   }
 
-  /** The doomed cells, pulsing faster as the fuse runs down, gone when it ends. */
-  private static fuse (tag: number | undefined, cells: Array<{ x: number, y: number }>, lifetime: number): void {
+  /**
+   * The doomed cells, pulsing faster as the fuse runs down, gone when it ends.
+   * Also the Kiln's landing marker (`kilnlob.effect.ts`, #51 l1-4).
+   */
+  static fuse (tag: number | undefined, cells: Array<{ x: number, y: number }>, lifetime: number, colour: number = FUSE_COLOUR): void {
     const layer = layerOf(tag)
     if (layer === undefined) return
 
-    const highlight = new CellHighlight(FUSE_COLOUR, 0.35)
+    const highlight = new CellHighlight(colour, 0.35)
     highlight.draw(cells)
     layer.addChild(highlight)
 

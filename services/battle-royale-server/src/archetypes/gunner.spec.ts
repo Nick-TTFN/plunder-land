@@ -126,7 +126,7 @@ test('grunt and boss keep standoff 0 and no withinCells (today\'s behaviour)', (
   for (const archetype of [ARCHETYPES.grunt, ARCHETYPES.boss]) {
     for (const spec of archetype.routines) {
       if (spec.kind === 'guard') assert.equal(spec.standoff, 0, archetype.key)
-      else assert.equal(spec.withinCells, undefined, archetype.key)
+      else if (spec.kind === 'useSkillOnTarget') assert.equal(spec.withinCells, undefined, archetype.key)
     }
   }
 })

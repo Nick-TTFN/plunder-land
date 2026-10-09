@@ -1,0 +1,137 @@
+{
+ "frames": {
+  "npc-brood/body.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 142,
+    "h": 133
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 12,
+    "y": 14,
+    "w": 142,
+    "h": 133
+   },
+   "sourceSize": {
+    "w": 162,
+    "h": 162
+   }
+  },
+  "npc-brood/lower.png": {
+   "frame": {
+    "x": 146,
+    "y": 2,
+    "w": 33,
+    "h": 65
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 33,
+    "h": 65
+   },
+   "sourceSize": {
+    "w": 33,
+    "h": 65
+   }
+  },
+  "npc-brood/upper.png": {
+   "frame": {
+    "x": 181,
+    "y": 2,
+    "w": 35,
+    "h": 61
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 35,
+    "h": 61
+   },
+   "sourceSize": {
+    "w": 35,
+    "h": 61
+   }
+  },
+  "npc-brood/joint.png": {
+   "frame": {
+    "x": 218,
+    "y": 2,
+    "w": 11,
+    "h": 11
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 11,
+    "h": 11
+   },
+   "sourceSize": {
+    "w": 11,
+    "h": 11
+   }
+  },
+  "npc-brood/lowerDead.png": {
+   "frame": {
+    "x": 231,
+    "y": 2,
+    "w": 8,
+    "h": 5
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 21,
+    "y": 53,
+    "w": 8,
+    "h": 5
+   },
+   "sourceSize": {
+    "w": 33,
+    "h": 65
+   }
+  },
+  "npc-brood/lowerOff.png": {
+   "frame": {
+    "x": 241,
+    "y": 2,
+    "w": 8,
+    "h": 5
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 21,
+    "y": 53,
+    "w": 8,
+    "h": 5
+   },
+   "sourceSize": {
+    "w": 33,
+    "h": 65
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-npc-atlas.py",
+  "version": "1.0",
+  "image": "npc-brood.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 256,
+   "h": 137
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.889450101832994,
+  "package": "npc-refinements/brood-v15"
+ }
+}

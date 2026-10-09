@@ -138,6 +138,22 @@ box only for Periscope: 12 rings at vision 10 is up to 540 units east-west). **F
 projectile's layer**, not the thrower's (`63d8947`): a thrower who hopped a portal during the
 flight used to send the blast to the wrong layer. Effects are not fogged inside the 500 box
 (#48 rejected hiding them; Nick accepted): a blast or bomb in the dark is sent and drawn.
+**Types 9-19 are the NPC attacks** (#51, L1; numbers in server `archetypes/npceffects.ts`
+`NPC_EFFECT` and client `vfx/npceffects.ts`, held equal by `npceffects.spec.ts`; append-only, a
+type is never reused). Through `effectAt` on a cell and layer, like the bomb: **9** Kiln lob
+(marker + arc, lifetime = flight; the client draws the arc only if it holds the Kiln), **10** Kiln
+blast (originator ignored: the Kiln may be dead), **11** Reactor activate and **12** release (on
+the planted cell; the client ends them early if it sees the Reactor die), **13** Coil pulse (sent
+once at the charge start, lifetime tell + hold, cell = the field's centre), **17** Broodling
+primed (lifetime = tell) and **18** Broodling blast. Through `effect` on a unit's holders:
+**14** Compactor shockwave (on the Compactor, aimed at the line's **uncut** tip; the client works
+the cells back from the tip, `lineFromTip`), **15** knockback (on the victim, aimed at the landing
+cell, to its holders including its own connection; see "Knockback" in `docs/movement.md`), **16**
+slowed (on the victim, lifetime = the slow left; resent only past half), **19** Brood release (on
+the Brood, aimed at the new Broodling's cell, lifetime = the spawn clip, 1100). An older client
+has no case for 9-19 and draws nothing (hence PROTOCOL 7). Lifetimes go out in tenths, floored:
+1250 is sent as 1200, so keep NPC timings at multiples of 100 where the client times a
+telegraph by them.
 `changedAt`/`seen` and `pendingObjectIDs` are gone. Measured 2026-10-03 (`tools/load/`, Peep
 bots): per-client bytes 36-40% lower at 100 and 400 players (about 270-410 B/s decompressed,
 from 430-700), update records 55-63% fewer; Periscope bots only 10% lower. `Multiplayer.update`
@@ -201,7 +217,10 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 6 since gear** (#49, 49-2, live 2026-10-05: field indices 25-27; an older client stops parsing its own player's create at 26 or 27, losing its speed, which now goes out as 27 only, and drops a gear pickup's fields); 5 was energy (#48 step 7, 2026-10-04: a start can be refused with `start_refused`, which an older client never hears, so its READY would leave it on an empty screen); 4 was robot and finish locks (an older client offers every robot and finish, which the server would silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
+tabs left open across a release. **`PROTOCOL` is 7 since L1** (#51, l1-2, built 2026-10-07, not yet live): gear tier 4 in `gear` (25),
+`carried` (26) and `stash`, which an older `decodeGear` refuses; NPC ids 9-15, which an older
+client draws as the old mob sprite; effects 9-19, which it never draws (dodgeable attacks with no
+warning, a slow with no cause, a knockback it never applies and rubber-bands back from). 6 was gear (#49, 49-2, live 2026-10-05: field indices 25-27; an older client stops parsing its own player's create at 26 or 27, losing its speed, which now goes out as 27 only, and drops a gear pickup's fields); 5 was energy (#48 step 7, 2026-10-04: a start can be refused with `start_refused`, which an older client never hears, so its READY would leave it on an empty screen); 4 was robot and finish locks (an older client offers every robot and finish, which the server would silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.
 
 **`account`** (server → client, text; framed clients decode text events; #48): `{ id }` on
 connect for a known handshake token, `{ id, token }` on a connection's first play without one
@@ -244,7 +263,7 @@ the first skill item in `ids` order; with parts only it must be absent). `item` 
 item shape. `scrapped.id` echoes what was sent, cut to 20 characters, or null. Reasons: `busy` (a
 merge or scrap of this connection is in flight, or its start is: nothing written, no `stash`
 follows), `invalid` (malformed, no account yet, or the store refused: a row missing, carried or
-another account's, mixed tiers, a T3 merge with a skill item, a bad keep), `store` (offline, no
+another account's, mixed tiers, a T4 merge with a skill item, a bad keep), `store` (offline, no
 stash store, or the store failed or took over 3 s; a fresh `stash` is asked for). After `ok` or a
 store-side `invalid` the same transaction's `stash` follows, without `run`. A merge the timeout gave
 up on may still land: a retry of the same ids is then `invalid`, never doubled. Allowed in the lobby
@@ -354,9 +373,10 @@ field on `Unit` or any subclass**: it would shadow `GameObject`'s accessor, and 
 would silently never be sent. The server typecheck (TS2610) catches it; swc alone does not.
 
 **`archetype` (16)** is a uint8 id, sent in every unit's create and never as a delta: peep 1,
-periscope 2, magnet 3, hopper 4, waddle 5 (both since 2026-10-01), grunt 6, boss 7, gunner 8, with 0 meaning never sent. **Ids are append-only**, like field
+periscope 2, magnet 3, hopper 4, waddle 5 (both since 2026-10-01), grunt 6, boss 7, gunner 8 (no longer spawned since L1, kept), crawler 9, kiln 10, reactor
+11, coil 12, compactor 13, brood 14, broodling 15 (#51), with 0 meaning never sent. **Ids are append-only**, like field
 indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
-flag, vision and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
+flag, vision, `rarity` and an NPC's `attack` cell shape (`docs/npcs.md`) and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
 id: players 6, mobs 6; players were 8 before #43). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and
 falls back to today's sprite for an unknown id. An object that comes into a
 connection's range is sent a `create`. A whole record can still arrive in `update` when a
@@ -452,5 +472,11 @@ known positions and never need a speed.
 
 `lifetime` is encoded as centiseconds in a **uint16** (`value / 100`), giving a range of
 about 65,000 seconds. It was a single signed byte, which silently capped every lifetime at
-12.7s — long enough for a 3s fireball, wrong for the 60s timer on dropped loot. Encoding it
+12.7s — long enough for a 3s fireball, wrong for the 60s timer on dropped loot.
+**A Broodling's create carries its remaining fuse in `lifetime`** (#51, l1-7; field 28, held for
+it, was not needed). The routine writes the fuse left into `lifetime` every tick and deletes it
+from `dirtyFields` (as `World.placeMob` does for loot), so no delta is ever sent; a create from
+`Multiplayer.update` is exact to the tick, a join snapshot or `switchLayer` between ticks up to a
+tick stale. Nothing else reads a unit's `lifetime` on either side (server: Obstacles and pickups
+only; client: the countdown ring, which an older client draws on a Broodling, harmless). Encoding it
 raw in milliseconds throws `ERR_OUT_OF_RANGE` for every real value including 1000.

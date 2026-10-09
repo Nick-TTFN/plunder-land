@@ -10,7 +10,8 @@ import Player from '../objects/player'
 import Mob from '../objects/mob'
 import GearPickup from '../objects/gearpickup'
 import { type Unit } from '../objects/unit'
-import { ARCHETYPES, ITEMS, LAYERS } from '../archetypes/archetypes'
+import { ARCHETYPES, ITEMS, LAYERS, MOB_GEAR_CHANCE, MOB_GEAR_ROLLS, mobGearRolls } from '../archetypes/archetypes'
+import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { SKILL_INFO } from '../utils/skills'
 import { GEAR_BAG, GEAR_STATS, type GearInstance, type GearTier } from '../utils/gear'
 import type BotBrain from '../bots/brain'
@@ -360,7 +361,7 @@ test('a player standing on a cache takes it, and the world starts its respawn', 
 
 // --- mob drops ----------------------------------------------------------------------
 
-function mobOn (key: 'grunt' | 'gunner' | 'boss', tag: number): Mob {
+function mobOn (key: 'grunt' | 'gunner' | 'boss' | 'crawler' | 'compactor' | 'kiln' | 'coil' | 'reactor' | 'brood' | 'broodling', tag: number): Mob {
   const mob = new Mob(HOME.x, HOME.y, tag, ARCHETYPES[key])
   mob.routines = []
   World.addUnit(World.MOBS, mob)
@@ -373,57 +374,177 @@ function seq (...values: number[]): () => number {
   return () => values[i++] ?? 0.5
 }
 
-test('a mob drops gear by its layer\'s chance and mix; a boss always a skill item at T1 or T2; never T3', () => {
+/** A seeded LCG in [0, 1). */
+function lcg (seed: number): () => number {
+  let x = seed >>> 0
+  return () => { x = (Math.imul(x, 1664525) + 1013904223) >>> 0; return x / 2 ** 32 }
+}
+
+/** The cell each live gear pickup stands on, as "q,r". */
+function gearCells (): string[] {
+  return World.GEAR.filter((g) => !g.destroyed).map((g) => {
+    const c = Hex.toCell(g.position)
+    return `${c.x},${c.y}`
+  })
+}
+
+test('the drop table (#51): flat 4% rolls by mob rarity, own tier a skill item from Rare up, every NPC row reads its rarity\'s, the Broodling and the retired rows none', () => {
+  assert.equal(MOB_GEAR_CHANCE, 0.04)
+  assert.deepEqual(MOB_GEAR_ROLLS, {
+    common: { rolls: [1, 0, 0], skillTier: null },
+    rare: { rolls: [2, 1, 0], skillTier: 2 },
+    epic: { rolls: [4, 2, 1], skillTier: 3 },
+    legendary: { rolls: [8, 4, 3], skillTier: 3 }
+  })
+  for (const info of Object.values(ARCHETYPE_INFO)) {
+    const row = ARCHETYPES[info.key as keyof typeof ARCHETYPES]
+    if (info.key === 'broodling') assert.equal(row.gearRolls, null, 'the Broodling drops nothing')
+    else if (info.kind === 'mob' && info.rarity !== null) assert.equal(row.gearRolls, mobGearRolls(info.rarity), info.key)
+    else assert.equal(row.gearRolls, null, `${info.key} (robot or retired row)`)
+  }
+})
+
+test('a kill rolls each of its rolls on its own: a Crawler one T1 by the layer\'s mix; a Kiln two T1 by the mix and a T2 skill item', () => {
   noRefill()
-  const grunt = mobOn('grunt', 0)
-  // Roll under the chance, then under `part`.
-  const part = world.createGearFrom(grunt, seq(0, 0))
-  assert.deepEqual(part, { tier: 1, skill: 0, rolls: [] })
+  const crawler = mobOn('crawler', 0)
+  // Under the chance, then under `part`.
+  assert.deepEqual(world.createGearFrom(crawler, seq(0, 0)), [{ tier: 1, skill: 0, rolls: [] }])
   assert.equal(World.GEAR.length, 1)
-  assert.equal(World.GEAR[0].expiresAt > 0, true, 'a mob drop never expires')
-  // Over the chance: nothing.
-  assert.equal(world.createGearFrom(grunt, seq(LAYERS[0].gear.mobChance.grunt)), undefined)
-  // No gunners or bosses on 01: never a drop there.
-  assert.equal(world.createGearFrom(mobOn('gunner', 0), seq(0, 0)), undefined)
-  assert.equal(world.createGearFrom(mobOn('boss', 0), seq(0, 0)), undefined)
+  // At or over the chance: nothing, and no pickup.
+  assert.deepEqual(world.createGearFrom(crawler, seq(MOB_GEAR_CHANCE)), [])
+  assert.equal(World.GEAR.length, 1)
+  // Under the chance, over `part`: a skill item.
+  const skill = world.createGearFrom(crawler, seq(0, LAYERS[0].gear.mobMix.part))
+  assert.equal(skill.length, 1)
+  assert.equal(skill[0].tier, 1)
+  assert.ok(skill[0].skill > 0)
 
-  const boss = mobOn('boss', -1)
-  const t1 = world.createGearFrom(boss, seq(0, 0))
-  assert.equal(t1?.tier, 1)
-  assert.ok((t1?.skill ?? 0) > 0)
-  const t2 = world.createGearFrom(boss, seq(0, 0.99))
-  assert.equal(t2?.tier, 2)
+  World.GEAR.length = 0
+  const kiln = mobOn('kiln', -1)
+  // Every roll lands; the two T1 rolls go by the mix (0: a part), the T2 roll
+  // is the Kiln's own tier and never asks the mix.
+  const got = world.createGearFrom(kiln, () => 0)
+  assert.deepEqual(got.map((g) => [g.tier, g.skill > 0]), [[1, false], [1, false], [2, true]])
+  assert.equal(got[2].rolls.length, 2)
+  assert.equal(World.GEAR.length, 3)
+  for (const g of World.GEAR) assert.equal(g.tag, -1)
+})
 
-  // Many rolls on every layer and mob: never T3, a boss's never a part.
-  let rolled = 0
-  let s = 12345
-  const random = (): number => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 2 ** 32 }
+test('a Brood drops up to 15 items, its 3 Epic rolls all skill items and never a T4, each on its own cell, for 30 s', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  noRefill()
+  const brood = mobOn('brood', -2)
+  const got = world.createGearFrom(brood, () => 0)
+  assert.equal(got.length, 15)
+  assert.deepEqual(got.map((g) => g.tier), [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3])
+  assert.ok(got.slice(0, 12).every((g) => g.skill === 0), 'random 0 is under part: the lower rolls are parts')
+  assert.ok(got.slice(12).every((g) => g.skill > 0 && g.rolls.length === 2), 'an Epic roll was not a skill item')
+  const free = World.dropCells(brood.cell, -2).length
+  assert.ok(free >= 15, `only ${free} free cells round the Brood`)
+  const cells = gearCells()
+  assert.equal(cells.length, 15)
+  assert.equal(new Set(cells).size, 15, 'two items share a cell while free ones remain')
+  for (const g of World.GEAR) assert.equal(g.expiresAt, 1_000_000 + World.DROPPED_LOOT_LIFETIME)
+  assert.equal(World.DROPPED_LOOT_LIFETIME, 30000)
+})
+
+test('more items than free cells: distinct cells first, then the rest on those cells', () => {
+  noRefill()
+  const a = new Vector(HOME_CELL.x, HOME_CELL.y)
+  const b = new Vector(HOME_CELL.x + 1, HOME_CELL.y)
+  mock.method(World, 'dropCells', () => [a, b])
+  assert.equal(world.createGearFrom(mobOn('brood', -2), () => 0).length, 15)
+  const cells = gearCells()
+  const ka = `${a.x},${a.y}`
+  const kb = `${b.x},${b.y}`
+  assert.equal(cells.length, 15)
+  assert.deepEqual(cells.slice(0, 2).sort(), [ka, kb].sort(), 'the first two items share a cell while one is free')
+  assert.ok(cells.every((c) => c === ka || c === kb), `a drop off the free cells: ${cells.join(' ')}`)
+})
+
+test('the Broodling, the retired rows and robots drop nothing, on every layer', () => {
+  noRefill()
   for (const layer of LAYERS) {
-    for (const key of ['grunt', 'gunner', 'boss'] as const) {
-      const mob = mobOn(key, layer.tag)
-      for (let n = 0; n < 400; n++) {
-        const got = world.createGearFrom(mob, random)
-        if (got === undefined) continue
-        rolled++
-        assert.ok(got.tier === 1 || got.tier === 2, `T${got.tier} from a ${key}`)
-        if (key === 'boss') assert.ok(got.skill > 0, 'a boss dropped a part')
+    for (const key of ['broodling', 'grunt', 'gunner', 'boss'] as const) {
+      assert.deepEqual(world.createGearFrom(mobOn(key, layer.tag), () => 0), [], `${key} on ${layer.tag}`)
+    }
+    assert.deepEqual(world.createGearFrom(peep(), () => 0), [], `a robot on ${layer.tag}`)
+  }
+  assert.equal(World.GEAR.length, 0)
+})
+
+test('100,000 seeded kills per rarity: items per kill 0.04 / 0.12 / 0.28 / 0.60, own-tier rolls skill items, the rest by mobMix, never a T4', () => {
+  noRefill()
+  // Placement is the tests above; here only what rolls, so no pickups pile up.
+  const placing = world as unknown as { dropGear: () => void }
+  placing.dropGear = () => {}
+  const KILLS = 100_000
+  const layer = LAYERS[2]
+  const expected: Record<string, number> = { crawler: 0.04, kiln: 0.12, reactor: 0.28, brood: 0.60 }
+  const random = lcg(51)
+  for (const key of ['crawler', 'kiln', 'reactor', 'brood'] as const) {
+    const mob = mobOn(key, layer.tag)
+    const table = mob.archetype.gearRolls
+    assert.ok(table !== null)
+    const rolls = table.rolls.reduce((x, y) => x + y, 0)
+    // The table's own per-kill expectation is the accepted figure.
+    assert.ok(Math.abs(rolls * MOB_GEAR_CHANCE - expected[key]) < 1e-9, `${key}: ${rolls} rolls`)
+    let items = 0
+    let byMix = 0
+    let byMixParts = 0
+    const tiers = [0, 0, 0, 0, 0]
+    for (let n = 0; n < KILLS; n++) {
+      for (const g of world.createGearFrom(mob, random)) {
+        items++
+        tiers[g.tier]++
+        assert.ok(g.tier >= 1 && g.tier <= 3, `${key} dropped a T${g.tier}`)
+        if (g.tier === table.skillTier) {
+          assert.ok(g.skill > 0, `${key}: an own-tier roll gave a part`)
+        } else {
+          byMix++
+          if (g.skill === 0) byMixParts++
+        }
       }
     }
+    const mean = items / KILLS
+    // Five standard errors of a sum of Bernoulli rolls: deterministic (seeded), but not tuned to the seed.
+    const se = Math.sqrt(rolls * MOB_GEAR_CHANCE * (1 - MOB_GEAR_CHANCE) / KILLS)
+    assert.ok(Math.abs(mean - expected[key]) < 5 * se, `${key}: ${mean} items a kill, expected ${expected[key]} +- ${5 * se}`)
+    assert.equal(tiers[4], 0, `${key}: a T4 dropped`)
+    for (let tier = 1; tier <= 3; tier++) {
+      const share = table.rolls[tier - 1] * MOB_GEAR_CHANCE * KILLS
+      if (share === 0) assert.equal(tiers[tier], 0, `${key}: T${tier} from no rolls`)
+      else assert.ok(Math.abs(tiers[tier] - share) < 5 * Math.sqrt(share), `${key}: ${tiers[tier]} T${tier}, expected ${share}`)
+    }
+    if (byMix > 0) {
+      const part = byMixParts / byMix
+      assert.ok(Math.abs(part - layer.gear.mobMix.part) < 5 * Math.sqrt(0.25 / byMix), `${key}: part share ${part}`)
+    }
   }
-  assert.ok(rolled > 200, `only ${rolled} drops`)
 })
 
 test('a mob killed in the world drops its gear beside its loot on the sweep', () => {
   noRefill()
-  const grunt = mobOn('grunt', 0)
-  grunt.loot = 50
+  const crawler = mobOn('crawler', 0)
+  crawler.loot = 50
   mock.method(Math, 'random', () => 0)
-  grunt.hit(1e6)
+  crawler.hit(1e6)
   world.update(0.25)
   const drops = World.GEAR.filter((g) => !g.destroyed)
   assert.equal(drops.length, 1, 'no gear drop from the sweep')
   assert.ok(drops[0].expiresAt > 0)
   assert.ok(World.CONSUMABLES.length > 0, 'no loot either')
+})
+
+test('a Brood killed in the world drops every item it rolled on the sweep, on distinct cells', () => {
+  noRefill()
+  const brood = mobOn('brood', -2)
+  mock.method(Math, 'random', () => 0)
+  brood.hit(1e6)
+  world.update(0.25)
+  const cells = gearCells()
+  assert.equal(cells.length, 15)
+  assert.equal(new Set(cells).size, Math.min(15, World.dropCells(brood.cell, -2).length))
 })
 
 // --- bots see gear (an ITEMS-like site outside the lists: bots/brain.ts) -----------

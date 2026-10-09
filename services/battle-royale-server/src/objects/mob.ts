@@ -3,7 +3,39 @@ import { ObjectType } from './gameobject'
 import Multiplayer from '../network/multiplayer'
 import Timers from './timers'
 import World from './world'
-import { type Archetype, ARCHETYPES, buildRoutines, buildSkills } from '../archetypes/archetypes'
+import { type Archetype, type LayerPack, ARCHETYPES, buildRoutines, buildSkills } from '../archetypes/archetypes'
+import GuardPosition from '../ai/guardposition'
+import { type Vector } from '../utils/vector'
+
+/**
+ * Mobs spawned together from one `LayerPack` entry (decision #51, L1): a
+ * Crawler pack and its escort Coil. They share one home (each member's
+ * `GuardPosition.homePosition`) and one aggro (`GuardPosition.provoke`). Alive
+ * while any member is: `World.refillLayer` replaces a pack only once every
+ * member is dead (Q11).
+ *
+ * Held only by its members' `pack`, so it goes when the last of them leaves
+ * `MOBS`; the world keeps no list of packs.
+ */
+export class MobPack {
+  readonly entry: LayerPack
+  readonly home: Vector
+  readonly members: Mob[] = []
+
+  constructor (entry: LayerPack, home: Vector) {
+    this.entry = entry
+    this.home = home
+  }
+
+  /** Add `mob` and give its guard the pack's home. */
+  join (mob: Mob): void {
+    this.members.push(mob)
+    mob.pack = this
+    for (const routine of mob.routines) {
+      if (routine instanceof GuardPosition) routine.homePosition = this.home
+    }
+  }
+}
 
 /**
  * Any non-player unit: grunt, boss, and whatever else the archetype table says.
@@ -12,6 +44,19 @@ import { type Archetype, ARCHETYPES, buildRoutines, buildSkills } from '../arche
 export default class Mob extends Unit {
   // Always set, by Unit's constructor; narrowed from Unit's optional one.
   declare archetype: Archetype
+  /**
+   * The pack it spawned in (`MobPack.join`), or undefined for a mob spawned
+   * alone. Set after construction, never by a base constructor.
+   */
+  pack: MobPack | undefined = undefined
+  /**
+   * Takes over `hit` while set: the Broodling's fuse routine (task l1-7,
+   * `mobskills/broodling.ts`), which goes off on any damaging hit, not only
+   * a lethal one. Returns what `hit` returns: true if this hit destroyed the
+   * mob, so the caller credits the kill. Set by a routine built in this
+   * constructor's body, after this initialiser has run.
+   */
+  onHit: ((value: number) => boolean) | undefined = undefined
 
   /** `archetype` defaults to the grunt, which is what a plain `Mob` always was. */
   constructor (x: number, y: number, tag: number, archetype: Archetype = ARCHETYPES.grunt) {
@@ -32,6 +77,12 @@ export default class Mob extends Unit {
   update (dt: number): void {
     super.update(dt)
     if (!this.destroyed) this.touch()
+  }
+
+  /** `Unit.hit`, unless a routine has hooked it (`onHit`). A corpse is never hit. */
+  hit (value: number): boolean {
+    if (this.onHit !== undefined && !this.destroyed) return this.onHit(value)
+    return super.hit(value)
   }
 
   /**

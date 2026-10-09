@@ -128,6 +128,8 @@ export class LocalPlayer {
    * been sent for this run (`reset`), so the first sample of a run always goes.
    */
   private _sentRoute: string | undefined
+  /** The sequence number `_sentRoute` went with, for `knockback`. */
+  private _sentSeq: number | undefined
 
   /** The last position the server reported for us, for the portal hop (`changeLayer`). */
   private _serverX: number | undefined
@@ -200,6 +202,7 @@ export class LocalPlayer {
     this.facingY = 0
     this.stop()
     this._sentRoute = undefined
+    this._sentSeq = undefined
     this.ready = true
   }
 
@@ -487,12 +490,12 @@ export class LocalPlayer {
     this._lastSample = now
 
     const count = Math.min(this.waypoints.length, MAX_WAYPOINTS)
-    let route = ''
-    for (let i = 0; i < count; i++) route += `${this.waypoints[i].x},${this.waypoints[i].y};`
+    const route = this._route()
     if (route === this._sentRoute) return null
     this._sentRoute = route
 
     const seq = this._seq
+    this._sentSeq = seq
     this._seq = (this._seq + 1) & 0xffff
     if (this._seq === 0) this._seq = 1
 
@@ -505,6 +508,63 @@ export class LocalPlayer {
     }
     view.setUint16(1 + count * 4, seq)
     return buf
+  }
+
+  /** The waypoints as `sample` sends them, `q,r;q,r;...`, for comparing routes. */
+  private _route (): string {
+    const count = Math.min(this.waypoints.length, MAX_WAYPOINTS)
+    let route = ''
+    for (let i = 0; i < count; i++) route += `${this.waypoints[i].x},${this.waypoints[i].y};`
+    return route
+  }
+
+  /**
+   * A Compactor's slam knocked us to `cell` (effect 15 on our own player,
+   * decision #51, l1-6). **Mirrors server `Player.knockback`**, which has
+   * already moved us there and ended the route (`stop()`), as `changeLayer`
+   * mirrors a portal hop: jump, then stop.
+   *
+   * The jump goes to the cell's centre whatever the disagreement: a knockback
+   * of a cell or two is inside the dead zone that `reconcile` ignores, so it is
+   * taken here, eased like a correction (or shown at once past
+   * `SNAP_DISTANCE`), never ignored.
+   *
+   * `ackedSeq` is `lastInputSeq` from the update header of the flush the
+   * effect came in (`Game.onObjectsUpdated` applies it there), so it names the
+   * last input the server had applied when it moved us. If that is the route
+   * we still hold, the server stopped it: stop too, and the next packet is a
+   * stop the server already is. If we have sent a newer route since, or hold
+   * one not sent yet, the server plans it (or will) from the landing cell, so
+   * re-plan it from here instead of dropping the click; the packet it needs is
+   * already sent or about to be.
+   */
+  knockback (cell: { x: number, y: number }, ackedSeq: number): void {
+    if (!this.ready) return
+    const at = Hex.toPosition(new Vector(cell.x, cell.y))
+    const errX = at.x - this.x
+    const errY = at.y - this.y
+    this.x = at.x
+    this.y = at.y
+    if (Math.sqrt(errX * errX + errY * errY) > SNAP_DISTANCE) {
+      this._offsetX = 0
+      this._offsetY = 0
+    } else {
+      this._offsetX -= errX
+      this._offsetY -= errY
+    }
+
+    if (this._sentSeq === ackedSeq && this._route() === this._sentRoute) {
+      this.stop()
+      // The server already holds a stop (`Player.knockback` forgets the
+      // route), so no packet is needed, and a re-click of the knocked route
+      // now differs from what was sent and goes out.
+      this._sentRoute = ''
+      return
+    }
+    // As the server's `stop()` then `setWaypoints`: no dash carries over.
+    this.dashLeft = 0
+    this._held = undefined
+    this.repath()
   }
 
   /**

@@ -1,0 +1,297 @@
+{
+ "frames": {
+  "npc-coil/body.png": {
+   "frame": {
+    "x": 2,
+    "y": 2,
+    "w": 58,
+    "h": 47
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 1,
+    "w": 58,
+    "h": 47
+   },
+   "sourceSize": {
+    "w": 76,
+    "h": 51
+   }
+  },
+  "npc-coil/dark.png": {
+   "frame": {
+    "x": 62,
+    "y": 2,
+    "w": 58,
+    "h": 47
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 1,
+    "w": 58,
+    "h": 47
+   },
+   "sourceSize": {
+    "w": 76,
+    "h": 51
+   }
+  },
+  "npc-coil/local-glow.png": {
+   "frame": {
+    "x": 122,
+    "y": 2,
+    "w": 36,
+    "h": 36
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 36,
+    "h": 36
+   },
+   "sourceSize": {
+    "w": 36,
+    "h": 36
+   }
+  },
+  "npc-coil/lower.png": {
+   "frame": {
+    "x": 160,
+    "y": 2,
+    "w": 9,
+    "h": 35
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 9,
+    "h": 35
+   },
+   "sourceSize": {
+    "w": 9,
+    "h": 35
+   }
+  },
+  "npc-coil/shadow.png": {
+   "frame": {
+    "x": 171,
+    "y": 2,
+    "w": 81,
+    "h": 31
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 81,
+    "h": 31
+   },
+   "sourceSize": {
+    "w": 83,
+    "h": 31
+   }
+  },
+  "npc-coil/upper.png": {
+   "frame": {
+    "x": 2,
+    "y": 51,
+    "w": 13,
+    "h": 30
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 13,
+    "h": 30
+   },
+   "sourceSize": {
+    "w": 13,
+    "h": 30
+   }
+  },
+  "npc-coil/heat.png": {
+   "frame": {
+    "x": 17,
+    "y": 51,
+    "w": 29,
+    "h": 21
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 23,
+    "y": 25,
+    "w": 29,
+    "h": 21
+   },
+   "sourceSize": {
+    "w": 76,
+    "h": 51
+   }
+  },
+  "npc-coil/bloom.png": {
+   "frame": {
+    "x": 48,
+    "y": 51,
+    "w": 26,
+    "h": 20
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 25,
+    "y": 26,
+    "w": 26,
+    "h": 20
+   },
+   "sourceSize": {
+    "w": 76,
+    "h": 51
+   }
+  },
+  "npc-coil/foot.png": {
+   "frame": {
+    "x": 76,
+    "y": 51,
+    "w": 13,
+    "h": 11
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 13,
+    "h": 11
+   },
+   "sourceSize": {
+    "w": 13,
+    "h": 11
+   }
+  },
+  "npc-coil/ring-charge.png": {
+   "frame": {
+    "x": 91,
+    "y": 51,
+    "w": 21,
+    "h": 7
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 21,
+    "h": 7
+   },
+   "sourceSize": {
+    "w": 21,
+    "h": 7
+   }
+  },
+  "npc-coil/ring.png": {
+   "frame": {
+    "x": 114,
+    "y": 51,
+    "w": 21,
+    "h": 7
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 21,
+    "h": 7
+   },
+   "sourceSize": {
+    "w": 21,
+    "h": 7
+   }
+  },
+  "npc-coil/foot-shadow.png": {
+   "frame": {
+    "x": 137,
+    "y": 51,
+    "w": 13,
+    "h": 6
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 13,
+    "h": 6
+   },
+   "sourceSize": {
+    "w": 15,
+    "h": 6
+   }
+  },
+  "npc-coil/rear-shadow.png": {
+   "frame": {
+    "x": 152,
+    "y": 51,
+    "w": 8,
+    "h": 6
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 1,
+    "y": 0,
+    "w": 8,
+    "h": 6
+   },
+   "sourceSize": {
+    "w": 10,
+    "h": 6
+   }
+  },
+  "npc-coil/rearfoot.png": {
+   "frame": {
+    "x": 162,
+    "y": 51,
+    "w": 7,
+    "h": 5
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 7,
+    "h": 5
+   },
+   "sourceSize": {
+    "w": 7,
+    "h": 5
+   }
+  }
+ },
+ "meta": {
+  "app": "tools/bake-npc-atlas.py",
+  "version": "1.0",
+  "image": "npc-coil.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 256,
+   "h": 83
+  },
+  "scale": "2",
+  "texelsPerUnit": 0.5224439918533605,
+  "package": "npc-refinements/coil-v5"
+ }
+}

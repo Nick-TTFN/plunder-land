@@ -92,7 +92,38 @@ the cell it left and the one it enters until it arrives (`World.STEPS`), and its
 rest (`World.mobHolds`, through the `UNITS` index). Players may share cells with each other
 and with mobs. Contact damage lands within the archetype's `contact.rings` (1: adjacent or
 the same cell, `Mob.touch`), and the chase stops there (`GuardPosition.chaseStop`, or at the
-standoff if that is further: the gunner's 5).
+standoff if that is further: the gunner's 5). **`stepGoal.away`** (#51, l1-4) is the same greedy
+choice reversed: the furthest enterable neighbour from the goal, ties to the lowest index, staying
+put (and setting `stepBlocked`) if none is further; it is server-only (`LocalPlayer` mirrors
+`walkPath`, not `chooseStep`). `GuardSpec.retreat { min, max }` uses it: below `min` rings the mob
+backs away, within the band it holds, beyond `max` it closes to `max` (Kiln and Brood, 5-6). No
+leash: a player can push a retreating mob any distance from home while within `lose`. A mob
+that plants or winds up an attack (Reactor, Coil, Compactor, a primed Broodling) clears
+`stepGoal` every tick after its guard; the step in progress still finishes.
+
+**Knockback** (#51, l1-6; the Compactor's slam, `docs/npcs.md`) is the one move the server makes
+to a player that the player didn't ask for, and it is **mirrored**: `Player.knockback` (server)
+against `LocalPlayer.knockback` (client), held by `extract.spec.ts`. Server: after the landing
+walk, `stop()`, then `connection.lastWaypoints = []`, unlike `changeLayer`, which keeps it: the
+client sends a route only on a change, so the knocked route must be sendable again or a re-click
+of the same cell is dropped as a repeat (`sameCells`) and the player is rubber-banded. Then the
+landing centre through the setter, and effect 15 to the victim's holders, its own connection
+included. Client: `Game` parks effect 15 for `Game.PLAYER` and applies it in `onObjectsUpdated`
+**right after the same flush's header `lastInputSeq` is read** (effects precede the update in
+every frame, `frame.spec.ts`). `LocalPlayer.knockback(cell, ackedSeq)` jumps to the cell's centre,
+eased like a correction but never ignored by the dead zone, then: if `ackedSeq` is the seq of our
+last sent route and that route is still ours, the server stopped it, so `stop()` and clear
+`_sentRoute`; otherwise it re-plans our newer or not-yet-sent route from the landing cell, as the
+server will. A plain "jump then stop" desyncs a click made in the window. `Game._knockback` is cleared
+on every `Game.start`, beside `resetForRun`.
+
+**A slow reaches the client through `speed` (27) a tick late** (#51, l1-3, the Coil's `FieldSlow`).
+No new wire: the own player's `maxVelocity` goes out on change. The drift a tick is the speed
+change x 0.25 s: 14 units at the Coil's x0.6 and 17.5 at the Icicle's x0.5, both inside the dead
+zone (0.25 s x speed x `LEAD_TICKS` 2), so no correction. Stacked (x0.3, 42 u/s) it is 24.5
+against a 21-unit dead zone, so **only the stacked case** gets eased corrections (1-4 in the
+mirror specs, never a snap, same end cell). If Nick feels a hitch under both slows, the fix
+belongs in `reconcile`, not in a new field.
 
 `Session` (`src/net/session.ts`) owns every timing constant, and separates what the server
 *says* (`tickMs`, from `hello`) from what the connection *delivers* (`arrivalP95`, measured).

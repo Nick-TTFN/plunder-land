@@ -43,7 +43,20 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   A `setTimeout` callback runs outside the tick's error boundary. `Timers.run` is called
   first in `World.update`, with a catch per timer. Give a timer the object whose state it
   changes as its owner, so the timer is cancelled when that object dies or exits. Never
-  give a cleanup timer an owner that can die before the thing it cleans up. The only
+  give a cleanup timer an owner that can die before the thing it cleans up.
+  **NPC attacks pick their owner on purpose** (#51): a Kiln lob in flight has no owner and
+  lands after the Kiln dies, like a thrown bomb (the landing runs in the Kiln's world, since
+  timers are per world; a world closed idle drops it, hitting nobody). The Reactor's burst, the
+  Compactor's slam, the Coil's field, the Brood's release clock and the Broodling's fuse and tell
+  are owned by their NPC, so its death cancels them: no posthumous burst. Specs check it by
+  counting what is left in `Timers` after the death.
+- **A Broodling detonates by destroying itself first** (#51, l1-7): `detonate` sets `detonating`,
+  hp 0 and `destroy()` before it sends effect 18 and deals damage, so a chained blast that reaches
+  it finds it dead (`Mob.hit` skips the hook, `Unit.hit` returns false), its id is freed once and
+  nothing is credited twice. **`Mob.onHit`** is a hook only the Broodling sets: any damaging hit
+  sets it off and returns true, which every `hit` caller reads as "destroyed, credit it". It is
+  an initialised field set by a routine built after `Mob`'s own body runs (no base-constructor
+  hook builds routines), so the declare-field trap does not apply. The only
   `setTimeout` left is the game loop's own scheduler in `index.ts`. **Socket handlers
   (`start_requested`, `pointer`, `skill`) run inside `Multiplayer.guarded`**, which catches
   per event. They are applied on arrival, not queued for the tick, on purpose: a skill's

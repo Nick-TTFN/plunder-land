@@ -7,7 +7,7 @@
  * ```
  * lootXP  = min(200, floor(bankedLoot / 25))      extraction only
  * killXP  = 10 per player killed (human or bot), at most 4 counted
- *         + min(20, 2 per grunt or gunner + 10 per boss)
+ *         + min(20, per mob by archetype: kills.mob below)
  * depthXP = 15 per layer below 01 reached
  * timeXP  = min(30, floor(secondsAlive / 10))
  *
@@ -32,7 +32,20 @@ export const PROGRESSION = Object.freeze({
      * Each mob killed, by archetype key; a mob missing here pays `mobDefault`,
      * so a new mob type pays like a grunt until it is given a value.
      */
-    mob: Object.freeze({ grunt: 2, gunner: 2, boss: 10 } as Record<string, number>),
+    // The NPC roster's values (decision #51, Dez's drop table section 5,
+    // accepted); grunt, gunner and boss kept for the retired rows.
+    mob: Object.freeze({
+      grunt: 2,
+      gunner: 2,
+      boss: 10,
+      crawler: 1,
+      broodling: 0,
+      compactor: 2,
+      kiln: 3,
+      coil: 3,
+      reactor: 10,
+      brood: 12
+    } as Record<string, number>),
     mobDefault: 2,
     mobCap: 20
   }),

@@ -138,21 +138,67 @@ test('every archetype\'s built ranged range is the one the client draws it at, l
 
 test('the threat cells the client draws under a mob reach as far as its attack (world-markers)', () => {
   // Boss: the FireBreath cone, drawn as the full disc since it can turn.
-  // Gunner: its built RangedAttack. Grunts and robots: none.
+  // Gunner and Crawler (#51): their built RangedAttack. An NPC with attack
+  // cells: their reach, when the caller passes the row's attack. Grunts and
+  // robots: none.
   const owner = playerOn(new Vector(20, 40))
   for (const archetype of Object.values(ARCHETYPES)) {
     const info = ARCHETYPE_INFO[archetype.key]
-    const drawn = Client.threatRingsOf(info.key, info.kind, info.rangedCells)
+    const drawn = Client.threatRingsOf(info.key, info.kind, info.rangedCells, info.attack)
     const skills = buildSkills(owner, archetype)
+    const ranged = skills.find((s): s is RangedAttack => s instanceof RangedAttack)
     if (archetype.key === 'boss') {
       assert.ok(skills.some((s) => s instanceof FireBreath), 'the boss no longer breathes: its threat cells are wrong')
       assert.equal(drawn, FireBreath.RINGS, 'boss')
-    } else if (archetype.key === 'gunner') {
-      const ranged = skills.find((s): s is RangedAttack => s instanceof RangedAttack)
-      assert.ok(ranged !== undefined)
-      assert.equal(drawn, ranged.range, 'gunner')
+    } else if (archetype.kind === 'mob' && ranged !== undefined) {
+      assert.equal(drawn, ranged.range, archetype.key)
+    } else if (archetype.kind === 'mob' && info.attack !== undefined) {
+      assert.equal(drawn, Client.attackReach(info.attack), archetype.key)
     } else {
       assert.equal(drawn, 0, archetype.key)
+    }
+  }
+  assert.equal(Client.threatRingsOf('crawler', 'mob', ARCHETYPE_INFO.crawler.rangedCells), 5, 'the Crawler is not marked by its shot')
+})
+
+// #51 L1: every NPC row's attack cells, as the client works them out, are the
+// cells the server's own definitions give: a disc is FIND_IN_CELLS' set, a
+// line is Hex.neighbour stepped `length` times, a lob the disc round its aim.
+test('the client\'s attackCells for every NPC row are the server\'s cells for that shape', () => {
+  const npcs = Object.values(ARCHETYPE_INFO).filter((info) => info.attack !== undefined)
+  assert.deepEqual(npcs.map((info) => info.key).sort(), ['broodling', 'coil', 'compactor', 'kiln', 'reactor'])
+  const disc = (origin: Vector, rings: number): Vector[] => {
+    const cells: Vector[] = []
+    for (let q = origin.x - 12; q <= origin.x + 12; q++) {
+      for (let r = origin.y - 12; r <= origin.y + 12; r++) {
+        if (Hex.distance(origin, new Vector(q, r)) <= rings) cells.push(new Vector(q, r))
+      }
+    }
+    return cells
+  }
+  for (const info of npcs) {
+    const attack = info.attack
+    assert.ok(attack !== undefined)
+    for (const origin of ORIGINS) {
+      for (let d = 0; d < 6; d++) {
+        const aim = Hex.neighbour(Hex.neighbour(origin, d), (d + 1) % 6)
+        let expected: Vector[]
+        if (attack.kind === 'disc') expected = disc(origin, attack.rings)
+        else if (attack.kind === 'lob') expected = disc(aim, attack.rings)
+        else {
+          expected = []
+          let at = origin
+          for (let i = 0; i < attack.length; i++) { at = Hex.neighbour(at, d); expected.push(at) }
+        }
+        const got = Client.attackCells(attack, origin, d, aim)
+        assert.equal(new Set(keys(got)).size, got.length, `${info.key}: a cell listed twice`)
+        assert.deepEqual(keys(got), keys(expected), `${info.key} origin ${origin.x},${origin.y} direction ${d}`)
+        if (attack.kind !== 'lob') {
+          assert.ok(Math.max(...expected.map((c) => Hex.distance(origin, c))) <= Client.attackReach(attack), `${info.key}: reach`)
+        } else {
+          assert.ok(Client.attackReach(attack) === attack.range + attack.rings, `${info.key}: reach`)
+        }
+      }
     }
   }
 })
@@ -227,7 +273,9 @@ test('the client\'s discCells is exactly the cells FIND_IN_CELLS takes', () => {
 test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit RangedAttack hits', () => {
   // Deterministic scatter: players and gunners firing aimed and unaimed shots
   // into a crowd with shared cells, so line order, same-cell nearness, range
-  // and the facing fallback all get compared.
+  // and the facing fallback all get compared. A quarter of the crowd are
+  // players: a gunner's shot passes the mobs and stops at one of them (#51 Q7),
+  // and the client gets only those as bodies, as `RangedAttackEffect` does.
   let seed = 7
   const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
   const offsetCell = (c: Vector, spread: number): Vector =>
@@ -237,6 +285,8 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
   let hits = 0
   let sameCell = 0
   let unaimed = 0
+  let gunnerHits = 0
+  let passedMob = 0
   for (let trial = 0; trial < 400; trial++) {
     World.MOBS.length = 0
     World.PLAYERS.length = 0
@@ -259,9 +309,11 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
 
     const mobs: Unit[] = []
     for (let i = 0; i < 8; i++) {
-      // Every third one shares the previous one's cell.
+      // Every third one shares the previous one's cell; every fourth is a player.
       const cell = i % 3 === 2 ? mobs[i - 1].cell : offsetCell(home, 8)
-      const mob = mobOn(cell)
+      const mob = i % 4 === 1 ? playerOn(cell) : mobOn(cell)
+      mob.armor = 0
+      mob.hp = 1000
       mob.position = mob.position.add(new Vector(rand() * 20 - 10, rand() * 20 - 10))
       mobs.push(mob)
     }
@@ -281,19 +333,21 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
     const aimed = aim !== undefined && (aim.x !== own.x || aim.y !== own.y)
     const toward = aimed ? aim : Hex.neighbour(own, World.FACING_INDEX(shooter.facing))
     const range = Client.rangedRangeCells(archetypeById(shooter.archetype?.id)?.rangedCells, gunnerShot)
-    const got = Client.firstOnLine(
-      Hex.line(own, toward, range),
-      shooter.position.x, shooter.position.y,
-      mobs.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell }))
-    )
-    assert.equal(got, struck, `trial ${trial}`)
+    const line = Hex.line(own, toward, range)
+    const toBodies = (us: Unit[]): Client.Body[] => us.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell }))
+    const bodies = gunnerShot ? mobs.filter((m) => m.type === ObjectType.Player) : mobs
+    const got = Client.firstOnLine(line, shooter.position.x, shooter.position.y, toBodies(bodies))
+    assert.equal(got < 0 ? -1 : mobs.indexOf(bodies[got]), struck, `trial ${trial}`)
     compared++
     if (struck >= 0) hits++
+    if (gunnerShot && struck >= 0) gunnerHits++
+    // A gunner hit with a mob first on the line: the shot went through it.
+    if (gunnerShot && struck >= 0 && mobs[Client.firstOnLine(line, shooter.position.x, shooter.position.y, toBodies(mobs))].type === ObjectType.Mob) passedMob++
     if (struck >= 0 && mobs.some((m, i) => i !== struck && m.cell.x === mobs[struck].cell.x && m.cell.y === mobs[struck].cell.y)) sameCell++
     if (!aimed) unaimed++
   }
-  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50,
-    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed: the sample says too little`)
+  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50 && gunnerHits > 10 && passedMob > 3,
+    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed, ${gunnerHits} gunner hits, ${passedMob} through a mob: the sample says too little`)
 })
 
 test('the client\'s firstOnLine and World.FIRST_ON_LINE agree on a line with two units in one cell', () => {
@@ -440,3 +494,36 @@ for (const [name, make, type] of [
     assert.deepEqual(blast?.aimCell, parked)
   })
 }
+
+// #51 l1-4: the Kiln's lob, run for real. The landing cell its effects carry
+// (9 and 10) and the client's cells for the kiln row's `attack` round that
+// cell are exactly the cells whose players lost life.
+test('a Kiln lob damages exactly the cells the client draws round the cell its effects carry', (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  const origin = new Vector(20, 40)
+  const at = Hex.toPosition(origin)
+  const kiln = new Mob(at.x, at.y, 0, ARCHETYPES.kiln)
+  World.MOBS.push(kiln)
+  const aim = new Vector(24, 38)
+  const players: Player[] = []
+  for (let q = aim.x - 3; q <= aim.x + 3; q++) {
+    for (let r = aim.y - 3; r <= aim.y + 3; r++) {
+      const cell = new Vector(q, r)
+      if (Hex.distance(cell, aim) > 3 || Hex.distance(cell, origin) === 0) continue
+      players.push(playerOn(cell))
+    }
+  }
+  const before = players.map((p) => p.hp + p.armor)
+  const lob = kiln.routines.map((r) => (r as Partial<UseSkillOnTarget>).skill).find((s) => s !== undefined)
+  assert.ok(lob !== undefined)
+  assert.equal(lob.execute(aim), true)
+  advance(t, 1250)
+
+  assert.deepEqual(effects.map((e) => e.type), [9, 10])
+  for (const e of effects) assert.deepEqual(e.aimCell, aim)
+  const hit = players.filter((p, i) => p.hp + p.armor < before[i]).map((p) => p.cell)
+  const attack = ARCHETYPE_INFO.kiln.attack
+  assert.ok(attack !== undefined)
+  assert.deepEqual(keys(hit), keys(Client.attackCells(attack, origin, undefined, effects[1].aimCell)))
+  assert.equal(hit.length, 7)
+})

@@ -38,6 +38,19 @@ export class RangedAttack extends Skill {
     return Hex.line(from, toward, range)
   }
 
+  /**
+   * The unit types a shot from `owner` stops on (decision #51 Q7): a mob's
+   * shot passes through other mobs and stops at the first player, so a pack
+   * mate on the line no longer soaks its shot. A player's shot stops at the
+   * first unit of either kind. The client draws the beam with the same rule
+   * (`RangedAttackEffect` in `plunder-land-client/src/vfx/rangedattack.effect.ts`).
+   */
+  static stopsOn (owner: Unit): number {
+    return owner.type === ObjectType.Mob
+      ? ObjectType.Player
+      : ObjectType.Player | ObjectType.Mob
+  }
+
   execute (aimCell?: Vector) {
     if (!super.execute()) return false
 
@@ -49,7 +62,7 @@ export class RangedAttack extends Skill {
       RangedAttack.lineOf(this.owner, aimCell, this.range),
       this.owner.position,
       this.owner.tag,
-      ObjectType.Player | ObjectType.Mob,
+      RangedAttack.stopsOn(this.owner),
       this.owner
     )
 

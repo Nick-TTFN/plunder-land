@@ -9,6 +9,7 @@ import { type GearEffect, type GearInstance, GEAR_BAG, GEAR_FIRST_SLOT, GEAR_SLO
 import World from './world'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Timers from './timers'
+import { NPC_EFFECT } from '../archetypes/npceffects'
 import { INVENTORY_SLOTS } from '../utils/items'
 import { type Finish, finishFromBytes, finishToBytes } from '../utils/finishes'
 import { type Item } from '../archetypes/archetypes'
@@ -24,7 +25,13 @@ import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'o
 export class Stats {
   kills?: number
   mobKills?: number
+  /** Frozen since L1 (decision #51): see `KillStat`. Kept readable, never renamed. */
   bossKills?: number
+  /** Killing blows by mob rarity (decision #51, L1; `KillStat`). */
+  commonKills?: number
+  rareKills?: number
+  epicKills?: number
+  legendaryKills?: number
   games?: number
   lootCollected?: number
   lifeTime?: number
@@ -268,6 +275,53 @@ export default class Player extends Unit {
     this.position = Hex.toPosition(World.arrivalOf(here))
     this.changeLayer(portal.to)
     return true
+  }
+
+  /**
+   * How long the knockback cue (effect 15) is drawn, in ms. Placeholder art
+   * (l1-6), for the art pass.
+   */
+  static KNOCKBACK_EFFECT_MS = 300
+
+  /**
+   * Knocked back by a Compactor's slam (decision #51, l1-6): moved up to
+   * `cells` cells from its own cell along `Hex.DIRECTIONS[direction]`. The
+   * walk goes neighbour by neighbour as a standing dash does
+   * (`Unit.dashCells`) but stops **before** any cell the player `blocks`
+   * (void, the map's edge, and for all but Hopper walls and stones) and before
+   * any gate cell (portal or exit) or portal arrival cell, so a knockback
+   * never hops a layer, never lands on a pad and never drops into a valley.
+   * The landing is the last cell reached; with none (the first cell already
+   * stops it) nothing happens and the route goes on.
+   *
+   * Otherwise the route ends (`stop()`, which also ends a dash, as a portal
+   * hop ends it), the player is put on the landing cell's centre (the setter
+   * refiles it), and `effect(15)` aimed at that cell goes to its holders, its
+   * own connection included. **Mirrored by the client's
+   * `LocalPlayer.knockback`**, which jumps there on that effect;
+   * `extract.spec.ts` runs the two together. Returns the landing cell, or
+   * undefined for no move.
+   */
+  knockback (direction: number, cells: number): Vector | undefined {
+    if (this.destroyed || this.exited) return undefined
+    let landing: Vector | undefined
+    let cell = this.cell
+    for (let i = 0; i < cells; i++) {
+      cell = Hex.neighbour(cell, direction)
+      if (this.blocks(cell.x, cell.y)) break
+      if (World.GATES_ON(cell.x, cell.y, this.tag).length > 0 || World.isArrival(cell.x, cell.y, this.tag)) break
+      landing = cell
+    }
+    if (landing === undefined) return undefined
+    this.stop()
+    // Unlike `changeLayer`, which leaves `lastWaypoints` so the old route's
+    // repeats from an older client are ignored: a current client sends only on
+    // a change, and after a knockback the same route must be sendable again
+    // (a re-click of the destination it was walking to), so forget it here.
+    if (this.connection !== undefined) this.connection.lastWaypoints = []
+    this.position = Hex.toPosition(landing)
+    Multiplayer.Instance.effect(NPC_EFFECT.knockback, this, Player.KNOCKBACK_EFFECT_MS, landing)
+    return landing
   }
 
   /**

@@ -1,4 +1,4 @@
-import { BRING_LEVEL, GEAR_SLOTS, GEAR_TIERS, type GearInstance, type GearRoll, type GearTier, Q_MAX, STASH_MAX, STASH_SOFT, gearStatById } from '../utils/gear'
+import { BRING_LEVEL, GEAR_SLOTS, GEAR_TIERS, type GearInstance, type GearRoll, type GearTier, Q_MAX, STASH_MAX, STASH_SOFT, gearStatById, tierName } from '../utils/gear'
 import { skillById } from '../utils/skills'
 
 /**
@@ -301,8 +301,8 @@ export function gearLine (extracted: boolean, carried: number, offline: boolean,
  * The rules mirror the server's `mergeOutcome` (`gear/merge.ts`): 3 stashed
  * rows of one tier; any skill item among them makes a skill item of the next
  * tier keeping one input's skill (`keep`, default the first skill item);
- * three parts make the next tier (T3 parts stay T3, always a skill item);
- * a T3 merge with a skill item is refused (there is no tier 4). The server
+ * three parts make the next tier (T4 parts stay T4, always a skill item);
+ * a T4 merge with a skill item is refused (there is no tier 5). The server
  * decides; this only keeps the button honest. No odds are copied here: the
  * chances are the server's tunable (`PART_MERGE_SKILL_CHANCE`).
  *
@@ -415,14 +415,14 @@ export function mergeCheck (view: StashView | undefined, picked: readonly string
   if (!inputs.every((item) => item.tier === tier)) return { ok: false, reason: 'ALL 3 MUST BE THE SAME TIER' }
   const chosen = keepFor(inputs, keep)
   if (chosen !== null) {
-    if (tier >= GEAR_TIERS) return { ok: false, reason: `T${GEAR_TIERS} SKILL ITEMS CAN'T MERGE · ONLY T${GEAR_TIERS} PARTS` }
+    if (tier >= GEAR_TIERS) return { ok: false, reason: `${tierName(GEAR_TIERS)} SKILL ITEMS CAN'T MERGE · ONLY ${tierName(GEAR_TIERS)} PARTS` }
     const kept = stashItem(view, chosen)
     const name = (skillById(kept?.skill ?? 0)?.label ?? 'SKILL').toUpperCase()
-    return { ok: true, ids: inputs.map((item) => item.id), keep: chosen, inputs, preview: `MAKES A T${tier + 1} ${name} · FRESH ROLLS` }
+    return { ok: true, ids: inputs.map((item) => item.id), keep: chosen, inputs, preview: `MAKES A ${tierName(tier + 1)} ${name} · FRESH ROLLS` }
   }
   const preview = tier >= GEAR_TIERS
-    ? `MAKES A T${GEAR_TIERS} SKILL ITEM · ALWAYS`
-    : `MAKES A T${tier + 1} PART · OR, BY CHANCE, A SKILL ITEM`
+    ? `MAKES A ${tierName(GEAR_TIERS)} SKILL ITEM · ALWAYS`
+    : `MAKES A ${tierName(tier + 1)} PART · OR, BY CHANCE, A SKILL ITEM`
   return { ok: true, ids: inputs.map((item) => item.id), keep: null, inputs, preview }
 }
 
@@ -441,7 +441,7 @@ export function mergeMessage (check: Extract<MergeCheck, { ok: true }>): { ids: 
 export function mergeHeading (inputs: readonly GearInstance[], result: GearInstance): string {
   if (result.skill !== 0 && inputs.every((item) => item.skill === 0)) return 'SURPRISE: SKILL ITEM'
   const name = result.skill === 0 ? 'PART' : (skillById(result.skill)?.label ?? 'SKILL').toUpperCase()
-  return `NEW: T${result.tier} ${name}`
+  return `NEW: ${tierName(result.tier)} ${name}`
 }
 
 /** A refused merge or scrap, in plain words. */

@@ -38,6 +38,13 @@ import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
+import { ReactorEffect } from './vfx/reactor.effect'
+import { KilnLobEffect } from './vfx/kilnlob.effect'
+import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
+import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
+import { NPC_EFFECT } from './vfx/npceffects'
+import { NPC_FX_SHEET } from './vfx/npcfx'
+import { BroodlingEffect, BroodReleaseEffect, attachFuse, emergeReleased, primeBroodling } from './vfx/brood.effect'
 import { ItemPickup } from './objects/itempickup'
 import { GearPickup } from './objects/gearpickup'
 import { itemById } from './utils/items'
@@ -103,6 +110,20 @@ export class Game extends Container {
    * a counter, not a warning, in case it doesn't.
    */
   static EFFECTS_UNHELD = 0
+  /**
+   * Counts frames: bumped by each `update` event, which `unpackFrame` always
+   * emits last in a frame (`net/framedparser.ts`). So everything created and
+   * every effect in one frame see the same value (`Mob.createdInFrame`, the
+   * Brood's release, l1-7 F6).
+   */
+  static FRAME = 0
+
+  /**
+   * A knockback of our own player (effect 15) waiting for the update header
+   * of the same flush, whose `lastInputSeq` `LocalPlayer.knockback` needs.
+   * Effects come before the update in every flush, framed or not.
+   */
+  private _knockback: Vector | undefined
   /**
    * The object id a dead player watches (spectate, decision #47), from the
    * server's `spectate` event; undefined when not spectating.
@@ -217,7 +238,15 @@ export class Game extends Container {
     this.mapSize = 4000
     Player.wallAt = (q, r, tag) => Game.WALLS.get(tag)?.has(Hex.key(q, r)) === true
 
+    // The NPC rigs' sheets (l1-8), in the background: a mob created before
+    // they land draws `mob/mob` (`Mob.initAnimation`, `NpcSprite.ready`).
+    // With them the NPC effects sheet (l1-11): an effect before it lands
+    // draws plain cell highlights (`vfx/npcfx.ts`, `FxSprite.ready`).
+    void Assets.load([...Game.NPC_SHEETS, NPC_FX_SHEET]).catch((e) => { console.warn('NPC sheets did not load', e) })
   }
+
+  /** `tools/bake-npc-atlas.py` writes one per NPC rig (`src/npcs/npcrig.ts` `NPC_RIGS`). */
+  static readonly NPC_SHEETS = ['./res/npc-crawler.json', './res/npc-broodling.json', './res/npc-reactor.json', './res/npc-compactor.json', './res/npc-kiln.json', './res/npc-coil.json', './res/npc-brood.json']
 
   clear (): void {
     if (this.layers != null) {
@@ -305,6 +334,7 @@ export class Game extends Container {
     // Stops predicting the last run's route until the new own create resets it.
     Game.LOCAL.stop()
     Game.LOCAL.ready = false
+    this._knockback = undefined
     Game.PLAYER = undefined
     Game.PLAYER_ID = undefined
     this.LOOKUP = {}
@@ -688,7 +718,15 @@ export class Game extends Container {
     // Not on a projectile, whose lifetime ends nothing (the server bursts it at
     // the end of its line). No tint any more: it turned the arena art amber.
     const projectile = (obj as unknown) instanceof Throwable
-    if (data.lifetime !== undefined && !projectile) {
+    // A Broodling's `lifetime` is its fuse left (#51, l1-7): a cord, not a
+    // ring. A rigged one draws its own cord, as long as the fuse left
+    // (`Mob.fuseEndsAt`); without a rig, a code-drawn one.
+    const broodling = obj instanceof Mob && obj.archetype?.key === 'broodling'
+    if (obj instanceof Mob) obj.createdInFrame = Game.FRAME
+    if (data.lifetime !== undefined && broodling) {
+      (obj as Mob).fuseEndsAt = performance.now() + data.lifetime
+      if ((obj as Mob).npc === undefined) attachFuse(obj, data.lifetime)
+    } else if (data.lifetime !== undefined && !projectile) {
       obj.addChild(new Timer(data.lifetime / 1000))
     }
 
@@ -820,6 +858,68 @@ export class Game extends Container {
       return
     }
 
+    // The Reactor's tell (11) and release (12) on the disc round its planted
+    // cell (decision #51, l1-5). Sent by the cell like the bomb's, so the
+    // viewer's layer is the right one. The originator is looked up only to end
+    // the effect early if this client sees it die (the server stops its burst
+    // then); a Reactor out of sight plays it out.
+    if (type === NPC_EFFECT.reactorTell || type === NPC_EFFECT.reactorRelease) {
+      if (aimCell === undefined) return
+      const reactor = target
+      const release = type === NPC_EFFECT.reactorRelease
+      new ReactorEffect(aimCell, Game.LOCAL.tag, release, lifetime,
+        () => reactor instanceof Unit && reactor.hp === 0, reactor instanceof Mob ? reactor : undefined)
+      // Its rig's activation (l1-9): the tell starts the charge so that
+      // release_start lands `lifetime` later, when the release is due; the
+      // release puts it back in step (lead 0), or starts it there for a
+      // viewer who missed the tell.
+      if (reactor instanceof Mob) reactor.playAttack(release ? 0 : lifetime)
+      return
+    }
+
+    // The Kiln's lob (#51, l1-4): its landing marker and arc (9) and its blast
+    // (10), on the landing cell, sent like the bomb's to the cell's layer
+    // (`effectAt`). The Kiln is looked up only for the arc's start, on the
+    // marker: by the blast it may be dead and its id reused.
+    if (type === NPC_EFFECT.kilnLob || type === NPC_EFFECT.kilnBlast) {
+      const blast = type === NPC_EFFECT.kilnBlast
+      if (aimCell !== undefined) new KilnLobEffect(aimCell, Game.LOCAL.tag, blast, lifetime, blast ? undefined : target)
+      // Its rig's lob (l1-9), from the launch (lead 0): the marker comes at the server's cast.
+      if (!blast && target instanceof Mob) target.playAttack(0, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
+      return
+    }
+
+    // The Coil's pulse (13, l1-3), on the field's cell: sent with `effectAt`
+    // to viewers on its layer, like the bomb. The Coil is looked up only to play its rig's charge.
+    if (type === NPC_EFFECT.coilPulse) {
+      if (aimCell !== undefined) new CoilPulseEffect(aimCell, Game.LOCAL.tag, lifetime)
+      // Its rig's charge (l1-9), sent at its start (alive, so the id is its own): the hold ends with the lifetime.
+      if (target instanceof Mob) target.playAttack(lifetime)
+      return
+    }
+
+    // A Broodling's primed tell (17) and blast (18) (#51, l1-7), on their
+    // cell, sent by the cell like the bomb's. Only the tell looks the
+    // Broodling up (alive then, so its id is its own), to play its rig's
+    // tell; by the blast it is gone and its id may be reused.
+    if (type === NPC_EFFECT.broodlingPrimed || type === NPC_EFFECT.broodlingBlast) {
+      if (aimCell !== undefined) new BroodlingEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.broodlingBlast, lifetime)
+      if (type === NPC_EFFECT.broodlingPrimed && target instanceof Mob) primeBroodling(target)
+      return
+    }
+
+    // A Brood's release (19), drawn on the Brood, aimed at the new Broodling's cell.
+    if (type === NPC_EFFECT.broodRelease) {
+      if (target !== undefined) new BroodReleaseEffect(target, aimCell, lifetime)
+      else Game.EFFECTS_UNHELD++
+      // Its create came earlier in this flush (creates before effects): the
+      // new Broodling emerges now, and only for a viewer who saw the release.
+      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME)
+      // Its rig's release (l1-9), from its launch (lead 0), as the Broodling emerges.
+      if (target instanceof Mob) target.playAttack(0, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
+      return
+    }
+
     if (target === undefined) {
       // An originator this client doesn't hold. The server sends these types
       // only to holders of the originator (#48 follow-ups), so this should
@@ -849,10 +949,29 @@ export class Game extends Container {
       case 4:
         new DefendEffect(target, lifetime)
         break
+
+      case NPC_EFFECT.compactorShockwave:
+        new ShockwaveEffect(target, lifetime, aimCell)
+        // Its rig's strike (l1-9), started so the clip's `attack` event (the
+        // shoe on the floor) lands `lifetime` later, on the server's impact.
+        if (target instanceof Mob) target.playAttack(lifetime, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
+        break
+
+      case NPC_EFFECT.knockback:
+        new KnockbackEffect(target, lifetime, aimCell)
+        if (target === Game.PLAYER && aimCell !== undefined) this._knockback = aimCell
+        break
+
+      // Slowed by a Coil's field (l1-3), on the victim, for the slow's lifetime.
+      case NPC_EFFECT.slowed:
+        SlowedEffect.show(target, lifetime)
+        break
     }
   }
 
   onObjectsUpdated (data: ArrayBuffer) {
+    // The frame's last event: what comes next is the next frame's.
+    Game.FRAME++
     const buffer = new Uint8Array(data)
     Game.socketBytes += buffer.length
 
@@ -861,9 +980,14 @@ export class Game extends Container {
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     // [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs]
     this.serverTick = view.getUint32(0)
-    // Read for the record; movement no longer reconciles against them.
-    void view.getUint16(4)
+    // lastInputSeq: read only by a knockback (l1-6). ackElapsedMs: unread.
+    const lastInputSeq = view.getUint16(4)
     void view.getUint16(6)
+    // Before the records, so the position in them meets the landing cell.
+    if (this._knockback !== undefined) {
+      Game.LOCAL.knockback(this._knockback, lastInputSeq)
+      this._knockback = undefined
+    }
 
     const now = performance.now()
     Session.onPacket(now)
@@ -1114,8 +1238,9 @@ export class Game extends Container {
   }
 
   /**
-   * The threat cells on the player's plane: every boss and gunner the player
-   * can see (not hidden by fog, not out of view), at the cell it is drawn on.
+   * The threat cells on the player's plane: every mob with a reach the player
+   * can see (not hidden by fog, not out of view), at the cell it is drawn on:
+   * a shot's range, or an NPC's attack cells (`threatRings`).
    * Re-parented like the route marker.
    */
   updateThreatMarker (): void {
@@ -1128,6 +1253,7 @@ export class Game extends Container {
       if (layer !== undefined && marker.parent !== layer) layer.addChild(marker)
       for (const mob of Game.MOBS) {
         if (mob.tag !== Game.LOCAL.tag || mob.killed || !mob.visible || !mob.renderable) continue
+        // An NPC's reach from its own attack cells (`attack` in the mirror), else its shot.
         const rings = threatRings(mob.archetype)
         if (rings > 0) threats.push({ cell: Hex.toCell(new Vector(mob.x, mob.y)), rings })
       }

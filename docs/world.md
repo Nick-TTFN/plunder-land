@@ -20,9 +20,11 @@ The world is **three ground layers**, 01 on top to 03 at the bottom, with tags *
 per-layer number lives in one table, `LAYERS` in `src/archetypes/archetypes.ts`**: tag, loot
 multiplier (×1 / ×1.75 / ×3 on natural pickups and on every mob's loot, not on what a dead
 player drops), the void share (1/3 each, the valleys), natural loot cap (150 each, death drops
-uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive (grunts 22/18/14,
-gunners 0/8/14, bosses 0/2/3, 81 in all). `World.refillLayer` tops each layer up to it every
-tick, counting per layer. The layer tags reach the client in `hello.layers`; **the client
+uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
+Crawler packs and single NPCs per layer, built by `npcPopulation` from `NPC_NUMBERS.layers`.
+`World.refillLayer` tops each entry up every tick, at most one spawn (or one whole pack) per
+entry per tick; **a pack entry counts live packs, a single entry counts live mobs with no
+pack** (`packsAlive`), so a pack is replaced only when all its members are dead. The layer tags reach the client in `hello.layers`; **the client
 never hardcodes a tag**.
 
 **Portals chain 01 ↔ 02 ↔ 03 and move players only** (#26): 10 down on 01, 5 up and 5 down
@@ -41,7 +43,8 @@ each arrival cell and its neighbours, so a pad is always reachable and nobody la
 valley. Both are plain
 constants since hex-cells P2; they were derived from push-out radii before. New players join
 on layer 01 on a free cell centre at least `World.SPAWN_CLEARANCE` (3) cells from every
-portal, exit and boss, and from mobs when possible (`World.spawnCell`). A fully random spawn
+portal, exit and spawn hazard (an epic or legendary NPC, `World.isSpawnHazard`: Reactor,
+Brood, and the retired boss), and from other mobs when possible (`World.spawnCell`). A fully random spawn
 put about 1 join in 250 close enough to an exit to leave within a second. The airborne plane,
 its clouds and the half-alpha "ground seen from above" are gone; only the player's own layer
 is drawn.
@@ -105,13 +108,13 @@ still fly through walls as they did through rocks.
   while `owner.target` is null, so a target that dies or extracts used to leave the unit
   permanently blind — wandering, while `UseSkillOnTarget` (which only tests for null) kept
   attacking the corpse. Anything that latches onto a target must clear it the same way.
-  **Ranges are rings (#32)**: a player is noticed at `Hex.distance` <= 4 (gunner 6) and kept
-  to 5 (gunner 7); the gunner holds at 5. Acquisition takes the nearest live player by rings,
+  **Ranges are rings (#32)**: each archetype's guard has `acquire`/`lose`/`standoff` in rings
+  (the NPCs' in `NPC_NUMBERS`, `docs/npcs.md`; the retired grunt noticed at 4, kept to 5). Acquisition takes the nearest live player by rings,
   ties to the lowest id. An idle mob wanders to a free cell centre within 1 ring of home.
   **Being hit by a player also sets the target** (`GuardPosition.provoke`), so a mob can no
   longer be killed from beyond its notice range without reacting. It chases until the
   attacker is beyond max(lose, the rings at the hit + 1), and always switches to whoever
-  hit it last. Contact damage lands within the archetype's `contact.rings` (1), see "Mobs step cell to cell"
+  hit it last. A pack's members are provoked together (#51). Contact damage lands within the archetype's `contact.rings` (1), see "Mobs step cell to cell"
   under Movement. Breath damage has no attacker attached, so being inside a player's
   cone counts as a hit.
 - **A loot pickup banks and does not heal** (decision #5, `usable-items`). It used to do both;

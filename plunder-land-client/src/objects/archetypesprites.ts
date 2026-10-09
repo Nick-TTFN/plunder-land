@@ -26,6 +26,11 @@ export interface SpriteLook {
    * sheet is loaded; `run`/`idle` stay as the fallback.
    */
   rig?: 'peep' | 'periscope' | 'magnet' | 'hopper' | 'waddle'
+  /**
+   * A mob drawn by its NPC rig (`src/npcs/`, l1-8) instead of `run`, when its
+   * sheet is loaded (`NPC_RIGS`, `NpcSprite.ready`); `run` stays the fallback.
+   */
+  npc?: 'crawler' | 'broodling' | 'reactor' | 'compactor' | 'kiln' | 'coil' | 'brood'
 }
 
 /** What a player looked like before archetypes: also the fallback for any robot id this build doesn't know. */
@@ -49,7 +54,18 @@ const LOOKS: Readonly<Record<ArchetypeKey, SpriteLook>> = Object.freeze({
   boss: MOB_DEFAULT,
   // A cold blue, far from the grunt's untinted sprite and from the 0xffbb00
   // that marks something with a lifetime.
-  gunner: Object.freeze({ run: 'mob/mob', tint: 0x7fb2ff })
+  gunner: Object.freeze({ run: 'mob/mob', tint: 0x7fb2ff }),
+  // The NPC roster (decision #51): drawn by their rigs (Crawler and Broodling
+  // since l1-8; the Reactor, the Compactor, the Kiln, the Coil and the Brood
+  // since l1-9, PROVISIONAL pending Nick's art review), `mob/mob` whenever a
+  // sheet is missing. The Crawler's fallback takes the gunner's tint, as it takes its role (ranged).
+  crawler: Object.freeze({ run: 'mob/mob', tint: 0x7fb2ff, npc: 'crawler' as const }),
+  kiln: Object.freeze({ ...MOB_DEFAULT, npc: 'kiln' as const }),
+  reactor: Object.freeze({ ...MOB_DEFAULT, npc: 'reactor' as const }),
+  coil: Object.freeze({ ...MOB_DEFAULT, npc: 'coil' as const }),
+  compactor: Object.freeze({ ...MOB_DEFAULT, npc: 'compactor' as const }),
+  brood: Object.freeze({ ...MOB_DEFAULT, npc: 'brood' as const }),
+  broodling: Object.freeze({ ...MOB_DEFAULT, npc: 'broodling' as const })
 })
 
 /**

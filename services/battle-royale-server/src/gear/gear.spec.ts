@@ -14,9 +14,9 @@ import { Skill } from '../skills/skill'
 import { ARCHETYPES, LAYERS, buildSkillById, rollGear } from '../archetypes/archetypes'
 import { SKILL_INFO, SKILL_LIST } from '../utils/skills'
 import {
-  BRING_LEVEL, DUPLICATE_CUTS_COOLDOWN, GEAR_BAG, GEAR_SLOTS, GEAR_STATS, GEAR_STAT_LIST, GEAR_TIERS,
+  BRING_LEVEL, DUPLICATE_CUTS_COOLDOWN, GEAR_BAG, GEAR_SLOTS, GEAR_STATS, GEAR_STAT_LIST, GEAR_TIERS, GEAR_TIER_NAMES,
   type GearInstance, type GearTier, STASH_MAX, STASH_SOFT, cooldownCut, decodeGear, effectiveReach,
-  encodeGear, gearEffect, itemCooldownMs, rollCount, rollValue
+  encodeGear, gearEffect, itemCooldownMs, rollCount, rollValue, tierName
 } from '../utils/gear'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
@@ -81,38 +81,48 @@ const STONEWALL = SKILL_INFO.stoneWall.id
 
 // The table ======
 
-test('the stat table is spec section 1, with append-only ids', () => {
+test('the stat table is spec section 1 plus the T4 column (PROVISIONAL l1-0), with append-only ids and unchanged caps', () => {
   const table = GEAR_STAT_LIST.map((s) => ({ id: s.id, key: s.key, ranges: s.ranges, cap: s.cap }))
   assert.deepEqual(table, [
-    { id: 1, key: 'hp', ranges: [[4, 8], [6, 12], [10, 15]], cap: 20 },
-    { id: 2, key: 'armor', ranges: [[8, 15], [12, 25], [20, 30]], cap: 40 },
-    { id: 3, key: 'speed', ranges: [[2, 4], [3, 5], [4, 6]], cap: 7 },
-    { id: 4, key: 'damage', ranges: [[0.03, 0.05], [0.04, 0.07], [0.06, 0.10]], cap: 0.12 },
-    { id: 5, key: 'reach', ranges: [null, null, [1, 1]], cap: 2 },
-    { id: 6, key: 'cooldown', ranges: [[5, 10], [8, 15], [12, 20]], cap: null }
+    { id: 1, key: 'hp', ranges: [[4, 8], [6, 12], [10, 15], [13, 18]], cap: 20 },
+    { id: 2, key: 'armor', ranges: [[8, 15], [12, 25], [20, 30], [26, 35]], cap: 40 },
+    { id: 3, key: 'speed', ranges: [[2, 4], [3, 5], [4, 6], [5, 7]], cap: 7 },
+    { id: 4, key: 'damage', ranges: [[0.03, 0.05], [0.04, 0.07], [0.06, 0.10], [0.08, 0.12]], cap: 0.12 },
+    { id: 5, key: 'reach', ranges: [null, null, [1, 1], [1, 1]], cap: 2 },
+    { id: 6, key: 'cooldown', ranges: [[5, 10], [8, 15], [12, 20], [16, 25]], cap: null }
   ])
+  // Every stat has a range entry (or null) per tier: a missing T4 entry would read as "can't roll".
+  for (const stat of GEAR_STAT_LIST) assert.equal(stat.ranges.length, GEAR_TIERS, stat.key)
   assert.equal(GEAR_SLOTS, 2)
   assert.equal(GEAR_BAG, 4)
   assert.equal(STASH_SOFT, 12)
   // Nick 2026-10-05 (#49 build plan): a storage ceiling, not a design cap.
   assert.equal(STASH_MAX, 100)
   assert.equal(BRING_LEVEL, 3)
-  assert.equal(GEAR_TIERS, 3)
+  assert.equal(GEAR_TIERS, 4)
+  // Decision #51: display names only; the stored and wire numbers stay 1-4.
+  assert.deepEqual(GEAR_TIER_NAMES, ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'])
+  assert.deepEqual([1, 2, 3, 4, 5, 0].map(tierName), ['COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'T5', 'T0'])
   // Nick 2026-10-05 (#49 build plan answer 1): a duplicate's roll doesn't cut the shared cooldown.
   assert.equal(DUPLICATE_CUTS_COOLDOWN, false)
 })
 
-test('rollCount is 1 at T1 and 2 at T2 and T3; rollValue spans the range', () => {
-  assert.deepEqual([1, 2, 3].map(rollCount), [1, 2, 2])
+test('rollCount is 1 at T1, 2 at T2 and T3, 3 at T4; rollValue spans the range', () => {
+  assert.deepEqual([1, 2, 3, 4].map(rollCount), [1, 2, 2, 3])
   assert.equal(rollValue(S.hp, 1, 0), 4)
   assert.equal(rollValue(S.hp, 1, 500), 6)
   assert.equal(rollValue(S.hp, 1, 1000), 8)
   assert.equal(rollValue(S.damage, 3, 1000), 0.10)
   assert.equal(rollValue(S.reach, 3, 0), 1)
+  assert.equal(rollValue(S.hp, 4, 0), 13)
+  assert.equal(rollValue(S.damage, 4, 1000), 0.12)
+  assert.equal(rollValue(S.cooldown, 4, 1000), 25)
+  assert.equal(rollValue(S.reach, 4, 500), 1)
   // Not rollable there, unknown stat, out-of-range tier, q clamped.
   assert.equal(rollValue(S.reach, 2, 1000), 0)
   assert.equal(rollValue(99, 1, 1000), 0)
-  assert.equal(rollValue(S.hp, 4, 1000), 0)
+  assert.equal(rollValue(S.hp, 5, 1000), 0)
+  assert.equal(rollValue(S.hp, 0, 1000), 0)
   assert.equal(rollValue(S.hp, 1, 5000), 8)
   assert.equal(rollValue(S.hp, 1, -5), 4)
 })
@@ -135,6 +145,14 @@ test('gearEffect sums both slots and caps each stat; parts and unknown stats add
   assert.equal(reach.hpPct, 20)
   // Under the cap it is the plain sum.
   assert.equal(gearEffect([item(1, FIREBALL, [S.hp, 0]), item(1, ICICLE, [S.hp, 1000])]).hpPct, 12)
+  // T4 (caps unchanged, l1-0): one max T4 meets the speed and damage caps alone; two never pass any.
+  const legend = gearEffect([item(4, FIREBALL, [S.speed, 1000], [S.damage, 1000], [S.hp, 1000])])
+  assert.deepEqual([legend.speedPct, legend.damageScale, legend.hpPct], [7, 0.12, 18])
+  const twoLegends = gearEffect([
+    item(4, FIREBALL, [S.hp, 1000], [S.armor, 1000], [S.speed, 1000]),
+    item(4, ICICLE, [S.hp, 1000], [S.armor, 1000], [S.reach, 1000])
+  ])
+  assert.deepEqual([twoLegends.hpPct, twoLegends.armorPct, twoLegends.speedPct, twoLegends.reach], [20, 40, 7, 1])
   // A part (even one carrying rolls), an unknown stat and an empty slot add nothing.
   assert.deepEqual(
     { ...gearEffect([{ tier: 1, skill: 0, rolls: [{ stat: S.hp, q: 1000 }] }, item(1, FIREBALL, [77, 1000]), null]) },
@@ -168,11 +186,11 @@ test('rollGear: parts bare; skill items roll rollCount distinct stats, reach onl
     return seed / 4294967296
   }
   const skills = new Set<number>()
-  const stats = new Map<number, Set<number>>([[1, new Set()], [2, new Set()], [3, new Set()]])
+  const stats = new Map<number, Set<number>>([[1, new Set()], [2, new Set()], [3, new Set()], [4, new Set()]])
   let qMin = Infinity
   let qMax = -Infinity
   for (let i = 0; i < 4000; i++) {
-    for (const tier of [1, 2, 3] as GearTier[]) {
+    for (const tier of [1, 2, 3, 4] as GearTier[]) {
       assert.deepEqual(rollGear(tier, 'part', random), { tier, skill: 0, rolls: [] })
       const g = rollGear(tier, 'skill', random)
       assert.equal(g.tier, tier)
@@ -192,48 +210,46 @@ test('rollGear: parts bare; skill items roll rollCount distinct stats, reach onl
   assert.equal(skills.size, SKILL_LIST.length, 'every skill can roll')
   assert.deepEqual([...(stats.get(1) ?? [])].sort(), [1, 2, 3, 4, 6])
   assert.deepEqual([...(stats.get(3) ?? [])].sort(), [1, 2, 3, 4, 5, 6])
+  assert.deepEqual([...(stats.get(4) ?? [])].sort(), [1, 2, 3, 4, 5, 6])
   assert.ok(qMin <= 5 && qMax >= 995, `q spread ${qMin}..${qMax}`)
   // The extremes of `random` stay in range.
   for (const r of [0, 0.9999999999]) {
-    const g = rollGear(3, 'skill', () => r)
+    const g = rollGear(4, 'skill', () => r)
+    assert.equal(g.rolls.length, 3)
     assert.ok(g.rolls.every((x) => x.q >= 0 && x.q <= 1000))
     assert.ok(SKILL_LIST.some((s) => s.id === g.skill))
   }
 })
 
-test('every layer has a gear row, verbatim from spec section 3, and each mix sums to 1', () => {
+test('every layer has a gear row: caches verbatim from spec section 3, mobMix unchanged (#51), and each mix sums to 1', () => {
   assert.deepEqual(LAYERS.map((l) => [l.gear.caches, l.gear.cacheRespawnMs]), [[1, 180000], [1, 120000], [2, 90000]])
   assert.deepEqual(LAYERS.map((l) => l.gear.cacheMix), [
     { part: 0.75, t1: 0.22, t2: 0.03 }, { part: 0.65, t1: 0.28, t2: 0.07 }, { part: 0.55, t1: 0.33, t2: 0.12 }
   ])
-  assert.deepEqual(LAYERS.map((l) => l.gear.mobChance), [
-    { grunt: 0.03, gunner: 0, boss: 0 }, { grunt: 0.04, gunner: 0.08, boss: 0.5 }, { grunt: 0.05, gunner: 0.1, boss: 0.5 }
-  ])
   assert.deepEqual(LAYERS.map((l) => l.gear.mobMix), [{ part: 0.8, skill: 0.2 }, { part: 0.75, skill: 0.25 }, { part: 0.7, skill: 0.3 }])
-  assert.deepEqual(LAYERS.map((l) => l.gear.bossTiers), [null, { t1: 0.7, t2: 0.3 }, { t1: 0.5, t2: 0.5 }])
+  // #51 drops: no per-layer chance any more; the mob's rarity decides the rolls (gearrun.spec.ts).
+  assert.deepEqual(LAYERS.map((l) => Object.keys(l.gear).sort()), LAYERS.map(() => ['cacheMix', 'cacheRespawnMs', 'caches', 'mobMix']))
   for (const l of LAYERS) {
     const sum = (o: Record<string, number>): number => Object.values(o).reduce((a, b) => a + b, 0)
     assert.ok(Math.abs(sum({ ...l.gear.cacheMix }) - 1) < 1e-9)
     assert.ok(Math.abs(sum(l.gear.mobMix) - 1) < 1e-9)
-    if (l.gear.bossTiers !== null) assert.ok(Math.abs(sum(l.gear.bossTiers) - 1) < 1e-9)
-    // No gear chance for a mob the layer doesn't keep.
-    for (const m of l.mobs) {
-      if (m.count === 0) assert.equal(l.gear.mobChance[m.archetype.key as 'grunt' | 'gunner' | 'boss'], 0, m.archetype.key)
-    }
   }
 })
 
 // Bytes ======
 
-test('encodeGear / decodeGear round-trip a part, a T1 and a T3; rowId is never written', () => {
+test('encodeGear / decodeGear round-trip a part, a T1, a T3 and a T4 (part and skill item); rowId is never written', () => {
   const cases: GearInstance[] = [
     { tier: 1, skill: 0, rolls: [] },
     item(1, RANGED, [S.speed, 0]),
-    item(3, FIREBALL, [S.reach, 1000], [S.cooldown, 517])
+    item(3, FIREBALL, [S.reach, 1000], [S.cooldown, 517]),
+    { tier: 4, skill: 0, rolls: [] },
+    item(4, ICICLE, [S.hp, 0], [S.reach, 1000], [S.cooldown, 999])
   ]
   for (const g of cases) assert.deepEqual(decodeGear(encodeGear(g)), g)
   assert.deepEqual([...encodeGear(item(3, FIREBALL, [S.reach, 1000], [S.cooldown, 517]))], [3, 6, 2, 5, 3, 232, 6, 2, 5])
   assert.deepEqual([...encodeGear({ ...item(1, RANGED, [S.hp, 1]), rowId: 'abc' })], [1, 3, 1, 1, 0, 1])
+  assert.deepEqual([...encodeGear(item(4, FIREBALL, [S.hp, 0], [S.reach, 1000], [S.cooldown, 999]))], [4, 6, 3, 1, 0, 0, 5, 3, 232, 6, 3, 231])
   // From an offset, as inside a counted field.
   const inner = encodeGear(cases[2])
   const outer = new Uint8Array(inner.length + 2)
@@ -248,7 +264,8 @@ test('decodeGear ignores trailing bytes and unknown stat ids, and refuses what i
   assert.equal(decodeGear(new Uint8Array([2, RANGED])), undefined, 'short header')
   assert.equal(decodeGear(new Uint8Array([2, RANGED, 2, S.hp, 0, 1])), undefined, 'short rolls')
   assert.equal(decodeGear(new Uint8Array([0, RANGED, 0])), undefined, 'tier 0')
-  assert.equal(decodeGear(new Uint8Array([4, RANGED, 0])), undefined, 'tier 4')
+  assert.deepEqual(decodeGear(new Uint8Array([4, RANGED, 0])), item(4, RANGED), 'tier 4 (Legendary, #51)')
+  assert.equal(decodeGear(new Uint8Array([5, RANGED, 0])), undefined, 'tier 5')
   assert.equal(decodeGear(new Uint8Array([1, 250, 0])), undefined, 'unknown skill')
   assert.deepEqual(decodeGear(new Uint8Array([1, RANGED, 1, S.hp, 0xff, 0xff])), item(1, RANGED, [S.hp, 1000]), 'q clamped')
 })

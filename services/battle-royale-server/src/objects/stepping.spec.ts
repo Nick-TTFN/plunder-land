@@ -11,7 +11,7 @@ import Portal from './portal'
 import Obstacle from './obstacle'
 import { type Unit } from './unit'
 import { StoneWall } from '../skills/stonewall'
-import { ARCHETYPES, LAYERS } from '../archetypes/archetypes'
+import { ARCHETYPES, LAYERS, isPackEntry } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
@@ -24,7 +24,7 @@ import { Vector } from '../utils/vector'
 
 const DT = 0.25
 const [TOP, MIDDLE] = LAYERS.map((layer) => layer.tag)
-/** Every mob `LAYERS` keeps alive, 81 today. */
+/** Every entry `LAYERS` keeps: single mobs by count, packs by packs (#51 L1). */
 const POPULATION = LAYERS.reduce((sum, layer) => sum + layer.mobs.reduce((n, { count }) => n + count, 0), 0)
 
 function okRedis (): Redis {
@@ -145,11 +145,17 @@ test('no two mobs ever stand on or hold one cell, and none stands on a gate, an 
     // and the next tick's sweep removes the corpse (CLAUDE.md: a dead unit
     // stays findable until the next sweep). Counting `MOBS.length` is what
     // failed "the population never filled" with 82, about 1 run in 100.
+    // Since the NPC roster (#51 L1) a pack entry counts live packs, and a
+    // single entry live mobs spawned alone.
     let live = 0
     for (const layer of LAYERS) {
-      for (const { archetype, count } of layer.mobs) {
-        const alive = World.MOBS.filter((m) => !m.destroyed && m.tag === layer.tag && m.archetype === archetype).length
-        assert.ok(alive <= count, `tick ${tick}: ${alive} live ${archetype.key}s on layer ${layer.tag}, over its ${count}`)
+      for (const entry of layer.mobs) {
+        const mine = World.MOBS.filter((m) => !m.destroyed && m.tag === layer.tag) as Mob[]
+        const alive = isPackEntry(entry)
+          ? new Set(mine.filter((m) => m.pack?.entry === entry).map((m) => m.pack)).size
+          : mine.filter((m) => m.pack === undefined && m.archetype === entry.archetype).length
+        const key = isPackEntry(entry) ? `${entry.pack.key} pack` : entry.archetype.key
+        assert.ok(alive <= entry.count, `tick ${tick}: ${alive} live ${key}s on layer ${layer.tag}, over its ${entry.count}`)
         live += alive
       }
     }
@@ -347,7 +353,16 @@ test('the refill never spawns a mob on a gate, an arrival cell or another mob', 
     const world = new World(4000)
     // Enough ticks for every layer to fill its mobs (one of each kind a tick).
     for (let n = 0; n < 30; n++) world.update(DT)
-    assert.equal(World.MOBS.length, 81)
+    // Every entry full (#51 L1: packs by packs, so the mob total varies).
+    for (const layer of LAYERS) {
+      for (const entry of layer.mobs) {
+        const mine = World.MOBS.filter((m) => m.tag === layer.tag) as Mob[]
+        const alive = isPackEntry(entry)
+          ? new Set(mine.filter((m) => m.pack?.entry === entry).map((m) => m.pack)).size
+          : mine.filter((m) => m.pack === undefined && m.archetype === entry.archetype).length
+        assert.equal(alive, entry.count, `world ${w}, layer ${layer.tag}`)
+      }
+    }
     assertOnePerCell(`world ${w}`)
     for (const mob of World.MOBS) {
       const c = mob.cell

@@ -67,7 +67,8 @@ function assertSafe (player: { position: Vector, tag: number }): void {
   assert.ok(player.position.sub(Hex.toPosition(cell)).getSquareMagnitude() < 1e-9, 'on a cell centre')
   assert.ok(!World.isBlocked(cell.x, cell.y, TOP), `cell ${cell.x},${cell.y} is blocked or off the map`)
   assert.ok(nearest(cell, gates()) >= N, 'too close to a gate')
-  const bosses = World.MOBS.filter((m) => m.archetype === ARCHETYPES.boss)
+  // A boss is any spawn hazard since #51 L1: the retired boss, a Reactor or a Brood.
+  const bosses = World.MOBS.filter((m) => World.isSpawnHazard(m.archetype))
   assert.ok(nearest(cell, bosses) >= N, 'too close to a boss')
 }
 
@@ -85,13 +86,13 @@ test('10,000 spawns into fresh worlds: every one on a free layer-01 cell, clear 
     reset()
     const world = new World(4000)
     // Rocks all at once on the first tick, then one mob of each short
-    // archetype a tick; 22 ticks fills layer 01's grunts.
+    // entry a tick (#51 L1: a pack counts as one); 22 ticks fills layer 01.
     for (let t = 0; t < 22; t++) world.update(DT)
     World.PLAYERS.length = 0
     for (let i = 0; i < 20; i++) {
       const player = World.createPlayer(`p${w}-${i}`)
       assertSafe(player)
-      const mobs = World.MOBS.filter((m) => m.archetype !== ARCHETYPES.boss)
+      const mobs = World.MOBS.filter((m) => !World.isSpawnHazard(m.archetype))
       if (nearest(Hex.toCell(player.position), mobs) >= N) mobClear++
       spawns++
     }
@@ -104,14 +105,17 @@ test('10,000 spawns into fresh worlds: every one on a free layer-01 cell, clear 
   assert.equal(mobClear, spawns)
 })
 
-test('keeps its distance from a boss on layer 01', () => {
-  new World(4000) // eslint-disable-line no-new
-  // Crowd the middle of the map with bosses so random tries often land near one.
-  for (let x = 400; x < 3600; x += 400) {
-    for (let y = 400; y < 3600; y += 400) World.MOBS.push(new Mob(x, y, TOP, ARCHETYPES.boss))
-  }
-  for (let i = 0; i < 500; i++) assertSafe(World.createPlayer(`p${i}`))
-})
+// #51 L1: the Reactor (epic) and the Brood (legendary) are hazards like the boss.
+for (const boss of [ARCHETYPES.boss, ARCHETYPES.reactor, ARCHETYPES.brood]) {
+  test(`keeps its distance from a ${boss.key} on layer 01`, () => {
+    new World(4000) // eslint-disable-line no-new
+    // Crowd the middle of the map with them so random tries often land near one.
+    for (let x = 400; x < 3600; x += 400) {
+      for (let y = 400; y < 3600; y += 400) World.MOBS.push(new Mob(x, y, TOP, boss))
+    }
+    for (let i = 0; i < 500; i++) assertSafe(World.createPlayer(`p${i}`))
+  })
+}
 
 test('the fallback scan still finds the one safe cell', () => {
   new World(4000) // eslint-disable-line no-new

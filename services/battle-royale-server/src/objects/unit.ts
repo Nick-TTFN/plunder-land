@@ -56,8 +56,10 @@ export class Unit extends GameObject {
    * Where a mob is stepping to, set by its AI every tick (hex-cells P2,
    * decision #31 Q1): stop within `within` rings of `cell`, one neighbour at a
    * time (`step`). Undefined means stay. Players never have one; they route.
+   * `away` turns it round (a keep-distance band, #51 l1-4): step away from
+   * `cell` until at least `within` rings from it.
    */
-  stepGoal: { cell: Vector, within: number } | undefined
+  stepGoal: { cell: Vector, within: number, away?: boolean } | undefined
 
   /**
    * The step in progress: the cell left and the cell being moved into, both
@@ -646,6 +648,10 @@ export class Unit extends GameObject {
    * rocking between two cells. A mob off its cell's centre (only specs build
    * one) first walks to that centre.
    *
+   * `away` (#51, l1-4) mirrors it: stay once at least `within` rings from
+   * the goal, else the enterable neighbour furthest from it, ties to the
+   * lowest index, and stay if none is further than where it stands.
+   *
    * Greedy on purpose (#31 Q1). If mobs get stuck behind walls in play, the
    * upgrade is a breadth-first search to the goal over the same `mobCanEnter`
    * cells, run at a centre, taking the first cell of the route (`Path.find`
@@ -661,7 +667,8 @@ export class Unit extends GameObject {
     if (Math.abs(centre.x - x) > EPSILON || Math.abs(centre.y - y) > EPSILON) return here
 
     const now = Hex.distance(here, goal.cell)
-    if (now <= goal.within) return undefined
+    const away = goal.away === true
+    if (away ? now >= goal.within : now <= goal.within) return undefined
 
     let best: Vector | undefined
     let bestDistance = now
@@ -669,7 +676,7 @@ export class Unit extends GameObject {
       const cell = Hex.neighbour(here, i)
       if (!World.mobCanEnter(cell.x, cell.y, this)) continue
       const distance = Hex.distance(cell, goal.cell)
-      if (distance < bestDistance) {
+      if (away ? distance > bestDistance : distance < bestDistance) {
         best = cell
         bestDistance = distance
       }

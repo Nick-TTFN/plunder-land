@@ -52,7 +52,7 @@ function sha256 (text: string): Buffer {
 
 /**
  * One item as `/admin/account/:id/gear` takes it, held to exactly the shape a
- * found or merged item has (`rollGear`): tier 1-3; skill 0 (a part) or a
+ * found or merged item has (`rollGear`): tier 1-`GEAR_TIERS` (4); skill 0 (a part) or a
  * skill this build knows; a part has no rolls, a skill item `rollCount(tier)`
  * rolls on different stats, each `[stat, q]` with a stat that can roll at
  * that tier and q an integer 0..1000. Undefined for anything else.

@@ -67,18 +67,66 @@ export function rangedRangeCells (rangedCells: number | null | undefined, isMob:
 }
 
 /**
+ * An NPC's attack cells, structurally the mirror's `NpcAttack`
+ * (`utils/archetypes.ts`), restated so this file still imports nothing.
+ * `effectcells.spec.ts` checks every row of the mirror against it.
+ */
+export type AttackShape =
+  | { readonly kind: 'lob', readonly range: number, readonly rings: number }
+  | { readonly kind: 'disc', readonly rings: number }
+  | { readonly kind: 'line', readonly length: number }
+
+/**
+ * How far an NPC's attack reaches from its cell, in rings: a disc its rings,
+ * a line its length, a lob its range plus the blast's rings (the furthest
+ * cell it can hit).
+ */
+export function attackReach (attack: AttackShape): number {
+  switch (attack.kind) {
+    case 'disc': return attack.rings
+    case 'line': return attack.length
+    case 'lob': return attack.range + attack.rings
+  }
+}
+
+/**
+ * The cells an NPC's attack covers: a disc round `origin` (its own cell), a
+ * line of `length` cells straight out of `origin` along DIRECTIONS[direction]
+ * (origin not included), or a lob's blast disc round `aim` (the landing
+ * cell). `direction` is for a line and `aim` for a lob; either missing gives
+ * no cells.
+ */
+export function attackCells (attack: AttackShape, origin: Cell, direction?: number, aim?: Cell): Cell[] {
+  switch (attack.kind) {
+    case 'disc': return discCells(origin, attack.rings)
+    case 'lob': return aim === undefined ? [] : discCells(aim, attack.rings)
+    case 'line': {
+      if (direction === undefined) return []
+      const step = DIRECTIONS[direction]
+      const result: Cell[] = []
+      for (let i = 1; i <= attack.length; i++) result.push({ x: origin.x + step.x * i, y: origin.y + step.y * i })
+      return result
+    }
+  }
+}
+
+/**
  * How far a mob's attack reaches from its cell, in rings, for the threat cells
  * (world-markers, M2), or 0 for none. Boss: its FireBreath cone, which it can
- * turn to any of the six directions, so the whole disc. Gunner: its
- * RangedAttack range (`rangedCells`). Grunts only touch (1 ring) and are left
- * out, or every grunt would stand in a red patch. Takes values, not the row,
- * so this file still imports nothing; `effectcells.spec.ts` pins it to the
- * server's numbers.
+ * turn to any of the six directions, so the whole disc. Gunner, Crawler and
+ * any other mob with a shot: its RangedAttack range (`rangedCells`). An NPC
+ * with `attack` cells: `attackReach` (the caller passes the row's `attack`;
+ * one that doesn't gets 0 for those until it does). Grunts only touch (1 ring)
+ * and are left out, or every grunt would stand in a red patch. Takes values,
+ * not the row, so this file still imports nothing; `effectcells.spec.ts` pins
+ * it to the server's numbers.
  */
-export function threatRingsOf (key: string, kind: string, rangedCells: number | null): number {
+export function threatRingsOf (key: string, kind: string, rangedCells: number | null, attack?: AttackShape): number {
   if (kind !== 'mob') return 0
   if (key === 'boss') return FIRE_BREATH_RINGS
   if (key === 'gunner') return rangedRangeCells(rangedCells, true)
+  if (rangedCells !== null) return rangedCells
+  if (attack !== undefined) return attackReach(attack)
   return 0
 }
 
@@ -152,6 +200,27 @@ export function directionToward (from: Cell, to: Cell): number {
   const dr = to.y - from.y
   // Axial to screen space, unscaled: x = q + r / 2, y = r * sqrt(3) / 2.
   return facingIndex(dq + dr / 2, dr * Math.sqrt(3) / 2)
+}
+
+/**
+ * The cells of a Compactor's shockwave (effect 14, decision #51, l1-6) from
+ * the caster's cell as the client sees it and the line's uncut tip the effect
+ * carries: the direction snapped from caster to tip (`directionToward`, exact
+ * even when the client places the caster a cell off), the origin `length`
+ * steps back from the tip, and `attackCells`' line from there, cut at the
+ * first cell `onMap` refuses, as server `Shockwave.lineCells` cuts at the
+ * map's edge. `shockwave.spec.ts` checks it against the server.
+ */
+export function lineFromTip (casterCell: Cell, tip: Cell, length: number, onMap: (q: number, r: number) => boolean): Cell[] {
+  const direction = directionToward(casterCell, tip)
+  const step = DIRECTIONS[direction]
+  const origin = { x: tip.x - step.x * length, y: tip.y - step.y * length }
+  const result: Cell[] = []
+  for (const cell of attackCells({ kind: 'line', length }, origin, direction)) {
+    if (!onMap(cell.x, cell.y)) break
+    result.push(cell)
+  }
+  return result
 }
 
 export interface Body {
