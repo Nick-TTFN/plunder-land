@@ -340,6 +340,9 @@ export default class World {
     if (list === (World.PLAYERS as unknown as Unit[])) World.INTEREST.insert(unit as Player)
     World.UNITS.record()
     World.INTEREST.record()
+    // Afresh: a slot left by a body that went out of the lists without
+    // `removeUnitAt` (a spec emptying them) would make `fileBody` skip it.
+    World.unfileBody(unit)
     World.fileBody(unit)
   }
 

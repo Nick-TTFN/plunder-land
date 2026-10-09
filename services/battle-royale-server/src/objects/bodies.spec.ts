@@ -161,6 +161,18 @@ test('a body a spec empties out of MOBS holds nothing; one never added is never 
   assert.equal(body.destroyed, false)
 })
 
+// Archie's review: `bodyAt` drops the keys of a body that left the index
+// without `removeUnitAt`, but its `BODY_AT` slot stays, so `fileBody`'s
+// "same cell, nothing to do" shortcut used to re-add it with no ring.
+test('a body emptied out of MOBS and added again on the same cell gets its whole ring back', () => {
+  const body = bodyOn(C)
+  World.MOBS.length = 0
+  for (const cell of World.ringCells(C, 1)) assert.equal(World.bodyAt(0, keyOf(cell)), undefined)
+  World.addUnit(World.MOBS, body)
+  for (const cell of World.ringCells(C, 1)) assert.equal(World.bodyAt(0, keyOf(cell)), body)
+  assert.equal(World.BODIES.get(0)?.size, 6)
+})
+
 // --- hits: every player attack, on each ring cell -----------------------------
 
 const MASK = ObjectType.Player | ObjectType.Mob
