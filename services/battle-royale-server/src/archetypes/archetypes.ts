@@ -561,7 +561,10 @@ const NPC_NUMBERS = Object.freeze({
    * brood-v15/rig/animation-contract.json`), effect 19's lifetime, looks only.
    */
   brood: {
-    maxHp: 400,
+    // 400 -> 550 with the 1 s stream (Dez's `ideas/brood-stream-numbers.md`,
+    // accepted by Nick 2026-10-09): popping eggs on ring 2 blasts the Brood,
+    // and 550 keeps that kill near its old ~20 s.
+    maxHp: 550,
     body: 40,
     loot: 800,
     contact: 0,

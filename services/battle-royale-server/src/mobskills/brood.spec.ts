@@ -138,11 +138,12 @@ const INERT_BROOD: Archetype = {
   routines: ARCHETYPES.brood.routines.map((r) => r.kind === 'brood' ? { ...r, child: INERT } : r)
 }
 
-test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
+test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood 550 hp, band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
   const guard = ARCHETYPES.brood.routines[0] as GuardSpec
   assert.equal(guard.kind, 'guard', 'the guard must run first: it picks the target')
   assert.deepEqual(guard.retreat, { min: 5, max: 6 })
   assert.deepEqual([guard.acquire, guard.lose, guard.chaseSpeed], [7, 9, 60])
+  assert.equal(ARCHETYPES.brood.maxHp, 550, 'Brood stream numbers (Nick, 2026-10-09)')
   const release = releaseSpec(ARCHETYPES.brood)
   assert.deepEqual({ ...release, child: release.child.key }, { kind: 'brood', child: 'broodling', intervalMs: 1000, cap: 6, releaseMs: 1100, holdMs: 500 })
   assert.equal(release.child, ARCHETYPES.broodling)
@@ -458,7 +459,7 @@ test('the blast hurts players and mobs on exactly the client\'s cells, credits n
     }
     assert.equal(health(p), hit ? 125 : 150, `player on ${key(p.cell)}`)
   }
-  assert.equal(brood.hp, 400 - 25)
+  assert.equal(brood.hp, ARCHETYPES.brood.maxHp - 25)
   assert.equal(kiln.hp, 80 - 25)
   assert.equal(crawler.hp, 35, 'hit off the blast')
   for (const p of players) assert.equal(p.kills, 0)
