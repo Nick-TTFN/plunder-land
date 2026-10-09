@@ -394,7 +394,7 @@ test('any damaging hit sets it off, lethal or not; a hit that would do nothing d
   assert.equal(blasts().length, 1)
 })
 
-test('a chain of three goes off once each, frees each id once and credits only the shot that started it', (t) => {
+test('a chain of three goes off once each, frees each id once and credits the shooter who started it with all of it, once each', (t) => {
   mockClock(t)
   const a = mobAt(ARCHETYPES.broodling, 0)
   const b = mobAt(ARCHETYPES.broodling, 1)
@@ -411,7 +411,12 @@ test('a chain of three goes off once each, frees each id once and credits only t
   assert.deepEqual([a.destroyed, b.destroyed, c.destroyed], [true, true, true])
   assert.deepEqual(blasts().map((s) => s.originator), [a.id, b.id, c.id])
   assert.equal(crawler.destroyed, true)
-  assert.equal(shooter.kills, 1, 'the shooter is credited for a only')
+  // Brood stream numbers: a, then b and c (mobs a's and b's blasts killed),
+  // then the Crawler (c's blast, its second), each once.
+  assert.equal(shooter.kills, 4, 'the shooter is credited the whole chain')
+  assert.deepEqual(runResultOf(shooter, 60, 1).mobKills, { broodling: 3, crawler: 1 })
+  assert.equal(crawler.killer, shooter)
+  for (const ling of [a, b, c]) assert.equal(ling.blastKills, undefined, 'blast kills left uncredited')
   assert.equal(bystander.kills, 0)
   assert.equal(health(bystander), 150 - 25, 'c\'s blast reaches the bystander once')
 
@@ -422,6 +427,92 @@ test('a chain of three goes off once each, frees each id once and credits only t
   for (const unit of [a, b, c, crawler]) {
     assert.equal(freed.filter((id) => id === unit.id).length, 1, `id ${unit.id} freed ${freed.filter((id) => id === unit.id).length} times`)
   }
+})
+
+/**
+ * Brood stream numbers (Nick, 2026-10-09): a mob a Broodling's blast kills is
+ * credited to the player whose damaging hit set it off, by the same
+ * `Player.onKill` a direct kill takes.
+ */
+test('credit: the Brood killed by the blast of a Broodling a player shot is that player\'s kill: kills, the run\'s tally and XP, the Redis rarity keys, its killer', async (t) => {
+  mockClock(t)
+  const brood = mobAt(ARCHETYPES.brood)
+  brood.hp = 20
+  brood.armor = 0
+  // On ring 2, as released: its 1-ring blast reaches the Brood's body (ring 1).
+  const ling = mobAt(ARCHETYPES.broodling, 2)
+  const shooter = playerAt(6)
+  assert.equal(new RangedAttack(shooter).execute(ling.cell), true)
+
+  assert.deepEqual([ling.destroyed, brood.destroyed], [true, true])
+  assert.equal(shooter.kills, 2)
+  assert.deepEqual(runResultOf(shooter, 60, 1).mobKills, { broodling: 1, brood: 1 })
+  assert.ok(PROGRESSION.kills.mob.brood > 0)
+  const xp = (kills: Record<string, number>): number => runXp({ ...runResultOf(shooter, 0, 1), extracted: true, loot: 0, mobKills: kills })
+  assert.ok(xp(runResultOf(shooter, 0, 1).mobKills) > xp({ broodling: 1 }), 'the Brood earned the run no XP')
+  assert.equal(brood.killer, shooter)
+  assert.equal(brood.killedBy, 'robot')
+  assert.equal(ling.blastKills, undefined, 'credited, so cleared')
+  await new Promise((resolve) => setImmediate(resolve))
+  // Two kills' writes interleave across their awaits: compared as sets of writes.
+  assert.deepEqual([...hincrby].sort(), ['kills', ...ARCHETYPES.broodling.killStats, 'kills', ...ARCHETYPES.brood.killStats].sort())
+  assert.ok(ARCHETYPES.brood.killStats.includes('legendaryKills'))
+})
+
+test('credit: a blast set off by its fuse, its tell, a mob\'s hit or an area tick credits the mobs it kills to nobody', (t) => {
+  mockClock(t)
+  const kilns: Mob[] = []
+  const lings: Mob[] = []
+  const at = (i: number): void => {
+    lings.push(mobAt(ARCHETYPES.broodling, 10 * i))
+    const kiln = mobAt(ARCHETYPES.kiln, 10 * i + 1)
+    kiln.hp = 10
+    kiln.armor = 0
+    kilns.push(kiln)
+  }
+  for (let i = 0; i < 4; i++) at(i)
+  const player = playerAt(-6)
+  // Fuse.
+  assert.equal(fuseOf(lings[0])?.detonate(), true)
+  // Tell: the timer the adjacent prime arms calls the same `detonate`, never `onHit`.
+  fuseOf(lings[1])!.primedCell = lings[1].cell
+  assert.equal(fuseOf(lings[1])?.detonate(), true)
+  // A mob's damaging hit, credited to that mob as every mob's kill is (`Unit.onKill`).
+  const crawler = mobAt(ARCHETYPES.crawler, 25)
+  assert.equal(lings[2].hit(10), true)
+  crawler.onKill(lings[2])
+  // An area tick: `Unit.update` deals it with no `onKill` after.
+  assert.equal(lings[3].hit(10), true)
+
+  for (const kiln of kilns) {
+    assert.equal(kiln.destroyed, true, 'test setup: the blast missed the Kiln')
+    assert.equal(kiln.killer, undefined, 'a Kiln was credited')
+  }
+  assert.equal(player.kills, 0)
+  assert.equal(crawler.kills, 0)
+  // Never recorded for the fuse and the tell; the hits' lists wait for a player's credit that never comes.
+  assert.equal(lings[0].blastKills, undefined)
+  assert.equal(lings[1].blastKills, undefined)
+})
+
+test('credit: a shooter killed by the blast they set off is still credited the Broodling and the mobs it killed, as a direct kill landing after a death is', async (t) => {
+  mockClock(t)
+  const ling = mobAt(ARCHETYPES.broodling)
+  const kiln = mobAt(ARCHETYPES.kiln, -1)
+  kiln.hp = 10
+  kiln.armor = 0
+  // Adjacent, on its last 10 hp: the blast kills the shooter too.
+  const shooter = playerAt(1)
+  shooter.armor = 0
+  shooter.hp = 10
+  assert.equal(new RangedAttack(shooter).execute(ling.cell), true)
+  assert.equal(shooter.destroyed, true)
+  assert.equal(shooter.killer, ling)
+  assert.equal(shooter.killedBy, 'mob')
+  assert.equal(kiln.killer, shooter)
+  assert.equal(shooter.kills, 2)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual([...hincrby].sort(), ['kills', ...ARCHETYPES.broodling.killStats, 'kills', ...ARCHETYPES.kiln.killStats].sort())
 })
 
 test('the blast hurts players and mobs on exactly the client\'s cells, credits nobody, and a player it kills was killed by the Broodling, a mob', (t) => {

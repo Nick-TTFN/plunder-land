@@ -809,6 +809,15 @@ export default class Player extends Unit {
     // unhandled rejection, and that ends the process. An offline account
     // (decision #48) writes no stats, like a bot.
     if (this.bot === undefined && !Multiplayer.isOffline(this)) this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
+
+    // A Broodling this player's hit set off: the mobs its blast killed are
+    // this player's kills too, a chain's included (`BroodlingFuse`, Brood
+    // stream numbers 2026-10-09). Taken off first, so none is credited twice.
+    const blast = (value as { blastKills?: GameObject[] }).blastKills
+    if (blast !== undefined) {
+      (value as { blastKills?: GameObject[] }).blastKills = undefined
+      for (const mob of blast) this.onKill(mob)
+    }
   }
 
   async updateKillStats (value: GameObject): Promise<void> {

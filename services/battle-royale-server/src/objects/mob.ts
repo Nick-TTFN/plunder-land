@@ -57,6 +57,14 @@ export default class Mob extends Unit {
    * constructor's body, after this initialiser has run.
    */
   onHit: ((value: number) => boolean) | undefined = undefined
+  /**
+   * A Broodling set off by a damaging hit: the mobs its blast killed, waiting
+   * for the `onKill` of whoever dealt that hit, which credits them too when
+   * it is a player's (`Player.onKill`, Brood stream numbers 2026-10-09).
+   * Undefined otherwise, and once credited. Set by the fuse after
+   * construction, never by a base constructor.
+   */
+  blastKills: Unit[] | undefined = undefined
 
   /** `archetype` defaults to the grunt, which is what a plain `Mob` always was. */
   constructor (x: number, y: number, tag: number, archetype: Archetype = ARCHETYPES.grunt) {

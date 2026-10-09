@@ -37,8 +37,8 @@ export interface BroodlingSpec {
   emergeMs: number
 }
 
-/** What a mob's `onHit` hook is (`Mob.onHit`); structural, since mob.ts imports the archetypes that import this. */
-interface HitHooked { onHit?: (value: number) => boolean }
+/** What a mob's `onHit` hook and blast kills are (`Mob.onHit`, `Mob.blastKills`); structural, since mob.ts imports the archetypes that import this. */
+interface HitHooked { onHit?: (value: number) => boolean, blastKills?: Unit[] }
 
 /**
  * A Broodling's whole life after the guard has chosen where to step: the
@@ -73,10 +73,22 @@ interface HitHooked { onHit?: (value: number) => boolean }
  * `destroyed`, so nothing in the chain can reach it again, its id is freed
  * once (`GameObject.destroy`), and its fuse and tell timers are already
  * cancelled. `detonating` guards the same thing for the moment before the
- * destroy. **The blast credits nobody** (Dez, accepted by Nick #51): a player
- * it kills gets the Broodling as `killer` and `killedBy` 'mob' (`Unit.onKill`,
- * for `run_end` and spectate), which credits no one, and a mob it kills is
- * not passed to anyone's `onKill`.
+ * destroy.
+ *
+ * **Credit** (Brood stream numbers, Nick 2026-10-09, reversing #51's "the
+ * blast credits nobody" for mobs). A player it kills gets the Broodling as
+ * `killer` and `killedBy` 'mob' (`Unit.onKill`, for `run_end` and spectate),
+ * which credits no one, as before. A mob it kills is credited to **whoever's
+ * damaging hit set it off**: a blast from `onHit` keeps the mobs it killed in
+ * the Broodling's `blastKills`, and the hitter's `onKill` of the Broodling,
+ * which every damaging hit path calls straight after a hit that returns true,
+ * credits them through the same `Player.onKill` as a direct kill (XP tally,
+ * `kills`, Redis rarity keys). Only a player's `onKill` does, so a Broodling
+ * set off by a mob, by an area tick (which credits no kill), by its fuse or
+ * by its adjacent tell credits nobody. A chain credits the original player:
+ * a Broodling this blast sets off is one of its kills, and crediting it
+ * credits its own blast in turn. Each victim is credited once: `hit` returns
+ * true once per unit, and the list is cleared as it is credited.
  */
 export default class BroodlingFuse implements IAIRoutine {
   readonly owner: Unit
@@ -152,14 +164,16 @@ export default class BroodlingFuse implements IAIRoutine {
     if (owner.destroyed || this.detonating) return false
     const multiplier = Math.max(0, Math.min(1, 1 - owner.damageReduction))
     if (Math.floor(value * multiplier) <= 0) return false
-    return this.detonate()
+    return this.detonate(true)
   }
 
   /**
    * The blast, from any of the three: see the class comment. True if this
-   * call set it off; false if it had already gone.
+   * call set it off; false if it had already gone. `byHit`: set off by a
+   * damaging hit, so the mobs it kills wait in `blastKills` for the hitter's
+   * credit; otherwise they are credited to nobody.
    */
-  detonate (): boolean {
+  detonate (byHit = false): boolean {
     const owner = this.owner
     if (owner.destroyed || this.detonating) return false
     this.detonating = true
@@ -170,12 +184,16 @@ export default class BroodlingFuse implements IAIRoutine {
     owner.destroy()
 
     Multiplayer.Instance.effectAt(NPC_EFFECT.broodlingBlast, owner.id, BLAST_SHOW_MS, cell, tag)
+    const killed: Unit[] = []
     for (const unit of World.FIND_IN_CELLS(cell, this.spec.rings, tag, ObjectType.Player | ObjectType.Mob)) {
       // A corpse stays in the index until the next sweep; an extracted player
       // too (`Player.hit` refuses it anyway).
       if (unit === owner || unit.destroyed || (unit as { exited?: boolean }).exited === true) continue
-      if (unit.hit(this.spec.damage) && unit.type === ObjectType.Player) owner.onKill(unit)
+      if (!unit.hit(this.spec.damage)) continue
+      if (unit.type === ObjectType.Player) owner.onKill(unit)
+      else killed.push(unit)
     }
+    if (byHit && killed.length > 0) (owner as HitHooked).blastKills = killed
     return true
   }
 }
