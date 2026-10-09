@@ -16,7 +16,7 @@ import * as coil from '../../../../plunder-land-client/src/npcs/coil/rig'
 import * as brood from '../../../../plunder-land-client/src/npcs/brood/rig'
 import { COIL_PULSE } from '../../../../plunder-land-client/src/vfx/coilfield'
 import { NPC_RIGS, attackLead, gaitClock, gaitDirection, gaitPace, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
-import { PEEP_RIG } from '../../../../plunder-land-client/src/robots/robotrig'
+import { PEEP_RIG, ROBOT_RIGS } from '../../../../plunder-land-client/src/robots/robotrig'
 import { Hex } from '../../../../plunder-land-client/src/utils/hex'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
 
@@ -639,6 +639,25 @@ const SPRITE = (() => {
     TILT: Math.round(row * 0.93) / row
   }
 })()
+
+// A unit's size is two numbers that must agree: the rig's `sizeScale` /
+// `drawScale` (how big it is drawn) and the bake's `size_scale` /
+// `DRAW_SCALE` (how dense its sheet is). Each sheet records its density
+// (`meta.texelsPerUnit`, 2 texels per drawn px at scale 1), so a resize that
+// skips the re-bake, or a bake at a stale size, fails here instead of
+// drawing a blurred or oversampled sheet with no error (decision #52 sizes).
+test('every NPC and robot sheet is baked at the size its rig is drawn at', () => {
+  const res = join(__dirname, '../../../../plunder-land-client/assets/res')
+  const density = (name: string): number => (JSON.parse(readFileSync(join(res, `${name}.json`), 'utf8')) as { meta: { texelsPerUnit: number } }).meta.texelsPerUnit
+  const near = (a: number, b: number, where: string): void => assert.ok(Math.abs(a - b) < 1e-9 * b, `${where}: sheet baked at ${a}, rig drawn at ${b}`)
+  for (const rig of Object.values(NPC_RIGS)) near(density(`npc-${rig!.key}`) / (2 * SPRITE.SCALE), rig!.sizeScale, `npc-${rig!.key}`)
+  const lobby = density(`${PEEP_RIG.sheet}-lobby`) / density(PEEP_RIG.sheet)
+  for (const rig of Object.values(ROBOT_RIGS)) {
+    near(density(rig.sheet) / (2 * SPRITE.SCALE), rig.drawScale, rig.sheet)
+    // The lobby sheets share one density over the game's (`LOBBY_DENSITY`).
+    near(density(`${rig.sheet}-lobby`) / density(rig.sheet), lobby, `${rig.sheet}-lobby`)
+  }
+})
 
 test('crawler: the fixtures\' game-stride runs are the game\'s stride, and the game\'s pose draws them', () => {
   const f = load('crawler')
