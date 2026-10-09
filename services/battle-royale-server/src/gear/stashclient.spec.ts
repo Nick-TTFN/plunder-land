@@ -6,7 +6,7 @@ import { BRING_LEVEL, GEAR_STATS, STASH_MAX, STASH_SOFT, type GearTier } from '.
 import { SKILL_INFO } from '../utils/skills'
 import {
   BRING_KEY, type BringStorage, type StashView, bringOpen, bringSlotOf, bringToSend, gearLine, inKit, onStash, parseBringMemory,
-  placeBring, rememberBring, rememberedBring, shownBring, stashCount, stashWarning
+  STASH_SEEN_KEY, markStashSeen, newStashCount, placeBring, rememberBring, rememberedBring, shownBring, stashCount, stashWarning
 } from '../../../../plunder-land-client/src/net/stash'
 
 /**
@@ -142,4 +142,37 @@ test('run card row: lost on a death or offline, kept from the settle, STASH FULL
   assert.deepEqual(gearLine(true, 2, false, undefined, true), ['GEAR KEPT', 'UNAVAILABLE', 'muted'])
   assert.deepEqual(gearLine(true, 2, false, { kept: 2, full: 0 }, true), ['GEAR KEPT', '2', 'loot'], 'a late settle still shows')
   assert.deepEqual(gearLine(true, 3, false, { kept: 2, full: 1 }, false), ['STASH FULL', 'KEPT 2 · LOST 1', 'danger'])
+})
+
+test('newStashCount: the first look takes the stash as seen; rows found after it are new until the panel opens', () => {
+  const storage = memoryStorage()
+  assert.equal(newStashCount(storage, 'aa', view(['1', FIREBALL], ['2', 0])), 0, 'no record: nothing is new')
+  assert.equal(newStashCount(storage, 'aa', view(['1', FIREBALL], ['2', 0], ['5', ICICLE], ['6', 0])), 2)
+  assert.equal(newStashCount(storage, 'bb', view(['5', ICICLE])), 0, 'per account')
+  markStashSeen(storage, 'aa', view(['1', FIREBALL], ['5', ICICLE], ['6', 0]))
+  assert.equal(newStashCount(storage, 'aa', view(['1', FIREBALL], ['5', ICICLE], ['6', 0])), 0)
+  assert.deepEqual(JSON.parse(storage.data.get(STASH_SEEN_KEY) ?? '')['aa'], ['1', '5', '6'], 'scrapped row 2 is forgotten')
+  assert.equal(newStashCount(storage, 'aa', undefined), 0)
+  assert.equal(newStashCount(storage, undefined, view(['9', 0])), 0)
+})
+
+test('markStashSeen keeps the old record while rows are away, so a brought row is not new when it comes back', () => {
+  const storage = memoryStorage()
+  markStashSeen(storage, 'aa', view(['1', FIREBALL], ['2', ICICLE]))
+  // Row 2 is out in a run; the panel opens on the rest and a new row 7.
+  const decoded = onStash(stashEvent([row('1', FIREBALL), row('7', 0), row('2', ICICLE, true)]))
+  assert.ok(decoded !== undefined && decoded.away === 1)
+  markStashSeen(storage, 'aa', decoded)
+  assert.equal(newStashCount(storage, 'aa', view(['1', FIREBALL], ['2', ICICLE], ['7', 0])), 0)
+})
+
+test('the stash-seen record survives broken storage and junk', () => {
+  const broken: BringStorage = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } }
+  assert.equal(newStashCount(broken, 'aa', view(['1', 0])), 0)
+  markStashSeen(broken, 'aa', view(['1', 0]))
+  const storage = memoryStorage()
+  storage.data.set(STASH_SEEN_KEY, '{"aa":["1","x",3]}')
+  assert.equal(newStashCount(storage, 'aa', view(['1', 0], ['2', 0])), 1)
+  storage.data.set(STASH_SEEN_KEY, 'not json')
+  assert.equal(newStashCount(storage, 'aa', view(['1', 0], ['2', 0])), 0, 'unreadable: a fresh baseline')
 })

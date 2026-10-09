@@ -22,7 +22,7 @@ import { decodeRecord } from '../../../../plunder-land-client/src/net/records'
 import { PICKABLE, ROSTER } from '../../../../plunder-land-client/src/ui/lobby/roster'
 import {
   colourLock, mixColour, mixPattern, paintWish, patternLock, reshownRobot, robotLock,
-  robotToStore, shownFinish, shownRobot, stepRobot, swatchLock, unlockedBetween, unlockedEntries
+  journeyEnd, journeyStop, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock, unlockedBetween, unlockedEntries
 } from '../../../../plunder-land-client/src/ui/lobby/locks'
 
 /**
@@ -328,4 +328,20 @@ test('client: a level-up names exactly what opened, robots first, from the same 
   const stepwise: string[] = []
   for (let l = 1; l < 20; l++) stepwise.push(...unlockedBetween(l, l + 1))
   assert.deepEqual([...stepwise].sort(), [...all].sort())
+})
+
+// --- the lobby's journey strip (journeyStop) -----------------------------------
+
+test('client: a journey stop is named after its robot, then a skill or loadout slot, then a paint', () => {
+  assert.deepEqual(journeyStop(3), { level: 3, kind: 'bot', robot: 'magnet', names: ['MAGNET', 'CAMO'] })
+  assert.equal(journeyStop(2).kind, 'skill', 'Defend beats Olive')
+  assert.equal(journeyStop(4).kind, 'skill', 'Throw Fireball beats Ice')
+  assert.equal(journeyStop(7).kind, 'reward', 'Coral and Checker only')
+  assert.equal(journeyStop(10).kind, 'skill', 'loadout 2 counts as a skill stop')
+  assert.equal(journeyStop(13).kind, undefined)
+  assert.deepEqual(journeyStop(13).names, [])
+  // Every level with something to name has a kind, and the strip reaches the last of them.
+  for (let l = 1; l <= journeyEnd(); l++) assert.equal(journeyStop(l).kind !== undefined, journeyStop(l).names.length > 0, `level ${l}`)
+  assert.ok(journeyStop(journeyEnd()).kind !== undefined)
+  assert.equal(journeyStop(journeyEnd() + 1).kind, undefined)
 })

@@ -182,6 +182,59 @@ export function rememberBring (storage: BringStorage | undefined, account: strin
   }
 }
 
+/** localStorage: `{ [account id]: row ids }`, the stash as the player last opened it (the lobby's "N new"). */
+export const STASH_SEEN_KEY = 'plunderland_stash_seen'
+
+function readSeen (storage: BringStorage | undefined): Record<string, string[]> {
+  try {
+    const parsed: unknown = JSON.parse(storage?.getItem(STASH_SEEN_KEY) ?? '{}')
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    const out: Record<string, string[]> = {}
+    for (const [account, ids] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(ids)) out[account] = ids.filter((id): id is string => typeof id === 'string' && ROW_ID.test(id))
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Remember `view`'s rows as seen for `account` (the stash panel was open on
+ * them). The record is replaced by the view's rows, so it stays the stash's
+ * size, except while rows are away in a run: those come back under the same
+ * id and were seen, so the old record is kept beside the view's rows then.
+ * A failure is "not remembered".
+ */
+export function markStashSeen (storage: BringStorage | undefined, account: string, view: StashView): void {
+  try {
+    const all = readSeen(storage)
+    const ids = view.items.map((item) => item.id)
+    const kept = view.away > 0 ? (all[account] ?? []).filter((id) => !ids.includes(id)) : []
+    all[account] = kept.concat(ids)
+    storage?.setItem(STASH_SEEN_KEY, JSON.stringify(all))
+  } catch {
+    // Not remembered past this page.
+  }
+}
+
+/**
+ * How many of `view`'s rows the player hasn't seen in the stash panel. An
+ * account with no record yet (the first lobby since this shipped, or storage
+ * that was cleared) takes the stash as it is now as seen, so it starts at 0
+ * rather than calling the whole stash new. Storage that throws: 0.
+ */
+export function newStashCount (storage: BringStorage | undefined, account: string | undefined, view: StashView | undefined): number {
+  if (account === undefined || view === undefined) return 0
+  const seen = readSeen(storage)[account]
+  if (seen === undefined) {
+    markStashSeen(storage, account, view)
+    return 0
+  }
+  const known = new Set(seen)
+  return view.items.filter((item) => !known.has(item.id)).length
+}
+
 /** The item a row id names in `view`, if it is in the stash now. */
 export function stashItem (view: StashView | undefined, id: string | null): StashItem | undefined {
   if (id === null || view === undefined) return undefined

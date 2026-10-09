@@ -121,3 +121,37 @@ export function unlockedBetween (from: number, to: number): string[] {
   for (const pattern of PATTERNS) if (opened(pattern.unlockLevel)) out.push(pattern.label)
   return out
 }
+
+/** What a journey stop is named after: a robot first, then a skill or loadout slot, then a colour or pattern. */
+export type JourneyKind = 'bot' | 'skill' | 'reward'
+
+/** One level on the lobby's journey strip, and what opens at it. */
+export interface JourneyStop {
+  readonly level: number
+  /** Undefined when nothing opens at this level. */
+  readonly kind: JourneyKind | undefined
+  /** The robot's key when a robot opens here (its still is the stop's icon). */
+  readonly robot: string | undefined
+  /** Everything that opens here, worded as the run card's level-up line. */
+  readonly names: string[]
+}
+
+/** The stop for `level`, from the same mirrored rows as the locks and `unlockedBetween`. */
+export function journeyStop (level: number): JourneyStop {
+  const robot = PICKABLE.find((e) => e.robot !== undefined && ARCHETYPE_INFO[e.robot].unlockLevel === level)
+  const skill = SKILL_LIST.some((s) => s.unlockLevel === level) || LOADOUT_SLOTS.some((r) => r.level === level)
+  const reward = PALETTE.some((c) => c.unlockLevel === level) || PATTERNS.some((p) => p.unlockLevel === level)
+  const kind = robot !== undefined ? 'bot' : skill ? 'skill' : reward ? 'reward' : undefined
+  return { level, kind, robot: robot?.robot, names: unlockedBetween(level - 1, level) }
+}
+
+/** The last level anything opens at: where the journey strip stops scrolling. */
+export function journeyEnd (): number {
+  let end = 1
+  for (const entry of PICKABLE) if (entry.robot !== undefined) end = Math.max(end, ARCHETYPE_INFO[entry.robot].unlockLevel ?? 1)
+  for (const skill of SKILL_LIST) end = Math.max(end, skill.unlockLevel)
+  for (const row of LOADOUT_SLOTS) end = Math.max(end, row.level)
+  for (const colour of PALETTE) end = Math.max(end, colour.unlockLevel)
+  for (const pattern of PATTERNS) end = Math.max(end, pattern.unlockLevel)
+  return end
+}

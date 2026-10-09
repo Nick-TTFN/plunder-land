@@ -9,17 +9,18 @@ import {
 } from '../../utils/finishes'
 import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
-import { ACCOUNT, localTokenStorage } from '../../net/account'
+import { ACCOUNT, TOKEN_KEY, localTokenStorage } from '../../net/account'
 import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
 import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
 import { SettingsPanel } from '../settings/settingspanel'
 import { clearFull, fullLine, retryDue } from '../../net/full'
 import { LoadoutPanel } from './loadoutpanel'
 import { StashPanel } from './stashpanel'
-import { type BringPair } from '../../net/stash'
+import { type BringPair, STASH, markStashSeen, newStashCount, stashCount } from '../../net/stash'
 import { loadoutOf } from '../../net/loadout'
+import { SKILL_LIST, loadoutSlotsAt } from '../../utils/skills'
 import {
-  type Swatch, colourLock, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
+  type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
 } from './locks'
 
@@ -73,6 +74,31 @@ const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floo
 
 /** `finish` as its wire bytes, `robot` an archetype key, `bring` the stash rows for keys 3 and 4 (49-4), undefined for none. */
 export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring: BringPair | undefined) => Promise<void>
+
+/** How many levels the journey strip shows at once. */
+const JOURNEY_SHOWN = 5
+const JOURNEY_WORD = { bot: 'Bot', skill: 'Skill', reward: 'Reward' } as const
+
+/** The lobby's four panels, one open at a time. */
+type Panel = 'paint' | 'pick' | 'loadout' | 'stash'
+const PANELS: readonly Panel[] = ['paint', 'pick', 'loadout', 'stash']
+
+/** Inline line icons (24 px box, `currentColor`), so the chrome needs no art. */
+const svg = (body: string): string =>
+  `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+const ICON = {
+  gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+  menu: svg('<path d="M4 6h16M4 12h16M4 18h16"/>'),
+  down: svg('<path d="m6 9 6 6 6-6"/>'),
+  right: svg('<path d="m9 6 6 6-6 6"/>'),
+  bolt: svg('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
+  bars: svg('<path d="M6 20v-6M12 20V8M18 20V4"/>'),
+  box: svg('<path d="m21 8-9-5-9 5v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>'),
+  trophy: svg('<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>'),
+  lock: svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+  bot: svg('<rect x="5" y="8" width="14" height="11" rx="5"/><circle cx="10" cy="13" r="1.5"/><circle cx="14" cy="13" r="1.5"/><path d="M12 8V4"/>'),
+  check: svg('<path d="m5 12 5 5 9-10"/>')
+}
 
 /**
  * The CSS for a swatch: the palette colour with the pattern drawn over it in
@@ -178,17 +204,26 @@ export default class Lobby extends Container {
   private readonly onScroll = (): void => { this.layoutPreview() }
 
   private readonly root: HTMLDivElement
-  private readonly pill: HTMLLabelElement
   private readonly nameInput: HTMLInputElement
-  private readonly plate: HTMLDivElement
-  private readonly prev: HTMLButtonElement
-  private readonly next: HTMLButtonElement
   private readonly kindLine: HTMLDivElement
   private readonly nameLine: HTMLDivElement
   private readonly tagline: HTMLDivElement
   private readonly cards: HTMLButtonElement[] = []
   private readonly statRows: Array<{ fill: HTMLDivElement, value: HTMLSpanElement }> = []
+  /** STATS & PAINT: the stat bars over the customize rows. */
   private readonly customize: HTMLDivElement
+  /** CHANGE SCAVENGER: the robot cards and the chosen one's tagline. */
+  private readonly picker: HTMLDivElement
+  /** The action rows' status lines and dots (Skills, Stats & paint, Stash). */
+  private readonly rowStatus: Record<'skills' | 'paint' | 'stash', { text: HTMLSpanElement, dot: HTMLSpanElement }>
+  /** Each robot's still (`renderThumbnails`), for the journey's robot stops. */
+  private readonly thumbs = new Map<string, string>()
+  /** The first level the journey strip shows; follows the account's level until an arrow moves it. */
+  private journeyFrom = 1
+  private journeyMoved = false
+  private readonly journeyStops: HTMLDivElement
+  private readonly journeyPrev: HTMLButtonElement
+  private readonly journeyNext: HTMLButtonElement
   private readonly rows: Partial<Record<FinishGroup, { current: HTMLSpanElement, swatches: HTMLDivElement }>> = {}
   private readonly mixButton: HTMLButtonElement
   /** The skill loadouts (decision #48 step 4); one of it and customize is open at a time. */
@@ -199,13 +234,18 @@ export default class Lobby extends Container {
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
   private readonly onResize = (): void => { this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
-  private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel() }
+  private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel(); this.renderRows() }
   /** `teardown` ran: it can be reached twice (`destroy` also emits `removed`). */
   private tornDown = false
-  /** The account's level in the name pill (decision #48 step 3); hidden until the server says. */
-  private readonly level: HTMLSpanElement
-  /** The season line under the pill (decision #48 step 6), and the last payout's notice above it. */
-  private readonly season: HTMLDivElement
+  /** The progression block (decision #48 step 3): level heading, XP bar and its two lines. */
+  private readonly levelHeading: HTMLDivElement
+  private readonly xpBar: HTMLDivElement
+  private readonly xpFill: HTMLDivElement
+  private readonly xpLine: HTMLSpanElement
+  private readonly xpToGo: HTMLSpanElement
+  private readonly onStash = (): void => { this.stashChanged() }
+  /** The season row (decision #48 step 6), and the last payout's notice in it. */
+  private readonly season: HTMLElement
   private readonly seasonText: HTMLDivElement
   private readonly seasonNotice: HTMLDivElement
   /** The view whose notice was decided, and that notice: shown for this lobby, marked seen once. */
@@ -240,90 +280,176 @@ export default class Lobby extends Container {
 
     Lobby.injectStyle()
     this.root = el('div', 'lb')
-    this.root.innerHTML = `
-      <header class="lb-top">
-        <div class="lb-brand"><span class="lb-logo"></span>PLUNDERLAND</div>
-        <nav class="lb-tabs"><span class="lb-tab lb-on">LOBBY</span><span class="lb-tab lb-off" title="Coming soon">COLLECTION</span></nav>
-      </header>
-      <div class="lb-heading"><h1>CHOOSE YOUR SCAVENGER</h1><p>Find your kind of curious.</p></div>`
-    const pill = this.pill = el('label', 'lb-pill')
-    pill.append(el('span', 'lb-dot'))
+
+    // Header: brand, tabs, INVITE and settings; under 760 px the last two
+    // (and PRIVACY) fold into the menu button's dropdown.
+    const top = el('header', 'lb-top')
+    top.innerHTML = `
+      <div class="lb-brand"><span class="lb-logo"></span>PLUNDERLAND</div>
+      <nav class="lb-tabs"><span class="lb-tab lb-on">Lobby</span><span class="lb-tab lb-off" title="Coming soon">Collection</span></nav>`
+    const topActions = el('div', 'lb-topactions')
+    // Invites (decision #47): the link puts a friend in this player's world.
+    this.inviteButton = el('button', 'lb-invite', 'Invite')
+    this.inviteButton.title = 'Copy a link that puts a friend in your world'
+    this.inviteButton.onclick = () => { this.closeMenu(); this.copyInvite() }
+    // Settings (L3): key bindings and graphics, a panel over the lobby.
+    const settings = el('button', 'lb-invite lb-settings')
+    settings.innerHTML = `${ICON.gear}<span class="lb-menu-label">Settings</span>`
+    settings.title = 'Settings'
+    settings.setAttribute('aria-label', 'Settings')
+    settings.onclick = () => { this.closeMenu(); SettingsPanel.show() }
+    // Portals ask for it, and it is what the game collects (decision #46).
+    const privacy = (className: string): HTMLAnchorElement =>
+      Object.assign(el('a', className), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'Privacy' })
+    topActions.append(this.inviteButton, settings, privacy('lb-privacy lb-menu-only'))
+    const menu = el('button', 'lb-menu')
+    menu.innerHTML = ICON.menu
+    menu.setAttribute('aria-label', 'Menu')
+    menu.onclick = () => { this.root.classList.toggle('lb-menu-open') }
+    top.append(topActions, menu)
+
+    // Hero: the canvas robot fits the measured preview slot; its name and the picker under it.
+    const hero = el('div', 'lb-hero')
+    this.preview = el('div', 'lb-preview')
+    const plate = el('div', 'lb-plate')
+    this.nameLine = el('div', 'lb-robot')
+    this.kindLine = el('div', 'lb-kind')
+    const change = el('button', 'lb-change')
+    change.innerHTML = `Change scavenger ${ICON.down}`
+    change.onclick = () => { this.toggle('pick') }
+    plate.append(this.nameLine, this.kindLine, change)
+    hero.append(this.preview, plate)
+
+    // The callsign, sent with READY and remembered.
+    const callsign = el('label', 'lb-callsign')
+    callsign.append(el('span', 'lb-dot'))
     this.nameInput = el('input', 'lb-name')
     this.nameInput.maxLength = NAME_MAX
     this.nameInput.placeholder = 'NAME'
     this.nameInput.autocomplete = 'off'
     this.nameInput.spellcheck = false
     this.nameInput.value = readStorage(NAME_KEY) ?? ''
-    pill.append(this.nameInput, el('span', 'lb-pencil', '\u270E'))
-    this.level = el('span', 'lb-level')
-    pill.append(this.level)
-    this.root.append(pill)
-    // The account is announced on connect, which may be before or after this.
-    ACCOUNT.listeners.add(this.onAccount)
-    this.renderLevel()
-    this.season = el('div', 'lb-season')
+    this.nameInput.setAttribute('aria-label', 'Your name')
+    callsign.append(this.nameInput, el('span', 'lb-pencil', '\u270E'))
+
+    // Progression: the account's level and XP (decision #48 step 3).
+    const progress = el('section', 'lb-progress')
+    this.levelHeading = el('div', 'lb-levelhead')
+    this.xpBar = el('div', 'lb-xpbar')
+    this.xpFill = el('div', 'lb-xpfill')
+    this.xpBar.append(this.xpFill)
+    const xpRow = el('div', 'lb-xprow')
+    this.xpLine = el('span')
+    this.xpToGo = el('span')
+    xpRow.append(this.xpLine, this.xpToGo)
+    progress.append(el('div', 'lb-eyebrow', 'Your progression'), this.levelHeading, this.xpBar, xpRow)
+
+    // Journey: what opens at each level, from the mirrored unlock rows (`journeyStop`).
+    const journey = el('section', 'lb-journey')
+    const strip = el('div', 'lb-jstrip')
+    this.journeyPrev = el('button', 'lb-jarrow', '\u2039')
+    this.journeyNext = el('button', 'lb-jarrow', '\u203A')
+    this.journeyPrev.setAttribute('aria-label', 'Earlier levels')
+    this.journeyNext.setAttribute('aria-label', 'Later levels')
+    this.journeyPrev.onclick = () => { this.moveJourney(-1) }
+    this.journeyNext.onclick = () => { this.moveJourney(1) }
+    this.journeyStops = el('div', 'lb-jstops')
+    strip.append(this.journeyPrev, this.journeyStops, this.journeyNext)
+    journey.append(el('div', 'lb-eyebrow', 'Your journey'), strip)
+
+    // The three panels, as rows: Skills (the loadout), Stats & paint, Stash.
+    const rows = el('section', 'lb-acts')
+    const row = (key: 'skills' | 'paint' | 'stash', icon: string, label: string, verb: string, hotkey: string, open: () => void): { text: HTMLSpanElement, dot: HTMLSpanElement } => {
+      const b = el('button', 'lb-act')
+      b.title = `${label} (${hotkey})`
+      const dot = el('span', 'lb-actdot')
+      const text = el('span', 'lb-acttext')
+      const words = el('span', 'lb-actwords')
+      const status = el('span', 'lb-actstatus')
+      status.append(dot, text)
+      words.append(el('span', 'lb-actlabel', label), status)
+      const icn = el('span', 'lb-acticon')
+      icn.innerHTML = icon
+      const chev = el('span', 'lb-actchev')
+      chev.innerHTML = ICON.right
+      b.append(icn, words, el('span', 'lb-actverb', verb), chev)
+      b.onclick = open
+      rows.append(b)
+      return { text, dot }
+    }
+    this.rowStatus = {
+      skills: row('skills', ICON.bolt, 'Skills', 'Equip', 'L', () => { this.toggle('loadout') }),
+      paint: row('paint', ICON.bars, 'Stats & paint', 'Paint', 'E', () => { this.toggle('paint') }),
+      stash: row('stash', ICON.box, 'Stash', 'View', 'S', () => { this.toggle('stash') })
+    }
+
+    this.season = el('section', 'lb-season')
+    const trophy = el('span', 'lb-acticon')
+    trophy.innerHTML = ICON.trophy
+    const seasonWords = el('div', 'lb-seasonwords')
     this.seasonNotice = el('div', 'lb-season-notice')
     this.seasonText = el('div', 'lb-season-line')
-    this.season.append(this.seasonNotice, this.seasonText)
-    this.root.append(this.season)
+    seasonWords.append(el('div', 'lb-actlabel', 'Season standings'), this.seasonText, this.seasonNotice)
+    this.season.append(trophy, seasonWords)
     SEASON.listeners.add(this.onSeason)
     this.seasonTimer = setInterval(this.onSeason, 60_000)
-    this.renderSeason()
 
-    // Invites (decision #47): the link puts a friend in this player's world.
-    this.inviteButton = el('button', 'lb-invite', 'INVITE')
-    this.inviteButton.title = 'Copy a link that puts a friend in your world'
-    this.inviteButton.onclick = () => { this.copyInvite() }
-    this.root.querySelector('.lb-top')?.append(this.inviteButton)
-    // Settings (L3): key bindings and graphics, a panel over the lobby.
-    const settings = el('button', 'lb-invite lb-settings', 'SETTINGS')
-    settings.onclick = () => { SettingsPanel.show() }
-    this.root.querySelector('.lb-top')?.append(settings)
     this.joinBanner = el('div', 'lb-join')
-    this.root.append(this.joinBanner)
     this.renderJoin()
     // Server full (burst-capacity, net/full.ts): a countdown, then READY by itself.
     this.fullBanner = el('div', 'lb-join lb-full')
-    this.root.append(this.fullBanner)
     this.fullTimer = setInterval(() => { this.renderFull() }, 250)
     this.renderFull()
 
-    this.prev = el('button', 'lb-arrow lb-prev', '\u2039')
-    this.next = el('button', 'lb-arrow lb-next', '\u203A')
-    const prev = this.prev
-    const next = this.next
-    prev.onclick = () => { this.step(-1) }
-    next.onclick = () => { this.step(1) }
-    this.root.append(prev, next)
+    const ready = this.readyButton = el('button', 'lb-ready')
+    ready.innerHTML = `Ready up ${ICON.right}`
+    ready.onclick = () => { this.ready() }
+    this.playsLine = el('span', 'lb-ready-sub')
+    const action = el('div', 'lb-action')
+    action.append(this.joinBanner, this.fullBanner, ready, this.playsLine, privacy('lb-privacy lb-desk-only'))
 
-    const plate = this.plate = el('div', 'lb-plate')
-    this.kindLine = el('div', 'lb-kind')
-    const nameRow = el('div', 'lb-namerow')
-    this.nameLine = el('div', 'lb-robot')
-    const edit = el('button', 'lb-edit', '\u270E EDIT')
-    edit.onclick = () => { this.toggleCustomize() }
-    const loadout = el('button', 'lb-edit', 'LOADOUT')
-    loadout.onclick = () => { this.toggleLoadout() }
-    const stash = el('button', 'lb-edit', 'STASH')
-    stash.onclick = () => { this.toggleStash() }
-    nameRow.append(this.nameLine, edit, loadout, stash)
-    this.tagline = el('div', 'lb-tagline')
-    plate.append(this.kindLine, nameRow, this.tagline)
-    this.root.append(plate)
-
+    // STATS & PAINT: the stat bars read from the mirrored `stats`, then the paint rows.
+    this.customize = el('div', 'lb-custom lb-hidden')
+    const head = el('div', 'lb-customhead')
+    const close = el('button', 'lb-close', '\u00D7')
+    close.onclick = () => { this.toggle(undefined) }
+    head.append(el('span', undefined, 'STATS & PAINT'), close)
     const stats = el('div', 'lb-stats')
     for (const bar of STAT_BARS) {
-      const row = el('div', 'lb-stat')
+      const statRow = el('div', 'lb-stat')
       const track = el('div', 'lb-track')
       const fill = el('div', 'lb-fill')
       track.append(fill)
       const value = el('span', 'lb-value')
-      row.append(el('span', 'lb-label', bar.label), track, value)
-      stats.append(row)
+      statRow.append(el('span', 'lb-label', bar.label), track, value)
+      stats.append(statRow)
       this.statRows.push({ fill, value })
     }
-    this.root.append(stats)
+    this.customize.append(head, stats)
+    for (const group of FINISH_GROUPS) {
+      const paintRow = el('div', 'lb-row')
+      const title = el('div', 'lb-rowtitle')
+      const current = el('span', 'lb-current')
+      title.append(el('span', undefined, group.toUpperCase()), current)
+      const swatches = el('div', 'lb-swatches')
+      paintRow.append(title, swatches)
+      this.customize.append(paintRow)
+      this.rows[group] = { current, swatches }
+    }
+    const foot = el('div', 'lb-customfoot')
+    this.mixButton = el('button', 'lb-mix')
+    this.mixButton.onclick = () => { this.mixMode = !this.mixMode; this.renderCustomize() }
+    const done = el('button', 'lb-done', 'DONE')
+    done.onclick = () => { this.toggle(undefined) }
+    foot.append(this.mixButton, done)
+    this.customize.append(foot)
 
+    // CHANGE SCAVENGER: the robot cards (stills rendered from the rigs), locked ones badged.
+    this.picker = el('div', 'lb-custom lb-picker lb-hidden')
+    const pickHead = el('div', 'lb-customhead')
+    const pickClose = el('button', 'lb-close', '\u00D7')
+    pickClose.onclick = () => { this.toggle(undefined) }
+    pickHead.append(el('span', undefined, 'SCAVENGERS'), pickClose)
     const cards = el('div', 'lb-cards')
     for (const entry of ROSTER) {
       const card = el('button', entry.robot === undefined ? 'lb-card lb-locked' : 'lb-card')
@@ -340,86 +466,39 @@ export default class Lobby extends Container {
       cards.append(card)
       this.cards.push(card)
     }
-    this.root.append(cards)
+    this.tagline = el('div', 'lb-tagline')
+    const pickFoot = el('div', 'lb-customfoot')
+    const pickDone = el('button', 'lb-done', 'DONE')
+    pickDone.onclick = () => { this.toggle(undefined) }
+    pickFoot.append(el('span', 'lb-lo-status', '\u2190 \u2192 to switch'), pickDone)
+    this.picker.append(pickHead, cards, this.tagline, pickFoot)
     this.renderCards()
 
-    this.customize = el('div', 'lb-custom lb-hidden')
-    const head = el('div', 'lb-customhead')
-    const close = el('button', 'lb-close', '\u00D7')
-    close.onclick = () => { this.toggleCustomize(false) }
-    head.append(el('span', undefined, 'CUSTOMIZE'), close)
-    this.customize.append(head)
-    for (const group of FINISH_GROUPS) {
-      const row = el('div', 'lb-row')
-      const title = el('div', 'lb-rowtitle')
-      const current = el('span', 'lb-current')
-      title.append(el('span', undefined, group.toUpperCase()), current)
-      const swatches = el('div', 'lb-swatches')
-      row.append(title, swatches)
-      this.customize.append(row)
-      this.rows[group] = { current, swatches }
-    }
-    const foot = el('div', 'lb-customfoot')
-    this.mixButton = el('button', 'lb-mix')
-    this.mixButton.onclick = () => { this.mixMode = !this.mixMode; this.renderCustomize() }
-    const done = el('button', 'lb-done', 'DONE')
-    done.onclick = () => { this.toggleCustomize(false) }
-    foot.append(this.mixButton, done)
-    this.customize.append(foot)
-    this.root.append(this.customize)
-    this.loadout = new LoadoutPanel(() => { this.toggleLoadout(false) })
-    this.root.append(this.loadout.root)
+    this.loadout = new LoadoutPanel(() => { this.toggle(undefined) })
     // The kit IN KIT marks are read against: the loadout READY plays.
-    this.stash = new StashPanel(() => { this.toggleStash(false) }, () => {
+    this.stash = new StashPanel(() => { this.toggle(undefined) }, () => {
       const robot = this.entry.robot ?? 'peep'
       return loadoutOf(ACCOUNT.info?.loadouts, robot, this.loadout.indexFor(robot))
     })
-    this.root.append(this.stash.root)
-
-    const ready = this.readyButton = el('button', 'lb-ready')
-    this.playsLine = el('span', 'lb-ready-sub')
-    ready.append(el('span', undefined, 'READY UP \u203A'), this.playsLine)
-    ready.onclick = () => { this.ready() }
-    this.root.append(ready)
-    ENERGY.listeners.add(this.onEnergy)
-    this.energyTimer = setInterval(this.onEnergy, 10_000)
-    this.renderEnergy()
-    // Portals ask for it, and it is what the game collects (decision #46).
-    this.root.append(Object.assign(el('a', 'lb-privacy'), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'PRIVACY' }))
-    this.root.append(Object.assign(el('div', 'lb-keys'), {
-      innerHTML: '<kbd>&larr;</kbd><kbd>&rarr;</kbd> SWITCH <kbd>E</kbd> EDIT <kbd>L</kbd> LOADOUT <kbd>S</kbd> STASH <kbd>ENTER</kbd> READY'
-    }))
 
     this.nameInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.ready()
     })
 
-    // Keep each section in document flow; Pixi fits the measured preview slot.
+    // One grid: the hero spans the left column on desktop; under 760 px it all
+    // stacks (progression, journey, hero, rows) and READY sticks to the bottom.
     this.content = el('div', 'lb-content')
     const main = el('main', 'lb-main')
-    const intro = el('div', 'lb-intro')
-    const identity = el('div', 'lb-identity')
-    identity.append(pill, this.season, this.joinBanner)
-    intro.append(this.root.querySelector('.lb-heading')!, identity)
-    const showcase = el('div', 'lb-showcase')
-    const hero = el('div', 'lb-hero')
-    this.preview = el('div', 'lb-preview')
-    prev.setAttribute('aria-label', 'Previous scavenger')
-    next.setAttribute('aria-label', 'Next scavenger')
-    this.preview.append(prev, next)
-    hero.append(this.preview, plate)
-    showcase.append(stats, hero)
-    main.append(intro, showcase, cards)
+    main.append(hero, callsign, progress, journey, rows, this.season, action)
     this.content.append(main)
-    const footer = el('footer', 'lb-footer')
-    const hints = el('div', 'lb-hints')
-    hints.append(this.root.querySelector('.lb-keys')!, this.root.querySelector('.lb-privacy')!)
-    const action = el('div', 'lb-action')
-    action.append(this.fullBanner, ready)
-    footer.append(hints, action)
-    this.root.append(this.content, footer)
+    this.root.append(top, this.content, this.customize, this.picker, this.loadout.root, this.stash.root)
     this.content.addEventListener('scroll', this.onScroll)
     document.body.append(this.root)
+    // The account is announced on connect, which may be before or after this.
+    ACCOUNT.listeners.add(this.onAccount)
+    STASH.listeners.add(this.onStash)
+    ENERGY.listeners.add(this.onEnergy)
+    this.energyTimer = setInterval(this.onEnergy, 10_000)
     this.layoutObserver.observe(this.preview)
     this.layoutObserver.observe(this.content)
     window.addEventListener('keydown', this.onKey, true)
@@ -434,6 +513,9 @@ export default class Lobby extends Container {
     void this.renderThumbnails()
     this.select(this.index)
     this.renderCustomize()
+    this.renderLevel()
+    this.renderSeason()
+    this.renderEnergy()
     this.layout()
   }
 
@@ -453,6 +535,11 @@ export default class Lobby extends Container {
     }
     _pageId = id
     return id
+  }
+
+  /** Whether this browser holds an account token (`TOKEN_KEY`); storage that throws holds none. */
+  private static hasToken (): boolean {
+    return (readStorage(TOKEN_KEY) ?? '') !== ''
   }
 
   private static loadParty (): string {
@@ -611,7 +698,7 @@ export default class Lobby extends Container {
     this.index = index
     const entry = this.entry
     this.kindLine.textContent = entry.kind
-    this.nameLine.textContent = entry.name
+    this.nameLine.textContent = entry.name.charAt(0) + entry.name.slice(1).toLowerCase()
     this.tagline.textContent = entry.tagline
     ROSTER.forEach((r, i) => { this.cards[i].classList.toggle('lb-picked', r === entry) })
     STAT_BARS.forEach((bar, i) => {
@@ -622,6 +709,7 @@ export default class Lobby extends Container {
     this.loadout.setRobot(entry.robot ?? 'peep')
     // `select` runs once from the constructor before the stash panel exists.
     this.stash?.render()
+    this.renderRows()
     this.buildRobots()
   }
 
@@ -636,38 +724,33 @@ export default class Lobby extends Container {
     this.robot?.setFinish(this.shownFinish)
     this.neighbour?.setFinish(this.shownFinish)
     this.renderCustomize()
+    this.renderRows()
   }
 
-  private toggleCustomize (open?: boolean): void {
-    const show = open ?? this.customize.classList.contains('lb-hidden')
-    this.customize.classList.toggle('lb-hidden', !show)
-    if (show) {
-      this.loadout.root.classList.add('lb-hidden')
-      this.stash.root.classList.add('lb-hidden')
+  /** The panel element for each of the four (one open at a time). */
+  private panelOf (panel: Panel): HTMLDivElement {
+    switch (panel) {
+      case 'paint': return this.customize
+      case 'pick': return this.picker
+      case 'loadout': return this.loadout.root
+      case 'stash': return this.stash.root
     }
-    this.root.classList.toggle('lb-editing', show)
   }
 
-  private toggleLoadout (open?: boolean): void {
-    const show = open ?? this.loadout.root.classList.contains('lb-hidden')
-    this.loadout.root.classList.toggle('lb-hidden', !show)
-    if (show) {
-      this.customize.classList.add('lb-hidden')
-      this.stash.root.classList.add('lb-hidden')
-    }
+  /** Open `panel` (closing the others), or close it if it is open; undefined closes them all. */
+  private toggle (panel: Panel | undefined): void {
+    const show = panel !== undefined && this.panelOf(panel).classList.contains('lb-hidden')
+    for (const p of PANELS) this.panelOf(p).classList.toggle('lb-hidden', !(show && p === panel))
     this.root.classList.toggle('lb-editing', show)
+    this.closeMenu()
+    // The loadout may have changed since: the IN KIT marks follow it.
+    if (show && panel === 'stash') this.stash.opened()
+    this.stashChanged()
+    this.renderRows()
   }
 
-  private toggleStash (open?: boolean): void {
-    const show = open ?? this.stash.root.classList.contains('lb-hidden')
-    this.stash.root.classList.toggle('lb-hidden', !show)
-    if (show) {
-      this.customize.classList.add('lb-hidden')
-      this.loadout.root.classList.add('lb-hidden')
-      // The loadout may have changed since: the IN KIT marks follow it.
-      this.stash.opened()
-    }
-    this.root.classList.toggle('lb-editing', show)
+  private closeMenu (): void {
+    this.root.classList.remove('lb-menu-open')
   }
 
   private ready (): void {
@@ -711,14 +794,11 @@ export default class Lobby extends Container {
     else if (typing) handled = false
     else if (e.key === 'ArrowLeft') this.step(-1)
     else if (e.key === 'ArrowRight') this.step(1)
-    else if (e.key === 'e' || e.key === 'E') this.toggleCustomize()
-    else if (e.key === 'l' || e.key === 'L') this.toggleLoadout()
-    else if (e.key === 's' || e.key === 'S') this.toggleStash()
-    else if (e.key === 'Escape') {
-      this.toggleCustomize(false)
-      this.toggleLoadout(false)
-      this.toggleStash(false)
-    }
+    else if (e.key === 'e' || e.key === 'E') this.toggle('paint')
+    else if (e.key === 'l' || e.key === 'L') this.toggle('loadout')
+    else if (e.key === 's' || e.key === 'S') this.toggle('stash')
+    else if (e.key === 'c' || e.key === 'C') this.toggle('pick')
+    else if (e.key === 'Escape') this.toggle(undefined)
     else handled = false
     // Skill keys are bound on window: nothing typed here is game input.
     e.stopImmediatePropagation()
@@ -820,7 +900,11 @@ export default class Lobby extends Container {
   }
 
   private layout (): void {
-    this.paintBackdrop(window.innerWidth, window.innerHeight)
+    const box = this.preview?.getBoundingClientRect()
+    // The glow sits behind the robot: the preview's centre, the screen's before it is laid out.
+    const cx = box !== undefined && box.width > 0 ? (box.left + box.width / 2) / window.innerWidth : 0.5
+    const cy = box !== undefined && box.height > 0 ? (box.top + box.height / 2) / window.innerHeight : 0.52
+    this.paintBackdrop(window.innerWidth, window.innerHeight, cx, cy)
     this.layoutPreview()
   }
 
@@ -832,8 +916,8 @@ export default class Lobby extends Container {
     const box = this.preview.getBoundingClientRect()
     const viewport = this.content.getBoundingClientRect()
     const stand = this.robot?.standHeight ?? RobotSprite.PEEP_HEIGHT
-    // Reserve room below the feet for the platform and beside it for arrows.
-    const scale = Math.max(0.1, Math.min(5.5, (box.height - 24) / (stand + 20), (box.width - 112) / 114))
+    // Reserve room below the feet for the platform and beside it for the platform's glow.
+    const scale = Math.max(0.1, Math.min(5.5, (box.height - 24) / (stand + 20), (box.width - 40) / 114))
     const x = box.left + box.width / 2 - w / 2
     const feetY = box.top + (box.height + stand * scale) / 2 - 10 * scale - h / 2
     const rx = 42 * scale
@@ -855,14 +939,15 @@ export default class Lobby extends Container {
       .drawRect(box.left - w / 2, top - h / 2, box.width, Math.max(0, bottom - top)).endFill()
   }
 
-  /** A dark radial backdrop over the whole screen, drawn once per size on a canvas. */
-  private paintBackdrop (w: number, h: number): void {
+  /** A dark radial backdrop over the whole screen, lit at (`cx`, `cy`) as fractions of it; drawn once per layout on a canvas. */
+  private paintBackdrop (w: number, h: number, cx: number, cy: number): void {
     const canvas = document.createElement('canvas')
     canvas.width = Math.max(1, Math.round(w / 4))
     canvas.height = Math.max(1, Math.round(h / 4))
     const ctx = canvas.getContext('2d')
     if (ctx === null) return
-    const g = ctx.createRadialGradient(canvas.width / 2, canvas.height * 0.52, 0, canvas.width / 2, canvas.height * 0.52, canvas.width * 0.7)
+    const r = Math.max(canvas.width, canvas.height) * 0.6
+    const g = ctx.createRadialGradient(canvas.width * cx, canvas.height * cy, 0, canvas.width * cx, canvas.height * cy, r)
     g.addColorStop(0, '#16314a')
     g.addColorStop(0.45, '#0b1726')
     g.addColorStop(1, '#04070d')
@@ -909,22 +994,130 @@ export default class Lobby extends Container {
         img.src = src
         img.alt = entry.name
         thumb.replaceChildren(img)
+        if (entry.robot !== undefined) this.thumbs.set(entry.robot, src)
       } catch (e) {
         thumb.textContent = '?'
       }
       sprite.destroy()
       host.destroy()
     }
+    if (!this.tornDown) this.renderJourney()
   }
 
-  /** `LV n` and the XP into it, from the account's standing; nothing offline or before it is known. */
+  /**
+   * The progression block from the account's standing, and the journey under
+   * it. Offline or before the server says, the heading says so and the bar is
+   * hidden; the journey then reads level 1, as the locks do.
+   */
   private renderLevel (): void {
     const standing = ACCOUNT.info?.standing
-    this.level.hidden = standing === undefined
-    if (standing === undefined) return
-    this.level.textContent = `LV ${standing.level}`
-    this.level.title = `${standing.xp - standing.levelAt} / ${standing.nextAt - standing.levelAt} XP to level ${standing.level + 1}`
-    this.level.style.setProperty('--lb-level-fill', String(Math.min(1, Math.max(0, (standing.xp - standing.levelAt) / Math.max(1, standing.nextAt - standing.levelAt)))))
+    // No token stored: the server makes the account on the first run and
+    // announces none before it, so this is a new player at level 1.
+    const fresh = ACCOUNT.info === undefined && !Lobby.hasToken()
+    this.xpBar.hidden = standing === undefined && !fresh
+    if (standing === undefined) {
+      const offline = ACCOUNT.info?.offline === true
+      this.levelHeading.textContent = offline ? 'Offline' : fresh ? 'Level 1' : 'Level \u2026'
+      this.xpFill.style.width = '0%'
+      this.xpLine.textContent = offline ? 'XP is saved when the server is back' : fresh ? 'Play a run to start earning XP' : ''
+      this.xpToGo.textContent = ''
+    } else {
+      const into = standing.xp - standing.levelAt
+      const span = Math.max(1, standing.nextAt - standing.levelAt)
+      this.levelHeading.textContent = `Level ${standing.level}`
+      this.xpFill.style.width = `${100 * Math.min(1, Math.max(0, into / span))}%`
+      this.xpLine.textContent = `${into} / ${span} XP`
+      this.xpToGo.textContent = `${Math.max(0, standing.nextAt - standing.xp)} XP to level ${standing.level + 1}`
+    }
+    if (!this.journeyMoved) this.journeyFrom = this.clampJourney(this.accountLevel)
+    this.renderJourney()
+  }
+
+  /** The journey strip shows `JOURNEY_SHOWN` stops (CSS hides the last under 760 px). */
+  private clampJourney (from: number): number {
+    return Math.max(1, Math.min(from, journeyEnd() - JOURNEY_SHOWN + 1))
+  }
+
+  private moveJourney (by: number): void {
+    this.journeyFrom = this.clampJourney(this.journeyFrom + by)
+    this.journeyMoved = true
+    this.renderJourney()
+  }
+
+  /**
+   * One stop per level from `journeyFrom`: levels behind are ticked, the
+   * account's is a ring with its number, levels ahead show what opens there
+   * (the robot's still, a bolt, a box) with a lock, or only their number.
+   */
+  private renderJourney (): void {
+    const level = this.accountLevel
+    this.journeyStops.replaceChildren()
+    for (let l = this.journeyFrom; l < this.journeyFrom + JOURNEY_SHOWN; l++) {
+      const stop = journeyStop(l)
+      const node = el('div', 'lb-jstop')
+      const ring = el('div', 'lb-jring')
+      if (l < level) {
+        node.classList.add('lb-jdone')
+        ring.innerHTML = ICON.check
+      } else if (l === level) {
+        node.classList.add('lb-jnow')
+        ring.textContent = String(l)
+      } else if (stop.kind === undefined) {
+        node.classList.add('lb-jempty')
+        ring.textContent = String(l)
+      } else {
+        const thumb = stop.robot !== undefined ? this.thumbs.get(stop.robot) : undefined
+        if (thumb !== undefined) ring.append(Object.assign(el('img'), { src: thumb, alt: '' }))
+        else ring.innerHTML = stop.kind === 'bot' ? ICON.bot : stop.kind === 'skill' ? ICON.bolt : ICON.box
+        const lock = el('span', 'lb-jlock')
+        lock.innerHTML = ICON.lock
+        ring.append(lock)
+      }
+      node.title = stop.names.length > 0 ? `Level ${l}: ${stop.names.join(', ')}` : `Level ${l}`
+      node.append(ring, el('div', 'lb-jlevel', `Lv ${l}`), el('div', 'lb-jkind', stop.kind === undefined ? '' : JOURNEY_WORD[stop.kind]))
+      this.journeyStops.append(node)
+    }
+    this.journeyPrev.disabled = this.journeyFrom <= 1
+    this.journeyNext.disabled = this.journeyFrom >= this.clampJourney(Number.MAX_SAFE_INTEGER)
+  }
+
+  /**
+   * The action rows' status lines: the kit READY plays, the robot's first
+   * three stats, the stash count and how much of it is new. Only the stash's
+   * dot lights, and only for rows the panel hasn't shown.
+   */
+  private renderRows (): void {
+    // Runs from `select` inside the constructor, before the panels exist.
+    if (this.loadout === undefined || this.rowStatus === undefined) return
+    const robot = this.entry.robot ?? 'peep'
+    const index = this.loadout.indexFor(robot)
+    const kit = loadoutOf(ACCOUNT.info?.loadouts, robot, index)
+    const names = kit.map((id) => SKILL_LIST.find((s) => s.id === id)?.label).filter((n): n is string => n !== undefined)
+    const prefix = loadoutSlotsAt(this.accountLevel) > 1 ? `Loadout ${index + 1}: ` : ''
+    this.setRow('skills', prefix + (names.length > 0 ? names.join(', ') : 'Empty kit'), false)
+    this.setRow('paint', STAT_BARS.slice(0, 3).map((bar) => {
+      const v = bar.value(this.entry)
+      return `${bar.label.charAt(0)}${bar.label.slice(1).toLowerCase()} ${v === null ? '-' : bar.text(v)}`
+    }).join(' \u00B7 '), false)
+    const view = STASH.view
+    const fresh = newStashCount(localTokenStorage(), ACCOUNT.info?.id, view)
+    this.setRow('stash', view === undefined ? 'Not loaded' : `${stashCount(view)}${fresh > 0 ? ` \u00B7 ${fresh} new` : ''}`, fresh > 0)
+  }
+
+  private setRow (key: 'skills' | 'paint' | 'stash', text: string, lit: boolean): void {
+    this.rowStatus[key].text.textContent = text
+    this.rowStatus[key].dot.hidden = !lit
+  }
+
+  /** The stash changed or its panel opened: what the open panel shows is seen. */
+  private stashChanged (): void {
+    if (this.tornDown || this.stash === undefined) return
+    const view = STASH.view
+    const account = ACCOUNT.info?.id
+    if (view !== undefined && account !== undefined && !this.stash.root.classList.contains('lb-hidden')) {
+      markStashSeen(localTokenStorage(), account, view)
+    }
+    this.renderRows()
   }
 
   /**
@@ -960,6 +1153,7 @@ export default class Lobby extends Container {
     if (this.tornDown) return
     this.tornDown = true
     ACCOUNT.listeners.delete(this.onAccount)
+    STASH.listeners.delete(this.onStash)
     SEASON.listeners.delete(this.onSeason)
     clearInterval(this.seasonTimer)
     ENERGY.listeners.delete(this.onEnergy)
