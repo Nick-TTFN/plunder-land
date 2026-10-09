@@ -6,13 +6,9 @@ import { layShadow } from './shadow'
 import { TextEffect } from '../ui/elements/texteffect'
 import { Session } from '../net/session'
 import { type ArchetypeInfo } from '../utils/archetypes'
+import { CatchUp, sampleTrack, type TrackState } from './track'
 
-interface State {
-  /** Client clock at which this state arrived. */
-  t: number
-  x: number
-  y: number
-}
+type State = TrackState
 
 /** Movement below this per frame counts as standing still, for animation. */
 const IDLE_EPSILON = 0.05
@@ -170,6 +166,25 @@ export default class Unit extends GameObject {
     }
   }
 
+  /**
+   * Its own render clock, run ahead onto its newest state by `catchUpNow`
+   * (S1, `objects/track.ts`); undefined, the shared clock, until the first.
+   */
+  private catchUp: CatchUp | undefined
+
+  /**
+   * A planting effect arrived for it (`Game.onEffect`: 11, 13, 14, 17, and
+   * since #52 lane 2 a mob's 3, 9 and 19): ease its drawn position onto its
+   * newest server state over `CatchUp.MS`, so the planted clip starts where the server has it, not ~`interpolationDelay`
+   * behind. Only for interpolated units; the local player is predicted.
+   */
+  catchUpNow (): void {
+    const newest = this.states[this.states.length - 1]
+    if (newest === undefined) return
+    if (this.catchUp === undefined) this.catchUp = new CatchUp()
+    this.catchUp.start(performance.now(), Session.interpolationDelay, newest.t)
+  }
+
   update (dt: number): void {
     const states = this.states
     if (states.length === 0) {
@@ -179,46 +194,11 @@ export default class Unit extends GameObject {
     }
 
     const now = performance.now()
-    const renderTime = now - Session.interpolationDelay
-
-    let nx: number
-    let ny: number
-
-    if (renderTime <= states[0].t) {
-      // Not enough history yet to render in the past: hold at the oldest state
-      // rather than inventing motion.
-      nx = states[0].x
-      ny = states[0].y
-    } else {
-      let i = states.length - 1
-      while (i > 0 && states[i].t > renderTime) i--
-
-      const a = states[i]
-      const b = states[i + 1]
-
-      if (b !== undefined) {
-        const span = b.t - a.t
-        const f = span > 0 ? (renderTime - a.t) / span : 1
-        nx = a.x + (b.x - a.x) * f
-        ny = a.y + (b.y - a.y) * f
-      } else {
-        // The buffer has run dry - a packet is late. Continue along the last
-        // known velocity for a bounded time, then hold. Holding is honest;
-        // extrapolating indefinitely walks units through walls.
-        const last = states[states.length - 1]
-        const prev = states.length > 1 ? states[states.length - 2] : undefined
-        const span = prev !== undefined ? last.t - prev.t : 0
-        const ahead = Math.min(renderTime - last.t, Session.extrapolationCap)
-
-        if (prev !== undefined && span > 0 && ahead > 0) {
-          nx = last.x + ((last.x - prev.x) / span) * ahead
-          ny = last.y + ((last.y - prev.y) / span) * ahead
-        } else {
-          nx = last.x
-          ny = last.y
-        }
-      }
-    }
+    const delay = Session.interpolationDelay
+    const renderTime = this.catchUp === undefined
+      ? now - delay
+      : this.catchUp.renderTime(now, delay, states[states.length - 1].t)
+    const { x: nx, y: ny } = sampleTrack(states, renderTime, Session.extrapolationCap)
 
     this.applyPosition(nx, ny, now)
   }

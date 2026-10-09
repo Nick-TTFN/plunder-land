@@ -6,6 +6,7 @@ import { TILT } from '../objects/tilt'
 import { attackCells, type Cell } from './cells'
 import { layerOf } from './cellhighlight'
 import { FxSprite, burstCells, discard, runFor, standAt, warnCells } from './npcfx'
+import { kilnFlight } from './kilnflight'
 
 /** Fallback colours, drawn as cell highlights only while the effects sheet hasn't loaded. */
 const MARKER_COLOUR = 0xff6a1f
@@ -29,8 +30,10 @@ export function kilnLobCells (cell: Cell): Cell[] {
  * Effect 9 lasts the flight (`lifetime`): `landing-center` on the landing
  * cell and `landing-ring` on the rest, one urgency cycle over the flight; and,
  * if this client holds the Kiln (`kiln`), the furnace slug (`kiln-lob`, a
- * standing loop turned along its arc) flies from it to the cell over the same
- * time with its ground shadow (`kiln-lob-shadow`) under it. Without the Kiln
+ * standing loop turned along its arc) flies from it to the cell with its
+ * ground shadow (`kiln-lob-shadow`) under it. It leaves at `launchMs` (the
+ * rig's launch when its `fire` clip plays from the gather, #52 lane 2; 0
+ * without the clip) and lands at `lifetime` (`kilnFlight`). Without the Kiln
  * (out of view) the warning alone. Effect 10 arrives as its own record when
  * the server lands the lob, so the impact shows when the damage lands, also
  * after the Kiln died: `kiln-impact-cell` on every cell and
@@ -38,7 +41,7 @@ export function kilnLobCells (cell: Cell): Cell[] {
  * lifetime. The rig's `lob` clip is l1-9's.
  */
 export class KilnLobEffect {
-  constructor (cell: Vector, tag: number | undefined, blast: boolean, lifetime: number, kiln?: GameObject) {
+  constructor (cell: Vector, tag: number | undefined, blast: boolean, lifetime: number, kiln?: GameObject, launchMs = 0) {
     const cells = kilnLobCells(cell)
     const landing = { x: cell.x, y: cell.y }
 
@@ -49,11 +52,17 @@ export class KilnLobEffect {
     }
 
     warnCells(tag, cells, landing, lifetime, MARKER_COLOUR)
-    if (kiln !== undefined && !kiln.killed) KilnLobEffect.arc(tag, kiln, cell, lifetime)
+    if (kiln !== undefined && !kiln.killed) KilnLobEffect.arc(tag, kiln, cell, lifetime, launchMs)
   }
 
-  /** The slug from the Kiln's drawn position to the cell's centre, on a parabola, over `lifetime`, its shadow on the ground under it. */
-  private static arc (tag: number | undefined, kiln: GameObject, cell: Vector, lifetime: number): void {
+  /**
+   * The slug from the Kiln's drawn position to the cell's centre, on a
+   * parabola, from `launchMs` to `lifetime`, its shadow on the ground under
+   * it. Hidden until the launch, and it leaves from where the Kiln is drawn
+   * then; a Kiln seen to die before its launch throws nothing (the marker
+   * and the blast still show: the server lands the lob anyway).
+   */
+  private static arc (tag: number | undefined, kiln: GameObject, cell: Vector, lifetime: number, launchMs: number): void {
     const layer = layerOf(tag)
     if (layer === undefined || !FxSprite.ready()) return
 
@@ -62,6 +71,7 @@ export class KilnLobEffect {
     const slug = standAt(layer, 'fx/kiln-lob', from.x, from.y)
     const shadow = new FxSprite('fx/kiln-lob-shadow')
     layer.addChild(shadow)
+    let launched = false
 
     const duration = Math.max(lifetime, 100)
     const groundAt = (t: number): { x: number, y: number } =>
@@ -69,7 +79,15 @@ export class KilnLobEffect {
     const heightAt = (t: number): number => ARC_HEIGHT * 4 * t * (1 - t)
 
     runFor(duration, (elapsed) => {
-      const t = Math.min(1, elapsed / duration)
+      const t = kilnFlight(elapsed, duration, launchMs)
+      slug.visible = t !== undefined
+      shadow.visible = t !== undefined
+      if (t === undefined) return
+      if (!launched) {
+        launched = true
+        from.x = kiln.x
+        from.y = kiln.y
+      }
       const ground = groundAt(t)
       shadow.position.set(ground.x, ground.y)
       slug.position.set(ground.x, ground.y - heightAt(t))
@@ -85,6 +103,6 @@ export class KilnLobEffect {
     }, () => {
       discard(slug)
       discard(shadow)
-    })
+    }, () => !launched && kiln.killed)
   }
 }

@@ -369,6 +369,22 @@ if (key === 'crawler') {
     }
   }
   for (const t of [0.12, 0.24, 0.6, 1.5, 2.6]) take('fall_apart', t, { aimX: -1, aimY: 0, basePose: run })
+  // The game's longer stride (decision #52 lane 3, `GAIT.stride` in
+  // `src/npcs/crawler/rig.ts`; the spec holds the two equal): the package's own
+  // module with its `config` given that stride and the run speed it makes,
+  // restored after. The options carry `stride`, which the port takes. The
+  // directions include one `gaitDirection` makes (north-east, y scaled by
+  // TILT / 0.68), which isn't a unit vector.
+  const GAME_STRIDE = 60
+  const saved = { stride: rig.config.stride, nominalSpeed: rig.config.nominalSpeed }
+  Object.assign(rig.config, { stride: GAME_STRIDE, nominalSpeed: GAME_STRIDE / rig.config.duty / rig.clips.run.duration })
+  try {
+    for (const [directionX, directionY] of [[1, 0], [0, -1], [-0.6, 0.8], [0.5926, -0.8055]]) {
+      for (const t of [0, 0.1, 0.31, 0.5, 0.7]) take('run', t, { directionX, directionY, stride: GAME_STRIDE })
+    }
+  } finally {
+    Object.assign(rig.config, saved)
+  }
 } else if (key === 'reactor') {
   // Drawn as the package does once `installParts` has its images and a canvas factory.
   rig.installParts(Object.fromEntries(parts.parts.map((p) => [p.id, { art: p.id, width: p.size[0], height: p.size[1] }])), parts, surface)

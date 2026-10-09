@@ -15,7 +15,9 @@ import * as kiln from '../../../../plunder-land-client/src/npcs/kiln/rig'
 import * as coil from '../../../../plunder-land-client/src/npcs/coil/rig'
 import * as brood from '../../../../plunder-land-client/src/npcs/brood/rig'
 import { COIL_PULSE } from '../../../../plunder-land-client/src/vfx/coilfield'
-import { NPC_RIGS, attackLead, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
+import { NPC_RIGS, attackLead, gaitDirection, gaitPace, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
+import { PEEP_RIG } from '../../../../plunder-land-client/src/robots/robotrig'
+import { Hex } from '../../../../plunder-land-client/src/utils/hex'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
 
 /**
@@ -308,13 +310,11 @@ test('the Compactor\'s strike lands on the server\'s impact, and the Reactor\'s 
   assert.equal(attackLead(1.215, 1100), 1.1)
 })
 
-// Both packages reject a hit over their attack (their HANDOFF.md files) and
-// ask for the gait to wait while a hit plays; both fall apart from any pose,
-// the attack's included.
-test('the Reactor and the Compactor refuse a hit over their attack, hold the gait on a hit and die from the attack\'s pose', () => {
+// Both fall apart from any pose, the attack's included. (Their packages'
+// asks about a hit over the attack and the gait during a hit are moot since
+// decision #52: a hit is an overlay, never a clip.)
+test('the Reactor and the Compactor die from the attack\'s pose', () => {
   for (const rig of [reactor.REACTOR_RIG, compactor.COMPACTOR_RIG]) {
-    assert.equal(rig.roles.attack?.refusesHit, true, rig.key)
-    assert.equal(rig.roles.holdGaitOnHit, true, rig.key)
     assert.equal(rig.roles.death?.fromAction, true, rig.key)
     assert.equal(rig.roles.death?.from, 0, rig.key)
   }
@@ -325,7 +325,7 @@ test('the Reactor and the Compactor refuse a hit over their attack, hold the gai
   const charge = reactor.REACTOR_RIG.pose('activate', 1.5, { x: 0, y: 1 })
   const wreck = reactor.REACTOR_RIG.pose('fall_apart', 2.6, { x: 0, y: 1 }, undefined, charge).state as reactor.ReactorState
   assert.equal(wreck.death?.parts.length, 12)
-  // A hit ends exactly on the pose it began from, which is why the gait waits.
+  // The port: a hit ends exactly on the pose it began from (the clip is no longer played).
   const idle = reactor.REACTOR_RIG.pose('idle', 0.7, { x: 0, y: 1 })
   assert.deepEqual(reactor.REACTOR_RIG.pose('hit', 0.68, { x: 0, y: 1 }, undefined, idle).state, idle.state)
   // The Compactor's rig never throws for a hit over the strike (the sprite never asks; a frame must not die).
@@ -446,12 +446,9 @@ test('the Kiln launches on effect 9, the Coil holds its field with the server\'s
   assert.equal(spawn.event - attackLead(spawn.event, 0), brood.SPAWN_EVENT, 'started on the launch')
 })
 
-// All three packages reject a hit over their attack and ask for the gait to
-// wait while a hit plays; all three fall apart from the pose shown.
-test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the gait on a hit and die from the pose shown', () => {
+// All three fall apart from the pose shown. (Hits are an overlay since #52.)
+test('the Kiln, the Coil and the Brood die from the pose shown', () => {
   for (const rig of [kiln.KILN_RIG, coil.COIL_RIG, brood.BROOD_RIG]) {
-    assert.equal(rig.roles.attack?.refusesHit, true, rig.key)
-    assert.equal(rig.roles.holdGaitOnHit, true, rig.key)
     assert.equal(rig.roles.death?.fromAction, true, rig.key)
     assert.equal(rig.roles.death?.from, 0, rig.key)
   }
@@ -463,7 +460,7 @@ test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the 
   assert.equal((coil.COIL_RIG.pose('fall_apart', 2.8, down, undefined, hold).state as coil.CoilState).settled, true)
   const spawn = brood.BROOD_RIG.pose('spawn', 0.3, down)
   assert.equal((brood.BROOD_RIG.pose('death', 2.8, down, undefined, spawn).state as brood.BroodState).settled, true)
-  // A hit ends on the pose it began from (the gait waits for it).
+  // The ports: a hit ends on the pose it began from (the clip is no longer played).
   const idle = kiln.KILN_RIG.pose('idle', 0.7, down)
   assert.deepEqual((kiln.KILN_RIG.pose('hit', 0.7, down, undefined, idle).state as kiln.KilnPose).state.legs, (idle.state as kiln.KilnPose).state.legs)
   const move = coil.COIL_RIG.pose('move', 0.4, { x: -0.6, y: 0.8 })
@@ -471,7 +468,7 @@ test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the 
   assert.deepEqual(coilHit(0.72).legs.map((l) => l.knee), (move.state as coil.CoilState).legs.map((l) => l.knee))
   // A Coil dying during a hit starts from the hit's source, exactly.
   assert.deepEqual(coil.hitSource(coilHit(0.3)), move.state)
-  // The rigs never throw for a hit over their attack (the sprite never asks; a frame must not die).
+  // The rigs never throw for a hit over their attack (nothing asks; a frame must not die).
   assert.doesNotThrow(() => kiln.KILN_RIG.pose('hit', 0.3, down, undefined, lob))
   assert.doesNotThrow(() => coil.COIL_RIG.pose('hit', 0.3, down, undefined, hold))
   assert.doesNotThrow(() => brood.BROOD_RIG.pose('hit', 0.3, down, undefined, spawn))
@@ -573,4 +570,175 @@ test('the Broodling is whole 1 ms before its death\'s start and blown up at it, 
   const from = broodling.BROODLING_RIG.roles.death?.from ?? 0
   assert.equal(broodling.sample('detonate', from - 0.001).dead, false)
   assert.equal(broodling.sample('detonate', from).dead, true)
+})
+
+// Decision #52 A1: an attack clip past the moment it exists for gives way to
+// movement (`NpcSprite.update`), as the Broodling's emerge does once ready.
+// The moment is each rig's `attack.event`, checked here against the clip's own
+// named event where the package names one.
+test('an attack clip yields to movement from its event on, never before; a death and a prime never', () => {
+  const moments: Record<string, { clip: string, event: number, named?: string }> = {
+    crawler: { clip: 'fire', event: 0.34, named: 'fire' },
+    kiln: { clip: 'fire', event: kiln.LAUNCH },
+    brood: { clip: 'spawn', event: brood.SPAWN_EVENT, named: 'spawn' },
+    coil: { clip: 'charge', event: coil.CHARGE.holdEnd },
+    reactor: { clip: 'activate', event: 1, named: 'release_start' },
+    compactor: { clip: 'fire', event: compactor.IMPACT_TIME }
+  }
+  for (const [key, want] of Object.entries(moments)) {
+    const rig = NPC_RIGS[key]!
+    assert.equal(rig.roles.attack?.clip, want.clip, key)
+    assert.equal(rig.roles.attack?.event, want.event, key)
+    if (want.named !== undefined) {
+      const named = rig.clips[want.clip].events.find((e) => e.name === want.named)
+      assert.equal(named?.time, want.event, `${key}: ${want.named}`)
+    }
+    assert.equal(yieldsToMovement(rig.roles, 'attack', want.event - 0.001), false, key)
+    assert.equal(yieldsToMovement(rig.roles, 'attack', want.event), true, key)
+    assert.equal(yieldsToMovement(rig.roles, 'death', 99), false, key)
+    // The event lies inside the clip, so the yield can come before its end.
+    assert.ok(want.event < rig.clips[want.clip].duration, key)
+  }
+  const roles = broodling.BROODLING_RIG.roles
+  assert.equal(yieldsToMovement(roles, 'spawn', roles.spawn!.ready - 0.001), false)
+  assert.equal(yieldsToMovement(roles, 'spawn', roles.spawn!.ready), true)
+  assert.equal(yieldsToMovement(roles, 'prime', 99), false)
+  assert.equal(yieldsToMovement(roles, 'attack', 99), false, 'no attack, nothing to yield')
+})
+
+// Decision #52: no rig names the retired hit flags, and every rig still names its hit clip as data.
+test('no NPC role carries refusesHit or holdGaitOnHit any more', () => {
+  for (const rig of Object.values(NPC_RIGS)) {
+    assert.equal('holdGaitOnHit' in rig!.roles, false, rig!.key)
+    assert.equal(rig!.roles.attack !== undefined && 'refusesHit' in rig!.roles.attack, false, rig!.key)
+  }
+})
+
+// Decision #52 lane 3 (PROVISIONAL, the Crawler's foot-slide trial): the game
+// runs the Crawler at a 3x stride (`GAIT.stride`) and its own gait rate, pace
+// floor and ground squash (`NpcGait`). `RobotSprite` and `objects/tilt.ts` are
+// pixi modules, so their numbers are read from the source, as
+// `tools/foot-slide.cjs` does.
+const SPRITE = (() => {
+  const src = readFileSync(join(__dirname, '../../../../plunder-land-client/src/robots/robotsprite.ts'), 'utf8')
+  const num = (re: RegExp): number => {
+    const m = src.match(re)
+    assert.ok(m !== null, `robotsprite.ts no longer has ${String(re)}`)
+    return Number(m[1])
+  }
+  const tilt = readFileSync(join(__dirname, '../../../../plunder-land-client/src/objects/tilt.ts'), 'utf8')
+  assert.match(tilt, /ROW_SCREEN = Math\.round\(ROW \* 0\.93\)/)
+  assert.match(tilt, /TILT = ROW_SCREEN \/ ROW/)
+  const row = Hex.SIZE * Math.sqrt(3) / 2
+  return {
+    RUN_RATE: num(/static readonly RUN_RATE = ([\d.]+)/),
+    STRIDE_SPEED: num(/static readonly STRIDE_SPEED = ([\d.]+)/),
+    MIN_PACE: num(/static readonly MIN_PACE = ([\d.]+)/),
+    MAX_PACE: num(/static readonly MAX_PACE = ([\d.]+)/),
+    SCALE: num(/static readonly PEEP_HEIGHT = ([\d.]+)/) / PEEP_RIG.referenceUnits,
+    TILT: Math.round(row * 0.93) / row
+  }
+})()
+
+test('crawler: the fixtures\' game-stride runs are the game\'s stride, and the game\'s pose draws them', () => {
+  const f = load('crawler')
+  const runs = f.samples.filter((s) => s.options.stride !== undefined)
+  assert.ok(runs.length >= 20, 'game-stride samples')
+  for (const s of runs) {
+    assert.equal(s.options.stride, crawler.GAIT.stride, 'tools/npc-rig-sync.mjs GAME_STRIDE is GAIT.stride')
+    const where = `crawler game ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    // Through the game's path, which passes its own stride: a wrong `GAIT.stride` fails here.
+    const pose = crawler.CRAWLER_RIG.pose(s.name, s.time, { x: s.options.directionX as number, y: s.options.directionY as number })
+    checkState((pose.state as crawler.CrawlerPose).state, f, s, where)
+    checkDrawing(crawler.CRAWLER_RIG.draw(pose), crawler.CRAWLER_RIG.arts, s, where)
+  }
+})
+
+/**
+ * A planted foot's mean world velocity at ground speed `v` along world
+ * direction `dir`, as `NpcSprite` plays the move loop: direction and stretch
+ * from `gaitDirection`, clip rate `RUN_RATE x gait.rate x stretch x pace`.
+ * Foot offsets go to world units as the screen shows them (x; package ground
+ * y x 0.68, over TILT). Zero means planted.
+ */
+function plantedVelocity (rig: NpcRig, v: number, dir: { x: number, y: number }): { x: number, y: number } {
+  const ppu = SPRITE.SCALE * rig.sizeScale
+  const g = gaitDirection(rig.gait, dir.x, dir.y, SPRITE.TILT)
+  const pace = gaitPace(rig.gait, v / SPRITE.STRIDE_SPEED, SPRITE.MIN_PACE, SPRITE.MAX_PACE)
+  const rate = SPRITE.RUN_RATE * (rig.gait?.rate ?? 1) * g.stretch * pace
+  const feet = (t: number): Array<{ x: number, y: number, contact: boolean }> =>
+    ((rig.pose(rig.roles.move, t, { x: g.x, y: g.y }).state as crawler.CrawlerPose).state.legs).map((l) => ({ x: l.foot.x * ppu, y: (l.foot.y * 0.68 - l.foot.z) * ppu / SPRITE.TILT, contact: l.contact }))
+  const h = 1e-4
+  let sx = 0
+  let sy = 0
+  let n = 0
+  const period = rig.clips[rig.roles.move].duration
+  for (let i = 0; i < 400; i++) {
+    const t = period * i / 400
+    const [lo, hi] = [feet(t - h), feet(t + h)]
+    lo.forEach((a, k) => {
+      if (!a.contact || !hi[k].contact) return
+      sx += v * dir.x + rate * (hi[k].x - a.x) / (2 * h)
+      sy += v * dir.y + rate * (hi[k].y - a.y) / (2 * h)
+      n++
+    })
+  }
+  assert.ok(n > 0)
+  return { x: sx / n, y: sy / n }
+}
+
+test('crawler: a planted foot keeps still at chase and idle wander speeds, any way it goes', () => {
+  const rig = crawler.CRAWLER_RIG
+  assert.ok(rig.gait !== undefined)
+  const r = Math.SQRT1_2
+  for (const v of [90, 30]) {
+    for (const dir of [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 0, y: 1 }, { x: r, y: -r }, { x: -r, y: r }, { x: 0.8, y: 0.6 }]) {
+      const w = plantedVelocity(rig, v, dir)
+      // 1% of the ground speed: `GAIT.rate` is rounded to 2.71.
+      assert.ok(Math.hypot(w.x, w.y) < 0.01 * v, `${v} u/s along ${dir.x.toFixed(2)},${dir.y.toFixed(2)}: a planted foot moves ${w.x.toFixed(2)},${w.y.toFixed(2)} u/s`)
+    }
+  }
+  // Every other rig is as before: no gait of its own.
+  for (const other of Object.values(NPC_RIGS)) if (other!.key !== 'crawler') assert.equal(other!.gait, undefined, other!.key)
+})
+
+test('crawler: at the game\'s stride the knees never go straight and no foot meets its neighbour', () => {
+  const reach = crawler.CONFIG.upperLength + crawler.CONFIG.lowerLength
+  let most = 0
+  let closest = Infinity
+  for (let k = 0; k < 16; k++) {
+    const a = k * Math.PI / 8
+    for (let i = 0; i < 144; i++) {
+      const legs = crawler.animationPose('run', 0.72 * i / 144, { directionX: Math.cos(a), directionY: Math.sin(a), stride: crawler.GAIT.stride }).state.legs
+      for (const l of legs) most = Math.max(most, l.knee.reach / reach)
+      for (const side of [-1, 1]) {
+        const row = legs.filter((l) => l.side === side).sort((p, q) => p.row - q.row)
+        for (let j = 0; j + 1 < row.length; j++) closest = Math.min(closest, Math.hypot(row[j].foot.x - row[j + 1].foot.x, row[j].foot.y - row[j + 1].foot.y))
+      }
+    }
+  }
+  // Measured 0.85 and 18.9 rig units at stride 60 (49.7 at the package's 20).
+  assert.ok(most < 0.9, `the longest leg reaches ${most.toFixed(3)} of its length`)
+  assert.ok(closest > 15, `neighbouring feet come within ${closest.toFixed(1)} rig units`)
+})
+
+test('gaitDirection: without groundTilt the direction is kept; with it the stride points along the motion as drawn', () => {
+  assert.deepEqual(gaitDirection(undefined, 0.3, -2, 0.92), { x: 0.3, y: -2, stretch: 1 })
+  assert.deepEqual(gaitDirection({ rate: 2, minPace: 0.1 }, 0.3, -2, 0.92), { x: 0.3, y: -2, stretch: 1 })
+  const gait = { rate: 1, minPace: 0.5, groundTilt: 0.68 }
+  const tilt = SPRITE.TILT
+  assert.equal(gaitDirection(gait, 5, 0, tilt).stretch, 1)
+  assert.ok(Math.abs(gaitDirection(gait, 0, -3, tilt).stretch - tilt / 0.68) < 1e-12)
+  for (const [x, y] of [[1, 1], [-0.3, 0.9], [2, -0.5]]) {
+    const g = gaitDirection(gait, x, y, tilt)
+    // The package's sweep along (g.x, g.y), drawn (x, y x 0.68) and read as world (y / tilt), times the stretch, is the unit world direction.
+    const wx = g.x * g.stretch
+    const wy = g.y * 0.68 / tilt * g.stretch
+    const d = Math.hypot(x, y)
+    assert.ok(Math.abs(wx - x / d) < 1e-12 && Math.abs(wy - y / d) < 1e-12, `${x},${y}`)
+  }
+  assert.equal(gaitPace(undefined, 0.2, 0.5, 3), 0.5)
+  assert.equal(gaitPace({ rate: 1, minPace: 0.2 }, 0.1, 0.5, 3), 0.2)
+  assert.equal(gaitPace({ rate: 1, minPace: 0.2 }, 0.3, 0.5, 3), 0.3)
+  assert.equal(gaitPace({ rate: 1, minPace: 0.2 }, 9, 0.5, 3), 3)
 })

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type ClipName, type EyeBone, type Matrix, type PoseOptions, multiply, regionMatrix } from '../../../../plunder-land-client/src/peep/rig'
-import { ROBOT_RIGS, type RobotRig } from '../../../../plunder-land-client/src/robots/robotrig'
+import { ROBOT_RIGS, actionOnMove, type RobotRig } from '../../../../plunder-land-client/src/robots/robotrig'
 import { chargedEyeMarks, SHOT } from '../../../../plunder-land-client/src/robots/eyeshot'
 import { SPRING_STROKES } from '../../../../plunder-land-client/src/hopper/rig'
 
@@ -157,3 +157,19 @@ function check (rig: RobotRig): void {
 }
 
 for (const rig of Object.values(ROBOT_RIGS)) check(rig)
+
+// Decision #52 A1: while a robot moves, its standing shot carries on as the
+// eye shot over the run (any time: the charge and the fire stay), and its
+// swing ends once past its blow (`melee_hit`, each rig's own), never before.
+test('a moving robot\'s shot turns into the eye shot and its swing ends from its blow on', () => {
+  const blows: Record<string, number> = { peep: 0.30, magnet: 0.42, periscope: 0.38, hopper: 0.39, waddle: 0.43 }
+  for (const rig of Object.values(ROBOT_RIGS)) {
+    const blow = rig.clips.swing.events.find((e) => e.name === 'melee_hit')?.time
+    assert.equal(blow, blows[rig.sheet], rig.sheet)
+    assert.equal(actionOnMove(rig, 'swing', blow! - 0.001), 'play', rig.sheet)
+    assert.equal(actionOnMove(rig, 'swing', blow!), 'end', rig.sheet)
+    assert.ok(blow! < rig.clips.swing.duration, rig.sheet)
+    for (const t of [0, SHOT.fire - 0.01, SHOT.fire, 0.7]) assert.equal(actionOnMove(rig, 'shoot', t), 'eye', `${rig.sheet} ${t}`)
+    assert.equal(actionOnMove(rig, 'fall_apart', 0.5), 'play', rig.sheet)
+  }
+})

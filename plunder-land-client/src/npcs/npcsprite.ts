@@ -1,8 +1,10 @@
 import { AlphaFilter, Assets, BLEND_MODES, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Rectangle, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
-import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig } from './npcrig'
+import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig, gaitDirection, gaitPace, yieldsToMovement } from './npcrig'
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
+import { HitOverlay } from '../vfx/hitoverlay'
+import { TILT } from '../objects/tilt'
 
 /** An `NpcMasked` drawn: its images in a container cut by its mask sprite. */
 interface MaskedGroup {
@@ -13,7 +15,7 @@ interface MaskedGroup {
 
 /** A clip played over the idle/move loop, then gone (death holds). */
 interface Action {
-  role: 'attack' | 'hit' | 'death' | 'spawn' | 'prime'
+  role: 'attack' | 'death' | 'spawn' | 'prime'
   clip: string
   /** Clip seconds; negative while an attack waits to line its event up with the beam. */
   t: number
@@ -35,20 +37,23 @@ interface Action {
  * - The idle/move loop follows movement (`setMoving`), along the ground
  *   direction it last moved in (`setDirection`): an NPC's body never turns,
  *   its gait points. The move loop runs at `RobotSprite.RUN_RATE` times the
- *   ground speed over `STRIDE_SPEED`, like the robots' (`setPace`).
+ *   ground speed over `STRIDE_SPEED`, like the robots' (`setPace`); a rig
+ *   with a `gait` (the Crawler, decision #52 lane 3) runs it at its own rate,
+ *   pace floor and, with `groundTilt`, pointed and timed for the game's
+ *   squash (`gaitDirection`).
  * - `play` lays an action over it: an attack (aimed, and started so that its
  *   event lands `lead` seconds after the effect: the Crawler's shot at
  *   0.34 s `SHOT.fire` after, when `RangedAttackEffect` fires the beam; the
  *   Compactor's impact on the server's `impactMs`; the Reactor's release on
- *   its effect 12, l1-9), a hit (with a code hit flash, which the packages
- *   leave to the game), a death (from `death.from`, held at its end; from the
+ *   its effect 12, l1-9), a death (from `death.from`, held at its end; from the
  *   pose shown, an attack's included, with `death.fromAction`), a spawn (the
  *   Broodling's emerge, drawn in place, on the Brood's release) or a prime
  *   (the Broodling's tell, l1-7: the end of its detonate, which a death then
- *   carries on rather than restarts). A death is never replaced; a hit
- *   doesn't cut a spawn, a prime, an attack before its event, or any of an
- *   attack with `refusesHit`. With `holdGaitOnHit` the idle/move clock
- *   waits while a hit plays.
+ *   carries on rather than restarts). A death is never replaced. An attack
+ *   past its event and a spawn once ready end when it moves
+ *   (`yieldsToMovement`, decision #52 A1), so planted feet don't slide.
+ * - `hit` is an overlay, never a clip (decision #52): a tint flash and a
+ *   small jolt of the drawn body (`HitOverlay`), over whatever plays.
  * - `poseOptions` feeds the package's pose parameters each frame (the
  *   Broodling's cord length from its fuse left).
  *
@@ -65,10 +70,6 @@ interface Action {
  * in the scene, as `RobotSprite`'s.
  */
 export class NpcSprite extends Container {
-  /** How long a hit tints it, seconds. */
-  static readonly HIT_FLASH_S = 0.12
-  /** The hit flash's tint (a tint can only darken: red reads as a flash on these colours). */
-  static readonly HIT_TINT = 0xff6a5a
   /** How far short of `roles.death.from` a prime holds: at it, the rig already draws the blast. */
   static readonly PRIME_HOLD_S = 0.001
   /** The cast shadow's opacity, as the robots' (`RobotSprite.CAST_ALPHA`). */
@@ -100,12 +101,14 @@ export class NpcSprite extends Container {
   private baseTime = 0
   private pace = 1
   private direction = { x: 0, y: 1 }
+  /** How much faster the move loop runs along `direction` (`gaitDirection`); 1 without a `groundTilt`. */
+  private stretch = 1
   private action: Action | undefined
   /** The last idle/move pose shown: what an action starts from. */
   private last: NpcPose | undefined
   /** The last pose shown, an action's included: what a `fromAction` death starts from. */
   private shownPose: NpcPose | undefined
-  private flashLeft = 0
+  private readonly hitShown = new HitOverlay()
   /** Seconds since it was made, for the rigs' own clocks (`NpcPoseOptions.clock`: the Kiln's furnace, the Brood's lamps). */
   private age = 0
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
@@ -146,12 +149,15 @@ export class NpcSprite extends Container {
 
   /** The ground direction it moves along (world x and y); a zero vector keeps the last. */
   setDirection (x: number, y: number): void {
-    if (Math.hypot(x, y) > 1e-6) this.direction = { x, y }
+    if (Math.hypot(x, y) <= 1e-6) return
+    const d = gaitDirection(this.npc.gait, x, y, TILT)
+    this.direction = { x: d.x, y: d.y }
+    this.stretch = d.stretch
   }
 
   /** Ground speed over `RobotSprite.STRIDE_SPEED`; scales the move loop only. */
   setPace (pace: number): void {
-    this.pace = Math.min(RobotSprite.MAX_PACE, Math.max(RobotSprite.MIN_PACE, pace))
+    this.pace = gaitPace(this.npc.gait, pace, RobotSprite.MIN_PACE, RobotSprite.MAX_PACE)
   }
 
   /** Whether it has a clip for `role`. */
@@ -162,7 +168,6 @@ export class NpcSprite extends Container {
   private clipFor (role: Action['role']): string | undefined {
     const roles = this.npc.roles
     if (role === 'attack') return roles.attack?.clip
-    if (role === 'hit') return roles.hit
     if (role === 'death') return roles.death?.clip
     if (role === 'prime') return roles.prime?.clip
     return roles.spawn?.clip
@@ -179,11 +184,8 @@ export class NpcSprite extends Container {
     if (clip === undefined) return false
     const current = this.action
     if (current?.role === 'death') return false
-    if (role === 'hit') {
-      this.flashLeft = NpcSprite.HIT_FLASH_S
-      if (current?.role === 'spawn' || current?.role === 'prime') return false
-      if (current?.role === 'attack' && (this.npc.roles.attack?.refusesHit === true || current.t < (this.npc.roles.attack?.event ?? 0))) return false
-    }
+    // A death takes over from a hit's flash and jolt, as a robot's fall_apart does (lane-1 F2).
+    if (role === 'death') this.hitShown.clear()
     const roles = this.npc.roles
     // A death on the clip a prime is already playing (the Broodling's
     // detonate) carries on from where the prime is, never earlier than the
@@ -201,6 +203,15 @@ export class NpcSprite extends Container {
     const from = role === 'death' && roles.death?.fromAction === true ? this.shownPose ?? this.last : this.last
     this.action = { role, clip, t, aim, from }
     return true
+  }
+
+  /**
+   * Took damage: the hit overlay (`HitOverlay`), over whatever plays; no
+   * clip. Not shown again within `HitOverlay.RETRIGGER_S`.
+   */
+  hit (): void {
+    if (this.action?.role === 'death') return
+    this.hitShown.trigger()
   }
 
   get dying (): boolean {
@@ -250,9 +261,8 @@ export class NpcSprite extends Container {
   }
 
   update (dt: number): void {
-    const holding = this.action?.role === 'hit' && this.npc.roles.holdGaitOnHit === true
-    if (!holding) this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * this.pace : dt
-    this.flashLeft = Math.max(0, this.flashLeft - dt)
+    this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * (this.npc.gait?.rate ?? 1) * this.stretch * this.pace : dt
+    this.hitShown.advance(dt)
     this.age += dt
     const action = this.action
     if (action !== undefined) {
@@ -267,12 +277,18 @@ export class NpcSprite extends Container {
         action.t = Math.min(action.t, death.from - NpcSprite.PRIME_HOLD_S)
       }
       const duration = this.npc.clips[action.clip].duration
-      const spawn = this.npc.roles.spawn
-      const done = action.role === 'spawn' && spawn !== undefined && this.moving && action.t >= spawn.ready
+      const done = this.moving && yieldsToMovement(this.npc.roles, action.role, action.t)
       const held = action.role === 'death' || (action.role === 'prime' && death !== undefined && action.clip === death.clip)
       if (!held && (action.t >= duration || done)) this.action = undefined
     }
     if (dt > 0 && !this.shown()) return
+
+    // The hit's jolt moves the drawn body only, its cast shadow with it; the
+    // contact shadows stay put. Back from the way it faces: an action's aim,
+    // else its direction (lane-1 F3).
+    const jolt = this.hitShown.jolt((this.action?.aim ?? this.direction).x < 0 ? -1 : 1)
+    this.rig.x = jolt
+    this.castRig.x = jolt
 
     const playing = this.action
     const roles = this.npc.roles
@@ -298,7 +314,7 @@ export class NpcSprite extends Container {
     let graphics = 0
     let groups = 0
     let open: Graphics | undefined
-    const tint = this.flashLeft > 0 ? NpcSprite.HIT_TINT : 0xffffff
+    const tint = this.hitShown.flashing ? HitOverlay.TINT : 0xffffff
     for (const item of list.items) {
       if (item.kind === 'image') {
         open = undefined

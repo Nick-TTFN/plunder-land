@@ -14,6 +14,7 @@ import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { Walls } from './walls'
 import { SETTINGS } from '../net/settings'
+import { hitSpark } from '../vfx/npcfx'
 
 export default class Player extends Unit {
   skills: Skill[]
@@ -177,9 +178,14 @@ export default class Player extends Unit {
     else super.flip(left)
   }
 
+  /**
+   * A hit is an overlay over whatever plays (decision #52), never the hit
+   * clip: the rig's flash and jolt, and the spark NPCs show too. A killing
+   * blow's fall_apart (from dispose) ends it.
+   */
   onHurt (): void {
-    // A killing blow's fall_apart (from dispose) replaces this.
-    this.robot?.play('hit')
+    this.robot?.hit()
+    hitSpark(this)
   }
 
   /**

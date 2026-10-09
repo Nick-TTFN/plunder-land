@@ -491,10 +491,9 @@ export const BROOD_RIG: NpcRig = Object.freeze({
     move: 'move',
     // The release (effect 19), started on its `spawn` event, the launch, so
     // the Broodling's emerge (played on the same effect) starts with it. The
-    // package queues a hit during it; here the hit only flashes.
-    attack: Object.freeze({ clip: 'spawn', event: SPAWN_EVENT, refusesHit: true }),
+    // package queues a hit during it; hits are an overlay here (#52).
+    attack: Object.freeze({ clip: 'spawn', event: SPAWN_EVENT }),
     hit: 'hit',
-    holdGaitOnHit: true,
     // From the pose shown (the package's captured death, opt-in in v15), a release's included.
     death: Object.freeze({ clip: 'death', from: 0, fromAction: true })
   }),

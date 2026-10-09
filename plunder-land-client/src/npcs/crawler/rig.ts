@@ -1,6 +1,6 @@
 import { type Matrix, multiply } from '../../peep/rig'
 import { cssColour } from '../colour'
-import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcEllipse, type NpcPose, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcEllipse, type NpcGait, type NpcPose, type NpcRig } from '../npcrig'
 
 /**
  * The Scrap Crawler (l1-8): a hand port of `tools/rig.mjs` in its Codex
@@ -29,6 +29,22 @@ export const CLIPS: Readonly<Record<string, NpcClip>> = Object.freeze({
 })
 
 export const CONFIG = Object.freeze({ tilt: 0.68, bodyHeight: 32, upperLength: 44, lowerLength: 64, stride: 20, duty: 0.62, nominalSpeed: 20 / 0.62 / 0.72, lift: 12 })
+
+/**
+ * The game's gait (decision #52 lane 3, a foot-slide trial; PROVISIONAL until
+ * Nick has seen it). The package's walk (stride 20, `CONFIG`) covers 44.8 rig
+ * units a clip second, 8.6 world units at clip rate 1, a tenth of the chase's
+ * 90 u/s: its feet slid 88% (strand B). So the game runs a 3x stride, as far
+ * as the legs reach without the knee going straight or a foot meeting its
+ * neighbour (`npcrigs.spec.ts` holds both), and the loop `rate` times faster:
+ * `rate` = `STRIDE_SPEED` / (`RUN_RATE` x stride / duty / 0.72 x
+ * `RobotSprite.SCALE` x `sizeScale`) = 140 / (2 x 134.4 x 0.1921) = 2.71,
+ * about 4.8 steps a second per leg at 90 u/s. `minPace` lets idle wander
+ * (30 u/s, pace 0.21) run the legs at its own speed; `groundTilt` points and
+ * times the stride for the game's squash (`gaitDirection`). Change the
+ * stride and the rate together.
+ */
+export const GAIT: NpcGait & { readonly stride: number } = Object.freeze({ stride: 60, rate: 2.71, minPace: 0.2, groundTilt: CONFIG.tilt })
 
 interface Vec { x: number, y: number }
 interface Vec3 { x: number, y: number, z: number }
@@ -115,9 +131,10 @@ export interface Presence {
   dead?: boolean
 }
 
-interface PresenceOptions { idleTime?: number, idleWeight?: number, phase?: number, speed?: number, velocity?: Vec, expression?: number }
+/** `nominalSpeed`: the run's own ground speed, rig units per clip second (`CONFIG.nominalSpeed` at the package's stride). */
+interface PresenceOptions { idleTime?: number, idleWeight?: number, phase?: number, speed?: number, velocity?: Vec, expression?: number, nominalSpeed?: number }
 
-function presencePose (time: number, { idleTime = time, idleWeight = 1, phase = 0, speed = 0, velocity = { x: 0, y: 0 }, expression = 1 }: PresenceOptions = {}): Presence {
+function presencePose (time: number, { idleTime = time, idleWeight = 1, phase = 0, speed = 0, velocity = { x: 0, y: 0 }, expression = 1, nominalSpeed = CONFIG.nominalSpeed }: PresenceOptions = {}): Presence {
   const t = wrap(idleTime / CLIPS.idle.duration) * CLIPS.idle.duration
   const breathe = Math.sin(TAU * t / 2.8)
   const inspect = windowPulse(t, 1.35, 4.8)
@@ -127,16 +144,16 @@ function presencePose (time: number, { idleTime = time, idleWeight = 1, phase = 
   const weight = windowPulse(t, 4.75, 6.45)
   const amount = Math.max(0, Math.min(1.5, expression))
   const w = idleWeight * amount
-  const effort = Math.min(1, speed / CONFIG.nominalSpeed)
+  const effort = Math.min(1, speed / nominalSpeed)
   const runWeight = 1 - idleWeight
   return {
-    x: w * (2.8 * Math.sin(TAU * t / 8.4) + 2.2 * (right - left) - 3.2 * weight) + runWeight * amount * velocity.x / CONFIG.nominalSpeed * 0.9,
+    x: w * (2.8 * Math.sin(TAU * t / 8.4) + 2.2 * (right - left) - 3.2 * weight) + runWeight * amount * velocity.x / nominalSpeed * 0.9,
     y: w * (1.4 * Math.sin(TAU * t / 4.2) - 1.8 * inspect),
     z: idleWeight * 0.65 * breathe + w * (1.6 * breathe + 4.4 * inspect - 3.6 * settle) + runWeight * (1 + amount * 0.75) * Math.sin(TAU * phase * 2) * effort,
     pitch: w * (0.035 * inspect - 0.028 * settle),
     roll: w * (0.028 * (right - left) - 0.025 * weight),
-    sensorX: w * (2.2 * (right - left)) + runWeight * amount * velocity.x / CONFIG.nominalSpeed * 1.2,
-    sensorY: w * (-1.15 * inspect) + runWeight * amount * velocity.y / CONFIG.nominalSpeed * 0.7,
+    sensorX: w * (2.2 * (right - left)) + runWeight * amount * velocity.x / nominalSpeed * 1.2,
+    sensorY: w * (-1.15 * inspect) + runWeight * amount * velocity.y / nominalSpeed * 0.7,
     focus: 1 - 0.8 * w * windowPulse(t, 6.8, 7.2),
     glow: 0.7 + 0.3 * Math.sin(TAU * time / 2.8) + w * 0.35 * inspect,
     idleTime: t,
@@ -219,6 +236,12 @@ export interface CrawlerOptions {
   expression?: number
   /** The pose an action starts from (fire, hit, fall_apart); default idle at 0. */
   basePose?: BasePose
+  /**
+   * The run's stride, rig units; default the package's `CONFIG.stride`. The
+   * game runs a longer one (`GAIT.stride`, decision #52 lane 3). Its run
+   * speed scales with it, so the run's lean and bob are the same at any stride.
+   */
+  stride?: number
 }
 
 interface Performance extends PresenceOptions { presenceOverride?: Presence }
@@ -417,6 +440,8 @@ export function animationPose (name: string, seconds: number, options: CrawlerOp
   const t = clip.loop ? wrap(seconds / clip.duration) * clip.duration : seconds
   const dir = normalized(options.directionX ?? 0, options.directionY ?? 1)
   const phase = t / CLIPS.run.duration
+  const stride = options.stride ?? CONFIG.stride
+  const nominalSpeed = options.stride === undefined ? CONFIG.nominalSpeed : stride / CONFIG.duty / CLIPS.run.duration
   const feet = LEGS.map((l): Foot => {
     if (name !== 'run') {
       if (name === 'idle' && l.id === LEGS[IDLE_GESTURE.leg].id) {
@@ -433,15 +458,15 @@ export function animationPose (name: string, seconds: number, options: CrawlerOp
     const contact = p < CONFIG.duty
     let s: number
     let z = 0
-    if (contact) s = CONFIG.stride / 2 - CONFIG.stride * p / CONFIG.duty
+    if (contact) s = stride / 2 - stride * p / CONFIG.duty
     else {
       const q = (p - CONFIG.duty) / (1 - CONFIG.duty)
-      s = lerp(-CONFIG.stride / 2, CONFIG.stride / 2, ease(q))
+      s = lerp(-stride / 2, stride / 2, ease(q))
       z = CONFIG.lift * Math.sin(Math.PI * q) ** 2
     }
     return { x: l.home.x + dir.x * s, y: l.home.y + dir.y * s, z, contact }
   })
-  return composePose(name, t, feet, phase, name === 'run' ? CONFIG.nominalSpeed : 0, { expression: options.expression ?? 1, velocity: { x: dir.x * CONFIG.nominalSpeed, y: dir.y * CONFIG.nominalSpeed } })
+  return composePose(name, t, feet, phase, name === 'run' ? nominalSpeed : 0, { expression: options.expression ?? 1, velocity: { x: dir.x * nominalSpeed, y: dir.y * nominalSpeed }, nominalSpeed })
 }
 
 const SHADOW = 0x000000
@@ -550,6 +575,7 @@ export const CRAWLER_RIG: NpcRig = Object.freeze({
   sizeScale: 0.89,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
+  gait: GAIT,
   roles: Object.freeze({
     idle: 'idle',
     move: 'run',
@@ -559,7 +585,7 @@ export const CRAWLER_RIG: NpcRig = Object.freeze({
   }),
   pose: (clip: string, seconds: number, direction: { x: number, y: number }, aim?: { x: number, y: number }, from?: NpcPose): NpcPose => {
     const base = from === undefined ? undefined : from.state as CrawlerPose
-    const pose = animationPose(clip, seconds, { directionX: direction.x, directionY: direction.y, aimX: aim?.x, aimY: aim?.y, basePose: base })
+    const pose = animationPose(clip, seconds, { directionX: direction.x, directionY: direction.y, aimX: aim?.x, aimY: aim?.y, basePose: base, stride: GAIT.stride })
     return { clip, time: seconds, muzzle: pose.state.effects?.shotOrigin ?? pose.state.effects?.muzzle ?? muzzleOf(pose), state: pose }
   },
   draw: (pose: NpcPose): NpcDrawList => draw(pose.state as CrawlerPose),

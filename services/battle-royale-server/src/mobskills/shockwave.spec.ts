@@ -311,7 +311,7 @@ test('killing the Compactor during the wind-up cancels the slam', () => {
   assert.deepEqual(player.position, Hex.toPosition(cell(1)))
 })
 
-test('the Compactor casts at a target within 2 rings, then stands still until the impact', () => {
+test('the Compactor casts at a target within 2 rings, then stands still through the impact until its hold ends at 1750', () => {
   const mob = addMob(cell(0))
   const player = addPlayer(cell(3))
   const { skill } = shockwaveOf(mob)
@@ -332,7 +332,13 @@ test('the Compactor casts at a target within 2 rings, then stands still until th
   Timers.run(Date.now() + skill.impactMs)
   assert.equal(skill.windingUp, false)
   mob.update(0.25)
-  assert.ok(mob.stepGoal !== undefined, 'the guard does not steer again after the impact')
+  assert.equal(mob.stepGoal, undefined, 'the guard steers again at the impact, before the hold ends')
+  assert.deepEqual(mob.position, held, 'moved after the impact, inside the hold')
+  const routine = mob.routines.find((r): r is ShockwaveRoutine => r instanceof ShockwaveRoutine) as ShockwaveRoutine
+  assert.equal(routine.holdMs, 1750)
+  Timers.run(Date.now() + routine.holdMs)
+  mob.update(0.25)
+  assert.ok(mob.stepGoal !== undefined, 'the guard does not steer again after the hold')
 })
 
 // --- the client's cells ----------------------------------------------------------

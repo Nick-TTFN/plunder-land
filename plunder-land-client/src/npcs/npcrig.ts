@@ -53,6 +53,60 @@ export interface NpcRig {
   readonly draw: (pose: NpcPose, options?: NpcDrawOptions) => NpcDrawList
   /** Every image the draw list may name, with its full size in the package's art pixels. */
   readonly arts: Readonly<Record<string, { readonly w: number, readonly h: number }>>
+  /** How its move loop is timed against ground speed, if not as every other NPC's (`NpcGait`). */
+  readonly gait?: NpcGait
+}
+
+/**
+ * A rig's own gait timing (decision #52 lane 3, the Crawler's foot-slide
+ * trial; PROVISIONAL until Nick has seen it). Without it, a rig's move loop
+ * runs at `RobotSprite.RUN_RATE` times its pace, pace clamped at
+ * `RobotSprite.MIN_PACE`, along the direction it moves: the same for every
+ * NPC whatever its stride, so planted feet slide (strand B measured 88-99%).
+ */
+export interface NpcGait {
+  /**
+   * The move loop's rate on top of `RobotSprite.RUN_RATE`, as a robot's
+   * `runRate`: picked with the rig's stride so that a planted foot keeps
+   * still on the ground at any unclamped pace.
+   */
+  readonly rate: number
+  /** The least pace, in place of `RobotSprite.MIN_PACE` (a fast gait at the shared floor runs its legs too fast at idle). */
+  readonly minPace: number
+  /**
+   * The package's own ground squash (y times this on screen; the Crawler's
+   * 0.68). Set, the gait is pointed and timed for the game's squash instead
+   * (`gaitDirection`): a planted foot then keeps still going any way, not
+   * only east and west.
+   */
+  readonly groundTilt?: number
+}
+
+/**
+ * The ground direction to hand a rig's pose for a unit moving along world
+ * `x, y`, and how much faster than its rate the loop must run that way
+ * (`stretch`). A package lays its stride along the direction and draws
+ * ground y at `groundTilt`; the game draws world y at `tilt` (`objects/tilt.ts`
+ * `TILT`). So the direction's y is scaled by `tilt / groundTilt`, which
+ * points the stride along the motion as drawn, and the loop runs `stretch`
+ * times faster, so that a stride covers the same world distance any way:
+ * 1 east and west, `groundTilt / tilt` slower going north or south (1.36x for the
+ * Crawler) and in between on a diagonal. A rig without `groundTilt` keeps the
+ * direction and a stretch of 1.
+ */
+export function gaitDirection (gait: NpcGait | undefined, x: number, y: number, tilt: number): { x: number, y: number, stretch: number } {
+  if (gait?.groundTilt === undefined) return { x, y, stretch: 1 }
+  const k = tilt / gait.groundTilt
+  const d = Math.hypot(x, y * k)
+  if (d < 1e-12) return { x, y, stretch: 1 }
+  const dx = x / d
+  const dy = y * k / d
+  return { x: dx, y: dy, stretch: 1 / Math.hypot(dx, dy / k) }
+}
+
+/** A pace clamped to `[gait.minPace ?? min, max]`, as `NpcSprite.setPace` keeps it. */
+export function gaitPace (gait: NpcGait | undefined, pace: number, min: number, max: number): number {
+  return Math.min(max, Math.max(gait?.minPace ?? min, pace))
 }
 
 export interface NpcClip {
@@ -69,17 +123,16 @@ export interface NpcRoles {
   /**
    * Played on the NPC's attack effect, started so that `attack.event` lands
    * when the server's moment does (the Crawler's beam, the Compactor's
-   * impact, the Reactor's release). With `refusesHit` a hit never cuts it
-   * (the package doesn't support a hit over it): the hit only flashes.
+   * impact, the Reactor's release). Past its event it gives way to movement
+   * (`yieldsToMovement`).
    */
-  readonly attack?: { readonly clip: string, readonly event: number, readonly refusesHit?: boolean }
-  readonly hit?: string
+  readonly attack?: { readonly clip: string, readonly event: number }
   /**
-   * The idle/move clock stands still while a hit plays, so the hit, which
-   * ends exactly on the pose it started from, hands back to the same gait
-   * phase (the Reactor's and the Compactor's packages ask for it).
+   * The package's hit clip. **Never played** (decision #52): a hit is an
+   * overlay (`vfx/hitoverlay.ts`), never a body clip. Kept as data so the
+   * port and its fixtures still name and check it.
    */
-  readonly holdGaitOnHit?: boolean
+  readonly hit?: string
   /**
    * Played on death; with `deathHolds`, from `death.from` seconds in (the
    * Broodling's blast). With `fromAction` it starts from the pose shown, an
@@ -195,6 +248,20 @@ export type NpcDrawItem = NpcImage | NpcMasked | NpcMark
 export interface NpcDrawList {
   readonly ground: NpcEllipse[]
   readonly items: NpcDrawItem[]
+}
+
+/**
+ * Whether an action clip `t` seconds in ends when its NPC is moving (A1,
+ * decision #52): an attack once past its event (the moment it exists for:
+ * the Crawler's shot, the Kiln's launch, the Brood's release, the Coil's
+ * hold end, the Reactor's release start, the Compactor's impact), a spawn
+ * once it is `ready`. The planted feet would otherwise slide while the body
+ * moves on. Before that moment it plays on; a death and a prime never yield.
+ */
+export function yieldsToMovement (roles: NpcRoles, role: 'attack' | 'death' | 'spawn' | 'prime', t: number): boolean {
+  if (role === 'attack') return roles.attack !== undefined && t >= roles.attack.event
+  if (role === 'spawn') return roles.spawn !== undefined && t >= roles.spawn.ready
+  return false
 }
 
 /**

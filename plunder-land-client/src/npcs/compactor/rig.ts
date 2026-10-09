@@ -613,10 +613,9 @@ export const COMPACTOR_RIG: NpcRig = Object.freeze({
     move: 'run',
     // The strike (effect 14), started so its `attack` event, the shoe on the
     // floor, lands on the server's impact (`impactMs` after the cast). The
-    // package doesn't support a hit over it.
-    attack: Object.freeze({ clip: 'fire', event: IMPACT_TIME, refusesHit: true }),
+    // package has no hit over it; hits are an overlay (#52).
+    attack: Object.freeze({ clip: 'fire', event: IMPACT_TIME }),
     hit: 'hit',
-    holdGaitOnHit: true,
     // It falls apart from whatever it shows, any stage of the strike included.
     death: Object.freeze({ clip: 'fall_apart', from: 0, fromAction: true })
   }),
