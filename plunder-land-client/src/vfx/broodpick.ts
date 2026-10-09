@@ -61,8 +61,9 @@ export function pickReleased<T extends ReleaseCandidate> (
 /**
  * How long a released Broodling is drawn over the Brood that released it
  * (decision #52 open items, 5): its emerge, the server's `emergeMs`
- * (`brood.spec.ts` holds the two equal). Its release cell is a neighbour of
- * the Brood's, and the Brood, drawn several cells wide, covered it there.
+ * (`brood.spec.ts` holds the two equal). Its release cell is on ring 2 of the
+ * Brood's (ring footprint, option B), and the Brood, drawn about three cells
+ * wide, still covers a ring-2 cell on its north side.
  */
 export const EMERGE_ABOVE_MS = 1500
 
