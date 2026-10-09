@@ -1,7 +1,7 @@
 import { type Matrix, multiply } from '../../peep/rig'
 import { deepClone } from '../clone'
 import { cssColour } from '../colour'
-import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcEllipse, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcEllipse, type NpcGait, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
 
 /**
  * The Brood (l1-9): a hand port of `rig/brood.mjs` in its Codex package
@@ -39,6 +39,21 @@ export const CLIPS: Readonly<Record<string, NpcClip>> = Object.freeze({
 })
 
 export const CONFIG = Object.freeze({ tilt: 0.68, period: 1.3, duty: 0.72, stride: 12, lift: 6, seed: 19 })
+
+/**
+ * The game's gait (decision #52 lane 4, the Crawler's treatment; PROVISIONAL
+ * until Nick has seen it), at the package's own stride. The package's walk
+ * slid 91% at the chase's 60 u/s (strand B). Its painted legs stand at 0.93
+ * of their reach at rest and the walk takes them to 0.975; the package
+ * throws past 1 ('Unreachable leg', from stride 18), and 14-16 would take a
+ * knee to 0.984-0.992, straighter than the art goes, so the stride stays.
+ * `gaitClock` derives the rate from the sweep and the size: planted feet at
+ * chase would need 8.1 steps a second per leg; `maxSteps` holds it at 6, so
+ * at 60 u/s the feet slide 26%, along the motion only; under 44.5 u/s, idle
+ * wander (30 u/s, 4.0 steps) included, they stay planted. `minPace` and
+ * `groundTilt` as the Crawler's.
+ */
+export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.stride / CONFIG.duty / CONFIG.period, period: CONFIG.period, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
 
 /** The release's launch, seconds into `spawn` (the clip's `spawn` event). */
 export const SPAWN_EVENT = 0.18
@@ -486,6 +501,7 @@ export const BROOD_RIG: NpcRig = Object.freeze({
   sizeScale: 2.06,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
+  gait: GAIT,
   roles: Object.freeze({
     idle: 'idle',
     move: 'move',

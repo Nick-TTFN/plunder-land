@@ -688,7 +688,7 @@ test('kiln: at the game\'s stride no knee goes straighter than 0.9 of its reach 
 })
 
 /** The rigs with a gait of their own (decision #52 lanes 3 and 4); the rest run as before. */
-const GAITED = ['crawler', 'kiln', 'compactor', 'reactor']
+const GAITED = ['crawler', 'kiln', 'compactor', 'reactor', 'brood']
 
 /** A package's own draw scale on top of `sizeScale` (the Broodling's `renderScale`): its feet are drawn that much larger. */
 const DRAWN: Readonly<Record<string, number>> = { broodling: broodling.CFG.renderScale }
@@ -766,6 +766,22 @@ test('every NPC with a gait plants its feet at idle wander and chase, any way it
         assert.ok(Math.abs(along - want * v) < 0.01 * v && Math.abs(across) < 0.01 * v, where)
       }
     }
+  }
+  // `period` is one leg's step cycle (the cap counts steps by it): each leg touches down clip / period times a loop.
+  for (const key of GAITED) {
+    const rig = NPC_RIGS[key]!
+    const clip = rig.clips[rig.roles.move].duration
+    const n = 2000
+    const contact = (t: number): boolean[] => legsOf(rig.pose(rig.roles.move, t, { x: 1, y: 0 }, undefined, undefined, { clock: t })).map((l) => l.contact === true)
+    const downs = contact(0).map(() => 0)
+    let before = contact(clip * (n - 1) / n)
+    for (let i = 0; i < n; i++) {
+      const now = contact(clip * i / n)
+      now.forEach((c, k) => { if (c && !before[k]) downs[k]++ })
+      before = now
+    }
+    for (const d of downs) assert.equal(d, Math.round(clip / rig.gait!.period), `${key}: touchdowns per leg in a ${clip} s loop`)
+    assert.ok(Math.abs(clip / rig.gait!.period - Math.round(clip / rig.gait!.period)) < 1e-9, `${key}: the loop is whole steps`)
   }
   // The Crawler, at the chase speed Nick saw (lane 3), is under its cap: planted.
   assert.equal(cappedSlide(crawler.CRAWLER_RIG, chaseSpeed('crawler')), 0)
