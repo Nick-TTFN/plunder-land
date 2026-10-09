@@ -128,7 +128,7 @@ export default class GuardPosition implements IAIRoutine {
     for (const area of World.AREA_EFFECT) {
       if (area.tag !== this.owner.tag) continue
       if (area.target === this.owner) continue
-      if (area.overlaps(this.owner.position)) GuardPosition.provoke(this.owner, area.target as Unit)
+      if (area.overlaps(this.owner.position, this.owner)) GuardPosition.provoke(this.owner, area.target as Unit)
     }
 
     if (

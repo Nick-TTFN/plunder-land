@@ -80,6 +80,15 @@ function mobOn (cell: Vector): Unit {
   return mob
 }
 
+/** A 7-cell body (ring-footprint) with no AI, indexed the server's way so `World.BODIES` files it. */
+function bodyOn (cell: Vector, archetype: (typeof ARCHETYPES)['reactor']): Unit {
+  const at = Hex.toPosition(cell)
+  const body = new Unit(ObjectType.Mob, at.x, at.y, 10, 0, archetype)
+  body.hp = 1000
+  World.addUnit(World.MOBS, body)
+  return body
+}
+
 function playerOn (cell: Vector): Player {
   const at = Hex.toPosition(cell)
   const player = new Player(at.x, at.y, 0, 'caster')
@@ -276,6 +285,9 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
   // and the facing fallback all get compared. A quarter of the crowd are
   // players: a gunner's shot passes the mobs and stops at one of them (#51 Q7),
   // and the client gets only those as bodies, as `RangedAttackEffect` does.
+  // Every other trial one of the crowd is a 7-cell body (Reactor or Brood,
+  // ring-footprint), which a player's shot stops on at any of its cells and
+  // the client's beam stops at the same place.
   let seed = 7
   const rand = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
   const offsetCell = (c: Vector, spread: number): Vector =>
@@ -287,6 +299,8 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
   let unaimed = 0
   let gunnerHits = 0
   let passedMob = 0
+  let ringHits = 0
+  let bodyTrials = 0
   for (let trial = 0; trial < 400; trial++) {
     World.MOBS.length = 0
     World.PLAYERS.length = 0
@@ -311,7 +325,7 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
     for (let i = 0; i < 8; i++) {
       // Every third one shares the previous one's cell; every fourth is a player.
       const cell = i % 3 === 2 ? mobs[i - 1].cell : offsetCell(home, 8)
-      const mob = i % 4 === 1 ? playerOn(cell) : mobOn(cell)
+      const mob = i % 4 === 1 ? playerOn(cell) : i === 0 && trial % 2 === 0 ? bodyOn(cell, trial % 4 === 0 ? ARCHETYPES.reactor : ARCHETYPES.brood) : mobOn(cell)
       mob.armor = 0
       mob.hp = 1000
       mob.position = mob.position.add(new Vector(rand() * 20 - 10, rand() * 20 - 10))
@@ -334,7 +348,8 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
     const toward = aimed ? aim : Hex.neighbour(own, World.FACING_INDEX(shooter.facing))
     const range = Client.rangedRangeCells(archetypeById(shooter.archetype?.id)?.rangedCells, gunnerShot)
     const line = Hex.line(own, toward, range)
-    const toBodies = (us: Unit[]): Client.Body[] => us.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell }))
+    // The client passes a mob's body rings for a player's shot only, as `RangedAttackEffect` does.
+    const toBodies = (us: Unit[]): Client.Body[] => us.map((m) => ({ x: m.position.x, y: m.position.y, cell: m.cell, rings: gunnerShot ? 0 : m.archetype?.bodyRings ?? 0 }))
     const bodies = gunnerShot ? mobs.filter((m) => m.type === ObjectType.Player) : mobs
     const got = Client.firstOnLine(line, shooter.position.x, shooter.position.y, toBodies(bodies))
     assert.equal(got < 0 ? -1 : mobs.indexOf(bodies[got]), struck, `trial ${trial}`)
@@ -345,9 +360,17 @@ test('the client\'s firstOnLine, over the client\'s Hex.line, picks the unit Ran
     if (gunnerShot && struck >= 0 && mobs[Client.firstOnLine(line, shooter.position.x, shooter.position.y, toBodies(mobs))].type === ObjectType.Mob) passedMob++
     if (struck >= 0 && mobs.some((m, i) => i !== struck && m.cell.x === mobs[struck].cell.x && m.cell.y === mobs[struck].cell.y)) sameCell++
     if (!aimed) unaimed++
+    if (trial % 2 === 0) bodyTrials++
+    // The body struck on a ring cell: the beam's stop is not its centre's cell.
+    if (struck >= 0 && mobs[struck].bodyRings > 0) {
+      const b = toBodies([mobs[struck]])[0]
+      const at = Client.lineIndexOf(line, b)
+      assert.ok(at >= 0, `trial ${trial}: struck a body the client does not put on the line`)
+      if (line[at].x !== b.cell.x || line[at].y !== b.cell.y) ringHits++
+    }
   }
-  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50 && gunnerHits > 10 && passedMob > 3,
-    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed, ${gunnerHits} gunner hits, ${passedMob} through a mob: the sample says too little`)
+  assert.ok(compared === 400 && hits > 100 && sameCell > 10 && unaimed > 50 && gunnerHits > 10 && passedMob > 3 && ringHits > 10,
+    `${compared} shots, ${hits} hits, ${sameCell} same-cell hits, ${unaimed} unaimed, ${gunnerHits} gunner hits, ${passedMob} through a mob, ${ringHits} on a body's ring in ${bodyTrials} trials: the sample says too little`)
 })
 
 test('the client\'s firstOnLine and World.FIRST_ON_LINE agree on a line with two units in one cell', () => {

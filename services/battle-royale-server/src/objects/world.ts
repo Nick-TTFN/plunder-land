@@ -340,6 +340,7 @@ export default class World {
     if (list === (World.PLAYERS as unknown as Unit[])) World.INTEREST.insert(unit as Player)
     World.UNITS.record()
     World.INTEREST.record()
+    World.fileBody(unit)
   }
 
   /** Splice entry `index` out of `list` (PLAYERS or MOBS), unindexed. */
@@ -351,6 +352,7 @@ export default class World {
       World.UNITS.delete(unit)
       World.INTEREST.delete(unit as Player)
       World.releaseStep(unit)
+      World.unfileBody(unit)
     }
     World.UNITS.record()
     World.INTEREST.record()
@@ -360,6 +362,9 @@ export default class World {
   static unitMoved (unit: Unit): void {
     World.UNITS.moved(unit)
     World.INTEREST.moved(unit as Player)
+    // Only a body `addUnit` filed: one still being built, or one a spec
+    // never added, files nothing.
+    if (unit.bodyRings > 0 && World.BODY_AT.has(unit)) World.fileBody(unit)
   }
 
   /**
@@ -613,6 +618,8 @@ export default class World {
   static set GATES (value: CellIndex<GameObject>) { World.current.GATES = value }
   static get STEPS (): Map<number, Map<number, Unit>> { return World.current.STEPS }
   static set STEPS (value: Map<number, Map<number, Unit>>) { World.current.STEPS = value }
+  static get BODIES (): Map<number, Map<number, Unit>> { return World.current.BODIES }
+  static get BODY_AT (): Map<Unit, { tag: number, q: number, r: number }> { return World.current.BODY_AT }
 
   /**
    * A new world, made current and left current (the server's `Worlds`
@@ -1129,7 +1136,8 @@ export default class World {
    * One mob of `archetype` on `layer`, carrying the layer's loot, if a free
    * spot turns up: a cell centre `getUnobstructedPosition` would pick that a
    * mob may also stand on (`mobCanEnter`: no gate, no arrival cell, no other
-   * mob). Nothing pushes units apart any more (hex-cells P2), so a mob placed
+   * mob), and for a body (ring-footprint) every cell of its body (`mobFits`).
+   * Nothing pushes units apart any more (hex-cells P2), so a mob placed
    * on a gate or on another mob would stay there.
    */
   private spawnMob (archetype: Archetype, layer: LayerSpec): void {
@@ -1138,7 +1146,7 @@ export default class World {
       const candidate = this.getUnobstructedPosition(layer.tag)
       if (candidate === undefined) return
       const cell = Hex.toCell(candidate)
-      if (World.mobCellFree(cell.x, cell.y, layer.tag)) pos = candidate
+      if (World.mobFits(cell.x, cell.y, layer.tag, archetype.bodyRings ?? 0)) pos = candidate
     }
     if (pos === undefined) return
     this.placeMob(archetype, pos, layer)
@@ -1458,7 +1466,10 @@ export default class World {
    * Units standing within `rings` cells of `origin` (a cell, not a position):
    * `rings` 0 is the origin cell alone, 1 adds its 6 neighbours, 2 is 19 cells.
    * A unit is in the area if the cell under its centre is, so an area is
-   * exactly the cells it covers, however big the unit.
+   * exactly the cells it covers, however big the unit is drawn. A body
+   * (ring-footprint, `BODIES`) is in it if any of its 7 cells is, once, when
+   * `typeMask` includes `Mob`: every player attack that can hit mobs. The
+   * NPCs' own attacks ask for players only and never look.
    *
    * N rings is every cell whose centre is at most N * Hex.SIZE from the
    * origin's centre (the ring's corners are at N * 45, its flat sides at
@@ -1471,10 +1482,15 @@ export default class World {
     typeMask: number
   ): Unit[] {
     const result = new Array<Unit>()
+    const bodies = (typeMask & ObjectType.Mob) !== 0
     World.forKeysWithin(origin, rings, (key) => {
       for (const unit of World.UNITS.at(tag, key)) {
-        if ((unit.type & typeMask) !== 0) result.push(unit)
+        // A body may already be in from one of its ring cells.
+        if ((unit.type & typeMask) !== 0 && (!bodies || unit.bodyRings === 0 || !result.includes(unit))) result.push(unit)
       }
+      if (!bodies) return
+      const body = World.bodyAt(tag, key)
+      if (body !== undefined && !result.includes(body)) result.push(body)
     })
     return result
   }
@@ -1601,32 +1617,114 @@ export default class World {
    */
   STEPS: Map<number, Map<number, Unit>> = new Map()
 
-  /** Claim `from` and `to` on the mob's layer for a step. */
+  /**
+   * The ring cells of every unit with a body (ring-footprint, decision #52
+   * open item 6; `ArchetypeInfo.bodyRings` 1: the Reactor and the Brood), by
+   * layer and `Hex.key`: the 6 cells around the cell under its centre, which
+   * `UNITS` holds as for any unit. A body is hit by a player's attack on any
+   * of its 7 cells (`FIND_IN_CELLS` with `Mob` in the mask, `FIRST_ON_LINE`,
+   * `Throwable.findHit`, `SectorArea.overlaps`), and holds them against other
+   * mobs (`mobHolds`). Players walk through it, as through any mob.
+   *
+   * Written only by `fileBody` and `unfileBody`: filed by `addUnit`, refiled
+   * from the unit's own placement (`unitMoved`, from `Unit.placed`), unfiled
+   * by `removeUnitAt`. One unit per key: bodies never overlap, since a body
+   * spawns and steps only where all 7 of its cells are free (`mobFits`).
+   * Like a `STEPS` claim, an entry counts only while its unit is live and
+   * indexed (`bodyAt`), so a body that died before the sweep, or one a spec
+   * emptied out of `MOBS`, holds and is hit on nothing.
+   */
+  BODIES: Map<number, Map<number, Unit>> = new Map()
+  /** Where `BODIES` has each body filed: its layer and centre cell. Also the membership test. */
+  BODY_AT: Map<Unit, { tag: number, q: number, r: number }> = new Map()
+
+  /** File `unit`'s ring cells in `BODIES` (or refile them, if it moved cell or layer). Nothing for a unit with no body. */
+  static fileBody (unit: Unit): void {
+    const rings = unit.bodyRings
+    if (rings <= 0) return
+    const cell = Hex.toCell(unit.position)
+    const slot = World.BODY_AT.get(unit)
+    if (slot !== undefined && slot.tag === unit.tag && slot.q === cell.x && slot.r === cell.y) return
+    World.unfileBody(unit)
+    let cells = World.BODIES.get(unit.tag)
+    if (cells === undefined) {
+      cells = new Map()
+      World.BODIES.set(unit.tag, cells)
+    }
+    const ring = cells
+    World.forKeysWithin(cell, rings, (key, distance) => {
+      if (distance > 0) ring.set(key, unit)
+    })
+    World.BODY_AT.set(unit, { tag: unit.tag, q: cell.x, r: cell.y })
+  }
+
+  /** Take `unit`'s ring cells out of `BODIES`, where it still holds them. */
+  static unfileBody (unit: Unit): void {
+    const slot = World.BODY_AT.get(unit)
+    if (slot === undefined) return
+    World.BODY_AT.delete(unit)
+    const cells = World.BODIES.get(slot.tag)
+    if (cells === undefined) return
+    World.forKeysWithin(new Vector(slot.q, slot.r), unit.bodyRings, (key) => {
+      if (cells.get(key) === unit) cells.delete(key)
+    })
+  }
+
+  /**
+   * The live, indexed body whose ring covers cell `key` of layer `tag`, or
+   * undefined. Not the cell under its centre: `UNITS` has that. An entry whose
+   * unit has left the index (a spec emptied the lists) is dropped here.
+   */
+  static bodyAt (tag: number, key: number): Unit | undefined {
+    const cells = World.BODIES.get(tag)
+    if (cells === undefined || cells.size === 0) return undefined
+    const unit = cells.get(key)
+    if (unit === undefined || unit.destroyed) return undefined
+    if (!World.UNITS.has(unit)) {
+      cells.delete(key)
+      return undefined
+    }
+    return unit
+  }
+
+  /**
+   * The cells a step from `from` to `to` holds: both cells, and for a body
+   * every cell of its body at either end (10 for a ring).
+   */
+  private static stepKeys (unit: Unit, from: Vector, to: Vector, fn: (key: number) => void): void {
+    const rings = unit.bodyRings
+    World.forKeysWithin(from, rings, fn)
+    World.forKeysWithin(to, rings, fn)
+  }
+
+  /** Claim `from` and `to` on the mob's layer for a step (with a body, both bodies). */
   static claimStep (unit: Unit, from: Vector, to: Vector): void {
     let cells = World.STEPS.get(unit.tag)
     if (cells === undefined) {
       cells = new Map()
       World.STEPS.set(unit.tag, cells)
     }
-    cells.set(Hex.key(from.x, from.y), unit)
-    cells.set(Hex.key(to.x, to.y), unit)
+    const claimed = cells
+    World.stepKeys(unit, from, to, (key) => { claimed.set(key, unit) })
   }
 
   /** Drop whatever `unit` claimed for its step, if it is still the claimant. */
   static releaseStep (unit: Unit): void {
     const cells = World.STEPS.get(unit.tag)
     if (cells === undefined) return
-    for (const cell of [unit.stepFrom, unit.stepTo]) {
-      if (cell === undefined) continue
-      const key = Hex.key(cell.x, cell.y)
+    const from = unit.stepFrom ?? unit.stepTo
+    const to = unit.stepTo ?? unit.stepFrom
+    if (from === undefined || to === undefined) return
+    World.stepKeys(unit, from, to, (key) => {
       if (cells.get(key) === unit) cells.delete(key)
-    }
+    })
   }
 
   /**
    * True if a mob other than `except` holds cell (q, r) of layer `tag`: one
-   * stands on it (`UNITS`), or one is stepping out of or into it (`STEPS`).
-   * Dead mobs hold nothing. Lookups only, never a scan.
+   * stands on it (`UNITS`), one is stepping out of or into it (`STEPS`), or
+   * it is a ring cell of a body (`BODIES`). Dead mobs hold nothing. Lookups
+   * only, never a scan.
    */
   static mobHolds (q: number, r: number, tag: number, except?: Unit): boolean {
     const key = Hex.key(q, r)
@@ -1638,7 +1736,8 @@ export default class World {
     for (const unit of World.UNITS.at(tag, key)) {
       if (unit !== except && unit.type === ObjectType.Mob && !unit.destroyed) return true
     }
-    return false
+    const body = World.bodyAt(tag, key)
+    return body !== undefined && body !== except
   }
 
   /**
@@ -1646,9 +1745,47 @@ export default class World {
    * rock or stone, not a portal's or exit's cell, not a portal's arrival cell,
    * and not held by another mob. Players don't count: a mob may share a cell
    * with them (#31 Q2), though its chase stops a ring short of its target.
+   * A body (`bodyRings` > 0) needs that of every cell its body would cover
+   * there (`mobFits`).
    */
   static mobCanEnter (q: number, r: number, mob: Unit): boolean {
+    const rings = mob.bodyRings
+    if (rings > 0) return World.mobFits(q, r, mob.tag, rings, mob)
     return World.mobCellFree(q, r, mob.tag, mob)
+  }
+
+  /**
+   * True if every cell within `rings` of (q, r) on layer `tag` is
+   * `mobCellFree` (ignoring `except`'s own holds): where a body of `rings`
+   * may stand. `rings` 0 is `mobCellFree` of the one cell.
+   */
+  static mobFits (q: number, r: number, tag: number, rings: number, except?: Unit): boolean {
+    for (let dq = -rings; dq <= rings; dq++) {
+      const lo = Math.max(-rings, -dq - rings)
+      const hi = Math.min(rings, -dq + rings)
+      for (let dr = lo; dr <= hi; dr++) {
+        if (!World.mobCellFree(q + dq, r + dr, tag, except)) return false
+      }
+    }
+    return true
+  }
+
+  /**
+   * The cells exactly `k` rings from `centre` (k >= 1), in a fixed order: for
+   * each `Hex.DIRECTIONS` index i, the corner k steps along it, then the
+   * cells on the way to the next corner. Ring 1 is the six neighbours in
+   * `Hex.DIRECTIONS` order.
+   */
+  static ringCells (centre: Vector, k: number): Vector[] {
+    const result: Vector[] = []
+    for (let i = 0; i < 6; i++) {
+      const corner = Hex.DIRECTIONS[i]
+      const side = Hex.DIRECTIONS[(i + 2) % 6]
+      for (let j = 0; j < k; j++) {
+        result.push(new Vector(centre.x + corner.x * k + side.x * j, centre.y + corner.y * k + side.y * j))
+      }
+    }
+    return result
   }
 
   /** `mobCanEnter` for a cell of layer `tag`, ignoring `except`'s own hold (a spawn has none). */
@@ -1722,9 +1859,10 @@ export default class World {
    * The first unit standing on `cells` (a `Hex.line`), walking the line in
    * order: the unit on the earliest cell, and of several on that cell the one
    * whose centre is nearest `from`. A unit is on a cell if the cell under its
-   * centre is, as in `FIND_IN_CELLS`, so a big unit whose body spills into a
-   * line cell is not on it. `exclude` (the caster) and destroyed units are
-   * skipped. Undefined if nobody is on the line.
+   * centre is, as in `FIND_IN_CELLS`, so a big unit drawn spilling into a
+   * line cell is not on it; but a body (ring-footprint, `BODIES`) is on each
+   * of its 7 cells when `typeMask` includes `Mob`. `exclude` (the caster) and
+   * destroyed units are skipped. Undefined if nobody is on the line.
    *
    * This is `RangedAttack`'s hit test (decision #25). The client's port is
    * `firstOnLine` in `plunder-land-client/src/vfx/cells.ts`, checked against
@@ -1739,6 +1877,7 @@ export default class World {
   ): Unit | undefined {
     // Cell by cell along the line: the first cell with anyone on it decides.
     // A cell repeated later in the line is already settled by then.
+    const bodies = (typeMask & ObjectType.Mob) !== 0
     for (const cell of cells) {
       let first: Unit | undefined
       let firstSq = Infinity
@@ -1750,6 +1889,11 @@ export default class World {
           first = unit
           firstSq = sq
         }
+      }
+      const body = bodies ? World.bodyAt(tag, Hex.key(cell.x, cell.y)) : undefined
+      if (body !== undefined && body !== exclude) {
+        const sq = body.position.sub(from).getSquareMagnitude()
+        if (sq < firstSq) first = body
       }
       if (first !== undefined) return first
     }

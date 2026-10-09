@@ -5,7 +5,7 @@ import { type GameObject } from '../objects/gameobject'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import Unit from '../objects/unit'
-import { RANGED_RANGE_CELLS, firstOnLine, rangedRangeCells, type Body, type Cell } from './cells'
+import { RANGED_RANGE_CELLS, firstOnLine, lineIndexOf, rangedRangeCells, type Body, type Cell } from './cells'
 import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
 import { onGround, TILT } from '../objects/tilt'
 import AnimationClip from '../animation/animationclip'
@@ -24,7 +24,9 @@ import { SHOT } from '../robots/eyeshot'
  * the path the shot took is the one on the ground.
  *
  * The stopping unit is found with `firstOnLine`, the port of the server's
- * `World.FIRST_ON_LINE`, run over the positions this client is drawing. Those
+ * `World.FIRST_ON_LINE`, run over the positions this client is drawing. A
+ * player's beam stops at the edge of a 7-cell body (ring-footprint: the
+ * Reactor and the Brood), on the first of its cells on the line. Those
  * lag the server by the interpolation delay, so a beam at a unit crossing a
  * cell edge can stop on a different unit than the one the server hit, and a
  * client that places the caster one cell off draws a line one cell off.
@@ -67,19 +69,30 @@ export class RangedAttackEffect {
       if (unit === owner || unit.killed || !unit.visible || unit.tag !== owner.tag) continue
       candidates.push(unit)
     }
-    const bodies: Body[] = candidates.map((u) => ({ x: u.x, y: u.y, cell: cellOf(u) }))
+    // A Reactor or Brood is hit on any cell of its 7-cell body (ring-footprint,
+    // the server's `World.BODIES`), so the beam stops at its edge.
+    const bodies: Body[] = candidates.map((u) => ({
+      x: u.x,
+      y: u.y,
+      cell: cellOf(u),
+      rings: !isMob && u instanceof Unit ? u.archetype?.bodyRings ?? 0 : 0
+    }))
     const hit = firstOnLine(line, from.x, from.y, bodies)
 
     let end: Vector
     let crossed: Cell[]
     let struck: Cell | undefined
+    // Where the beam ends relative to the struck unit, kept as it moves.
+    let offset = new Vector(0, 0)
     if (hit >= 0) {
-      // Stop on the struck unit.
+      // Stop on the struck unit: its centre, or a body's first cell on the line.
       const b = bodies[hit]
-      end = new Vector(b.x, b.y)
-      const at = line.findIndex((c) => c.x === b.cell.x && c.y === b.cell.y)
+      const at = lineIndexOf(line, b)
+      const cell = line[at]
+      end = (b.rings ?? 0) > 0 ? Hex.toPosition(new Vector(cell.x, cell.y)) : new Vector(b.x, b.y)
+      offset = new Vector(end.x - b.x, end.y - b.y)
       crossed = line.slice(1, at)
-      struck = b.cell
+      struck = cell
     } else {
       const last = line[line.length - 1]
       end = Hex.toPosition(new Vector(last.x, last.y))
@@ -95,7 +108,7 @@ export class RangedAttackEffect {
     const target = hit >= 0 ? candidates[hit] : undefined
     new TWEEN.Tween({}).to({}, RangedAttackEffect.holdMs(owner)).onComplete(() => {
       const now = new Vector(owner.x, owner.y)
-      const to = target !== undefined && !target.killed ? new Vector(target.x, target.y) : end
+      const to = target !== undefined && !target.killed ? new Vector(target.x + offset.x, target.y + offset.y) : end
       RangedAttackEffect.fire(owner, layer, now, to, struck, crossed, true)
     }).start()
   }

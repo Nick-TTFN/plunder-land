@@ -1,4 +1,5 @@
 import { type GameObject } from '../objects/gameobject'
+import { type Unit } from '../objects/unit'
 import { Vector } from '../utils/vector'
 
 export default class Area extends Vector {
@@ -13,7 +14,12 @@ export default class Area extends Vector {
     this.tag = target.tag
   }
 
-  overlaps (value: Vector): boolean {
+  /**
+   * True if the area covers `value`. With `unit` (the unit standing at
+   * `value`), a body (`Unit.bodyRings`, ring-footprint) counts if the area
+   * covers any of its cells.
+   */
+  overlaps (value: Vector, unit?: Unit): boolean {
     throw new Error('Use of base class not permitted!')
   }
 

@@ -229,12 +229,35 @@ export interface Body {
   y: number
   /** The cell under `x`, `y` (`cellOf`), which is what decides if it is on the line. */
   cell: Cell
+  /**
+   * Its archetype's `bodyRings` (ring-footprint): with 1, every cell within a
+   * ring of `cell` is on the line too, as the server's `World.BODIES` makes
+   * it. Pass it only for a unit a player's shot can stop on (a mob); 0 or
+   * missing is the one cell.
+   */
+  rings?: number
+}
+
+/** The earliest index in `line` of any cell of `body` (its `cell`, and its ring with `rings`), or -1. */
+export function lineIndexOf (line: Cell[], body: Body): number {
+  const cells = (body.rings ?? 0) > 0 ? discCells(body.cell, body.rings as number) : [body.cell]
+  let best = -1
+  for (let i = 0; i < line.length && best < 0; i++) {
+    for (const c of cells) {
+      if (c.x === line[i].x && c.y === line[i].y) {
+        best = i
+        break
+      }
+    }
+  }
+  return best
 }
 
 /**
  * Port of `World.FIRST_ON_LINE`, `RangedAttack`'s hit test (decision #25): the
  * body standing on the earliest cell of `line` (a `Hex.line`, caster's cell
- * first), and of several on that cell the one nearest (fromX, fromY). Returns
+ * first; a body with `rings` stands on each of its cells), and of several on
+ * that cell the one nearest (fromX, fromY). Returns
  * its index in `bodies`, or -1 if nobody is on the line. The caller leaves the
  * caster out.
  *
@@ -255,7 +278,14 @@ export function firstOnLine (line: Cell[], fromX: number, fromY: number, bodies:
   let foundSq = Infinity
   for (let i = 0; i < bodies.length; i++) {
     const b = bodies[i]
-    const index = order.get(key(b.cell.x, b.cell.y))
+    let index = order.get(key(b.cell.x, b.cell.y))
+    if ((b.rings ?? 0) > 0) {
+      // A body is on the line at the earliest of its cells.
+      for (const c of discCells(b.cell, b.rings as number)) {
+        const at = order.get(key(c.x, c.y))
+        if (at !== undefined && (index === undefined || at < index)) index = at
+      }
+    }
     if (index === undefined || index > foundIndex) continue
     const sq = (b.x - fromX) * (b.x - fromX) + (b.y - fromY) * (b.y - fromY)
     if (index < foundIndex || sq < foundSq) {
