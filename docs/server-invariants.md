@@ -56,7 +56,11 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   nothing is credited twice. **`Mob.onHit`** is a hook only the Broodling sets: any damaging hit
   sets it off and returns true, which every `hit` caller reads as "destroyed, credit it". It is
   an initialised field set by a routine built after `Mob`'s own body runs (no base-constructor
-  hook builds routines), so the declare-field trap does not apply. The only
+  hook builds routines), so the declare-field trap does not apply. **Blast credit rides on that
+  synchronous order** (Brood stream numbers, 2026-10-09): a blast set off by a hit leaves the mobs
+  it killed in `Mob.blastKills`, and the hitter's `onKill(broodling)` straight after the hit
+  credits them (`Player.onKill` only). A new player damage path that calls `onKill` later, or not
+  at all, silently drops that credit; see "Brood and Broodlings" in `docs/npcs.md`. The only
   `setTimeout` left is the game loop's own scheduler in `index.ts`. **Socket handlers
   (`start_requested`, `pointer`, `skill`) run inside `Multiplayer.guarded`**, which catches
   per event. They are applied on arrival, not queued for the tick, on purpose: a skill's

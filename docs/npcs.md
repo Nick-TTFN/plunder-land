@@ -101,6 +101,13 @@ Tickbench (400 players): about +0.05-0.1 ms a tick, +1-3 %, under half of it the
 - Loot before the layer multiplier: 25 / 50 / 100 / 75 / 500 / 800, Broodling 0.
 - Gear drops by rarity (`gearRolls`, required on every row): see "Gear" in
   `docs/skills-and-gear.md`. Broodlings drop nothing.
+- **A mob killed by a Broodling's blast is credited to the player whose damaging hit set that
+  Broodling off** (decisions.md "Brood stream numbers", 2026-10-09; mechanism under "Brood and
+  Broodlings" below). **Validity boundary:** from the build after `e4b54dd`, the Redis `kills`,
+  `mobKills` and `<rarity>Kills` keys and GA `run_end` `kills` include those blast kills (the
+  same meaning, "every credited kill", with more kills credited); before it, a mob a blast killed
+  was credited to nobody. Compare kill counts across that build by date. No param or key was
+  added or renamed.
 
 ## Attacks
 
@@ -117,7 +124,9 @@ flare on the Reactor's rig; 13 warning through the tell, then pulse cells and bu
 apart along the line and a shoe puff; 15 a skid under the victim; 17 warning, 18 scorch cells and
 burst; a hit spark on every mob or player damage. **The Kiln's landing warning stands in for every
 tell (11, 13, 14, 17)**: the package has no tell art (Beck's call, kept provisional for Nick).
-Effect 19 (the Brood's pod) has no package art and keeps its placeholder. Before the sheet loads,
+Effect 19's pod (thrown from the Brood to the cell) has no package art and keeps its placeholder;
+since the Brood stream it is drawn only when no Broodling is launched off a socket (see "Loaded +
+launch" below); the cell flash always shows. Before the sheet loads,
 cell sets fall back to `CellHighlight` and standing art is skipped.
 
 **Wind-up holds** (#52 lane 2, Dez's `ideas/npc-windup-holds.md`, accepted 2026-10-09): an NPC
@@ -128,7 +137,11 @@ and no new one starts, casts on the first tick at rest, and clears `stepGoal` ev
 `holdMs` timer it owns fires. Without `holdMs` (gunner, boss) the routine is unchanged. The Brood
 (`brood.release.holdMs` 500): a beat at rest releases at once; a beat mid-step under the cap sets
 `pending`, and the release runs on the first tick at rest after re-checking target and cap; the
-clock re-arms at the beat, so the 4000 ms cadence holds. The Compactor
+clock re-arms at the beat, so the 1000 ms cadence holds on average. At 1000 ms a release that
+waited for a step can be followed by the next beat's 250-500 ms later, inside its hold: **a
+release inside a hold restarts it** (one `holdTimer`, cancelled on each release, owned by the
+Brood), so the older timer cannot end the newer hold (`windupholds.spec.ts`, chased Brood). The
+Compactor
 (`compactorShockwave.holdMs` 1750) still plants at the cast and holds until the later of its
 wind-up and the timer. A new Broodling stands `broodling.fuse.emergeMs` (1500) from its release
 (`emerging`), and can still be primed, shot and chain-blasted meanwhile. Each hold is long enough
@@ -188,15 +201,22 @@ nothing happens (no stop, no effect). Otherwise `stop()`, `connection.lastWaypoi
 landing centre through the setter, and effect 15 to the victim's holders including itself. The
 client mirror is in `docs/movement.md` ("Knockback").
 
-**Brood and Broodlings** (l1-7). The Brood keeps the Kiln's 5-6 band. Its release clock
-(`BroodRelease`, a `Timers` entry owned by it) arms the tick it has a live target; each 4000 ms
-beat re-arms while the target lasts and releases one Broodling if fewer than 3 it released are
-alive, on the free cell (`mobCellFree`) **on ring `bodyRings + 1`** (ring 2, just outside its
+**Brood and Broodlings** (l1-7; the Brood stream, Nick 2026-10-09). The Brood has 550 hp (400
+until Dez's `ideas/brood-stream-numbers.md`) and keeps the Kiln's 5-6 band. Its release clock
+(`BroodRelease`, a `Timers` entry owned by it) arms the tick it has a live target; each 1000 ms
+beat (`release.intervalMs`; 4000 until the Brood stream) re-arms while the target lasts and
+releases one Broodling if fewer than 6 it released are alive (`release.cap`; 3 before), on the free cell (`mobCellFree`) **on ring `bodyRings + 1`** (ring 2, just outside its
 7-cell body; see "Bodies") nearest the target, ties in `World.ringCells` order, via
 `World.addUnit(World.MOBS, ...)`, then effect 19 (`effect` on the Brood, aimed at the new cell,
-lifetime 1100 = the spawn clip). No free ring-2 cell: the beat is skipped and re-armed. No target
-at a beat: not re-armed. Brood death stops the stream; released Broodlings keep their fuse. A
-Broodling going off on its release cell hits the Brood (blasts hit mobs).
+lifetime 1100 = the spawn clip, so each 1 s release restarts the Brood's `spawn` clip 0.1 s
+before its end). No free ring-2 cell: the beat is skipped, the clock keeps going and the next
+beat tries again (ring 2 has 12 cells, so six live children never fill it alone). No target at a
+beat: not re-armed. Brood death stops the stream; released Broodlings keep their fuse. A
+Broodling going off on its release cell hits the Brood (blasts hit mobs): shooting the eggs next
+to it is the intended counterplay, and most of the Brood's damage at 1 s (Dez's measurements in
+the idea file). Measured, not played (Beck's handoff, `tasks/brood-stream.md`): about one release
+a second, in pairs 250-500 ms apart when chased; a chased Brood stands about half the time and no
+longer keeps its band; the cap is in effect fuse-bound (`fuseMs` 6000 / 1000).
 
 A **Broodling** (`BroodlingFuse`) lights a 6000 ms fuse in its constructor (timer owned by it),
 chases at 130 and goes off three ways, all the same blast (25 to every live unextracted player
@@ -204,14 +224,26 @@ chases at 130 and goes off three ways, all the same blast (25 to every live unex
 - the fuse ends: where it stands;
 - a live player within 1 ring of `stepTo ?? cell`: effect 17 (primed, 500 ms), held in place,
   blast on the primed cell 500 ms later;
-- **any damaging hit** (`Mob.onHit`, the hook only the Broodling sets): at once, in place; the
-  hit returns true, so the hitter is credited the kill (`mobKills` + `commonKills`, 0 XP). A
-  0-damage hit does nothing.
+- **any damaging hit** (`Mob.onHit`, the hook only the Broodling sets): at once, in place
+  (`detonate(true)`); the hit returns true, so the hitter is credited the kill (`mobKills` +
+  `commonKills`, 0 XP). A 0-damage hit does nothing.
 
 `detonate` sets `detonating`, hp 0 and `destroy()` **before** the effect and damage, so a chain
 (a blast that hits another Broodling sets it off through its own `hit`) finds it dead, frees
-each id once and credits nobody twice. Blast kills credit nobody; a player killed by one gets
-`killer` = the Broodling, `killedBy` 'mob'. StoneWall stones survive the blast (the bomb breaks
+each id once and credits nobody twice. **Blast credit** (Brood stream numbers, 2026-10-09,
+reversing #51's "credits nobody" for mobs): a blast set off by a damaging hit keeps the mobs it
+killed in the Broodling's `Mob.blastKills`. The blast runs synchronously inside that hit, so the
+list is there when the hitter's own `onKill(broodling)` runs straight after (every damaging
+player path does: ranged, melee, fireball, icicle, bomb); **`Player.onKill` takes the list off,
+then credits each mob through itself** (`kills`, the run's tally and XP, Redis keys, `killer`).
+A chain flows to the original player (a Broodling the blast set off is one of its kills, and
+crediting it credits its own list). `Unit.onKill` passes nothing on, so a blast set off by a
+mob's hit, an area tick (no `onKill`), the fuse or the tell credits nobody; after a mob's hit or
+an area tick the list stays on the dead Broodling, unread (a destroyed Broodling's `hit` never
+returns true again) and collected with it. A player killed by a blast still gets `killer` = the
+Broodling, `killedBy` 'mob', credited to nobody. A shooter killed by the blast they set off is
+still credited the Broodling and its mob kills, as any kill landing after a death: Redis keys
+and `killer`, too late for that run's XP and `run_end`. StoneWall stones survive the blast (the bomb breaks
 them; a feel call for Dez). The remaining fuse goes out in **`lifetime` (9)** on the create
 (see `docs/wire-format.md`).
 
@@ -259,7 +291,9 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
   `NpcImage.effect` (emission layers: never cast, never tinted) and `blend: 'screen'` (the Coil's
   bloom). The Coil's cooled body is drawn over its body at `dark` instead of the package's
   offscreen mix: identical where both are opaque, a faint halo (alpha 1-10) stays until `dark`
-  reaches 1. Brood v15 has no socketed children, so nothing is emptied on a release.
+  reaches 1. Brood v15 includes no Broodlings (`includedBroodlings: false`,
+  `externalBroodlingLaunches: true` in its `animation-contract.json`) but names three visible
+  socket anchors, `crown`, `left`, `right`; the game draws and launches its own ("Loaded + launch").
 - **Draw items** beyond images and shapes: an image may carry `alpha` and `contact` (a painted
   contact shadow, drawn in turn, never cast); **`NpcMasked`** is a group of images seen only
   through a mask image's alpha (the package composites offscreen with `destination-in`; the
@@ -349,6 +383,31 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
   parent is killed or destroyed). The Brood, about 3 cells wide, still covers a ring-2 cell on its
   north side. It relies on the Brood updating before its Broodlings in a frame (`Game.MOBS` is
   push-only). A late viewer gets no pick, so no raise.
+- **Loaded + launch** (Brood stream, Nick 2026-10-09; client only, no wire change). **Sockets:**
+  the Brood's pose carries the package's three socket anchors (`NpcPose.sockets`, from
+  `ART.body.sockets` via `bodySourcePoint` in `npcs/brood/rig.ts`), moving with the body in every
+  clip; `NpcSprite.socketPoints` holds them in px as last drawn, jolt included, and `onPosed`
+  runs after each drawn frame. `vfx/broodsockets.ts` `BroodSockets`, a child of the Brood's
+  `NpcSprite` made in `Mob.initAnimation` only when the Broodling's sheet is loaded too, sits one
+  real Broodling rig per socket, `NpcSprite.pin`ned at its `emerge` 1.3 s (curled; drawn once,
+  no shadows, no ticker), at its own `sizeScale`. **The sockets are cosmetic**: all loaded at
+  first, one empties at a launch and refills `SOCKET_REFILL_MS` (800) after it, growing from 0.4
+  to 1 over 160 ms; all hidden once the Brood is dying. **Launch** (`vfx/broodlaunch.ts`,
+  pixi-free, `broodlaunch.spec.ts`): effect 19 calls `emergeReleased`, which on a pick with a rig
+  calls `Mob.launchFrom(brood)`; the socket is the loaded one pointing most nearly toward the
+  landing cell (`pickSocket`; none loaded, the best of all). **The flying Broodling is the real
+  unit** the server created on its cell: drawn in the socket from the effect (the cosmetic seat
+  emptied), launched at `LAUNCH_MS` 180 (the Brood clip's `spawn` event), flying `FLIGHT_MS` 450
+  on `kilnFlight` with an `ARC_PX` 36 arc, landing at 630 ms inside its 1500 ms emerge, its HP bar
+  hidden in flight (`Mob.fly`, `NpcSprite.lift`). Never drawn on the ground before it lands, so
+  never twice. The seat follows the Brood until the launch, then the path is fixed (a Brood dying
+  mid-flight changes nothing). Killed or removed mid-flight: `dispose` calls `land()`, so its death
+  plays on its own cell, where the server set it off (a beam aimed at it is drawn to the cell).
+  `emergeReleased` returns whether it launched; **the pod is thrown only when it did not** (no rig
+  or sheet, sockets not drawn yet, no pick for a late viewer; a viewer not holding the Brood gets no
+  effect 19 at all). The socket choice
+  uses the Brood's drawn position, about `interpolationDelay` behind (cosmetic). Cost: three
+  pinned sprites per Brood, placed on each Brood frame drawn; not measured on a crowded screen.
 - **Hit sparks spread by drawn width** (#52 lane 5): `hitSpark` places the spark at
   `sparkX(bodySpan, radius, u)`, over the middle `SPARK_SPAN` (70 %) of a rigged NPC's drawn width
   (`bodySpan`: the x extent of its idle pose's images, contact shadows and emission left out, in
