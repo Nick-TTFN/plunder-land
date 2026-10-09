@@ -654,8 +654,41 @@ test('crawler: the fixtures\' game-stride runs are the game\'s stride, and the g
   }
 })
 
+test('kiln: the fixtures\' game-stride runs are the game\'s stride, and the game\'s pose draws them', () => {
+  const f = load('kiln')
+  const runs = f.samples.filter((s) => s.name === 'run' && s.options.stride !== undefined)
+  assert.ok(runs.length >= 20, 'game-stride samples')
+  // A lob, a hit and a death from a game-stride run (the port's own test above evaluates them).
+  assert.ok(['fire', 'hit', 'fall_apart'].every((n) => f.samples.some((s) => s.name === n && (s.options.base as { options?: { stride?: number } } | undefined)?.options?.stride === kiln.GAIT.stride)), 'actions from a game-stride run')
+  for (const s of runs) {
+    assert.equal(s.options.stride, kiln.GAIT.stride, 'tools/npc-rig-sync.mjs GAME_STRIDE (kiln) is GAIT.stride')
+    const where = `kiln game ${s.name} t=${s.time} ${JSON.stringify(s.options)}`
+    // Through the game's path, which passes its own stride: a wrong `GAIT.stride` fails here.
+    const pose = kiln.KILN_RIG.pose(s.name, s.time, { x: s.options.directionX as number, y: s.options.directionY as number })
+    checkState((pose.state as kiln.KilnPose).state, f, s, where)
+    checkDrawing(kiln.KILN_RIG.draw(pose), kiln.KILN_RIG.arts, s, where)
+  }
+})
+
+test('kiln: at the game\'s stride no knee goes straighter than 0.9 of its reach and the feet stay apart', () => {
+  const reach = kiln.CONFIG.upperLength + kiln.CONFIG.lowerLength
+  let most = 0
+  let closest = Infinity
+  for (let k = 0; k < 16; k++) {
+    const a = k * Math.PI / 8
+    for (let i = 0; i < 144; i++) {
+      const legs = kiln.animationPose('run', kiln.CLIPS.run.duration * i / 144, { directionX: Math.cos(a), directionY: Math.sin(a), stride: kiln.GAIT.stride }).state.legs
+      for (const l of legs) most = Math.max(most, l.knee.reach / reach)
+      for (let p = 0; p < legs.length; p++) for (let q = p + 1; q < legs.length; q++) closest = Math.min(closest, Math.hypot(legs[p].foot.x - legs[q].foot.x, legs[p].foot.y - legs[q].foot.y))
+    }
+  }
+  // Measured 0.898 and 117 rig units at stride 26; the package's own walk (20) reaches 0.874, and 0.80 at rest.
+  assert.ok(most < 0.9, `the longest leg reaches ${most.toFixed(3)} of its length`)
+  assert.ok(closest > 100, `two feet come within ${closest.toFixed(1)} rig units`)
+})
+
 /** The rigs with a gait of their own (decision #52 lanes 3 and 4); the rest run as before. */
-const GAITED = ['crawler']
+const GAITED = ['crawler', 'kiln']
 
 /** A package's own draw scale on top of `sizeScale` (the Broodling's `renderScale`): its feet are drawn that much larger. */
 const DRAWN: Readonly<Record<string, number>> = { broodling: broodling.CFG.renderScale }

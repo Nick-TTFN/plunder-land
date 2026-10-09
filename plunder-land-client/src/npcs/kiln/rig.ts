@@ -1,6 +1,6 @@
 import { type Matrix, multiply } from '../../peep/rig'
 import { deepClone } from '../clone'
-import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcGait, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
 
 /**
  * The Walking Kiln (l1-9): a hand port of `tools/kiln.mjs`, the Kiln's path
@@ -53,6 +53,28 @@ const PROFILE = Object.freeze({ legs: 4, body: 'base', width: 98, height: 30, ki
 const TRIGGER = LAUNCH
 const DUTY = 0.79
 export const CONFIG = Object.freeze({ tilt: 0.68, bodyHeight: PROFILE.height, upperLength: 48, lowerLength: 70, stride: 20, duty: DUTY, nominalSpeed: 20 / DUTY / PROFILE.run, lift: 12 })
+/**
+ * The game's gait (decision #52 lane 4, the Crawler's treatment; PROVISIONAL
+ * until Nick has seen it). The package's walk (stride 20) slid 93% at the
+ * chase's 70 u/s (strand B). Its legs are already long for the body: a foot
+ * stands at 0.80 of its leg's full reach at rest and the package's own walk
+ * takes it to 0.87, so the stride grows only to 26, where the straightest
+ * leg reaches 0.898 (the Crawler's rule: under 0.9; `npcrigs.spec.ts`).
+ * `gaitClock` derives the rate from that sweep and the size: 9.9 steps a
+ * second per leg at 70 u/s for planted feet, over `maxSteps` 6, so at chase
+ * the loop runs at 6 and the feet slide 39% (93% before); under 42 u/s,
+ * idle wander (30 u/s, 4.2 steps) included, they stay planted. `minPace`
+ * and `groundTilt` as the Crawler's.
+ */
+const GAME_STRIDE = 26
+export const GAIT: NpcGait & { readonly stride: number } = Object.freeze({
+  stride: GAME_STRIDE,
+  groundSpeed: GAME_STRIDE / DUTY / CLIPS.run.duration,
+  period: CLIPS.run.duration,
+  maxSteps: 6,
+  minPace: 0.2,
+  groundTilt: 0.68
+})
 const IDLE_GESTURE = Object.freeze({ start: 5.2, duration: 0.95, leg: 0 })
 /** The canister's width, rig units (`P.tool === 'kiln'`). */
 const CANISTER_WIDTH = 55
@@ -150,9 +172,10 @@ export interface Presence {
   idleTime?: number, idleWeight?: number, expression?: number, attack?: number, charge?: number, dead?: boolean
 }
 
-interface Performance { idleTime?: number, idleWeight?: number, phase?: number, speed?: number, velocity?: Vec, expression?: number }
+/** `nominalSpeed`: the run's own ground speed, rig units per clip second (`CONFIG.nominalSpeed` at the package's stride). */
+interface Performance { idleTime?: number, idleWeight?: number, phase?: number, speed?: number, velocity?: Vec, expression?: number, nominalSpeed?: number }
 
-function presencePose (time: number, { idleTime = time, idleWeight = 1, phase = 0, speed = 0, velocity = { x: 0, y: 0 }, expression = 1 }: Performance = {}): Presence {
+function presencePose (time: number, { idleTime = time, idleWeight = 1, phase = 0, speed = 0, velocity = { x: 0, y: 0 }, expression = 1, nominalSpeed = CONFIG.nominalSpeed }: Performance = {}): Presence {
   const t = wrap(idleTime / CLIPS.idle.duration) * CLIPS.idle.duration
   const breathe = Math.sin(TAU * t / 2.8)
   const inspect = windowPulse(t, 1.35, 4.8)
@@ -162,16 +185,16 @@ function presencePose (time: number, { idleTime = time, idleWeight = 1, phase = 
   const weight = windowPulse(t, 4.75, 6.45)
   const amount = Math.max(0, Math.min(1.5, expression))
   const w = idleWeight * amount * 0.19
-  const effort = Math.min(1, speed / CONFIG.nominalSpeed)
+  const effort = Math.min(1, speed / nominalSpeed)
   const runWeight = 1 - idleWeight
   return {
-    x: w * (2.8 * Math.sin(TAU * t / 8.4) + 2.2 * (right - left) - 3.2 * weight) + runWeight * amount * velocity.x / CONFIG.nominalSpeed * 0.9,
+    x: w * (2.8 * Math.sin(TAU * t / 8.4) + 2.2 * (right - left) - 3.2 * weight) + runWeight * amount * velocity.x / nominalSpeed * 0.9,
     y: w * (1.4 * Math.sin(TAU * t / 4.2) - 1.8 * inspect),
     z: idleWeight * 0.3 * breathe + w * (1.6 * breathe + 4.4 * inspect - 3.6 * settle) + runWeight * (1 + amount * 0.75) * Math.sin(TAU * phase * 2) * effort,
     pitch: w * (0.035 * inspect - 0.028 * settle),
     roll: w * (0.028 * (right - left) - 0.025 * weight),
-    sensorX: w * (2.2 * (right - left)) + runWeight * amount * velocity.x / CONFIG.nominalSpeed * 1.2,
-    sensorY: w * (-1.15 * inspect) + runWeight * amount * velocity.y / CONFIG.nominalSpeed * 0.7,
+    sensorX: w * (2.2 * (right - left)) + runWeight * amount * velocity.x / nominalSpeed * 1.2,
+    sensorY: w * (-1.15 * inspect) + runWeight * amount * velocity.y / nominalSpeed * 0.7,
     focus: 1 - 0.8 * w * windowPulse(t, 6.8, 7.2),
     glow: 0.7 + 0.3 * Math.sin(TAU * time / 2.8) + w * 0.35 * inspect,
     idleTime: t,
@@ -228,11 +251,11 @@ export interface KilnPose {
   regions: Region[]
 }
 
-interface PoseExtras { presenceOverride?: Presence, layout?: Layout, aimAngle?: number, velocity?: Vec, expression?: number }
+interface PoseExtras { presenceOverride?: Presence, layout?: Layout, aimAngle?: number, velocity?: Vec, expression?: number, nominalSpeed?: number }
 
 /** `composePose` for the Kiln: legs on IK, the base, the canister with its furnace. */
 function composePose (name: string, time: number, feet: Foot[], phase = 0, speed = 0, performance: PoseExtras = {}): KilnPose {
-  const presence = performance.presenceOverride ?? presencePose(time, { idleWeight: name === 'idle' ? 1 : 0, phase, speed, velocity: performance.velocity, expression: performance.expression })
+  const presence = performance.presenceOverride ?? presencePose(time, { idleWeight: name === 'idle' ? 1 : 0, phase, speed, velocity: performance.velocity, expression: performance.expression, nominalSpeed: performance.nominalSpeed })
   const layout = performance.layout ?? defaultFrame()
   const bodyZ = CONFIG.bodyHeight + presence.z
   const state = {
@@ -317,6 +340,12 @@ export interface KilnOptions {
   sourceClip?: string
   sourceTime?: number
   sourceOptions?: KilnOptions
+  /**
+   * The run's stride, rig units; default the package's `CONFIG.stride`. The
+   * game runs a longer one (`GAIT.stride`, decision #52 lane 4). Its run
+   * speed scales with it, so the run's lean and bob are the same at any stride.
+   */
+  stride?: number
 }
 
 /** The core's `actionPresence` for the lob. */
@@ -369,6 +398,8 @@ function legacyPose (name: string, seconds: number, options: KilnOptions = {}): 
   const t = clip.loop ? wrap(seconds / clip.duration) * clip.duration : seconds
   const dir = normalized(options.directionX ?? 0, options.directionY ?? 1)
   const phase = t / CLIPS.run.duration
+  const stride = options.stride ?? CONFIG.stride
+  const nominalSpeed = options.stride === undefined ? CONFIG.nominalSpeed : stride / CONFIG.duty / CLIPS.run.duration
   const layout = defaultFrame(0)
   const feet = LEGS.map((l): Foot => {
     const home = placement(l, layout).home
@@ -387,11 +418,11 @@ function legacyPose (name: string, seconds: number, options: KilnOptions = {}): 
     const contact = p < CONFIG.duty
     let s: number
     let z = 0
-    if (contact) s = CONFIG.stride / 2 - CONFIG.stride * p / CONFIG.duty
-    else { const q = (p - CONFIG.duty) / (1 - CONFIG.duty); s = lerp(-CONFIG.stride / 2, CONFIG.stride / 2, ease(q)); z = CONFIG.lift * Math.sin(Math.PI * q) ** 2 }
+    if (contact) s = stride / 2 - stride * p / CONFIG.duty
+    else { const q = (p - CONFIG.duty) / (1 - CONFIG.duty); s = lerp(-stride / 2, stride / 2, ease(q)); z = CONFIG.lift * Math.sin(Math.PI * q) ** 2 }
     return { x: home.x + dir.x * s, y: home.y + dir.y * s, z, contact }
   })
-  return composePose(name, t, feet, phase, name === 'run' ? CONFIG.nominalSpeed : 0, { layout, aimAngle: Math.atan2(options.aimY ?? -1, options.aimX ?? 1), expression: options.expression ?? 1, velocity: { x: dir.x * CONFIG.nominalSpeed, y: dir.y * CONFIG.nominalSpeed } })
+  return composePose(name, t, feet, phase, name === 'run' ? nominalSpeed : 0, { layout, aimAngle: Math.atan2(options.aimY ?? -1, options.aimX ?? 1), expression: options.expression ?? 1, velocity: { x: dir.x * nominalSpeed, y: dir.y * nominalSpeed }, nominalSpeed })
 }
 
 // --- kiln.mjs (v3): the hit and the fall apart ---
@@ -655,6 +686,7 @@ export const KILN_RIG: NpcRig = Object.freeze({
   sizeScale: 1,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
+  gait: GAIT,
   roles: Object.freeze({
     idle: 'idle',
     move: 'run',
@@ -675,7 +707,7 @@ export const KILN_RIG: NpcRig = Object.freeze({
     if (clip === 'hit' || clip === 'fall_apart') pose = animationPose(clip, seconds, base === undefined ? {} : { basePose: base })
     else if (clip === 'fire') pose = animationPose(clip, seconds, { basePose: base, aimX: aim?.x, aimY: aim?.y, fireTime: clock })
     else {
-      pose = animationPose(clip, seconds, clip === 'run' ? { directionX: direction.x, directionY: direction.y } : {})
+      pose = animationPose(clip, seconds, clip === 'run' ? { directionX: direction.x, directionY: direction.y, stride: GAIT.stride } : {})
       // The furnace keeps its own clock across clips (the package's controller's `fireTime`).
       if (clock !== undefined) pose.state.fireTime = clock
     }
