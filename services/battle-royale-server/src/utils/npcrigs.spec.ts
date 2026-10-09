@@ -15,7 +15,7 @@ import * as kiln from '../../../../plunder-land-client/src/npcs/kiln/rig'
 import * as coil from '../../../../plunder-land-client/src/npcs/coil/rig'
 import * as brood from '../../../../plunder-land-client/src/npcs/brood/rig'
 import { COIL_PULSE } from '../../../../plunder-land-client/src/vfx/coilfield'
-import { NPC_RIGS, attackLead, gaitClock, gaitDirection, gaitPace, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
+import { NPC_RIGS, SPARK_SPAN, attackLead, bodySpan, gaitClock, gaitDirection, gaitPace, sparkX, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
 import { PEEP_RIG, ROBOT_RIGS } from '../../../../plunder-land-client/src/robots/robotrig'
 import { Hex } from '../../../../plunder-land-client/src/utils/hex'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
@@ -883,4 +883,37 @@ test('gaitDirection: without groundTilt the direction is kept; with it the strid
   assert.equal(gaitPace({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.2 }, 0.1, 0.5, 3), 0.2)
   assert.equal(gaitPace({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.2 }, 0.3, 0.5, 3), 0.3)
   assert.equal(gaitPace({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.2 }, 9, 0.5, 3), 3)
+})
+
+// Archie, lane 4 F1 (decision #52 open items): a hit spark spreads over the
+// drawn body, not the wire `radius`, so the big NPCs get sparks across it.
+test('a hit spark spreads over the middle of an NPC\'s drawn body; without one, over its radius as before', () => {
+  // Rig units, the idle pose's images without contact shadows or emission
+  // (measured: Reactor 134.6 px and Brood 176.8 px wide at 2.92 and 3.2,
+  // against the radius 40 they spread over before).
+  const want: Record<string, [number, number]> = { crawler: [-88.65, 107.43], broodling: [-33.86, 40.05], reactor: [-108.03, 105.49], compactor: [-116.24, 140.99], kiln: [-113.02, 133.26], coil: [-91.51, 91.51], brood: [-126.45, 129.54] }
+  assert.deepEqual(Object.keys(want).sort(), Object.keys(NPC_RIGS).sort())
+  for (const [key, [left, right]] of Object.entries(want)) {
+    const span = bodySpan(NPC_RIGS[key]!)
+    assert.ok(Math.abs(span.left - left) < 0.01 && Math.abs(span.right - right) < 0.01, `${key}: ${span.left.toFixed(1)}..${span.right.toFixed(1)}`)
+  }
+  for (const rig of Object.values(NPC_RIGS)) {
+    const span = bodySpan(rig!)
+    assert.ok(Number.isFinite(span.left) && Number.isFinite(span.right) && span.left < 0 && span.right > 0, rig!.key)
+    // At least its wire radius wide on screen: never narrower than the spread it replaces.
+    const px = (span.right - span.left) * SPRITE.SCALE * rig!.sizeScale
+    assert.ok(SPARK_SPAN * px >= ARCHETYPES[rig!.key].body, `${rig!.key}: ${(SPARK_SPAN * px).toFixed(1)} px against body ${ARCHETYPES[rig!.key].body}`)
+  }
+  // Across the middle SPARK_SPAN of the span, about its middle.
+  const span = { left: -60, right: 100 }
+  assert.equal(sparkX(span, 40, 0.5), 20)
+  assert.ok(Math.abs(sparkX(span, 40, 0) - (20 - SPARK_SPAN * 80)) < 1e-9)
+  assert.ok(Math.abs(sparkX(span, 40, 1) - (20 + SPARK_SPAN * 80)) < 1e-9)
+  // No span (a robot, an unrigged mob): radius wide, as before.
+  for (const u of [0, 0.25, 0.9]) assert.equal(sparkX(undefined, 40, u), (u - 0.5) * 40)
+  // The game reads it so: the sprite scales the span to px, the mob hands it on, the spark uses it.
+  const client = (f: string): string => readFileSync(join(__dirname, '../../../../plunder-land-client/src', f), 'utf8')
+  assert.match(client('npcs/npcsprite.ts'), /this\.bodySpan = \{ left: span\.left \* this\.pxPerUnit, right: span\.right \* this\.pxPerUnit \}/)
+  assert.match(client('objects/mob.ts'), /return this\.npc\?\.bodySpan/)
+  assert.match(client('vfx/npcfx.ts'), /spark\.position\.set\(sparkX\(mob\.bodySpan, mob\.radius, Math\.random\(\)\)/)
 })

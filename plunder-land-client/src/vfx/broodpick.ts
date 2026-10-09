@@ -57,3 +57,28 @@ export function pickReleased<T extends ReleaseCandidate> (
   }
   return best
 }
+
+/**
+ * How long a released Broodling is drawn over the Brood that released it
+ * (decision #52 open items, 5): its emerge, the server's `emergeMs`
+ * (`brood.spec.ts` holds the two equal). Its release cell is a neighbour of
+ * the Brood's, and the Brood, drawn several cells wide, covered it there.
+ */
+export const EMERGE_ABOVE_MS = 1500
+
+/** Who a new Broodling is drawn over, and until when (`performance.now()` ms). */
+export interface EmergeAbove {
+  readonly parent: { readonly y: number, readonly killed: boolean, readonly destroyed: boolean }
+  readonly until: number
+}
+
+/**
+ * A unit's depth (`zIndex`) at ground `y`: its `y`, as every unit's, unless
+ * it is emerging over a live parent, then just over the parent's (the
+ * parent's `y`, which is its depth this frame whichever of the two updates
+ * first). Back to its `y` once `until` has passed or the parent is gone.
+ */
+export function emergeDepth (y: number, above: EmergeAbove | undefined, now: number): number {
+  if (above === undefined || now >= above.until || above.parent.killed || above.parent.destroyed) return y
+  return Math.max(y, above.parent.y + 1)
+}

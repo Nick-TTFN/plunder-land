@@ -1,5 +1,5 @@
 import { AlphaFilter, Assets, BLEND_MODES, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Rectangle, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
-import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig, gaitClock, gaitDirection, gaitPace, yieldsToMovement } from './npcrig'
+import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig, bodySpan, gaitClock, gaitDirection, gaitPace, yieldsToMovement } from './npcrig'
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
@@ -84,6 +84,13 @@ export class NpcSprite extends Container {
 
   /** CSS px from the ground to the top of its reference pose. */
   readonly standHeight: number
+  /** CSS px its body is drawn left and right of its ground point (`bodySpan`): where hit sparks land. */
+  readonly bodySpan: { readonly left: number, readonly right: number }
+  /**
+   * `bodySpan` in rig units, by rig: one pose and draw per rig, not per NPC.
+   * At most one entry per rig (7); never evicted, by decision.
+   */
+  private static readonly spans = new Map<string, { left: number, right: number }>()
   /** CSS px per rig unit. */
   private readonly pxPerUnit: number
 
@@ -124,6 +131,12 @@ export class NpcSprite extends Container {
     super()
     this.pxPerUnit = RobotSprite.SCALE * npc.sizeScale
     this.standHeight = npc.referenceUnits * this.pxPerUnit
+    let span = NpcSprite.spans.get(npc.key)
+    if (span === undefined) {
+      span = bodySpan(npc)
+      NpcSprite.spans.set(npc.key, span)
+    }
+    this.bodySpan = { left: span.left * this.pxPerUnit, right: span.right * this.pxPerUnit }
     this.rig.scale.set(this.pxPerUnit)
     if (castShadow) {
       this.cast = new Container()

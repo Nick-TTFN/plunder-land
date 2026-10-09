@@ -930,7 +930,8 @@ export class Game extends Container {
       else Game.EFFECTS_UNHELD++
       // Its create came earlier in this flush (creates before effects): the
       // new Broodling emerges now, and only for a viewer who saw the release.
-      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME)
+      // Drawn over the Brood while it emerges (#52 open items, 5).
+      if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME, target)
       // Its rig's release (l1-9) from the start of its wind-up (#52 lane 2:
       // the server holds it still from the release), 0.18 s before its
       // launch; the clip then ends with the effect's lifetime. Drawn where

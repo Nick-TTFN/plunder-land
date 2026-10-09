@@ -7,6 +7,7 @@ import { NpcSprite } from '../npcs/npcsprite'
 import { RobotSprite } from '../robots/robotsprite'
 import { SETTINGS } from '../net/settings'
 import { hitSpark } from '../vfx/npcfx'
+import { type EmergeAbove, emergeDepth } from '../vfx/broodpick'
 
 export default class Mob extends Unit {
   /**
@@ -31,6 +32,9 @@ export default class Mob extends Unit {
 
   /** `Game.FRAME` when its create arrived: the Brood's release picks among this frame's (l1-7 F6). */
   createdInFrame: number = -1
+
+  /** A released Broodling's Brood, drawn under it while it emerges (`emergeReleased`, `emergeDepth`). */
+  emergeAbove: EmergeAbove | undefined = undefined
 
   /** Fuse left per unit of the rig's cord length: 3 s draws the default cord (Archie, l1-7 F4). */
   static readonly FUSE_MS_PER_CORD = 3000
@@ -84,9 +88,23 @@ export default class Mob extends Unit {
     return this.animation !== undefined ? this.animation.y - this.animation.height : -30
   }
 
+  /** Where its body is drawn across, px (a rigged NPC's `bodySpan`); undefined without a rig. */
+  get bodySpan (): { left: number, right: number } | undefined {
+    return this.npc?.bodySpan
+  }
+
   get feetY (): number {
     if (this.npc !== undefined) return Mob.NPC_FEET_Y
     return this.animation !== undefined ? this.animation.y : 10
+  }
+
+  /** As Unit's, then its depth: over its Brood while it emerges (#52 open items, 5), else its `y`. */
+  update (dt: number): void {
+    super.update(dt)
+    if (this.emergeAbove === undefined) return
+    const now = performance.now()
+    this.zIndex = emergeDepth(this.y, this.emergeAbove, now)
+    if (now >= this.emergeAbove.until) this.emergeAbove = undefined
   }
 
   /** As Unit's; a rigged NPC's gait also follows the way it goes and how fast, as a robot's run does. */
