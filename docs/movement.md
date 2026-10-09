@@ -71,13 +71,37 @@ like it did.
 2. **Remote units are interpolated**, not chased. `Unit.pushState` records authoritative
    states and `Unit.update` renders at `now - Session.interpolationDelay`, interpolating
    between the two states straddling that time, extrapolating for a bounded window on
-   underrun, then holding.
+   underrun, then holding. The sampling lives in `objects/track.ts` (`sampleTrack`, specced by
+   server `utils/track.spec.ts`), with two rules from #52 lane 1:
+   - **No overshoot on a stop (O1).** A last state on a cell centre is held, not extrapolated:
+     every walk, mob step and knockback ends on one, so it is almost always a stop. Before this a
+     remote unit came to rest up to speed x `extrapolationCap` past its stop (15 u at 140 u/s) and
+     jumped back on its next move. Positions arrive floored (server `GameObject` 'position'), so
+     `onCellCentre` compares the floored centre. Cost: a late packet whose last state happens to
+     land on a centre mid-walk holds instead of gliding on (a few % of states, times the
+     late-packet rate). A stop off a centre (`stop()` mid-segment) is extrapolated as before.
+   - **Catch-up (S1, `CatchUp`).** On a planting effect (a mob's shot, 9, 11, 13, 14, 17, 19;
+     `Unit.catchUpNow` from `Game.onEffect`) that one unit's render clock is eased forward over
+     100 ms until it reaches its newest state's arrival, so the planted clip starts where the
+     server has it, drawn along its real track a few times faster. The lead is then given back
+     while the unit is at or past its newest state (it doesn't move meanwhile), never runs the
+     clock backwards, and a unit with a lead is never extrapolated. It can only reach the newest
+     state at the effect's arrival, which is why the server makes a holding NPC come to rest
+     before it casts (`docs/npcs.md`, "Wind-up holds"). Every hold is long enough that the lead is
+     spent before the unit moves again (`windupclient.spec.ts`).
+   Known, not fixed: a remote unit restarting after a stop jumps, because its first new state is
+   interpolated from the stop state across the whole idle gap (lane 1 F6; candidate fix: push a
+   copy of the last state at `now - tick` on a state after a gap).
 3. **Animation follows intent, not rendered movement.** `Unit.applyPosition` takes an optional
    motion hint; the local player passes `LocalPlayer.moveX/moveY`, which is the predicted step
    with no correction in it. Driving the run cycle and the sprite flip from the rendered delta
    made the player jog on the spot and flip to face the wrong way every time the server nudged
    them, because the render position carries the decaying correction offset. Remote units have no
-   intent to read and correctly fall back to the rendered delta.
+   intent to read and correctly fall back to the rendered delta. The clips laid over the gait
+   are authored with the feet planted and no root travel, and the server never stops a unit for
+   a hit, so since #52 a hit is an overlay, not a clip, and an action that is past its moment
+   ends when the unit moves (`docs/robots.md`, `docs/npcs.md`). How fast the legs turn over is
+   per rig (`runClock`, `gaitClock`).
 4. **Corrections are eased, not snapped.** `LocalPlayer` keeps a decaying render offset so a
    small disagreement is walked off over ~100 ms; a disagreement over 220 units is treated as
    a teleport and shown immediately.
@@ -87,10 +111,13 @@ and how near to get) every tick; at each cell centre the mob takes the neighbour
 goal that `World.mobCanEnter` allows (not blocked, not a gate or arrival cell, not held),
 ties to the lowest `Hex.DIRECTIONS` index, and stays if none is nearer (`Unit.chooseStep`,
 greedy: a single rock on the hex axis stops it dead; BFS is the documented upgrade in a
-comment there). A step once started is always finished. **One mob per cell**: a mob holds
-the cell it left and the one it enters until it arrives (`World.STEPS`), and its own cell at
-rest (`World.mobHolds`, through the `UNITS` index). Players may share cells with each other
-and with mobs. Contact damage lands within the archetype's `contact.rings` (1: adjacent or
+comment there). A step once started is always finished. **No mob on another's body**: a mob
+holds the cell it left and the one it enters until it arrives (`World.STEPS`), and its own cell at
+rest (`World.mobHolds`, through the `UNITS` index). A Reactor or Brood has a 7-cell body
+(ring footprint, `docs/npcs.md` "Bodies"): `mobHolds` also answers for its ring cells
+(`World.bodyAt`), it steps only where all 7 target cells are free (`mobCanEnter` -> `mobFits`), and
+a step holds both bodies, 10 cells (`claimStep`). Players may share cells with each other and
+with mobs, bodies included. Contact damage lands within the archetype's `contact.rings` (1: adjacent or
 the same cell, `Mob.touch`), and the chase stops there (`GuardPosition.chaseStop`, or at the
 standoff if that is further: the gunner's 5). **`stepGoal.away`** (#51, l1-4) is the same greedy
 choice reversed: the furthest enterable neighbour from the goal, ties to the lowest index, staying
@@ -99,7 +126,10 @@ put (and setting `stepBlocked`) if none is further; it is server-only (`LocalPla
 backs away, within the band it holds, beyond `max` it closes to `max` (Kiln and Brood, 5-6). No
 leash: a player can push a retreating mob any distance from home while within `lose`. A mob
 that plants or winds up an attack (Reactor, Coil, Compactor, a primed Broodling) clears
-`stepGoal` every tick after its guard; the step in progress still finishes.
+`stepGoal` every tick after its guard; the step in progress still finishes. The Crawler, Kiln and
+Brood instead **come to rest before they cast** (no new step once the cast is due) and hold
+afterwards, and a new Broodling stands while it emerges (#52 lane 2, "Wind-up holds" in
+`docs/npcs.md`).
 
 **Knockback** (#51, l1-6; the Compactor's slam, `docs/npcs.md`) is the one move the server makes
 to a player that the player didn't ask for, and it is **mirrored**: `Player.knockback` (server)

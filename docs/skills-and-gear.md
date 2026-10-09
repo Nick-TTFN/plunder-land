@@ -37,7 +37,15 @@ neighbours of the ring before, so ring k has 2k+1 cells. No angle test. **Ranged
 line** (`Hex.line`, mirrored): cube lerp and round from the caster's cell toward the aimed
 cell, on to the range in cells (players 6 since #43, standard vision, so a player can no longer
 outrange a gunner's 6-ring notice; gunner 6). It hits the first unit on those cells
-(`World.FIRST_ON_LINE`), which includes one on the caster's own cell. A fixed nudge makes ties
+(`World.FIRST_ON_LINE`), which includes one on the caster's own cell. **What stops a shot
+depends on the shooter** (`RangedAttack.stopsOn`, #51 Q7, l1-12): a player's shot stops at the
+first player or mob; **a mob's shot passes through mobs and stops at the first player**, so a pack
+mate on the line no longer soaks it (and no mob's shot hurts a mob, so a Crawler can't set off a
+Broodling). The client's beam uses the same rule (`RangedAttackEffect`: a mob's beam considers
+players only). `effectcells.spec.ts` sweeps `firstOnLine` against the server, gunner shots
+included; the client's own candidate filter in `RangedAttackEffect` is not covered by a spec
+(l1-12 F1). A Reactor or Brood is on
+the line at any of its 7 cells for a player's shot (`docs/npcs.md`, "Bodies"). A fixed nudge makes ties
 break the same way on both sides (pinned in `hex.spec.ts`). Aiming at a cell's centre and
 testing distance to the segment missed about 29% of targets 6 cells away.
 

@@ -44,7 +44,10 @@ valley. Both are plain
 constants since hex-cells P2; they were derived from push-out radii before. New players join
 on layer 01 on a free cell centre at least `World.SPAWN_CLEARANCE` (3) cells from every
 portal, exit and spawn hazard (an epic or legendary NPC, `World.isSpawnHazard`: Reactor,
-Brood, and the retired boss), and from other mobs when possible (`World.spawnCell`). A fully random spawn
+Brood, and the retired boss), and from other mobs when possible (`World.spawnCell`); distances
+are from a unit's centre cell, so a Reactor's or Brood's 7-cell body is 2 rings from the edge
+(`docs/npcs.md`, "Bodies"), and such a body spawns only where all 7 cells are free (`spawnMob`,
+`World.mobFits`). A fully random spawn
 put about 1 join in 250 close enough to an exit to leave within a second. The airborne plane,
 its clouds and the half-alpha "ground seen from above" are gone; only the player's own layer
 is drawn.

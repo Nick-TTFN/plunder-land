@@ -62,7 +62,28 @@ your mouse aim while `LocalPlayer.dashLeft` > 0, Nick 2026-10-01; per robot, `Ro
 its 0.9 s stride was too slow) and `RobotRig.loops` (Hopper's idle and run are both its jump clip
 as a bounce: only the landing squash, the push-off and the flight, 1.0-1.07 then 0.17-1.0 s, about
 0.15 s on the ground a 0.9 s loop, Nick: "he should just bounce"; a dash doesn't speed it up, `RobotRig.maxPace` 1; so it bounces everywhere and a shot is the eye's alone, laid over the hop; Nick 2026-10-01)), swing on melee (press and effect, deduped by
-`RETRIGGER_S`), shoot on the ranged effect turned and aimed at the shot's end (the eye shot), hit on an hp or armor drop, fall_apart on death (removal after 3 s).
+`RETRIGGER_S`), shoot on the ranged effect turned and aimed at the shot's end (the eye shot), fall_apart on death (removal after 3 s).
+**A hit is an overlay, never the hit clip** (#52 lane 1): on an hp or armour drop `Player.onHurt`
+runs `RobotSprite.hit()` (`vfx/hitoverlay.ts`: a 0.12 s flash, shade layers finish colour x the
+tint and other non-additive layers the tint, eye and highlights untouched; a 3 px sideways jolt of
+the drawn rig decaying by 0.2 s; at most once per 0.45 s) and a hit spark (`hitSpark`, spread over
+the wire `radius`); the gait and any action run on, `play('fall_apart')` clears it, and `play` no
+longer takes `'hit'`. An armour and an hp drop in one record give one spark (`Game.applyArmor`
+leaves it to `setHP`). **Actions while moving** (`actionOnMove`, every clip being authored with
+the feet planted): a standing `shoot` becomes the eye shot over the run at the same clip time,
+keeping its charge and its fire at `SHOT.fire`; a `swing` past its own `melee_hit` (Peep 0.30,
+Magnet 0.42, Periscope 0.38, Hopper 0.39, Waddle 0.43) ends, and before it plays on (about 40-60 u
+of planted slide; Nick's eye decides).
+**Peep's run loop runs at its planted rate** (`RobotRig.gait`, `runClock`; a trial, #52 open item
+3, PROVISIONAL): `RobotGait { groundSpeed: 24 / 0.38 / 0.6, period: 0.6, maxSteps: 6 }` (the foot
+sweeps 24 rig units over the first 0.38 of the 0.6 s loop, one step per leg a loop), so the rate is
+ground speed / (`groundSpeed` x `SCALE` x `drawScale`), capped at 6 steps/s per leg, and **never
+below** the old `RUN_RATE x runRate x pace`, so a dash's legs are unchanged (8.3 steps/s): the 6 is
+a cap on the boost, not on the legs. Planted east-west up to 73.6 u/s; at 140 u/s 6 steps/s and
+47 % slide (was 71 %), but north-south rises 104 -> 113 % (side-view art: the foot sweeps across
+the motion, faster). Only Peep has a gait (`robotrigs.spec.ts`); a real fix is art (a longer
+stride, a front/back cycle). Local and remote Peeps both go through `RobotSprite.update`; the lobby
+never moves a robot, so it never reaches `runClock`.
 The eye smiles for `Player.LOOT_SMILE_S` (0.5 s, Nick) on a loot gain (not the first loot seen for a
 robot coming into view); as in the drop's preview, a change of expression is a blink with the eye
 swapped 0.06 s in, and auto-blink pauses while smiling (`RobotSprite.smile`).
@@ -101,8 +122,9 @@ shrinks to fit on a short screen.
 **Hopper and Waddle are playable** (2026-10-01, Hopper v2, Waddle v2; Nick: "unlock the other 2"): `src/hopper/rig.ts`
 (a head on a spring on one boot; the spring is stroked by the client, `SPRING_STROKES` /
 `springPoints`, not baked) and `src/waddle/rig.ts` (a shell with two eyes; the shot fires from
-between them, `RobotRig.shot.offset`); sheets `hopper.json` 7 KB, `waddle.json` 15 KB, and lobby
-sheets. Stats are #16's table with #43's vision: Hopper HP 90 / armor 50 / 140 / pickup 1 / vision 6,
+between them, `RobotRig.shot.offset`); sheets `hopper.json`, `waddle.json`, and lobby sheets.
+Drawn at `drawScale` **Hopper 1.28, Waddle 1.36** (Nick's size review, #52; `DRAW_SCALE` in the
+bake, re-baked; `npcrigs.spec.ts` holds every robot sheet's density to its `drawScale`). Stats are #16's table with #43's vision: Hopper HP 90 / armor 50 / 140 / pickup 1 / vision 6,
 Waddle HP 130 / armor 100 / 120 / pickup 1 / vision 6. Hopper's trait (#15) is
 built since walls (#44): it passes walls and stones, see "Walls inside the islands". Their `referenceUnits` are the top of the reference pose's boxes (193.9,
 190), not measured from the art's alpha like the others. Hopper's head and Waddle's shell are

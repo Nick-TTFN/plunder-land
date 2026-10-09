@@ -114,7 +114,15 @@ both sides in the same task (details in `docs/wire-format.md`):
   remaining fuse in `lifetime` (9) on its create (server `mobskills/broodling.ts`, client
   `objects/mob.ts` `fuseEndsAt`); gear tier 4 in fields 25/26 and `stash` (mirrored `utils/gear.ts`,
   `GEAR_TIERS` 4), migration 7 (`stash_items_tier_check` 1-4), and Redis `stats-*`
-  `commonKills..legendaryKills` (`bossKills` frozen). Docs: `docs/npcs.md`.
+  `commonKills..legendaryKills` (`bossKills` frozen); `bodyRings` on every row of the mirrored
+  `utils/archetypes.ts` (#52 ring footprint; not on the wire, read by the server's hit and step
+  rules and the client's beam). Docs: `docs/npcs.md`.
+- **Who is hit against what the client draws** (no byte, but both sides): server
+  `World.FIRST_ON_LINE` with `RangedAttack.stopsOn` (a mob's shot passes mobs) and the 7-cell
+  bodies (`World.bodyAt`), against client `vfx/cells.ts` `firstOnLine`/`lineIndexOf` and the
+  candidate filter in `vfx/rangedattack.effect.ts` (`effectcells.spec.ts` sweeps `firstOnLine`;
+  the filter is unspecced). Likewise `FIND_IN_CELLS`/`CONE_CELLS` against `discCells`/`coneCells`
+  and every NPC `attackCells`. Change a hit rule, change the drawing.
 - **Who is sent what is a contract too, though no byte changes** (server fog, #48):
   `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what
   the client draws (`objects/fog.ts`, `Game.onEffect`). `interest.spec.ts` (and
@@ -234,10 +242,12 @@ literally: an id pattern given as "for example" would have locked out every real
   server only) and `NPC_SHARED` in the mirrored `utils/archetypes.ts` (Crawler range and every
   attack's cells; both deploys, client first); NPC kill XP in `PROGRESSION.kills.mob`. Some
   timings in `NPC_NUMBERS` are the approved clips' (Reactor, Coil, Brood release): retuning them
-  desyncs the art. Dez states values in the spec and Beck applies them.
+  desyncs the art, and the #52 wind-up holds must outlast their clip's wind-up event and the
+  render delay (`windupclient.spec.ts`). Dez states values in the spec and Beck applies them.
 - **Do not re-propose tuning the tick (`TICK_MS`) as a latency fix.** See `docs/world.md`,
   Known-unfixed.
 - Art is Nick's boundary. Two player clips are still missing (the arena pass of 2026-09-28
-  covered everything else); of the NPCs, Crawler and Broodling are drawn from their rigs (l1-8)
-  and five wait on Codex packages Nick approves (l1-9); every NPC effect is a placeholder
-  (BACKLOG "Art pass: NPC effects"). List them, don't make them.
+  covered everything else); all seven NPCs are drawn from Codex rigs, five of them (Kiln, Coil,
+  Compactor, Reactor, Brood) PROVISIONAL until Nick approves their packages (l1-9), and the NPC
+  effects from the `npc-fx` sheet, PROVISIONAL too (l1-11). Sizes, gaits and holds are #52's.
+  List what is missing, don't make it.

@@ -35,7 +35,7 @@ backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 | Accounts, loadouts, XP, seasons, energy, stash store, admin endpoints ("Accounts") | `docs/accounts.md` |
 | Skills, areas of effect, projectiles, StoneWall, gear and merge ("Skills", "Gear") | `docs/skills-and-gear.md` |
 | Bots and spectating | `docs/bots-and-spectate.md` |
-| NPC roster, packs, mob attacks and their timers, Broodlings, NPC rigs ("Attacks", "Client: rigs and sprites") | `docs/npcs.md` |
+| NPC roster, packs, mob attacks and their timers, Broodlings, NPC rigs ("Attacks", "Bodies", "Client: rigs and sprites") | `docs/npcs.md` |
 
 ## Verification
 
@@ -134,6 +134,8 @@ Old clients stay open across releases and other code reads these formats, so:
   `World.addObstacle`…), never on the lists directly.
 - **Type 128 is both `ItemPickup` and `GearPickup`.** Every place that walks `ITEMS` must
   decide what it does with `World.GEAR`; missing it sends nothing and errors nothing.
+- **Reactor and Brood fill 7 cells; `UNITS` holds only the centre.** A cell walk of `UNITS`
+  that should hit or hold mobs must also read `World.bodyAt`, or misses their rings silently.
 - **Projectiles are removed only in `World.updateProjectiles`** (walks backwards).
 - **`LocalPlayer._step` mirrors the server's `Unit.walkPath`, and `LocalPlayer.knockback`
   mirrors `Player.knockback`** (effect 15, applied with the same flush's `lastInputSeq`):

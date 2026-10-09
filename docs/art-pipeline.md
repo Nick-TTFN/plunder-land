@@ -80,19 +80,37 @@ large), which is why a pickup's create carries `loot` since this pass.
 
 ## NPC sheets
 
-`assets/res/npc-<key>.png/json` (#51, l1-8, l1-9; Crawler 4.3 KB, Broodling 1.1 KB; Reactor
-14.7 KB, 256x258, 26 frames; Compactor 4.5 KB, 256x56, 14 frames; the last two PROVISIONAL until
-Nick approves their packages) are baked by `tools/bake-npc-atlas.py <npc> [package]` from the
-Codex package's `rig/parts.json`, with pngquant and oxipng if present. **Each part is resampled
-once to the most it is ever drawn at**: art px x (the largest rig units per art px it reaches)
-x `TEXELS_PER_UNIT` (the robots') x the NPC's `sizeScale`; the per-part units per pixel are
-written in the tool's header for each NPC (the Compactor's measured over every fixture pose), so
-a retuned rig needs them re-checked. Crawler shell bands become `body-<row>` frames; the
+`assets/res/npc-<key>.png/json` (#51, l1-8, l1-9; re-baked at #52's sizes; all 256 wide:
+Crawler 256x98 6.8 KB, Broodling 256x32 2.0 KB, Compactor 256x123 9.0 KB, Kiln 256x105 8.6 KB,
+Coil 256x230 13.4 KB, Reactor 256x514 23.3 KB, Brood 256x241 19.1 KB; all but the Crawler and
+Broodling PROVISIONAL until Nick approves their packages) are baked by `tools/bake-npc-atlas.py
+<npc> [package]` from the Codex package's `rig/parts.json` (or the part PNGs by name, for the
+Kiln, whose `parts.json` lists bindings), with pngquant and oxipng if present. **Each part is
+resampled once to the most it is ever drawn at**: art px x (the largest rig units per art px it
+reaches) x `TEXELS_PER_UNIT` (the robots') x the NPC's `size_scale`, which must equal the rig's
+`sizeScale` (`npcrigs.spec.ts` checks `meta.texelsPerUnit`, and the robots' `DRAW_SCALE` against
+`drawScale` the same way); the per-part units per pixel are written in the tool's header for each
+NPC (Compactor, Kiln, Coil and Brood measured over every fixture pose), so a retuned rig needs
+them re-checked. The Kiln's furnace and the Brood's lamps are package frame atlases that are
+**not baked**: the client draws them in code (`docs/npcs.md`). Crawler shell bands become `body-<row>` frames; the
 Compactor's shaft and leg roots are baked whole and cropped at draw time (`docs/npcs.md`).
 **Masks** (the Reactor's `aperture-mask`) are baked as their alpha on white and untrimmed,
 because pixi's sprite mask reads the red channel and the package's mask is black. Pose fixtures come from
 `tools/npc-rig-sync.mjs`. Packages stay in the gitignored `codex_output/` (a worktree has none:
 pass the main checkout's path). Commands, scale and the spec: `docs/npcs.md`.
+
+**NPC effects are one sheet, `assets/res/npc-fx.png` + `npc-fx.json`** (l1-11, 2048x1126, 180
+untrimmed frames, 203 KB; about 9 MB of GPU memory, which the review accepted; trimming the
+100x112 cell frames is the lever if mobile memory binds), baked by `tools/bake-npc-fx-atlas.py
+[package]` from the Codex effects library (`codex_output/npc-fx-v1`) with
+`bake-arena-atlas.py`'s own clip, pack and optimise steps. It is **driven by the package's
+`manifest.json`**, no id list: every clip goes in. `meta.clips['fx/<id>']` carries fps, loop,
+`ground` (the package's `plane`: the 8 ground clips, the per-cell decals and the lob's shadow,
+drawn `onGround`; everything else stands up) and, on the Compactor wave, `chain.cellDelay` 0.25. `textures.spec.ts` loads it, checks every
+quoted `'fx/<id>'` in client source is a clip, and holds the ground set to an exact allowlist, so
+a new clip fails until it is placed. Loaded with the NPC sheets in `Game`'s constructor. The art is
+PROVISIONAL until Nick reviews it; its texture uploads on first draw, so the first NPC effect of a
+session may hitch once (unmeasured).
 
 ## Unused assets
 

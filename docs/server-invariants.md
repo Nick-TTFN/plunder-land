@@ -83,6 +83,16 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   `cellindex.spec.ts` asserts a world run through its own paths never rebuilds). The one
   edit the check can't see keeps a list's length and last element, such as replacing a
   middle element in place. `PICKUPS` files three lists: `CONSUMABLES`, `ITEMS` and `GEAR`.
+  **Bodies have a fourth index, `World.BODIES`** (ring footprint, #52; per world, with
+  `BODY_AT`): layer -> `Hex.key` -> the Reactor or Brood whose ring covers that cell (`UNITS`
+  holds the centre cell). Written only by `fileBody`/`unfileBody`, from `addUnit` (unfile then
+  file, so a re-added body gets its whole ring), `unitMoved` (only a body `addUnit` filed) and
+  `removeUnitAt`. Read through `World.bodyAt`, which honours an entry only while its unit is live
+  and in `UNITS` (the `STEPS` pattern), so a body that died before the sweep holds and is hit on
+  nothing. **Anything that walks `UNITS` by cell to hit or hold mobs must also read `bodyAt`**:
+  `FIND_IN_CELLS` and `FIRST_ON_LINE` (when the mask includes `Mob`), `Throwable.findHit`,
+  `SectorArea.overlaps` and `mobHolds` do; `NEAREST_IN_CELLS` deliberately doesn't (centre
+  distance). A spec that pushes a body straight into `MOBS` gets no ring.
 - **Type 128 is shared by `ItemPickup` and `GearPickup`** (#49): `ObjectType` is a bit mask
   (`typeMask` in `World.FIND_IN_CELLS`) and all 8 bits of the uint8 are taken. The server tells
   them apart with `World.isGear`, the client by whether the create carries `gear` (25) or `item`
