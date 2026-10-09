@@ -365,10 +365,9 @@ export const COIL_RIG: NpcRig = Object.freeze({
     // The pulse (effect 13, sent at the charge's start with a lifetime of
     // tell + hold): started so the hold's end, 3.0 s in, lands when the
     // server's field ends; so the clip starts at 0 on the effect. The
-    // package names no event in its charge, and doesn't support a hit over it.
-    attack: Object.freeze({ clip: 'charge', event: CHARGE.holdEnd, refusesHit: true }),
+    // package names no event in its charge. Hits are an overlay (#52).
+    attack: Object.freeze({ clip: 'charge', event: CHARGE.holdEnd }),
     hit: 'hit',
-    holdGaitOnHit: true,
     // It falls apart from whatever it shows, any phase of the charge included.
     death: Object.freeze({ clip: 'fall_apart', from: 0, fromAction: true })
   }),

@@ -15,7 +15,7 @@ import * as kiln from '../../../../plunder-land-client/src/npcs/kiln/rig'
 import * as coil from '../../../../plunder-land-client/src/npcs/coil/rig'
 import * as brood from '../../../../plunder-land-client/src/npcs/brood/rig'
 import { COIL_PULSE } from '../../../../plunder-land-client/src/vfx/coilfield'
-import { NPC_RIGS, attackLead, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
+import { NPC_RIGS, attackLead, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
 
 /**
@@ -308,13 +308,11 @@ test('the Compactor\'s strike lands on the server\'s impact, and the Reactor\'s 
   assert.equal(attackLead(1.215, 1100), 1.1)
 })
 
-// Both packages reject a hit over their attack (their HANDOFF.md files) and
-// ask for the gait to wait while a hit plays; both fall apart from any pose,
-// the attack's included.
-test('the Reactor and the Compactor refuse a hit over their attack, hold the gait on a hit and die from the attack\'s pose', () => {
+// Both fall apart from any pose, the attack's included. (Their packages'
+// asks about a hit over the attack and the gait during a hit are moot since
+// decision #52: a hit is an overlay, never a clip.)
+test('the Reactor and the Compactor die from the attack\'s pose', () => {
   for (const rig of [reactor.REACTOR_RIG, compactor.COMPACTOR_RIG]) {
-    assert.equal(rig.roles.attack?.refusesHit, true, rig.key)
-    assert.equal(rig.roles.holdGaitOnHit, true, rig.key)
     assert.equal(rig.roles.death?.fromAction, true, rig.key)
     assert.equal(rig.roles.death?.from, 0, rig.key)
   }
@@ -325,7 +323,7 @@ test('the Reactor and the Compactor refuse a hit over their attack, hold the gai
   const charge = reactor.REACTOR_RIG.pose('activate', 1.5, { x: 0, y: 1 })
   const wreck = reactor.REACTOR_RIG.pose('fall_apart', 2.6, { x: 0, y: 1 }, undefined, charge).state as reactor.ReactorState
   assert.equal(wreck.death?.parts.length, 12)
-  // A hit ends exactly on the pose it began from, which is why the gait waits.
+  // The port: a hit ends exactly on the pose it began from (the clip is no longer played).
   const idle = reactor.REACTOR_RIG.pose('idle', 0.7, { x: 0, y: 1 })
   assert.deepEqual(reactor.REACTOR_RIG.pose('hit', 0.68, { x: 0, y: 1 }, undefined, idle).state, idle.state)
   // The Compactor's rig never throws for a hit over the strike (the sprite never asks; a frame must not die).
@@ -446,12 +444,9 @@ test('the Kiln launches on effect 9, the Coil holds its field with the server\'s
   assert.equal(spawn.event - attackLead(spawn.event, 0), brood.SPAWN_EVENT, 'started on the launch')
 })
 
-// All three packages reject a hit over their attack and ask for the gait to
-// wait while a hit plays; all three fall apart from the pose shown.
-test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the gait on a hit and die from the pose shown', () => {
+// All three fall apart from the pose shown. (Hits are an overlay since #52.)
+test('the Kiln, the Coil and the Brood die from the pose shown', () => {
   for (const rig of [kiln.KILN_RIG, coil.COIL_RIG, brood.BROOD_RIG]) {
-    assert.equal(rig.roles.attack?.refusesHit, true, rig.key)
-    assert.equal(rig.roles.holdGaitOnHit, true, rig.key)
     assert.equal(rig.roles.death?.fromAction, true, rig.key)
     assert.equal(rig.roles.death?.from, 0, rig.key)
   }
@@ -463,7 +458,7 @@ test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the 
   assert.equal((coil.COIL_RIG.pose('fall_apart', 2.8, down, undefined, hold).state as coil.CoilState).settled, true)
   const spawn = brood.BROOD_RIG.pose('spawn', 0.3, down)
   assert.equal((brood.BROOD_RIG.pose('death', 2.8, down, undefined, spawn).state as brood.BroodState).settled, true)
-  // A hit ends on the pose it began from (the gait waits for it).
+  // The ports: a hit ends on the pose it began from (the clip is no longer played).
   const idle = kiln.KILN_RIG.pose('idle', 0.7, down)
   assert.deepEqual((kiln.KILN_RIG.pose('hit', 0.7, down, undefined, idle).state as kiln.KilnPose).state.legs, (idle.state as kiln.KilnPose).state.legs)
   const move = coil.COIL_RIG.pose('move', 0.4, { x: -0.6, y: 0.8 })
@@ -471,7 +466,7 @@ test('the Kiln, the Coil and the Brood refuse a hit over their attack, hold the 
   assert.deepEqual(coilHit(0.72).legs.map((l) => l.knee), (move.state as coil.CoilState).legs.map((l) => l.knee))
   // A Coil dying during a hit starts from the hit's source, exactly.
   assert.deepEqual(coil.hitSource(coilHit(0.3)), move.state)
-  // The rigs never throw for a hit over their attack (the sprite never asks; a frame must not die).
+  // The rigs never throw for a hit over their attack (nothing asks; a frame must not die).
   assert.doesNotThrow(() => kiln.KILN_RIG.pose('hit', 0.3, down, undefined, lob))
   assert.doesNotThrow(() => coil.COIL_RIG.pose('hit', 0.3, down, undefined, hold))
   assert.doesNotThrow(() => brood.BROOD_RIG.pose('hit', 0.3, down, undefined, spawn))
@@ -573,4 +568,46 @@ test('the Broodling is whole 1 ms before its death\'s start and blown up at it, 
   const from = broodling.BROODLING_RIG.roles.death?.from ?? 0
   assert.equal(broodling.sample('detonate', from - 0.001).dead, false)
   assert.equal(broodling.sample('detonate', from).dead, true)
+})
+
+// Decision #52 A1: an attack clip past the moment it exists for gives way to
+// movement (`NpcSprite.update`), as the Broodling's emerge does once ready.
+// The moment is each rig's `attack.event`, checked here against the clip's own
+// named event where the package names one.
+test('an attack clip yields to movement from its event on, never before; a death and a prime never', () => {
+  const moments: Record<string, { clip: string, event: number, named?: string }> = {
+    crawler: { clip: 'fire', event: 0.34, named: 'fire' },
+    kiln: { clip: 'fire', event: kiln.LAUNCH },
+    brood: { clip: 'spawn', event: brood.SPAWN_EVENT, named: 'spawn' },
+    coil: { clip: 'charge', event: coil.CHARGE.holdEnd },
+    reactor: { clip: 'activate', event: 1, named: 'release_start' },
+    compactor: { clip: 'fire', event: compactor.IMPACT_TIME }
+  }
+  for (const [key, want] of Object.entries(moments)) {
+    const rig = NPC_RIGS[key]!
+    assert.equal(rig.roles.attack?.clip, want.clip, key)
+    assert.equal(rig.roles.attack?.event, want.event, key)
+    if (want.named !== undefined) {
+      const named = rig.clips[want.clip].events.find((e) => e.name === want.named)
+      assert.equal(named?.time, want.event, `${key}: ${want.named}`)
+    }
+    assert.equal(yieldsToMovement(rig.roles, 'attack', want.event - 0.001), false, key)
+    assert.equal(yieldsToMovement(rig.roles, 'attack', want.event), true, key)
+    assert.equal(yieldsToMovement(rig.roles, 'death', 99), false, key)
+    // The event lies inside the clip, so the yield can come before its end.
+    assert.ok(want.event < rig.clips[want.clip].duration, key)
+  }
+  const roles = broodling.BROODLING_RIG.roles
+  assert.equal(yieldsToMovement(roles, 'spawn', roles.spawn!.ready - 0.001), false)
+  assert.equal(yieldsToMovement(roles, 'spawn', roles.spawn!.ready), true)
+  assert.equal(yieldsToMovement(roles, 'prime', 99), false)
+  assert.equal(yieldsToMovement(roles, 'attack', 99), false, 'no attack, nothing to yield')
+})
+
+// Decision #52: no rig names the retired hit flags, and every rig still names its hit clip as data.
+test('no NPC role carries refusesHit or holdGaitOnHit any more', () => {
+  for (const rig of Object.values(NPC_RIGS)) {
+    assert.equal('holdGaitOnHit' in rig!.roles, false, rig!.key)
+    assert.equal(rig!.roles.attack !== undefined && 'refusesHit' in rig!.roles.attack, false, rig!.key)
+  }
 })

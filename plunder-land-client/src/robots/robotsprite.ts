@@ -3,10 +3,11 @@ import {
   blinkClosure, multiply, regionMatrix,
   type ClipName, type EyeBone, type Matrix as RigMatrix, type Pose
 } from '../peep/rig'
-import { type LoopClip, type RobotRig, PEEP_RIG } from './robotrig'
+import { actionOnMove, type LoopClip, type RobotRig, PEEP_RIG } from './robotrig'
 import { chargedEyeMarks, SHOT, type ShotEye } from './eyeshot'
 import { SPRING_STROKES, springPoints } from '../hopper/rig'
 import { layShadow } from '../objects/shadow'
+import { HitOverlay, multiplyTint } from '../vfx/hitoverlay'
 import { colourById, DEFAULT_FINISH, type Finish, type FinishGroup, patternById, type PatternKey } from '../utils/finishes'
 
 /**
@@ -20,6 +21,8 @@ type FinishMeta = Record<string, { group: FinishGroup | 'mixed', layers: string[
 /** One group's paint on a finished part: its shade, tinted by the group's colour, and its patterns. */
 interface PaintStack {
   group: FinishGroup
+  /** Its finish colour, the shade's tint outside a hit flash. */
+  colour: number
   shade?: Sprite
   patterns: Partial<Record<PatternKey, Sprite>>
 }
@@ -61,9 +64,12 @@ interface Action {
  * clip plays, at what aim, and when to blink.
  *
  * - The idle/run loop follows movement (`setMoving`); `play` lays an action
- *   (shoot, swing, hit, fall_apart) over it, except that a shot while running
+ *   (shoot, swing, fall_apart) over it, except that a shot while running
  *   is the eye shot laid over the run (the drop's `eyeShootTime`), not the
- *   standing shoot clip. The shot fires `SHOT.fire` after it starts, from the
+ *   standing shoot clip. While it moves, a standing shot becomes the eye
+ *   shot and a swing past its blow ends (`actionOnMove`, decision #52 A1).
+ * - `hit` is an overlay, never the hit clip (decision #52): a tint flash and
+ *   a small jolt of the drawn body (`HitOverlay`), over whatever plays. The shot fires `SHOT.fire` after it starts, from the
  *   eye: two rings close in, then a bright dot (`chargedEyeMarks`). A new action replaces the one
  *   playing, except that the same clip asked for again early in its run is not
  *   restarted (`RETRIGGER_S`): a local press and the server's effect for it
@@ -191,6 +197,10 @@ export class RobotSprite extends Container {
   private expressionAt = -Infinity
   private smileUntil = -Infinity
 
+  private readonly hitShown = new HitOverlay()
+  /** Whether the parts carry the hit tint now; undefined until first set. */
+  private tinted: boolean | undefined
+
   private lastDebrisT = -1
   private readonly scratch = new Matrix()
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
@@ -278,7 +288,7 @@ export class RobotSprite extends Container {
     const stackOf = (group: FinishGroup): PaintStack => {
       let stack = part.paint!.find((p) => p.group === group)
       if (stack === undefined) {
-        stack = { group, patterns: {} }
+        stack = { group, colour: 0xffffff, patterns: {} }
         part.paint!.push(stack)
       }
       return stack
@@ -312,7 +322,7 @@ export class RobotSprite extends Container {
     for (const stack of this.parts.flatMap((part) => part.paint ?? [])) {
       const { colour, pattern } = finish[stack.group]
       const rgb = colourById(colour)?.rgb ?? [255, 255, 255]
-      if (stack.shade !== undefined) stack.shade.tint = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
+      stack.colour = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2]
       const info = patternById(pattern)
       for (const key in stack.patterns) {
         const sprite = stack.patterns[key as PatternKey]!
@@ -320,6 +330,32 @@ export class RobotSprite extends Container {
         sprite.alpha = info?.opacity ?? 0
       }
     }
+    this.tinted = undefined
+    this.tint(this.hitShown.flashing)
+  }
+
+  /**
+   * Every part through the hit tint, or back to its paint: a shade gets its
+   * finish colour times the tint, every other layer the tint; additive
+   * highlights and the eye are left alone. Only on a change.
+   */
+  private tint (flash: boolean): void {
+    if (this.tinted === flash) return
+    this.tinted = flash
+    const hit = flash ? HitOverlay.TINT : 0xffffff
+    this.character.regions.forEach((r, i) => {
+      if (r.kind === 'eye' || r.kind === 'spring') return
+      const part = this.parts[i]
+      if (part.paint === undefined) {
+        (part.node as Sprite).tint = hit
+        return
+      }
+      for (const layer of part.node.children as Sprite[]) {
+        if (layer.blendMode === BLEND_MODES.ADD) continue
+        const stack = part.paint.find((p) => p.shade === layer)
+        layer.tint = stack !== undefined ? multiplyTint(stack.colour, hit) : hit
+      }
+    })
   }
 
   /** Movement picks the loop under any action. */
@@ -368,8 +404,17 @@ export class RobotSprite extends Container {
     return this.lookFacing
   }
 
-  /** `aim` undefined keeps whatever `setAim` holds, e.g. a melee press at the mouse. */
-  play (name: ClipName, aim?: number, facing?: 1 | -1): void {
+  /**
+   * Took damage: the hit overlay (`HitOverlay`), over whatever plays; never
+   * the hit clip. Not shown again within `HitOverlay.RETRIGGER_S`.
+   */
+  hit (): void {
+    if (this.dying) return
+    this.hitShown.trigger()
+  }
+
+  /** `aim` undefined keeps whatever `setAim` holds, e.g. a melee press at the mouse. `hit` is `hit()`'s, never a clip. */
+  play (name: Exclude<ClipName, 'hit'>, aim?: number, facing?: 1 | -1): void {
     const current = this.action
     if (current?.name === 'fall_apart') return
     // Over a loop that moves (running, or Hopper's hop) the shot is the eye's alone.
@@ -391,6 +436,8 @@ export class RobotSprite extends Container {
     }
     this.action = { name, t: 0, aim, facing }
     this.lastDebrisT = -1
+    // It comes apart in its own colours, unjolted.
+    if (name === 'fall_apart') this.hitShown.clear()
   }
 
   get dying (): boolean {
@@ -465,6 +512,14 @@ export class RobotSprite extends Container {
       this.blinkAt = now
       this.nextBlinkAt = now + RobotSprite.blinkGap()
     }
+    this.hitShown.advance(dt)
+    // Moving: a standing shot carries on as the eye shot over the run, and a
+    // swing past its blow ends (A1); its planted feet would slide otherwise.
+    if (this.action !== undefined && this.base === 'run') {
+      const next = actionOnMove(this.character, this.action.name, this.action.t)
+      if (next === 'eye') this.shot = this.action
+      if (next !== 'play') this.action = undefined
+    }
     const action = this.action
     if (action !== undefined) {
       action.t += dt
@@ -472,10 +527,16 @@ export class RobotSprite extends Container {
     }
     if (this.shot !== undefined) {
       this.shot.t += dt
-      // An action (a hit, a swing, a death) ends a shot laid over the run.
+      // An action (a swing, a death) ends a shot laid over the run.
       if (this.shot.t >= SHOT.duration || this.action !== undefined) this.shot = undefined
     }
     if (dt > 0 && !this.shown()) return
+
+    // The hit: the drawn body (and its cast shadow) jolts back from the way it faces, and flashes.
+    const jolt = this.hitShown.jolt(facingNow)
+    this.rig.x = jolt
+    this.castRig.x = jolt
+    this.tint(this.hitShown.flashing)
 
     const playing = this.action
     const loop = this.character.loops?.[this.base]

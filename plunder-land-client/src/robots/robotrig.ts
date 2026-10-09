@@ -16,7 +16,7 @@ export interface RobotRig {
   /** Its sheet (`assets/res/<sheet>.json`, `tools/bake-peep-atlas.py <sheet>`) and frame prefix. */
   readonly sheet: 'peep' | 'periscope' | 'magnet' | 'hopper' | 'waddle'
   readonly regions: readonly Region[]
-  readonly clips: Readonly<Record<ClipName | 'reference', { readonly duration: number }>>
+  readonly clips: Readonly<Record<ClipName | 'reference', { readonly duration: number, readonly events: ReadonlyArray<{ readonly time: number, readonly name: string }> }>>
   readonly animationPose: (name: ClipName | 'reference', seconds: number, options: PoseOptions) => Pose
   /**
    * Where an eye image goes, from the pose's matrices and that eye region's
@@ -175,3 +175,22 @@ export const WADDLE_RIG: RobotRig = Object.freeze({
 export const ROBOT_RIGS: Readonly<Record<RobotRig['sheet'], RobotRig>> = Object.freeze({
   peep: PEEP_RIG, periscope: PERISCOPE_RIG, magnet: MAGNET_RIG, hopper: HOPPER_RIG, waddle: WADDLE_RIG
 })
+
+/**
+ * What an action clip `t` seconds in does while its robot moves (A1, decision
+ * #52): every clip is authored with the feet planted, so one playing while
+ * the body moves draws a statue sliding over the ground. `shoot` (the
+ * standing shot) becomes the eye shot over the run at the same time
+ * (`'eye'`): the shot keeps its charge and its fire moment, `SHOT.fire`.
+ * `swing` ends once past its `melee_hit` event (`'end'`), the moment the
+ * blow lands; before it, it plays on. Anything else plays on (`hit` is never
+ * played since #52; `fall_apart` holds where it fell).
+ */
+export function actionOnMove (rig: Pick<RobotRig, 'clips'>, name: ClipName, t: number): 'play' | 'end' | 'eye' {
+  if (name === 'shoot') return 'eye'
+  if (name === 'swing') {
+    const blow = rig.clips.swing.events.find((e) => e.name === 'melee_hit')
+    return blow !== undefined && t >= blow.time ? 'end' : 'play'
+  }
+  return 'play'
+}

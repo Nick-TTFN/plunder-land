@@ -114,8 +114,9 @@ export default class Mob extends Unit {
     if (this.npc === undefined) super.flip(left)
   }
 
+  /** A hit is an overlay over whatever plays (decision #52): the rig's flash and jolt, and the spark. */
   onHurt (): void {
-    this.npc?.play('hit')
+    this.npc?.hit()
     hitSpark(this)
   }
 

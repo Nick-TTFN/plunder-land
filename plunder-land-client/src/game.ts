@@ -872,7 +872,9 @@ export class Game extends Container {
       // Its rig's activation (l1-9): the tell starts the charge so that
       // release_start lands `lifetime` later, when the release is due; the
       // release puts it back in step (lead 0), or starts it there for a
-      // viewer who missed the tell.
+      // viewer who missed the tell. The tell plants it: its drawn position
+      // catches up to the server's first (S1, decision #52).
+      if (reactor instanceof Mob && !release) reactor.catchUpNow()
       if (reactor instanceof Mob) reactor.playAttack(release ? 0 : lifetime)
       return
     }
@@ -894,6 +896,8 @@ export class Game extends Container {
     if (type === NPC_EFFECT.coilPulse) {
       if (aimCell !== undefined) new CoilPulseEffect(aimCell, Game.LOCAL.tag, lifetime)
       // Its rig's charge (l1-9), sent at its start (alive, so the id is its own): the hold ends with the lifetime.
+      // Planted for it: drawn where the server has it first (S1, decision #52).
+      if (target instanceof Mob) target.catchUpNow()
       if (target instanceof Mob) target.playAttack(lifetime)
       return
     }
@@ -904,6 +908,8 @@ export class Game extends Container {
     // tell; by the blast it is gone and its id may be reused.
     if (type === NPC_EFFECT.broodlingPrimed || type === NPC_EFFECT.broodlingBlast) {
       if (aimCell !== undefined) new BroodlingEffect(aimCell, Game.LOCAL.tag, type === NPC_EFFECT.broodlingBlast, lifetime)
+      // Held at the tell: drawn where the server has it first (S1, decision #52).
+      if (type === NPC_EFFECT.broodlingPrimed && target instanceof Mob) target.catchUpNow()
       if (type === NPC_EFFECT.broodlingPrimed && target instanceof Mob) primeBroodling(target)
       return
     }
@@ -954,6 +960,8 @@ export class Game extends Container {
         new ShockwaveEffect(target, lifetime, aimCell)
         // Its rig's strike (l1-9), started so the clip's `attack` event (the
         // shoe on the floor) lands `lifetime` later, on the server's impact.
+        // Planted for it: drawn where the server has it first (S1, decision #52).
+        if (target instanceof Mob) target.catchUpNow()
         if (target instanceof Mob) target.playAttack(lifetime, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
         break
 

@@ -69,17 +69,16 @@ export interface NpcRoles {
   /**
    * Played on the NPC's attack effect, started so that `attack.event` lands
    * when the server's moment does (the Crawler's beam, the Compactor's
-   * impact, the Reactor's release). With `refusesHit` a hit never cuts it
-   * (the package doesn't support a hit over it): the hit only flashes.
+   * impact, the Reactor's release). Past its event it gives way to movement
+   * (`yieldsToMovement`).
    */
-  readonly attack?: { readonly clip: string, readonly event: number, readonly refusesHit?: boolean }
-  readonly hit?: string
+  readonly attack?: { readonly clip: string, readonly event: number }
   /**
-   * The idle/move clock stands still while a hit plays, so the hit, which
-   * ends exactly on the pose it started from, hands back to the same gait
-   * phase (the Reactor's and the Compactor's packages ask for it).
+   * The package's hit clip. **Never played** (decision #52): a hit is an
+   * overlay (`vfx/hitoverlay.ts`), never a body clip. Kept as data so the
+   * port and its fixtures still name and check it.
    */
-  readonly holdGaitOnHit?: boolean
+  readonly hit?: string
   /**
    * Played on death; with `deathHolds`, from `death.from` seconds in (the
    * Broodling's blast). With `fromAction` it starts from the pose shown, an
@@ -195,6 +194,20 @@ export type NpcDrawItem = NpcImage | NpcMasked | NpcMark
 export interface NpcDrawList {
   readonly ground: NpcEllipse[]
   readonly items: NpcDrawItem[]
+}
+
+/**
+ * Whether an action clip `t` seconds in ends when its NPC is moving (A1,
+ * decision #52): an attack once past its event (the moment it exists for:
+ * the Crawler's shot, the Kiln's launch, the Brood's release, the Coil's
+ * hold end, the Reactor's release start, the Compactor's impact), a spawn
+ * once it is `ready`. The planted feet would otherwise slide while the body
+ * moves on. Before that moment it plays on; a death and a prime never yield.
+ */
+export function yieldsToMovement (roles: NpcRoles, role: 'attack' | 'death' | 'spawn' | 'prime', t: number): boolean {
+  if (role === 'attack') return roles.attack !== undefined && t >= roles.attack.event
+  if (role === 'spawn') return roles.spawn !== undefined && t >= roles.spawn.ready
+  return false
 }
 
 /**

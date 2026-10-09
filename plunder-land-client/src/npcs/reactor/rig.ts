@@ -511,10 +511,9 @@ export const REACTOR_RIG: NpcRig = Object.freeze({
     idle: 'idle',
     move: 'walk',
     // The tell (effect 11) plays the charge; the release (effect 12) lands on
-    // release_start. The package doesn't support a hit over it.
-    attack: Object.freeze({ clip: 'activate', event: 1, refusesHit: true }),
+    // release_start. Hits are an overlay (#52).
+    attack: Object.freeze({ clip: 'activate', event: 1 }),
     hit: 'hit',
-    holdGaitOnHit: true,
     // It falls apart from whatever it shows, the activation included.
     death: Object.freeze({ clip: 'fall_apart', from: 0, fromAction: true })
   }),

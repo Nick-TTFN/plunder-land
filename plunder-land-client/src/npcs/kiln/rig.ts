@@ -660,10 +660,9 @@ export const KILN_RIG: NpcRig = Object.freeze({
     move: 'run',
     // The lob (effect 9, sent at the server's cast with the flight as its
     // lifetime): played from its `attack` event, the launch, so the shell
-    // leaves as the server casts. The package doesn't support a hit over it.
-    attack: Object.freeze({ clip: 'fire', event: LAUNCH, refusesHit: true }),
+    // leaves as the server casts. Hits are an overlay (#52).
+    attack: Object.freeze({ clip: 'fire', event: LAUNCH }),
     hit: 'hit',
-    holdGaitOnHit: true,
     // It falls apart from whatever it shows, mid-lob included.
     death: Object.freeze({ clip: 'fall_apart', from: 0, fromAction: true })
   }),
