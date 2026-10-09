@@ -80,7 +80,8 @@ function constants () {
   const tilt = fs.readFileSync(path.join(CLIENT, 'src/objects/tilt.ts'), 'utf8')
   if (!/ROW_SCREEN = Math\.round\(ROW \* 0\.93\)/.test(tilt) || !/TILT = ROW_SCREEN \/ ROW/.test(tilt)) throw Error('tilt.ts changed: update foot-slide.cjs')
   const npc = fs.readFileSync(path.join(CLIENT, 'src/npcs/npcsprite.ts'), 'utf8')
-  if (!/this\.baseTime \+= this\.moving \? dt \* RobotSprite\.RUN_RATE \* this\.pace : dt/.test(npc)) throw Error('NpcSprite.update changed: update foot-slide.cjs')
+  if (!/this\.baseTime \+= this\.moving \? dt \* RobotSprite\.RUN_RATE \* \(this\.npc\.gait\?\.rate \?\? 1\) \* this\.stretch \* this\.pace : dt/.test(npc)) throw Error('NpcSprite.update changed: update foot-slide.cjs')
+  if (!/gaitDirection\(this\.npc\.gait, x, y, TILT\)/.test(npc) || !/gaitPace\(this\.npc\.gait, pace, RobotSprite\.MIN_PACE, RobotSprite\.MAX_PACE\)/.test(npc)) throw Error('NpcSprite.setDirection/setPace changed: update foot-slide.cjs')
   if (!/RobotSprite\.RUN_RATE \* \(this\.character\.runRate \?\? 1\) \* this\.pace/.test(sprite)) throw Error('RobotSprite.update changed: update foot-slide.cjs')
   const { Hex } = require(path.join(CLIENT, 'src/utils/hex.ts'))
   const row = Hex.SIZE * Math.sqrt(3) / 2
@@ -166,16 +167,19 @@ function robotAdapter (key, rig, C) {
 function npcAdapter (key, rig, C, drawScale = 1) {
   const ppu = C.SCALE * rig.sizeScale * drawScale
   const legsOf = (pose) => pose.state.legs ?? pose.state.state.legs
+  const { gaitDirection, gaitPace } = require(path.join(CLIENT, 'src/npcs/npcrig.ts'))
   return {
     key,
     kind: 'npc',
     period: rig.clips[rig.roles.move].duration,
-    pace: (speed) => Math.min(C.MAX_PACE, Math.max(C.MIN_PACE, speed / C.STRIDE_SPEED)),
-    rate (speed) { return C.RUN_RATE * this.pace(speed) },
-    rateNoRunRate (speed) { return C.RUN_RATE * this.pace(speed) },
+    pace: (speed) => gaitPace(rig.gait, speed / C.STRIDE_SPEED, C.MIN_PACE, C.MAX_PACE),
+    // A rig's own gait (`NpcGait`, the Crawler since lane 3) as `NpcSprite` reads it: its rate, pace floor and the direction's stretch.
+    rate (speed, dir = DIRS.E) { return C.RUN_RATE * (rig.gait?.rate ?? 1) * gaitDirection(rig.gait, dir.x, dir.y, C.TILT).stretch * this.pace(speed) },
+    rateNoRunRate (speed, dir = DIRS.E) { return C.RUN_RATE * gaitDirection(rig.gait, dir.x, dir.y, C.TILT).stretch * this.pace(speed) },
     contactSource: 'rig leg.contact',
     feet (t, dir) {
-      const pose = rig.pose(rig.roles.move, t, dir, undefined, undefined, { clock: t })
+      const d = gaitDirection(rig.gait, dir.x, dir.y, C.TILT)
+      const pose = rig.pose(rig.roles.move, t, { x: d.x, y: d.y }, undefined, undefined, { clock: t })
       return legsOf(pose).map((l, i) => {
         const g = l.worldFoot ?? l.foot
         return { id: String(l.id ?? i), x: ppu * g.x, y: ppu * (g.y * C.PACKAGE_TILT - (g.z ?? 0)) / C.TILT, contact: l.contact === true }
@@ -194,7 +198,7 @@ const DIRS = { E: { x: 1, y: 0 }, W: { x: -1, y: 0 }, N: { x: 0, y: -1 }, S: { x
  * v + rate * dS/dc (S the foot's offset, c clip time; the derivative is
  * central, h 1e-4 clip s, only where the foot is planted on both sides).
  */
-function measure (a, speed, dir, rate = a.rate(speed), steps = 2400) {
+function measure (a, speed, dir, rate = a.rate(speed, dir), steps = 2400) {
   const span = 2 * a.period
   const dc = span / steps
   const h = 1e-4
@@ -540,7 +544,7 @@ function main () {
       for (const d of ['E', 'W', 'N', 'S', 'NE', 'SE']) {
         const m = residual(a, speed, DIRS[d])
         // The runRate (robots' `RobotRig.runRate`, or an NPC one) that makes the best rate at this pace.
-        const bestRunRate = m.bestRate / a.rateNoRunRate(speed)
+        const bestRunRate = m.bestRate / a.rateNoRunRate(speed, DIRS[d])
         const row = { rig: a.key, kind: a.kind, label, dir: d, ...m, bestRunRate, contactSource: a.contactSource }
         rows.push(row)
         console.log([a.key, label, f1(speed), f2(m.pace), f2(m.rate), d, f2(m.cadence), f1(m.stride), f1(m.slide), f1(m.slidePct), f1(m.slipPerStep), f1(m.along), f2(m.bestRate), f2(bestRunRate), f1(m.residualPct), a.contactSource].join('\t'))
@@ -560,7 +564,7 @@ function main () {
       const best = measure(a, speed, DIRS.E).bestRate
       const east = [strip(a, speed, DIRS.E, a.rate(speed), seconds, zoom, C)]
       if (best > 0) east.push(strip(a, speed, DIRS.E, best, seconds, zoom, C))
-      const files = [[`${a.key}-E.png`, Raster.stack(east, 'v')], [`${a.key}-NS.png`, Raster.stack(['N', 'S'].map((d) => strip(a, speed, DIRS[d], a.rate(speed), seconds, zoom, C)), 'h')]]
+      const files = [[`${a.key}-E.png`, Raster.stack(east, 'v')], [`${a.key}-NS.png`, Raster.stack(['N', 'S'].map((d) => strip(a, speed, DIRS[d], a.rate(speed, DIRS[d]), seconds, zoom, C)), 'h')]]
       const row = (d) => rows.find((r) => r.rig === a.key && r.label === list[0][0] && r.dir === d)
       html.push(`<h2>${a.key}: ${list[0][0]} ${speed} u/s, clip rate ${a.rate(speed).toFixed(2)}</h2><p>E: slide ${row('E').slidePct.toFixed(0)}% (${row('E').slipPerStep.toFixed(1)} u per step); best rate ${best.toFixed(2)}. N: slide ${row('N').slidePct.toFixed(0)}%.</p>`)
       for (const [name, raster] of files) {
@@ -574,4 +578,5 @@ function main () {
   }
 }
 
-main()
+if (require.main === module) main()
+module.exports = { constants, speeds, robotAdapter, npcAdapter, measure, residual, strip, Raster, DIRS, FOOT_COLOURS }
