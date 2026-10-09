@@ -4,640 +4,640 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/hi.png": {
    "frame": {
-    "x": 66,
+    "x": 89,
     "y": 2,
-    "w": 60,
-    "h": 50
+    "w": 82,
+    "h": 67
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 60,
-    "h": 50
+    "x": 1,
+    "y": 1,
+    "w": 82,
+    "h": 67
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/body-camo.png": {
    "frame": {
-    "x": 128,
+    "x": 173,
     "y": 2,
-    "w": 62,
-    "h": 44
+    "w": 85,
+    "h": 60
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
-    "y": 23,
-    "w": 62,
-    "h": 44
+    "y": 32,
+    "w": 85,
+    "h": 60
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/body-shade.png": {
    "frame": {
-    "x": 192,
+    "x": 260,
     "y": 2,
-    "w": 62,
-    "h": 44
+    "w": 85,
+    "h": 60
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
-    "y": 23,
-    "w": 62,
-    "h": 44
+    "y": 32,
+    "w": 85,
+    "h": 60
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/body-checker.png": {
    "frame": {
-    "x": 256,
+    "x": 347,
     "y": 2,
-    "w": 62,
-    "h": 43
+    "w": 85,
+    "h": 59
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
-    "y": 24,
-    "w": 62,
-    "h": 43
+    "y": 33,
+    "w": 85,
+    "h": 59
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/body-zebra.png": {
    "frame": {
-    "x": 320,
-    "y": 2,
-    "w": 62,
-    "h": 43
+    "x": 2,
+    "y": 96,
+    "w": 85,
+    "h": 59
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
-    "y": 24,
-    "w": 62,
-    "h": 43
+    "y": 33,
+    "w": 85,
+    "h": 59
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/head-checker.png": {
    "frame": {
-    "x": 384,
-    "y": 2,
-    "w": 58,
-    "h": 33
+    "x": 89,
+    "y": 96,
+    "w": 79,
+    "h": 45
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 6,
+    "y": 0,
+    "w": 79,
+    "h": 45
+   },
+   "sourceSize": {
+    "w": 85,
+    "h": 92
+   }
+  },
+  "waddle/shell/head-shade.png": {
+   "frame": {
+    "x": 170,
+    "y": 96,
+    "w": 81,
+    "h": 45
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 4,
     "y": 0,
-    "w": 58,
-    "h": 33
+    "w": 81,
+    "h": 45
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
-   }
-  },
-  "waddle/shell/head-shade.png": {
-   "frame": {
-    "x": 444,
-    "y": 2,
-    "w": 59,
-    "h": 33
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 0,
-    "w": 59,
-    "h": 33
-   },
-   "sourceSize": {
-    "w": 62,
-    "h": 67
-   }
-  },
-  "waddle/shell/head-camo.png": {
-   "frame": {
-    "x": 2,
-    "y": 71,
-    "w": 57,
-    "h": 32
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 0,
-    "w": 57,
-    "h": 32
-   },
-   "sourceSize": {
-    "w": 62,
-    "h": 67
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/shell/head-zebra.png": {
    "frame": {
-    "x": 61,
-    "y": 71,
-    "w": 55,
-    "h": 32
+    "x": 253,
+    "y": 96,
+    "w": 76,
+    "h": 44
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 0,
+    "w": 76,
+    "h": 44
+   },
+   "sourceSize": {
+    "w": 85,
+    "h": 92
+   }
+  },
+  "waddle/shell/head-camo.png": {
+   "frame": {
+    "x": 331,
+    "y": 96,
+    "w": 77,
+    "h": 43
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 5,
     "y": 0,
-    "w": 55,
-    "h": 32
+    "w": 77,
+    "h": 43
    },
    "sourceSize": {
-    "w": 62,
-    "h": 67
-   }
-  },
-  "waddle/flipper/camo.png": {
-   "frame": {
-    "x": 118,
-    "y": 71,
-    "w": 28,
-    "h": 25
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 28,
-    "h": 25
-   },
-   "sourceSize": {
-    "w": 28,
-    "h": 25
+    "w": 85,
+    "h": 92
    }
   },
   "waddle/flipper/checker.png": {
    "frame": {
-    "x": 148,
-    "y": 71,
-    "w": 28,
-    "h": 25
+    "x": 410,
+    "y": 96,
+    "w": 39,
+    "h": 33
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    },
    "sourceSize": {
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    }
   },
   "waddle/flipper/fixed.png": {
    "frame": {
-    "x": 178,
-    "y": 71,
-    "w": 28,
-    "h": 25
+    "x": 451,
+    "y": 96,
+    "w": 39,
+    "h": 33
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    },
    "sourceSize": {
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    }
   },
   "waddle/flipper/shade.png": {
    "frame": {
-    "x": 208,
-    "y": 71,
-    "w": 28,
-    "h": 25
+    "x": 2,
+    "y": 157,
+    "w": 39,
+    "h": 33
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    },
    "sourceSize": {
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    }
   },
   "waddle/flipper/zebra.png": {
    "frame": {
-    "x": 238,
-    "y": 71,
-    "w": 28,
-    "h": 25
+    "x": 43,
+    "y": 157,
+    "w": 39,
+    "h": 33
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    },
    "sourceSize": {
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
+   }
+  },
+  "waddle/flipper/camo.png": {
+   "frame": {
+    "x": 84,
+    "y": 157,
+    "w": 39,
+    "h": 32
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 1,
+    "w": 39,
+    "h": 32
+   },
+   "sourceSize": {
+    "w": 39,
+    "h": 33
    }
   },
   "waddle/flipper/hi.png": {
    "frame": {
-    "x": 268,
-    "y": 71,
-    "w": 27,
-    "h": 23
+    "x": 125,
+    "y": 157,
+    "w": 38,
+    "h": 30
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 27,
-    "h": 23
+    "w": 38,
+    "h": 30
    },
    "sourceSize": {
-    "w": 28,
-    "h": 25
+    "w": 39,
+    "h": 33
    }
   },
   "waddle/boot_near/fixed.png": {
    "frame": {
-    "x": 297,
-    "y": 71,
-    "w": 28,
-    "h": 20
+    "x": 165,
+    "y": 157,
+    "w": 39,
+    "h": 27
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 28,
-    "h": 20
+    "w": 39,
+    "h": 27
    },
    "sourceSize": {
-    "w": 28,
-    "h": 20
+    "w": 39,
+    "h": 27
    }
   },
   "waddle/boot_far/fixed.png": {
    "frame": {
-    "x": 327,
-    "y": 71,
-    "w": 26,
-    "h": 18
+    "x": 206,
+    "y": 157,
+    "w": 35,
+    "h": 25
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 26,
-    "h": 18
+    "w": 35,
+    "h": 25
    },
    "sourceSize": {
-    "w": 26,
-    "h": 18
+    "w": 35,
+    "h": 25
    }
   },
   "waddle/boot_near/checker.png": {
    "frame": {
-    "x": 355,
-    "y": 71,
-    "w": 20,
-    "h": 12
+    "x": 243,
+    "y": 157,
+    "w": 28,
+    "h": 16
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 3,
-    "y": 5,
-    "w": 20,
-    "h": 12
+    "x": 4,
+    "y": 7,
+    "w": 28,
+    "h": 16
    },
    "sourceSize": {
-    "w": 28,
-    "h": 20
+    "w": 39,
+    "h": 27
    }
   },
   "waddle/boot_near/shade.png": {
    "frame": {
-    "x": 377,
-    "y": 71,
-    "w": 26,
-    "h": 12
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 5,
-    "w": 26,
-    "h": 12
-   },
-   "sourceSize": {
-    "w": 28,
-    "h": 20
-   }
-  },
-  "waddle/boot_far/camo.png": {
-   "frame": {
-    "x": 405,
-    "y": 71,
-    "w": 20,
-    "h": 11
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 5,
-    "w": 20,
-    "h": 11
-   },
-   "sourceSize": {
-    "w": 26,
-    "h": 18
-   }
-  },
-  "waddle/boot_far/checker.png": {
-   "frame": {
-    "x": 427,
-    "y": 71,
-    "w": 20,
-    "h": 11
+    "x": 273,
+    "y": 157,
+    "w": 35,
+    "h": 16
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 2,
-    "y": 5,
-    "w": 20,
-    "h": 11
+    "y": 7,
+    "w": 35,
+    "h": 16
    },
    "sourceSize": {
-    "w": 26,
-    "h": 18
-   }
-  },
-  "waddle/boot_far/shade.png": {
-   "frame": {
-    "x": 449,
-    "y": 71,
-    "w": 23,
-    "h": 11
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 5,
-    "w": 23,
-    "h": 11
-   },
-   "sourceSize": {
-    "w": 26,
-    "h": 18
-   }
-  },
-  "waddle/boot_far/zebra.png": {
-   "frame": {
-    "x": 474,
-    "y": 71,
-    "w": 23,
-    "h": 11
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 5,
-    "w": 23,
-    "h": 11
-   },
-   "sourceSize": {
-    "w": 26,
-    "h": 18
-   }
-  },
-  "waddle/boot_near/camo.png": {
-   "frame": {
-    "x": 2,
-    "y": 105,
-    "w": 25,
-    "h": 11
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 2,
-    "y": 6,
-    "w": 25,
-    "h": 11
-   },
-   "sourceSize": {
-    "w": 28,
-    "h": 20
-   }
-  },
-  "waddle/boot_near/hi.png": {
-   "frame": {
-    "x": 29,
-    "y": 105,
-    "w": 23,
-    "h": 11
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 6,
-    "w": 23,
-    "h": 11
-   },
-   "sourceSize": {
-    "w": 28,
-    "h": 20
+    "w": 39,
+    "h": 27
    }
   },
   "waddle/boot_near/zebra.png": {
    "frame": {
-    "x": 54,
-    "y": 105,
-    "w": 24,
-    "h": 11
+    "x": 310,
+    "y": 157,
+    "w": 34,
+    "h": 16
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 2,
-    "y": 6,
-    "w": 24,
-    "h": 11
+    "y": 7,
+    "w": 34,
+    "h": 16
    },
    "sourceSize": {
-    "w": 28,
-    "h": 20
-   }
-  },
-  "waddle/boot_far/hi.png": {
-   "frame": {
-    "x": 80,
-    "y": 105,
-    "w": 20,
-    "h": 10
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 3,
-    "y": 5,
-    "w": 20,
-    "h": 10
-   },
-   "sourceSize": {
-    "w": 26,
-    "h": 18
+    "w": 39,
+    "h": 27
    }
   },
   "waddle/eye_open.png": {
    "frame": {
-    "x": 102,
-    "y": 105,
-    "w": 5,
-    "h": 10
+    "x": 346,
+    "y": 157,
+    "w": 10,
+    "h": 15
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 2,
     "y": 3,
-    "w": 5,
-    "h": 10
+    "w": 10,
+    "h": 15
    },
    "sourceSize": {
-    "w": 9,
-    "h": 16
+    "w": 13,
+    "h": 21
+   }
+  },
+  "waddle/boot_far/camo.png": {
+   "frame": {
+    "x": 358,
+    "y": 157,
+    "w": 27,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 7,
+    "w": 27,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 35,
+    "h": 25
+   }
+  },
+  "waddle/boot_far/checker.png": {
+   "frame": {
+    "x": 387,
+    "y": 157,
+    "w": 27,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 3,
+    "y": 7,
+    "w": 27,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 35,
+    "h": 25
+   }
+  },
+  "waddle/boot_far/shade.png": {
+   "frame": {
+    "x": 416,
+    "y": 157,
+    "w": 31,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 7,
+    "w": 31,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 35,
+    "h": 25
+   }
+  },
+  "waddle/boot_far/zebra.png": {
+   "frame": {
+    "x": 449,
+    "y": 157,
+    "w": 31,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 7,
+    "w": 31,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 35,
+    "h": 25
+   }
+  },
+  "waddle/boot_near/camo.png": {
+   "frame": {
+    "x": 2,
+    "y": 192,
+    "w": 35,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 8,
+    "w": 35,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 39,
+    "h": 27
+   }
+  },
+  "waddle/boot_near/hi.png": {
+   "frame": {
+    "x": 39,
+    "y": 192,
+    "w": 32,
+    "h": 14
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 4,
+    "y": 8,
+    "w": 32,
+    "h": 14
+   },
+   "sourceSize": {
+    "w": 39,
+    "h": 27
    }
   },
   "waddle/shin.png": {
    "frame": {
-    "x": 109,
-    "y": 105,
-    "w": 7,
-    "h": 10
+    "x": 73,
+    "y": 192,
+    "w": 9,
+    "h": 14
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 7,
-    "h": 10
+    "w": 9,
+    "h": 14
    },
    "sourceSize": {
-    "w": 7,
-    "h": 10
+    "w": 9,
+    "h": 14
    }
   },
   "waddle/thigh.png": {
    "frame": {
-    "x": 118,
-    "y": 105,
-    "w": 7,
-    "h": 10
+    "x": 84,
+    "y": 192,
+    "w": 10,
+    "h": 14
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 7,
-    "h": 10
+    "w": 10,
+    "h": 14
    },
    "sourceSize": {
-    "w": 7,
-    "h": 10
+    "w": 10,
+    "h": 14
    }
   },
-  "waddle/eye_smile.png": {
+  "waddle/boot_far/hi.png": {
    "frame": {
-    "x": 127,
-    "y": 105,
-    "w": 9,
-    "h": 5
+    "x": 96,
+    "y": 192,
+    "w": 26,
+    "h": 13
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 0,
-    "y": 6,
-    "w": 9,
-    "h": 5
+    "x": 5,
+    "y": 8,
+    "w": 26,
+    "h": 13
    },
    "sourceSize": {
-    "w": 9,
-    "h": 16
+    "w": 35,
+    "h": 25
+   }
+  },
+  "waddle/eye_smile.png": {
+   "frame": {
+    "x": 124,
+    "y": 192,
+    "w": 8,
+    "h": 6
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 2,
+    "y": 8,
+    "w": 8,
+    "h": 6
+   },
+   "sourceSize": {
+    "w": 13,
+    "h": 21
    }
   }
  },
@@ -648,10 +648,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 512,
-   "h": 118
+   "h": 208
   },
   "scale": "2",
-  "texelsPerUnit": 0.4317718940936864,
+  "texelsPerUnit": 0.5872097759674135,
   "drop": "waddle-animations-v2",
   "finish": {
    "boot_far": {

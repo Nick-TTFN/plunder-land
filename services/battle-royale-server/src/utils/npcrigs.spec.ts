@@ -802,12 +802,13 @@ test('a gait follows its rig\'s size: resized 1.25x, the feet stay planted and t
     const ratio = gaitClock(big, pace, 1, SPRITE) / gaitClock(rig, pace, 1, SPRITE)
     assert.ok(Math.abs(ratio - 0.8) < 1e-12, `${key}: steps x${ratio}`)
   }
-  // The Crawler at chase too (under its cap at both sizes): 4.84 steps a second per leg east-west, 3.87 resized.
+  // The Crawler at chase too (under its cap at both sizes): at 1.31, 3.29 steps a second per leg east-west, 2.63 resized (4.84 at the 0.89 of lane 3).
   const rig = crawler.CRAWLER_RIG
   const big: NpcRig = { ...rig, sizeScale: rig.sizeScale * 1.25 }
   const pace = 90 / SPRITE.STRIDE_SPEED
-  assert.ok(Math.abs(gaitClock(rig, pace, 1, SPRITE) / rig.gait!.period - 4.84) < 0.01)
-  assert.ok(Math.abs(gaitClock(big, pace, 1, SPRITE) / rig.gait!.period - 3.87) < 0.01)
+  assert.ok(Math.abs(gaitClock(rig, pace, 1, SPRITE) / rig.gait!.period - 3.29) < 0.01)
+  assert.ok(Math.abs(gaitClock(big, pace, 1, SPRITE) / rig.gait!.period - 2.63) < 0.01)
+  assert.ok(Math.abs(gaitClock({ ...rig, sizeScale: 0.89 }, pace, 1, SPRITE) / rig.gait!.period - 4.84) < 0.01)
   const w = plantedVelocity(big, 90, { x: 1, y: 0 })
   assert.ok(Math.hypot(w.x, w.y) < 0.9, `resized at 90 u/s: ${w.x.toFixed(2)},${w.y.toFixed(2)}`)
 })

@@ -330,7 +330,8 @@ export const BROODLING_RIG: NpcRig = Object.freeze({
   key: 'broodling' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 94% of its own rig (npc-scale-preview-v1, which drew it through `drawBroodling`, its 1.12 included).
-  sizeScale: 0.94,
+  // Nick, 2026-10-09 (size review): 0.94 -> 1.49; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 1.49,
   // The fuse's tip in the idle pose, 27 + 19.3 + 15 units up, at the render scale.
   referenceUnits: (27 + CFG.bodyHeight / 2 + 15) * CFG.renderScale,
   deathHolds: true,

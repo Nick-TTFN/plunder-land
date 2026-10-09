@@ -39,10 +39,11 @@ export const CONFIG = Object.freeze({ tilt: 0.68, bodyHeight: 32, upperLength: 4
  * neighbour (`npcrigs.spec.ts` holds both), and the loop faster, at the rate
  * `gaitClock` derives from the stride's sweep (`groundSpeed`, stride / duty /
  * 0.72 = 134.4 rig units a clip second) and the size: 90 u/s / (134.4 x
- * `RobotSprite.SCALE` x `sizeScale`) = 3.48 clip seconds a second, `RUN_RATE`
- * x 2.71 x pace, about 4.8 steps a second per leg (lane 4; it was the
- * literal 2.71 in lane 3). Resized, it keeps the feet planted by itself.
- * `maxSteps` (6) doesn't bind below 111 u/s. `minPace` lets idle wander
+ * `RobotSprite.SCALE` x `sizeScale`). At the 0.89 Nick saw that was 3.48
+ * clip seconds a second (`RUN_RATE` x 2.71 x pace, the literal of lane 3),
+ * 4.8 steps a second per leg; at 1.31 (size review, 2026-10-09) it is 2.37,
+ * 3.3 steps. Resized, it keeps the feet planted by itself. `maxSteps` (6)
+ * doesn't bind below 164 u/s. `minPace` lets idle wander
  * (30 u/s, pace 0.21) run the legs at its own speed; `groundTilt` points and
  * times the stride for the game's squash (`gaitDirection`).
  */
@@ -582,7 +583,8 @@ export const CRAWLER_RIG: NpcRig = Object.freeze({
   key: 'crawler' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 89% of its own rig (npc-scale-preview-v1).
-  sizeScale: 0.89,
+  // Nick, 2026-10-09 (size review): 0.89 -> 1.31; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 1.31,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
   gait: GAIT,

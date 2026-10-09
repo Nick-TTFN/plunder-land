@@ -103,11 +103,12 @@ export const CONFIG = Object.freeze({ tilt: 0.68, bodyHeight: PROFILE.height, up
  * slid 94% at the chase's 100 u/s (strand B). Its feet already stand at 0.83
  * of the leg's reach at rest and the package's walk takes them to 0.897, so
  * no longer stride stays under the Crawler's 0.9 rule. `gaitClock` derives
- * the rate from that sweep and the size: planted feet at chase would need
- * 18.3 steps a second per leg; `maxSteps` holds it at 6, so at 100 u/s the
- * feet slide 67%, along the motion only; under 32.8 u/s, idle wander (30
- * u/s, 5.5 steps) included, they stay planted. `minPace` and `groundTilt`
- * as the Crawler's.
+ * the rate from that sweep and the size: planted feet at the chase's 100 u/s
+ * would need 10.3 steps a second per leg at size 1.78 (size review,
+ * 2026-10-09; 18.3 at 1); `maxSteps` holds it at 6, so at chase the feet
+ * slide 42% (67% at 1), along the motion only; under 58 u/s, idle wander
+ * (30 u/s, 3.1 steps) included, they stay planted. `minPace` and
+ * `groundTilt` as the Crawler's.
  */
 export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.nominalSpeed, period: PROFILE.run, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
 
@@ -619,7 +620,8 @@ export const COMPACTOR_RIG: NpcRig = Object.freeze({
   key: 'compactor' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 100% of its own rig (ideas/npc-roster.md; the package's gameScale).
-  sizeScale: 1,
+  // Nick, 2026-10-09 (size review): 1 -> 1.78; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 1.78,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
   gait: GAIT,

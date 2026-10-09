@@ -33,10 +33,11 @@ export const CONFIG = Object.freeze({ tilt: 0.68, upper: 37, lower: 32, period: 
  * of their reach at rest and the walk takes them to 0.976; past 1 the
  * package throws ('Rigid leg target outside its reach', from stride 18), so
  * no longer stride is clean. `gaitClock` derives the rate from the sweep and
- * the size: planted feet at chase would need 13.7 steps a second per leg;
- * `maxSteps` holds it at 6, so at 110 u/s the feet slide 56%, along the
- * motion only; under 48 u/s, idle wander (30 u/s, 3.7 steps) included,
- * they stay planted. `minPace` and `groundTilt` as the Crawler's.
+ * the size: planted feet at the chase's 110 u/s would need 9.9 steps a
+ * second per leg at size 2.92 (size review, 2026-10-09; 13.7 at 2.11);
+ * `maxSteps` holds it at 6, so at chase the feet slide 39% (56% at 2.11),
+ * along the motion only; under 67 u/s, idle wander (30 u/s, 2.7 steps)
+ * included, they stay planted. `minPace` and `groundTilt` as the Crawler's.
  */
 export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.stride / CONFIG.duty / CONFIG.period, period: CONFIG.period, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
 /** Rig A, 'Low circular core', the one painted. */
@@ -518,7 +519,8 @@ export const REACTOR_RIG: NpcRig = Object.freeze({
   key: 'reactor' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 211% of its own rig (ideas/npc-roster.md; the package's gameScale).
-  sizeScale: 2.11,
+  // Nick, 2026-10-09 (size review): 2.11 -> 2.92; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 2.92,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
   gait: GAIT,

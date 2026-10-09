@@ -4,80 +4,80 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 17,
-    "h": 18
+    "w": 27,
+    "h": 28
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 17,
-    "h": 18
+    "w": 27,
+    "h": 28
    },
    "sourceSize": {
-    "w": 17,
-    "h": 18
+    "w": 27,
+    "h": 28
    }
   },
   "npc-broodling/lower.png": {
    "frame": {
-    "x": 21,
+    "x": 31,
     "y": 2,
-    "w": 10,
-    "h": 3
+    "w": 15,
+    "h": 5
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 10,
-    "h": 3
+    "w": 15,
+    "h": 5
    },
    "sourceSize": {
-    "w": 10,
-    "h": 3
+    "w": 15,
+    "h": 5
    }
   },
   "npc-broodling/upper.png": {
    "frame": {
-    "x": 33,
+    "x": 48,
     "y": 2,
-    "w": 8,
-    "h": 3
+    "w": 12,
+    "h": 5
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 8,
-    "h": 3
+    "w": 12,
+    "h": 5
    },
    "sourceSize": {
-    "w": 8,
-    "h": 3
+    "w": 12,
+    "h": 5
    }
   },
   "npc-broodling/joint.png": {
    "frame": {
-    "x": 43,
+    "x": 62,
     "y": 2,
-    "w": 2,
-    "h": 2
+    "w": 4,
+    "h": 4
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 2,
-    "h": 2
+    "w": 4,
+    "h": 4
    },
    "sourceSize": {
-    "w": 2,
-    "h": 2
+    "w": 4,
+    "h": 4
    }
   }
  },
@@ -88,10 +88,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 256,
-   "h": 22
+   "h": 32
   },
   "scale": "2",
-  "texelsPerUnit": 0.4058655804480652,
+  "texelsPerUnit": 0.6433401221995927,
   "package": "npc-refinements/broodling-v3"
  }
 }

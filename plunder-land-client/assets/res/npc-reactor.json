@@ -4,468 +4,508 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 117,
-    "h": 117
+    "w": 161,
+    "h": 161
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 117,
-    "h": 117
+    "w": 161,
+    "h": 161
    },
    "sourceSize": {
-    "w": 117,
-    "h": 117
+    "w": 161,
+    "h": 161
    }
   },
   "npc-reactor/shell.png": {
    "frame": {
-    "x": 121,
-    "y": 2,
-    "w": 87,
-    "h": 74
+    "x": 2,
+    "y": 165,
+    "w": 120,
+    "h": 102
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 87,
-    "h": 74
+    "w": 120,
+    "h": 102
    },
    "sourceSize": {
-    "w": 87,
-    "h": 74
+    "w": 120,
+    "h": 102
    }
   },
   "npc-reactor/shadow.png": {
    "frame": {
     "x": 2,
-    "y": 121,
-    "w": 107,
-    "h": 53
+    "y": 269,
+    "w": 149,
+    "h": 73
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 1,
     "y": 0,
-    "w": 107,
-    "h": 53
+    "w": 149,
+    "h": 73
    },
    "sourceSize": {
-    "w": 109,
-    "h": 53
+    "w": 151,
+    "h": 73
    }
   },
   "npc-reactor/rim.png": {
    "frame": {
-    "x": 111,
-    "y": 121,
-    "w": 73,
-    "h": 50
+    "x": 153,
+    "y": 269,
+    "w": 101,
+    "h": 69
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 73,
-    "h": 50
+    "w": 101,
+    "h": 69
    },
    "sourceSize": {
-    "w": 73,
-    "h": 50
+    "w": 101,
+    "h": 69
    }
   },
   "npc-reactor/chamber.png": {
    "frame": {
-    "x": 186,
-    "y": 121,
-    "w": 49,
-    "h": 44
+    "x": 2,
+    "y": 344,
+    "w": 68,
+    "h": 61
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 49,
-    "h": 44
+    "w": 68,
+    "h": 61
    },
    "sourceSize": {
-    "w": 49,
-    "h": 44
+    "w": 68,
+    "h": 61
    }
   },
   "npc-reactor/core-emission.png": {
    "frame": {
-    "x": 2,
-    "y": 176,
-    "w": 48,
-    "h": 41
+    "x": 72,
+    "y": 344,
+    "w": 68,
+    "h": 58
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 4,
+    "x": 5,
     "y": 0,
-    "w": 48,
-    "h": 41
+    "w": 68,
+    "h": 58
    },
    "sourceSize": {
-    "w": 56,
-    "h": 42
+    "w": 78,
+    "h": 59
    }
   },
   "npc-reactor/shutter1.png": {
    "frame": {
-    "x": 52,
-    "y": 176,
-    "w": 32,
-    "h": 36
+    "x": 142,
+    "y": 344,
+    "w": 44,
+    "h": 50
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 32,
-    "h": 36
+    "w": 44,
+    "h": 50
    },
    "sourceSize": {
-    "w": 32,
-    "h": 36
+    "w": 44,
+    "h": 50
    }
   },
   "npc-reactor/shutter2.png": {
    "frame": {
-    "x": 86,
-    "y": 176,
-    "w": 32,
-    "h": 36
+    "x": 188,
+    "y": 344,
+    "w": 44,
+    "h": 50
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 32,
-    "h": 36
+    "w": 44,
+    "h": 50
    },
    "sourceSize": {
-    "w": 32,
-    "h": 36
+    "w": 44,
+    "h": 50
    }
   },
   "npc-reactor/core-off.png": {
    "frame": {
-    "x": 120,
-    "y": 176,
-    "w": 36,
-    "h": 27
+    "x": 2,
+    "y": 407,
+    "w": 48,
+    "h": 36
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 10,
-    "y": 7,
-    "w": 36,
-    "h": 27
+    "x": 15,
+    "y": 12,
+    "w": 48,
+    "h": 36
    },
    "sourceSize": {
-    "w": 56,
-    "h": 42
+    "w": 78,
+    "h": 59
    }
   },
   "npc-reactor/core.png": {
    "frame": {
-    "x": 158,
-    "y": 176,
-    "w": 36,
-    "h": 27
+    "x": 52,
+    "y": 407,
+    "w": 48,
+    "h": 36
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 10,
-    "y": 7,
-    "w": 36,
-    "h": 27
+    "x": 15,
+    "y": 12,
+    "w": 48,
+    "h": 36
    },
    "sourceSize": {
-    "w": 56,
-    "h": 42
+    "w": 78,
+    "h": 59
    }
   },
   "npc-reactor/ribs.png": {
    "frame": {
-    "x": 196,
-    "y": 176,
-    "w": 43,
-    "h": 27
+    "x": 102,
+    "y": 407,
+    "w": 60,
+    "h": 36
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 1,
+    "w": 60,
+    "h": 36
+   },
+   "sourceSize": {
+    "w": 60,
+    "h": 37
+   }
+  },
+  "npc-reactor/upper1.png": {
+   "frame": {
+    "x": 164,
+    "y": 407,
+    "w": 31,
+    "h": 25
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 43,
-    "h": 27
+    "w": 31,
+    "h": 25
    },
    "sourceSize": {
-    "w": 43,
-    "h": 27
+    "w": 32,
+    "h": 25
+   }
+  },
+  "npc-reactor/upper2.png": {
+   "frame": {
+    "x": 197,
+    "y": 407,
+    "w": 31,
+    "h": 25
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 31,
+    "h": 25
+   },
+   "sourceSize": {
+    "w": 32,
+    "h": 25
    }
   },
   "npc-reactor/shutter0.png": {
    "frame": {
     "x": 2,
-    "y": 219,
-    "w": 54,
-    "h": 18
+    "y": 445,
+    "w": 72,
+    "h": 24
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 0,
+    "x": 1,
     "y": 0,
-    "w": 54,
-    "h": 18
+    "w": 72,
+    "h": 24
    },
    "sourceSize": {
-    "w": 54,
-    "h": 18
+    "w": 74,
+    "h": 24
    }
   },
   "npc-reactor/upper0.png": {
    "frame": {
-    "x": 58,
-    "y": 219,
-    "w": 30,
-    "h": 18
+    "x": 76,
+    "y": 445,
+    "w": 41,
+    "h": 24
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 30,
-    "h": 18
+    "w": 41,
+    "h": 24
    },
    "sourceSize": {
-    "w": 30,
-    "h": 18
-   }
-  },
-  "npc-reactor/upper1.png": {
-   "frame": {
-    "x": 90,
-    "y": 219,
-    "w": 23,
-    "h": 18
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 23,
-    "h": 18
-   },
-   "sourceSize": {
-    "w": 23,
-    "h": 18
-   }
-  },
-  "npc-reactor/upper2.png": {
-   "frame": {
-    "x": 115,
-    "y": 219,
-    "w": 23,
-    "h": 18
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 23,
-    "h": 18
-   },
-   "sourceSize": {
-    "w": 23,
-    "h": 18
+    "w": 42,
+    "h": 25
    }
   },
   "npc-reactor/upper3.png": {
    "frame": {
-    "x": 140,
-    "y": 219,
-    "w": 30,
-    "h": 18
+    "x": 119,
+    "y": 445,
+    "w": 41,
+    "h": 24
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 30,
-    "h": 18
+    "w": 41,
+    "h": 24
    },
    "sourceSize": {
-    "w": 30,
-    "h": 18
+    "w": 42,
+    "h": 25
    }
   },
   "npc-reactor/upper4.png": {
    "frame": {
-    "x": 172,
-    "y": 219,
-    "w": 25,
-    "h": 18
+    "x": 162,
+    "y": 445,
+    "w": 33,
+    "h": 24
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 25,
-    "h": 18
+    "w": 33,
+    "h": 24
    },
    "sourceSize": {
-    "w": 25,
-    "h": 18
+    "w": 34,
+    "h": 25
    }
   },
   "npc-reactor/upper5.png": {
    "frame": {
-    "x": 199,
-    "y": 219,
-    "w": 25,
-    "h": 18
+    "x": 197,
+    "y": 445,
+    "w": 33,
+    "h": 24
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 25,
-    "h": 18
+    "w": 33,
+    "h": 24
    },
    "sourceSize": {
-    "w": 25,
-    "h": 18
+    "w": 34,
+    "h": 25
    }
   },
   "npc-reactor/lower0.png": {
    "frame": {
     "x": 2,
-    "y": 239,
-    "w": 29,
-    "h": 17
+    "y": 471,
+    "w": 39,
+    "h": 23
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 29,
-    "h": 17
+    "w": 39,
+    "h": 23
    },
    "sourceSize": {
-    "w": 29,
-    "h": 17
+    "w": 40,
+    "h": 23
    }
   },
   "npc-reactor/lower1.png": {
    "frame": {
-    "x": 33,
-    "y": 239,
-    "w": 33,
-    "h": 17
+    "x": 43,
+    "y": 471,
+    "w": 45,
+    "h": 23
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 33,
-    "h": 17
+    "w": 45,
+    "h": 23
    },
    "sourceSize": {
-    "w": 33,
-    "h": 17
+    "w": 46,
+    "h": 23
    }
   },
   "npc-reactor/lower2.png": {
    "frame": {
-    "x": 68,
-    "y": 239,
-    "w": 33,
-    "h": 17
+    "x": 90,
+    "y": 471,
+    "w": 45,
+    "h": 23
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 33,
-    "h": 17
+    "w": 45,
+    "h": 23
    },
    "sourceSize": {
-    "w": 33,
-    "h": 17
+    "w": 46,
+    "h": 23
    }
   },
   "npc-reactor/lower3.png": {
    "frame": {
-    "x": 103,
-    "y": 239,
-    "w": 29,
-    "h": 17
+    "x": 137,
+    "y": 471,
+    "w": 39,
+    "h": 23
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 29,
-    "h": 17
+    "w": 39,
+    "h": 23
    },
    "sourceSize": {
-    "w": 29,
-    "h": 17
+    "w": 40,
+    "h": 23
    }
   },
   "npc-reactor/lower4.png": {
    "frame": {
-    "x": 134,
-    "y": 239,
-    "w": 18,
-    "h": 17
+    "x": 178,
+    "y": 471,
+    "w": 24,
+    "h": 23
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 18,
-    "h": 17
+    "w": 24,
+    "h": 23
    },
    "sourceSize": {
-    "w": 18,
-    "h": 17
+    "w": 25,
+    "h": 23
    }
   },
   "npc-reactor/lower5.png": {
    "frame": {
-    "x": 154,
-    "y": 239,
+    "x": 204,
+    "y": 471,
+    "w": 24,
+    "h": 23
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 23
+   },
+   "sourceSize": {
+    "w": 25,
+    "h": 23
+   }
+  },
+  "npc-reactor/knee.png": {
+   "frame": {
+    "x": 230,
+    "y": 471,
+    "w": 20,
+    "h": 18
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 20,
+    "h": 18
+   },
+   "sourceSize": {
+    "w": 20,
+    "h": 18
+   }
+  },
+  "npc-reactor/hip.png": {
+   "frame": {
+    "x": 2,
+    "y": 496,
     "w": 18,
-    "h": 17
+    "h": 16
    },
    "rotated": false,
    "trimmed": true,
@@ -473,51 +513,11 @@
     "x": 0,
     "y": 0,
     "w": 18,
-    "h": 17
+    "h": 16
    },
    "sourceSize": {
     "w": 18,
-    "h": 17
-   }
-  },
-  "npc-reactor/hip.png": {
-   "frame": {
-    "x": 174,
-    "y": 239,
-    "w": 11,
-    "h": 12
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 0,
-    "w": 11,
-    "h": 12
-   },
-   "sourceSize": {
-    "w": 13,
-    "h": 12
-   }
-  },
-  "npc-reactor/knee.png": {
-   "frame": {
-    "x": 187,
-    "y": 239,
-    "w": 12,
-    "h": 11
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 1,
-    "y": 1,
-    "w": 12,
-    "h": 11
-   },
-   "sourceSize": {
-    "w": 14,
-    "h": 13
+    "h": 16
    }
   }
  },
@@ -528,10 +528,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 256,
-   "h": 258
+   "h": 514
   },
   "scale": "2",
-  "texelsPerUnit": 0.9110386965376782,
+  "texelsPerUnit": 1.2607739307535641,
   "package": "npc-refinements/reactor-v6"
  }
 }

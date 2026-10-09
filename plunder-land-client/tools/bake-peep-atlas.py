@@ -171,7 +171,7 @@ WADDLE_ARTS = {
 
 # Drawn bigger than Peep's px per rig unit by this much, so baked denser by it
 # too (keep in step with `drawScale` in src/robots/robotrig.ts).
-DRAW_SCALE = {'periscope': 1.35, 'peep': 0.9}
+DRAW_SCALE = {'periscope': 1.35, 'peep': 0.9, 'hopper': 1.28, 'waddle': 1.36}
 
 ROBOTS = {
     'peep': ('peep-animations-v16', PEEP_ARTS),
