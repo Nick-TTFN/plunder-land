@@ -58,19 +58,32 @@ export interface NpcRig {
 }
 
 /**
- * A rig's own gait timing (decision #52 lane 3, the Crawler's foot-slide
- * trial; PROVISIONAL until Nick has seen it). Without it, a rig's move loop
- * runs at `RobotSprite.RUN_RATE` times its pace, pace clamped at
- * `RobotSprite.MIN_PACE`, along the direction it moves: the same for every
- * NPC whatever its stride, so planted feet slide (strand B measured 88-99%).
+ * A rig's own gait timing (decision #52: lane 3, the Crawler's trial; lane 4,
+ * every NPC whose legs allow it; PROVISIONAL until Nick has seen it). Without
+ * it, a rig's move loop runs at `RobotSprite.RUN_RATE` times its pace, pace
+ * clamped at `RobotSprite.MIN_PACE`, along the direction it moves: the same
+ * for every NPC whatever its stride, so planted feet slide (strand B
+ * measured 88-99%). With it, the loop's rate is derived from the rig's own
+ * stride and its size (`gaitClock`), so a planted foot keeps still, and a
+ * change of `sizeScale` keeps it still with no other edit.
  */
 export interface NpcGait {
   /**
-   * The move loop's rate on top of `RobotSprite.RUN_RATE`, as a robot's
-   * `runRate`: picked with the rig's stride so that a planted foot keeps
-   * still on the ground at any unclamped pace.
+   * How fast a planted foot sweeps back under the body at the stride the
+   * game plays, in drawn rig units per clip second: the package's stride /
+   * duty / step period, times any draw scale of its own (the Broodling's
+   * 1.12). The loop is run so that this, on screen, matches the ground speed.
    */
-  readonly rate: number
+  readonly groundSpeed: number
+  /** One leg's step cycle, clip seconds (the package's gait period). */
+  readonly period: number
+  /**
+   * The most steps a second one leg takes going east or west. A rig whose
+   * legs can't reach a stride long enough would otherwise need 10-70 steps
+   * a second at chase speed: above this the loop runs no faster and the feet
+   * slide the rest of the way (`gaitClock`).
+   */
+  readonly maxSteps: number
   /** The least pace, in place of `RobotSprite.MIN_PACE` (a fast gait at the shared floor runs its legs too fast at idle). */
   readonly minPace: number
   /**
@@ -107,6 +120,30 @@ export function gaitDirection (gait: NpcGait | undefined, x: number, y: number, 
 /** A pace clamped to `[gait.minPace ?? min, max]`, as `NpcSprite.setPace` keeps it. */
 export function gaitPace (gait: NpcGait | undefined, pace: number, min: number, max: number): number {
   return Math.min(max, Math.max(gait?.minPace ?? min, pace))
+}
+
+/** `RobotSprite`'s numbers the gait clock needs (the class itself fits; it is a pixi module, so the spec passes copies). */
+export interface GaitSprite {
+  readonly RUN_RATE: number
+  readonly STRIDE_SPEED: number
+  readonly SCALE: number
+}
+
+/**
+ * Clip seconds a second of `rig`'s move loop at `pace` (ground speed over
+ * `STRIDE_SPEED`), `stretch` from `gaitDirection`: what `NpcSprite.update`
+ * adds to its clock. Without a gait, `RUN_RATE x pace`, as every rig ran
+ * before. With one, the rate at which a planted foot keeps still east and
+ * west: ground speed / (`groundSpeed` x `SCALE` x `sizeScale`), which for
+ * the Crawler is `RUN_RATE` x 2.71 x pace. It follows `sizeScale`: a rig
+ * drawn 1.25x larger takes 0.8x the steps. Capped at `maxSteps` a second
+ * east and west, then stretched for the direction.
+ */
+export function gaitClock (rig: { readonly gait?: NpcGait, readonly sizeScale: number }, pace: number, stretch: number, sprite: GaitSprite): number {
+  const gait = rig.gait
+  if (gait === undefined) return sprite.RUN_RATE * pace
+  const planted = pace * sprite.STRIDE_SPEED / (gait.groundSpeed * sprite.SCALE * rig.sizeScale)
+  return Math.min(planted, gait.maxSteps * gait.period) * stretch
 }
 
 export interface NpcClip {

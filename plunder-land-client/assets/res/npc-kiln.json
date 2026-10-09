@@ -4,140 +4,140 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 42,
-    "h": 46
+    "w": 70,
+    "h": 75
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 42,
-    "h": 46
+    "w": 70,
+    "h": 75
    },
    "sourceSize": {
-    "w": 42,
-    "h": 46
+    "w": 70,
+    "h": 75
    }
   },
   "npc-kiln/canister.png": {
    "frame": {
-    "x": 46,
+    "x": 74,
     "y": 2,
-    "w": 24,
-    "h": 35
+    "w": 39,
+    "h": 58
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 24,
-    "h": 35
+    "w": 39,
+    "h": 58
    },
    "sourceSize": {
-    "w": 24,
-    "h": 35
+    "w": 39,
+    "h": 58
    }
   },
   "npc-kiln/shadow.png": {
    "frame": {
-    "x": 72,
+    "x": 115,
     "y": 2,
-    "w": 61,
-    "h": 34
+    "w": 101,
+    "h": 56
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 61,
-    "h": 34
+    "w": 101,
+    "h": 56
    },
    "sourceSize": {
-    "w": 61,
-    "h": 34
+    "w": 101,
+    "h": 56
    }
   },
   "npc-kiln/lower.png": {
    "frame": {
-    "x": 135,
-    "y": 2,
-    "w": 41,
-    "h": 14
+    "x": 2,
+    "y": 79,
+    "w": 67,
+    "h": 24
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 41,
-    "h": 14
+    "w": 67,
+    "h": 24
    },
    "sourceSize": {
-    "w": 41,
-    "h": 14
+    "w": 67,
+    "h": 24
    }
   },
   "npc-kiln/upper.png": {
    "frame": {
-    "x": 178,
-    "y": 2,
-    "w": 31,
-    "h": 13
+    "x": 71,
+    "y": 79,
+    "w": 51,
+    "h": 22
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 31,
-    "h": 13
+    "w": 51,
+    "h": 22
    },
    "sourceSize": {
-    "w": 31,
-    "h": 13
+    "w": 51,
+    "h": 22
    }
   },
   "npc-kiln/furnace-off.png": {
    "frame": {
-    "x": 211,
-    "y": 2,
-    "w": 13,
-    "h": 10
+    "x": 124,
+    "y": 79,
+    "w": 20,
+    "h": 14
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 4,
-    "y": 18,
-    "w": 13,
-    "h": 10
+    "x": 7,
+    "y": 31,
+    "w": 20,
+    "h": 14
    },
    "sourceSize": {
-    "w": 21,
-    "h": 28
+    "w": 34,
+    "h": 47
    }
   },
   "npc-kiln/joint.png": {
    "frame": {
-    "x": 226,
-    "y": 2,
-    "w": 6,
-    "h": 6
+    "x": 146,
+    "y": 79,
+    "w": 11,
+    "h": 11
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 6,
-    "h": 6
+    "w": 11,
+    "h": 11
    },
    "sourceSize": {
-    "w": 6,
-    "h": 6
+    "w": 11,
+    "h": 11
    }
   }
  },
@@ -148,10 +148,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 256,
-   "h": 50
+   "h": 105
   },
   "scale": "2",
-  "texelsPerUnit": 0.4317718940936864,
+  "texelsPerUnit": 0.7124236252545825,
   "package": "npc-refinements/kiln-v3"
  }
 }

@@ -144,7 +144,8 @@ export const HOPPER_RIG: RobotRig = Object.freeze({
   eyeMatrix: hopper.eyeMatrix,
   eyeSize: hopper.EYE_SIZE,
   shot: Object.freeze({ radius: 10, offset: noOffset }),
-  drawScale: 1,
+  // Nick, 2026-10-09 (size review): 1 -> 1.28. The bake's `DRAW_SCALE` matches.
+  drawScale: 1.28,
   referenceUnits: hopper.REFERENCE_UNITS,
   // The eye-firing drops' `drawAnimation` contact shadow: one size for every
   // robot but Waddle (73 wide), at y -1; the robots before kept their own.
@@ -164,7 +165,8 @@ export const WADDLE_RIG: RobotRig = Object.freeze({
   eyeSize: waddle.EYE_SIZE,
   // Between the two eyes: the shot fires from their shared focus.
   shot: Object.freeze({ radius: 13, offset: (st: RigState) => (st.eye_right.x - st.eye_left.x) / 2 }),
-  drawScale: 1,
+  // Nick, 2026-10-09 (size review): 1 -> 1.36. The bake's `DRAW_SCALE` matches.
+  drawScale: 1.36,
   referenceUnits: waddle.REFERENCE_UNITS,
   shadow: Object.freeze({ x: 0, rx: 73, ry: 6, jumpHeight: 60 }),
   debrisShadow: Object.freeze({}),

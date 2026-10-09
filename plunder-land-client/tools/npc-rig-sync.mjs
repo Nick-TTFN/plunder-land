@@ -516,6 +516,27 @@ if (key === 'crawler') {
   const embers = { clip: 'idle', time: 4.4, options: {} }
   take('idle', 4.5, {})
   for (const t of [0.05, 0.1]) { take('hit', t, { base: embers }); take('fall_apart', t, { base: embers }) }
+  // The game's longer stride (decision #52 lane 4, `GAIT.stride` in
+  // `src/npcs/kiln/rig.ts`; the spec holds the two equal), as for the Crawler:
+  // the package's core (`legacy`) with its `config` given that stride and
+  // the run speed it makes, restored after; the options carry `stride`,
+  // which the port takes. A lob, a hit and a death from such a run too. The
+  // directions include one `gaitDirection` makes (not a unit vector).
+  const GAME_STRIDE = 26
+  const core = rig.legacy.config
+  const saved = { stride: core.stride, nominalSpeed: core.nominalSpeed }
+  Object.assign(core, { stride: GAME_STRIDE, nominalSpeed: GAME_STRIDE / core.duty / rig.clips.run.duration })
+  try {
+    for (const [directionX, directionY] of [[1, 0], [0, -1], [-0.6, 0.8], [0.5926, -0.8055]]) {
+      for (const t of [0, 0.1, 0.31, 0.5, 0.9]) take('run', t, { directionX, directionY, stride: GAME_STRIDE })
+    }
+    const wide = { clip: 'run', time: 0.47, options: { directionX: -0.6, directionY: 0.8, stride: GAME_STRIDE } }
+    for (const t of [0.3, 0.58]) take('fire', t, { aimX: 1, aimY: 0.2, base: wide, fireTime: 3.1 + t })
+    take('hit', 0.2, { base: wide })
+    take('fall_apart', 0.5, { base: wide })
+  } finally {
+    Object.assign(core, saved)
+  }
 } else if (key === 'coil') {
   // The offscreen mix (`cooledBody`), recorded as what it is drawn from, checked to be exactly the pair the port draws.
   let imgs = null

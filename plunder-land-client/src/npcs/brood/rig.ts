@@ -1,7 +1,7 @@
 import { type Matrix, multiply } from '../../peep/rig'
 import { deepClone } from '../clone'
 import { cssColour } from '../colour'
-import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcEllipse, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawItem, type NpcDrawList, type NpcEllipse, type NpcGait, type NpcPose, type NpcPoseOptions, type NpcRig } from '../npcrig'
 
 /**
  * The Brood (l1-9): a hand port of `rig/brood.mjs` in its Codex package
@@ -39,6 +39,21 @@ export const CLIPS: Readonly<Record<string, NpcClip>> = Object.freeze({
 })
 
 export const CONFIG = Object.freeze({ tilt: 0.68, period: 1.3, duty: 0.72, stride: 12, lift: 6, seed: 19 })
+
+/**
+ * The game's gait (decision #52 lane 4, the Crawler's treatment; PROVISIONAL
+ * until Nick has seen it), at the package's own stride. The package's walk
+ * slid 91% at the chase's 60 u/s (strand B). Its painted legs stand at 0.93
+ * of their reach at rest and the walk takes them to 0.975; the package
+ * throws past 1 ('Unreachable leg', from stride 18), and 14-16 would take a
+ * knee to 0.984-0.992, straighter than the art goes, so the stride stays.
+ * `gaitClock` derives the rate from the sweep and the size. At 2.06 planted
+ * feet at the chase's 60 u/s needed 8.1 steps a second per leg, over
+ * `maxSteps` 6, so they slid 26%; at 3.2 (size review, 2026-10-09) they
+ * need 5.2: planted at chase and idle (2.6 steps), up to 69 u/s. `minPace`
+ * and `groundTilt` as the Crawler's.
+ */
+export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.stride / CONFIG.duty / CONFIG.period, period: CONFIG.period, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
 
 /** The release's launch, seconds into `spawn` (the clip's `spawn` event). */
 export const SPAWN_EVENT = 0.18
@@ -483,9 +498,11 @@ export const BROOD_RIG: NpcRig = Object.freeze({
   key: 'brood' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 206% of its own rig (ideas/npc-roster.md; the package's reviewGameScale 0.824 is 0.4 x 2.06).
-  sizeScale: 2.06,
+  // Nick, 2026-10-09 (size review): 2.06 -> 3.2; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 3.2,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
+  gait: GAIT,
   roles: Object.freeze({
     idle: 'idle',
     move: 'move',

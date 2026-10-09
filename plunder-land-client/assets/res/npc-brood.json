@@ -4,120 +4,120 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 142,
-    "h": 133
+    "w": 217,
+    "h": 205
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 12,
-    "y": 14,
-    "w": 142,
-    "h": 133
+    "x": 20,
+    "y": 21,
+    "w": 217,
+    "h": 205
    },
    "sourceSize": {
-    "w": 162,
-    "h": 162
+    "w": 251,
+    "h": 251
    }
   },
   "npc-brood/lower.png": {
    "frame": {
-    "x": 146,
-    "y": 2,
-    "w": 33,
-    "h": 65
+    "x": 2,
+    "y": 209,
+    "w": 49,
+    "h": 100
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 0,
-    "y": 0,
-    "w": 33,
-    "h": 65
+    "x": 1,
+    "y": 1,
+    "w": 49,
+    "h": 100
    },
    "sourceSize": {
-    "w": 33,
-    "h": 65
+    "w": 51,
+    "h": 101
    }
   },
   "npc-brood/upper.png": {
    "frame": {
-    "x": 181,
-    "y": 2,
-    "w": 35,
-    "h": 61
+    "x": 53,
+    "y": 209,
+    "w": 52,
+    "h": 95
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 0,
+    "x": 2,
     "y": 0,
-    "w": 35,
-    "h": 61
+    "w": 52,
+    "h": 95
    },
    "sourceSize": {
-    "w": 35,
-    "h": 61
+    "w": 54,
+    "h": 95
    }
   },
   "npc-brood/joint.png": {
    "frame": {
-    "x": 218,
-    "y": 2,
-    "w": 11,
-    "h": 11
+    "x": 107,
+    "y": 209,
+    "w": 17,
+    "h": 17
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 0,
     "y": 0,
-    "w": 11,
-    "h": 11
+    "w": 17,
+    "h": 17
    },
    "sourceSize": {
-    "w": 11,
-    "h": 11
+    "w": 17,
+    "h": 17
    }
   },
   "npc-brood/lowerDead.png": {
    "frame": {
-    "x": 231,
-    "y": 2,
-    "w": 8,
-    "h": 5
+    "x": 126,
+    "y": 209,
+    "w": 9,
+    "h": 10
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 21,
-    "y": 53,
-    "w": 8,
-    "h": 5
+    "x": 34,
+    "y": 81,
+    "w": 9,
+    "h": 10
    },
    "sourceSize": {
-    "w": 33,
-    "h": 65
+    "w": 51,
+    "h": 101
    }
   },
   "npc-brood/lowerOff.png": {
    "frame": {
-    "x": 241,
-    "y": 2,
-    "w": 8,
-    "h": 5
+    "x": 137,
+    "y": 209,
+    "w": 9,
+    "h": 10
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
-    "x": 21,
-    "y": 53,
-    "w": 8,
-    "h": 5
+    "x": 34,
+    "y": 81,
+    "w": 9,
+    "h": 10
    },
    "sourceSize": {
-    "w": 33,
-    "h": 65
+    "w": 51,
+    "h": 101
    }
   }
  },
@@ -128,10 +128,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 256,
-   "h": 137
+   "h": 311
   },
   "scale": "2",
-  "texelsPerUnit": 0.889450101832994,
+  "texelsPerUnit": 1.3816700610997965,
   "package": "npc-refinements/brood-v15"
  }
 }

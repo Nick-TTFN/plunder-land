@@ -1,5 +1,5 @@
 import { type Matrix } from '../../peep/rig'
-import { type NpcClip, type NpcDrawList, type NpcImage, type NpcPose, type NpcRig } from '../npcrig'
+import { type NpcClip, type NpcDrawList, type NpcGait, type NpcImage, type NpcPose, type NpcRig } from '../npcrig'
 
 /**
  * The Compactor (l1-9): a hand port of `tools/rig.mjs`, `tools/rig-core.mjs`
@@ -96,6 +96,21 @@ const PROFILE = Object.freeze({ legs: 4, body: 'compactor', width: 116, height: 
 const TRIGGER = IMPACT_TIME
 const DUTY = 0.79
 export const CONFIG = Object.freeze({ tilt: 0.68, bodyHeight: PROFILE.height, upperLength: 48, lowerLength: 70, stride: 20, duty: DUTY, nominalSpeed: 20 / DUTY / PROFILE.run, lift: 12 })
+
+/**
+ * The game's gait (decision #52 lane 4, the Crawler's treatment; PROVISIONAL
+ * until Nick has seen it), at the package's own stride. The package's walk
+ * slid 94% at the chase's 100 u/s (strand B). Its feet already stand at 0.83
+ * of the leg's reach at rest and the package's walk takes them to 0.897, so
+ * no longer stride stays under the Crawler's 0.9 rule. `gaitClock` derives
+ * the rate from that sweep and the size: planted feet at the chase's 100 u/s
+ * would need 10.3 steps a second per leg at size 1.78 (size review,
+ * 2026-10-09; 18.3 at 1); `maxSteps` holds it at 6, so at chase the feet
+ * slide 42% (67% at 1), along the motion only; under 58 u/s, idle wander
+ * (30 u/s, 3.1 steps) included, they stay planted. `minPace` and
+ * `groundTilt` as the Crawler's.
+ */
+export const GAIT: NpcGait = Object.freeze({ groundSpeed: CONFIG.nominalSpeed, period: PROFILE.run, maxSteps: 6, minPace: 0.2, groundTilt: CONFIG.tilt })
 
 interface Vec { x: number, y: number }
 interface Vec3 { x: number, y: number, z: number }
@@ -605,9 +620,11 @@ export const COMPACTOR_RIG: NpcRig = Object.freeze({
   key: 'compactor' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 100% of its own rig (ideas/npc-roster.md; the package's gameScale).
-  sizeScale: 1,
+  // Nick, 2026-10-09 (size review): 1 -> 1.78; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 1.78,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
+  gait: GAIT,
   roles: Object.freeze({
     idle: 'idle',
     move: 'run',

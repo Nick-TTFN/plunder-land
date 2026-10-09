@@ -356,7 +356,8 @@ export const COIL_RIG: NpcRig = Object.freeze({
   key: 'coil' as const,
   clips: CLIPS,
   // Nick, 2026-10-07: 121% of its own rig (ideas/npc-roster.md; the package's gameScale).
-  sizeScale: 1.21,
+  // Nick, 2026-10-09 (size review): 1.21 -> 2.32; the gait follows (`gaitClock`); the sheet is re-baked at it (`bake-npc-atlas.py`).
+  sizeScale: 2.32,
   referenceUnits: REFERENCE_UNITS,
   deathHolds: true,
   roles: Object.freeze({

@@ -4,360 +4,360 @@
    "frame": {
     "x": 2,
     "y": 2,
-    "w": 108,
-    "h": 98
+    "w": 139,
+    "h": 125
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 1,
     "y": 1,
-    "w": 108,
-    "h": 98
+    "w": 139,
+    "h": 125
    },
    "sourceSize": {
-    "w": 110,
-    "h": 100
+    "w": 141,
+    "h": 127
    }
   },
   "hopper-lobby/head/head-camo.png": {
    "frame": {
-    "x": 112,
+    "x": 143,
     "y": 2,
-    "w": 100,
-    "h": 74
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 6,
-    "y": 1,
-    "w": 100,
-    "h": 74
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/head-checker.png": {
-   "frame": {
-    "x": 214,
-    "y": 2,
-    "w": 98,
-    "h": 74
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 6,
-    "y": 1,
-    "w": 98,
-    "h": 74
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/head-shade.png": {
-   "frame": {
-    "x": 314,
-    "y": 2,
-    "w": 100,
-    "h": 74
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 6,
-    "y": 1,
-    "w": 100,
-    "h": 74
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/head-zebra.png": {
-   "frame": {
-    "x": 2,
-    "y": 102,
-    "w": 98,
-    "h": 74
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 6,
-    "y": 1,
-    "w": 98,
-    "h": 74
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/hi.png": {
-   "frame": {
-    "x": 102,
-    "y": 102,
-    "w": 94,
-    "h": 56
+    "w": 129,
+    "h": 94
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 7,
     "y": 2,
-    "w": 94,
-    "h": 56
+    "w": 129,
+    "h": 94
    },
    "sourceSize": {
-    "w": 110,
-    "h": 100
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/head-checker.png": {
+   "frame": {
+    "x": 274,
+    "y": 2,
+    "w": 126,
+    "h": 94
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 2,
+    "w": 126,
+    "h": 94
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/head-shade.png": {
+   "frame": {
+    "x": 2,
+    "y": 129,
+    "w": 131,
+    "h": 94
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 2,
+    "w": 131,
+    "h": 94
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/head-zebra.png": {
+   "frame": {
+    "x": 135,
+    "y": 129,
+    "w": 126,
+    "h": 93
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 7,
+    "y": 2,
+    "w": 126,
+    "h": 93
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/hi.png": {
+   "frame": {
+    "x": 263,
+    "y": 129,
+    "w": 120,
+    "h": 72
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 2,
+    "w": 120,
+    "h": 72
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
    }
   },
   "hopper-lobby/boot_near/fixed.png": {
    "frame": {
-    "x": 198,
-    "y": 102,
-    "w": 67,
-    "h": 46
+    "x": 385,
+    "y": 129,
+    "w": 86,
+    "h": 57
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 1,
-    "y": 0,
-    "w": 67,
-    "h": 46
+    "y": 1,
+    "w": 86,
+    "h": 57
    },
    "sourceSize": {
-    "w": 69,
-    "h": 46
+    "w": 88,
+    "h": 59
    }
   },
   "hopper-lobby/eye_open.png": {
    "frame": {
-    "x": 267,
-    "y": 102,
-    "w": 28,
-    "h": 35
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 7,
-    "y": 8,
-    "w": 28,
-    "h": 35
-   },
-   "sourceSize": {
+    "x": 473,
+    "y": 129,
     "w": 37,
-    "h": 51
-   }
-  },
-  "hopper-lobby/head/body-camo.png": {
-   "frame": {
-    "x": 297,
-    "y": 102,
-    "w": 82,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 18,
-    "y": 72,
-    "w": 82,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/body-checker.png": {
-   "frame": {
-    "x": 381,
-    "y": 102,
-    "w": 83,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 17,
-    "y": 72,
-    "w": 83,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/body-shade.png": {
-   "frame": {
-    "x": 2,
-    "y": 178,
-    "w": 83,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 17,
-    "y": 72,
-    "w": 83,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/head/body-zebra.png": {
-   "frame": {
-    "x": 87,
-    "y": 178,
-    "w": 78,
-    "h": 27
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 21,
-    "y": 72,
-    "w": 78,
-    "h": 27
-   },
-   "sourceSize": {
-    "w": 110,
-    "h": 100
-   }
-  },
-  "hopper-lobby/boot_near/checker.png": {
-   "frame": {
-    "x": 167,
-    "y": 178,
-    "w": 51,
-    "h": 26
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 7,
-    "y": 12,
-    "w": 51,
-    "h": 26
-   },
-   "sourceSize": {
-    "w": 69,
-    "h": 46
-   }
-  },
-  "hopper-lobby/boot_near/shade.png": {
-   "frame": {
-    "x": 220,
-    "y": 178,
-    "w": 62,
-    "h": 26
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 4,
-    "y": 12,
-    "w": 62,
-    "h": 26
-   },
-   "sourceSize": {
-    "w": 69,
-    "h": 46
-   }
-  },
-  "hopper-lobby/boot_near/camo.png": {
-   "frame": {
-    "x": 284,
-    "y": 178,
-    "w": 62,
-    "h": 25
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 4,
-    "y": 13,
-    "w": 62,
-    "h": 25
-   },
-   "sourceSize": {
-    "w": 69,
-    "h": 46
-   }
-  },
-  "hopper-lobby/boot_near/zebra.png": {
-   "frame": {
-    "x": 348,
-    "y": 178,
-    "w": 59,
-    "h": 25
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 4,
-    "y": 13,
-    "w": 59,
-    "h": 25
-   },
-   "sourceSize": {
-    "w": 69,
-    "h": 46
-   }
-  },
-  "hopper-lobby/boot_near/hi.png": {
-   "frame": {
-    "x": 409,
-    "y": 178,
-    "w": 57,
-    "h": 24
-   },
-   "rotated": false,
-   "trimmed": true,
-   "spriteSourceSize": {
-    "x": 6,
-    "y": 13,
-    "w": 57,
-    "h": 24
-   },
-   "sourceSize": {
-    "w": 69,
-    "h": 46
-   }
-  },
-  "hopper-lobby/eye_smile.png": {
-   "frame": {
-    "x": 468,
-    "y": 178,
-    "w": 21,
-    "h": 12
+    "h": 44
    },
    "rotated": false,
    "trimmed": true,
    "spriteSourceSize": {
     "x": 8,
-    "y": 21,
-    "w": 21,
-    "h": 12
+    "y": 11,
+    "w": 37,
+    "h": 44
    },
    "sourceSize": {
-    "w": 37,
-    "h": 51
+    "w": 48,
+    "h": 66
+   }
+  },
+  "hopper-lobby/boot_near/checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 225,
+    "w": 65,
+    "h": 42
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 9,
+    "y": 16,
+    "w": 65,
+    "h": 42
+   },
+   "sourceSize": {
+    "w": 88,
+    "h": 59
+   }
+  },
+  "hopper-lobby/boot_near/shade.png": {
+   "frame": {
+    "x": 69,
+    "y": 225,
+    "w": 80,
+    "h": 42
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 16,
+    "w": 80,
+    "h": 42
+   },
+   "sourceSize": {
+    "w": 88,
+    "h": 59
+   }
+  },
+  "hopper-lobby/boot_near/camo.png": {
+   "frame": {
+    "x": 151,
+    "y": 225,
+    "w": 80,
+    "h": 41
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 17,
+    "w": 80,
+    "h": 41
+   },
+   "sourceSize": {
+    "w": 88,
+    "h": 59
+   }
+  },
+  "hopper-lobby/boot_near/zebra.png": {
+   "frame": {
+    "x": 233,
+    "y": 225,
+    "w": 76,
+    "h": 41
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 5,
+    "y": 17,
+    "w": 76,
+    "h": 41
+   },
+   "sourceSize": {
+    "w": 88,
+    "h": 59
+   }
+  },
+  "hopper-lobby/head/body-camo.png": {
+   "frame": {
+    "x": 311,
+    "y": 225,
+    "w": 105,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 23,
+    "y": 92,
+    "w": 105,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/body-checker.png": {
+   "frame": {
+    "x": 2,
+    "y": 269,
+    "w": 106,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 22,
+    "y": 92,
+    "w": 106,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/body-shade.png": {
+   "frame": {
+    "x": 110,
+    "y": 269,
+    "w": 106,
+    "h": 34
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 22,
+    "y": 92,
+    "w": 106,
+    "h": 34
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/head/body-zebra.png": {
+   "frame": {
+    "x": 218,
+    "y": 269,
+    "w": 100,
+    "h": 33
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 27,
+    "y": 92,
+    "w": 100,
+    "h": 33
+   },
+   "sourceSize": {
+    "w": 141,
+    "h": 127
+   }
+  },
+  "hopper-lobby/boot_near/hi.png": {
+   "frame": {
+    "x": 320,
+    "y": 269,
+    "w": 73,
+    "h": 31
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 8,
+    "y": 17,
+    "w": 73,
+    "h": 31
+   },
+   "sourceSize": {
+    "w": 88,
+    "h": 59
+   }
+  },
+  "hopper-lobby/eye_smile.png": {
+   "frame": {
+    "x": 395,
+    "y": 269,
+    "w": 28,
+    "h": 18
+   },
+   "rotated": false,
+   "trimmed": true,
+   "spriteSourceSize": {
+    "x": 10,
+    "y": 26,
+    "w": 28,
+    "h": 18
+   },
+   "sourceSize": {
+    "w": 48,
+    "h": 66
    }
   }
  },
@@ -368,10 +368,10 @@
   "format": "RGBA8888",
   "size": {
    "w": 512,
-   "h": 207
+   "h": 305
   },
   "scale": "2",
-  "texelsPerUnit": 0.9857433808553973,
+  "texelsPerUnit": 1.2617515274949085,
   "drop": "hopper-animations-v2",
   "finish": {
    "boot_near": {

@@ -20,8 +20,9 @@ resampled once, from the full-size art, to the most it is ever drawn at:
 `TEXELS_PER_UNIT` is the robots' (`bake-peep-atlas.py`): 2 x
 `RobotSprite.PEEP_HEIGHT` (53) over Peep's 245.5 reference units, a texel per
 device pixel on a 2x screen (the sheet is at scale 2). `SIZE_SCALE` is the
-NPC's `sizeScale` (Nick, 2026-10-07: Crawler 0.89, Broodling 0.94, Reactor
-2.11, Compactor 1.00, Kiln 1.00, Coil 1.21, Brood 2.06): change both together.
+NPC's `sizeScale` (Nick, 2026-10-09 size review: Crawler 1.31, Broodling 1.49,
+Reactor 2.92, Compactor 1.78, Kiln 1.65, Coil 2.32, Brood 3.2; 2026-10-07 was
+0.89, 0.94, 2.11, 1.00, 1.00, 1.21, 2.06): change both together.
 
 The units per pixel are the evaluators', and each is the largest the part
 reaches, so nothing is ever drawn bigger than its texture:
@@ -88,7 +89,7 @@ BROODLING = 1.12
 NPCS = {
     'crawler': {
         'package': 'crawler-animations-v4',
-        'size_scale': 0.89,
+        'size_scale': 1.31,
         # part -> (rig units per art px across, down)
         'parts': {
             'body': (CRAWLER_BODY, CRAWLER_BODY * 1.15),
@@ -101,7 +102,7 @@ NPCS = {
     },
     'broodling': {
         'package': 'npc-refinements/broodling-v3',
-        'size_scale': 0.94,
+        'size_scale': 1.49,
         'parts': {
             'body': (38 / 1052 * BROODLING, 38 * 1069 / 1052 / 1069 * BROODLING),
             'upper': (13 / 429 * BROODLING, 13 / 429 * BROODLING),
@@ -113,7 +114,7 @@ NPCS = {
     # PROVISIONAL (l1-9): reactor-v6, delivered 2026-10-07, not yet approved by Nick.
     'reactor': {
         'package': 'npc-refinements/reactor-v6',
-        'size_scale': 2.11,
+        'size_scale': 2.92,
         'parts': {
             **{part: (0.25, 0.25) for part in [
                 'shell', 'chamber', 'core', 'core-off', 'core-emission', 'ribs', 'rim',
@@ -128,7 +129,7 @@ NPCS = {
     # PROVISIONAL (l1-9): compactor-v4, delivered 2026-10-07, not yet approved by Nick (v3 was).
     'compactor': {
         'package': 'npc-refinements/compactor-v4',
-        'size_scale': 1.0,
+        'size_scale': 1.78,
         'parts': {
             'compactor': (116 / 476, 0.2444),
             'sensor-base': (116 / 476, 0.2444),
@@ -150,7 +151,7 @@ NPCS = {
     # PROVISIONAL (l1-9): kiln-v3, delivered 2026-10-07, not yet approved by Nick (v2 was).
     'kiln': {
         'package': 'npc-refinements/kiln-v3',
-        'size_scale': 1.0,
+        'size_scale': 1.65,
         'parts': {
             'base': (0.1365, 0.1399),
             'canister': (0.1642, 0.1678),
@@ -165,7 +166,7 @@ NPCS = {
     # PROVISIONAL (l1-9): coil-v5, delivered 2026-10-07, not yet approved by Nick (v4 was).
     'coil': {
         'package': 'npc-refinements/coil-v5',
-        'size_scale': 1.21,
+        'size_scale': 2.32,
         'parts': {
             **{part: (0.095, 0.095) for part in ['body', 'dark', 'heat', 'bloom']},
             'upper': (0.0844, 0.0844),
@@ -184,7 +185,7 @@ NPCS = {
     # PROVISIONAL (l1-9): brood-v15, delivered 2026-10-07, not yet approved by Nick (v14 was).
     'brood': {
         'package': 'npc-refinements/brood-v15',
-        'size_scale': 2.06,
+        'size_scale': 3.2,
         'parts': {
             'body': (0.145, 0.145),
             'upper': (0.0761, 0.0761),
