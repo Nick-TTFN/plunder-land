@@ -173,9 +173,9 @@ export default class Unit extends GameObject {
   private catchUp: CatchUp | undefined
 
   /**
-   * A planting effect arrived for it (`Game.onEffect`: 11, 13, 14, 17): ease
-   * its drawn position onto its newest server state over `CatchUp.MS`, so the
-   * planted clip starts where the server has it, not ~`interpolationDelay`
+   * A planting effect arrived for it (`Game.onEffect`: 11, 13, 14, 17, and
+   * since #52 lane 2 a mob's 3, 9 and 19): ease its drawn position onto its
+   * newest server state over `CatchUp.MS`, so the planted clip starts where the server has it, not ~`interpolationDelay`
    * behind. Only for interpolated units; the local player is predicted.
    */
   catchUpNow (): void {

@@ -136,19 +136,19 @@ const INERT_BROOD: Archetype = {
   routines: ARCHETYPES.brood.routines.map((r) => r.kind === 'brood' ? { ...r, child: INERT } : r)
 }
 
-test('the rows are the l1-0 provisional numbers: Brood band 5-6, every 4000 ms, cap 3; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring', () => {
+test('the rows are the l1-0 provisional numbers: Brood band 5-6, every 4000 ms, cap 3, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
   const guard = ARCHETYPES.brood.routines[0] as GuardSpec
   assert.equal(guard.kind, 'guard', 'the guard must run first: it picks the target')
   assert.deepEqual(guard.retreat, { min: 5, max: 6 })
   assert.deepEqual([guard.acquire, guard.lose, guard.chaseSpeed], [7, 9, 60])
   const release = releaseSpec(ARCHETYPES.brood)
-  assert.deepEqual({ ...release, child: release.child.key }, { kind: 'brood', child: 'broodling', intervalMs: 4000, cap: 3, releaseMs: 1100 })
+  assert.deepEqual({ ...release, child: release.child.key }, { kind: 'brood', child: 'broodling', intervalMs: 4000, cap: 3, releaseMs: 1100, holdMs: 500 })
   assert.equal(release.child, ARCHETYPES.broodling)
 
   const lingGuard = ARCHETYPES.broodling.routines[0] as GuardSpec
   assert.equal(lingGuard.kind, 'guard', 'the guard must run first: it picks whom to chase')
   assert.deepEqual([lingGuard.acquire, lingGuard.lose, lingGuard.chaseSpeed, lingGuard.standoff], [8, 10, 130, 0])
-  assert.deepEqual(ARCHETYPES.broodling.routines[1], { kind: 'broodling', fuseMs: 6000, tellMs: 500, damage: 25, rings: 1 })
+  assert.deepEqual(ARCHETYPES.broodling.routines[1], { kind: 'broodling', fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 1500, rings: 1 })
   assert.equal(BLAST_RINGS, 1)
   assert.equal(PRIME_RINGS, 1)
   assert.deepEqual([ARCHETYPES.broodling.maxHp, ARCHETYPES.broodling.loot, ARCHETYPES.broodling.gearRolls], [1, 0, null])
@@ -481,12 +481,14 @@ test('the fuse rides lifetime (9): the first create has 6000, a late viewer\'s c
 
 const LAYER_2 = -2
 
-// l1-7 F6: effect 19 names the release cell, but the Broodling has moved off
-// it by the end of its release tick. The client picks the Broodling created
-// in the same frame nearest the cell's centre (`vfx/broodpick.ts`); here it is
-// run against the server's real positions after the release tick.
+// l1-7 F6: effect 19 names the release cell. Until #52 lane 2 the Broodling
+// had chased off it by the end of its release tick, so the client picks the
+// Broodling created in the same frame nearest the cell's centre
+// (`vfx/broodpick.ts`). Since the emerge hold it stands on that centre for
+// `emergeMs`; the pick is run against the server's real positions after the
+// release tick and must still find it.
 for (const dtMs of [250, 350]) {
-  test(`effect 19 at a ${dtMs} ms tick: the released Broodling is off the release cell, and the client's pick still finds it`, (t) => {
+  test(`effect 19 at a ${dtMs} ms tick: the released Broodling stands on the release cell through its emerge, and the client's pick finds it`, (t) => {
     mockClock(t)
     const brood = mobAt(ARCHETYPES.brood)
     playerAt(6)
@@ -501,12 +503,10 @@ for (const dtMs of [250, 350]) {
       const child = releaseOf(brood).children[0]
       const centre = Hex.toPosition(release.cell)
       const off = Math.hypot(child.position.x - centre.x, child.position.y - centre.y)
-      // It chased in its release tick: past the cell's edge (half of Hex.SIZE 45).
-      assert.ok(off > Hex.SIZE / 2, `only ${off.toFixed(1)} px off: the exact-cell rule would still hold`)
-      assert.notDeepEqual(Hex.toCell(child.position), release.cell, 'still on the release cell')
+      // It does not chase in its release tick: the emerge hold.
+      assert.equal(off, 0, `${off.toFixed(1)} px off the release cell's centre`)
       assert.ok(off < PICK_REACH, `${off.toFixed(1)} px is beyond the pick's reach`)
-      // Its create, built in its constructor, carried the cell's centre; a
-      // viewer who first sees it through an update gets the moved position.
+      // Its create, built in its constructor, carried the cell's centre.
       const create = created.find((c) => c.id === child.id)
       assert.deepEqual([(create?.fields.position as Vector).x, (create?.fields.position as Vector).y], [centre.x, centre.y])
 
@@ -526,10 +526,10 @@ for (const dtMs of [250, 350]) {
         released
       ]
       assert.equal(pickReleased(candidates, 0, centre, FRAME), released)
-      // The exact-cell rule (F2) finds nothing at the server's position.
+      // Standing on its cell, the exact-cell rule (F2) would now find it too.
       const onCell = candidates.filter((c) => c.createdInFrame === FRAME && c.tag === 0 && !c.killed &&
         c.archetype?.key === 'broodling' && key(Hex.toCell(new Vector(c.x, c.y))) === key(release.cell))
-      assert.deepEqual(onCell, [], 'test setup: a decoy sits on the release cell')
+      assert.ok(onCell.includes(released))
       // Nothing created this frame: no pick.
       assert.equal(pickReleased(candidates, 0, centre, FRAME + 1), undefined)
     }

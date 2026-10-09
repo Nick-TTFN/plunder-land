@@ -31,7 +31,7 @@ interface Knockable extends Unit {
  * `impactMs`.
  *
  * At the cast the line is fixed: its origin is the cell the Compactor stands
- * on (or is stepping into: it finishes that step and then stands still until
+ * on (or is stepping into: it finishes that step and then stands still through
  * the impact, `ShockwaveRoutine`), its direction the aim snapped to one of
  * six as a breath's is (`World.FACING_INDEX`), and its cells the
  * archetype's line `length` (`NpcAttack`, mirrored), cut where the line
@@ -51,7 +51,7 @@ export class Shockwave extends Skill {
   readonly knockback: number
   /** Cast to hit, in ms. */
   readonly impactMs: number
-  /** True from the cast until the impact: the caster stands still meanwhile. */
+  /** True from the cast until the impact. The caster stands still meanwhile and after (`ShockwaveRoutine.holdMs`). */
   windingUp: boolean = false
 
   constructor (owner: Unit, numbers: ShockwaveNumbers) {
@@ -145,25 +145,34 @@ export class Shockwave extends Skill {
 
 /**
  * The Compactor's AI for its slam (`ShockwaveSpec`), after its guard in the
- * routine list: while the slam winds up it clears the guard's step goal, so
- * the Compactor finishes any step in progress and then stands where the line
- * starts; otherwise it casts at its target's cell once the target is within
- * `withinCells` rings (`UseSkillOnTarget`'s rule).
+ * routine list: it casts at its target's cell once the target is within
+ * `withinCells` rings (`UseSkillOnTarget`'s rule), and from the cast it
+ * clears the guard's step goal every tick, so the Compactor finishes any step
+ * in progress and then stands where the line starts. It stands until the
+ * later of the impact (`windingUp`) and `holdMs` from the cast (#52 lane 2:
+ * 1750, while the clip's shoe is on the floor), a timer owned by the
+ * Compactor; the first tick at or after that, the guard's goal stands again.
  */
 export class ShockwaveRoutine implements IAIRoutine {
+  /** True from a cast until `holdMs` after it. */
+  holding = false
+
   constructor (
     readonly owner: Unit,
     readonly skill: Shockwave,
-    readonly withinCells: number
+    readonly withinCells: number,
+    readonly holdMs: number
   ) {}
 
   update (dt: number): void {
-    if (!this.skill.windingUp) {
+    if (!this.skill.windingUp && !this.holding) {
       const target = this.owner.target
       if (target == null || target.destroyed) return
       const targetCell = Hex.toCell(target.position)
       if (Hex.distance(this.owner.cell, targetCell) > this.withinCells) return
       if (!this.skill.execute(targetCell)) return
+      this.holding = true
+      Timers.schedule(this.holdMs, () => { this.holding = false }, this.owner)
     }
     this.owner.stepGoal = undefined
   }

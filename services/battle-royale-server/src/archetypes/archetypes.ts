@@ -99,6 +99,12 @@ export interface UseSkillOnTargetSpec {
    * distance (the boss), which spends the cooldown on shots that cannot land.
    */
   withinCells?: number
+  /**
+   * Come to rest, then cast, then stand still this long from the cast (#52
+   * lane 2; `UseSkillOnTarget.update`), in ms on the tick. Undefined: cast on
+   * the move with no hold (the boss and the gunner).
+   */
+  holdMs?: number
 }
 
 /**
@@ -110,6 +116,12 @@ export interface ShockwaveSpec {
   kind: 'shockwave'
   skill: number
   withinCells: number
+  /**
+   * How long it stands still from the cast, in ms (#52 lane 2): past the
+   * impact, while the strike clip's shoe is on the floor. Never shorter than
+   * the impact: the routine also holds while the slam winds up.
+   */
+  holdMs: number
 }
 
 /**
@@ -484,6 +496,12 @@ const NPC_NUMBERS = Object.freeze({
     loot: 25,
     contact: 0,
     shot: { damage: 8, cooldownMs: 2000 },
+    /**
+     * Rest, shoot, then stand still this long from the shot (#52 lane 2,
+     * Dez's `ideas/npc-windup-holds.md`, accepted 2026-10-09): the clip's
+     * charge and flash. 2 ticks.
+     */
+    shotHoldMs: 500,
     guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 4 }
   },
   compactor: { maxHp: 60, body: 30, loot: 50, contact: 0, guard: { acquire: 4, lose: 5, chaseSpeed: 100, standoff: 0 } },
@@ -492,8 +510,10 @@ const NPC_NUMBERS = Object.freeze({
    * length is `NPC_SHARED.compactorLine`, mirrored), knocked back 2 cells,
    * cast within 2 rings, every 3600 ms (the strike clip), the hit 1215 ms
    * after the cast (the clip's impact frame; it lands on the tick after, 1250).
+   * `holdMs`: it stands still from the cast to 1750 ms, while the clip's shoe
+   * is flat on the floor (#52 lane 2, accepted 2026-10-09; 7 ticks).
    */
-  compactorShockwave: { damage: 35, cooldownMs: 3600, withinCells: 2, knockback: 2, impactMs: 1215 },
+  compactorShockwave: { damage: 35, cooldownMs: 3600, withinCells: 2, knockback: 2, impactMs: 1215, holdMs: 1750 },
   // Band 5-6 (l1-0 Q1, not the roster's 7-9), lob 30 on a 1-ring blast
   // after 1250 ms (Q2), every 3500 ms, cast within 7 cells (the mirrored
   // `attack.range`). `standoff` is unread with a band; set to its top.
@@ -503,6 +523,12 @@ const NPC_NUMBERS = Object.freeze({
     loot: 100,
     contact: 0,
     lob: { damage: 30, cooldownMs: 3500, flightMs: 1250 },
+    /**
+     * Rest, lob, then stand still this long from the lob (#52 lane 2,
+     * accepted 2026-10-09): the clip's 0.58 s gather and launch kick, which
+     * the client plays from the lob's effect. 3 ticks.
+     */
+    lobHoldMs: 750,
     guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 6, retreat: { min: 5, max: 6 } }
   },
   // Standoff is the field's rings (l1-3, l1-0's "2 (its field)"): it hangs
@@ -538,7 +564,9 @@ const NPC_NUMBERS = Object.freeze({
     body: 40,
     loot: 800,
     contact: 0,
-    release: { intervalMs: 4000, cap: 3, releaseMs: 1100 },
+    // `holdMs`: rest, release, then stand still this long from the release
+    // (#52 lane 2, accepted 2026-10-09; 2 ticks).
+    release: { intervalMs: 4000, cap: 3, releaseMs: 1100, holdMs: 500 },
     guard: { acquire: 7, lose: 9, chaseSpeed: 60, standoff: 6, retreat: { min: 5, max: 6 } }
   },
   /**
@@ -552,7 +580,9 @@ const NPC_NUMBERS = Object.freeze({
     body: 16,
     loot: 0,
     contact: 0,
-    fuse: { fuseMs: 6000, tellMs: 500, damage: 25 },
+    // `emergeMs`: a new Broodling stands still this long from its release,
+    // the client's `emerge` clip, 1.3-2.8 s (#52 lane 2, accepted 2026-10-09).
+    fuse: { fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 1500 },
     guard: { acquire: 8, lose: 10, chaseSpeed: 130, standoff: 0 }
   },
   /** Every NPC guard's idle speed, wander and refresh (today's). */
@@ -616,7 +646,7 @@ const crawler: Archetype = {
   // Guard first: it picks the target the shot fires at.
   routines: [
     ...crawlerBase.routines,
-    { kind: 'useSkillOnTarget', skill: 0, withinCells: rangedCellsOf(ARCHETYPE_INFO.crawler) }
+    { kind: 'useSkillOnTarget', skill: 0, withinCells: rangedCellsOf(ARCHETYPE_INFO.crawler), holdMs: NPC_NUMBERS.crawler.shotHoldMs }
   ]
 }
 /** The Compactor's Shockwave with its numbers: a `SkillClass` is built from its owner alone. */
@@ -637,7 +667,7 @@ const compactor: Archetype = {
   // Guard first: it picks the target, and the slam's hold overrides its step goal.
   routines: [
     ...compactorBase.routines,
-    { kind: 'shockwave', skill: 0, withinCells: NPC_NUMBERS.compactorShockwave.withinCells }
+    { kind: 'shockwave', skill: 0, withinCells: NPC_NUMBERS.compactorShockwave.withinCells, holdMs: NPC_NUMBERS.compactorShockwave.holdMs }
   ]
 }
 /** The Kiln's lob with its numbers: a `SkillClass` is built from its owner alone. */
@@ -658,7 +688,7 @@ const kiln: Archetype = {
   // Guard first: it picks the target the lob is aimed at.
   routines: [
     ...kilnBase.routines,
-    { kind: 'useSkillOnTarget', skill: 0, withinCells: lobRangeOf(ARCHETYPE_INFO.kiln) }
+    { kind: 'useSkillOnTarget', skill: 0, withinCells: lobRangeOf(ARCHETYPE_INFO.kiln), holdMs: NPC_NUMBERS.kiln.lobHoldMs }
   ]
 }
 
@@ -1072,14 +1102,14 @@ export function buildRoutines (owner: Unit, archetype: Archetype, skills: Skill[
       case 'useSkillOnTarget': {
         const skill = skills[spec.skill]
         if (skill === undefined) throw new Error(`${archetype.key}: no skill at index ${spec.skill}`)
-        return new UseSkillOnTarget(owner, skill, spec.withinCells)
+        return new UseSkillOnTarget(owner, skill, spec.withinCells, spec.holdMs)
       }
       case 'reactorBurst':
         return new ReactorBurst(owner, spec)
       case 'shockwave': {
         const skill = skills[spec.skill]
         if (!(skill instanceof Shockwave)) throw new Error(`${archetype.key}: no Shockwave at index ${spec.skill}`)
-        return new ShockwaveRoutine(owner, skill, spec.withinCells)
+        return new ShockwaveRoutine(owner, skill, spec.withinCells, spec.holdMs)
       }
       case 'coilField':
         return new CoilField(owner, spec, discRingsOf(archetype))

@@ -24,6 +24,8 @@ export interface BroodSpec {
   cap: number
   /** Effect 19's lifetime: the Brood's `spawn` clip, which the client plays. Looks only. */
   releaseMs: number
+  /** How long it stands still from a release, in ms on the tick (#52 lane 2). */
+  holdMs: number
 }
 
 /**
@@ -41,6 +43,18 @@ export interface BroodSpec {
  * One at the cap re-arms without releasing, so a child's death is replaced at
  * the next beat, not at once.
  *
+ * **Rest, release, hold** (#52 lane 2). A beat that finds the Brood at rest
+ * (`stepTo` undefined) releases at once, as before. One that finds it
+ * mid-step (and under the cap) leaves the release `pending`: from then on the routine clears
+ * `stepGoal` every tick, so the step in progress lands on its centre, and it
+ * releases on the first tick at rest (re-checking the target and the cap
+ * then; no target there calls it off). The clock was already re-armed at the
+ * beat, so the cadence holds. From a release it clears `stepGoal` every tick
+ * until a `holdMs` timer owned by the Brood ends the hold. A pending release
+ * runs inside the Brood's own update, so its child, appended to `MOBS`
+ * behind the backward loop, first updates on the next tick (a beat's child
+ * still updates in its own tick, l1-7 F6); its emerge hold makes that moot.
+ *
  * **A release** puts a Broodling (`child`) on the free neighbour of the
  * Brood's cell nearest its target (`World.mobCellFree`; ties to the lowest
  * `Hex.DIRECTIONS` index), through `World.addUnit(World.MOBS, …)`, never
@@ -55,6 +69,10 @@ export default class BroodRelease implements IAIRoutine {
   readonly spec: BroodSpec
   /** What it has released, pruned of the dead at each release. */
   children: Unit[] = []
+  /** A beat found it mid-step: release on the first tick at rest. */
+  pending = false
+  /** True from a release until `holdMs` after it. */
+  holding = false
   private clock: Timer | undefined
 
   constructor (owner: Unit, spec: BroodSpec) {
@@ -71,6 +89,15 @@ export default class BroodRelease implements IAIRoutine {
 
   update (dt: number): void {
     if (this.owner.destroyed) return
+    if (this.pending) {
+      this.owner.stepGoal = undefined
+      if (this.owner.stepTo === undefined) {
+        this.pending = false
+        const targetCell = this.targetCell()
+        if (targetCell !== undefined) this.tryRelease(targetCell)
+      }
+    }
+    if (this.holding) this.owner.stepGoal = undefined
     if (this.clock !== undefined && !this.clock.done) return
     if (this.targetCell() === undefined) return
     this.arm()
@@ -84,9 +111,27 @@ export default class BroodRelease implements IAIRoutine {
     const targetCell = this.targetCell()
     if (targetCell === undefined) return
     this.arm()
+    if (this.atCap()) return
+    if (this.owner.stepTo !== undefined) {
+      this.pending = true
+      return
+    }
+    this.tryRelease(targetCell)
+  }
+
+  /** Prunes the dead children; true if the live ones are at the cap. */
+  private atCap (): boolean {
     this.children = this.children.filter((child) => !child.destroyed)
-    if (this.children.length >= this.spec.cap) return
-    this.release(targetCell)
+    return this.children.length >= this.spec.cap
+  }
+
+  /** Release toward `targetCell` unless at the cap, and hold if it did. */
+  private tryRelease (targetCell: Vector): void {
+    if (this.atCap()) return
+    if (!this.release(targetCell)) return
+    this.holding = true
+    this.owner.stepGoal = undefined
+    Timers.schedule(this.spec.holdMs, () => { this.holding = false }, this.owner)
   }
 
   /** The cell of its live, unextracted player target, or undefined. */
@@ -97,7 +142,8 @@ export default class BroodRelease implements IAIRoutine {
     return Hex.toCell(target.position)
   }
 
-  private release (targetCell: Vector): void {
+  /** True if a Broodling was put down. */
+  private release (targetCell: Vector): boolean {
     const owner = this.owner
     const here = owner.cell
     let best: Vector | undefined
@@ -111,12 +157,13 @@ export default class BroodRelease implements IAIRoutine {
         bestDistance = distance
       }
     }
-    if (best === undefined) return
+    if (best === undefined) return false
 
     const at = Hex.toPosition(best)
     const child = new Mob(at.x, at.y, owner.tag, this.spec.child)
     World.addUnit(World.MOBS, child)
     this.children.push(child)
     Multiplayer.Instance.effect(NPC_EFFECT.broodRelease, owner, this.spec.releaseMs, best)
+    return true
   }
 }

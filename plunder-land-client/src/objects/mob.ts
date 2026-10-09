@@ -138,16 +138,36 @@ export default class Mob extends Unit {
    * position) if given. The Compactor's strike on its shockwave (14, the
    * impact `lifetime` after the cast); the Reactor's activation on its tell
    * (11, the release `lifetime` after) and again on its release (12, lead 0:
-   * back in step with the server); the Kiln's lob on its marker (9, lead 0:
-   * the launch is the cast); the Coil's charge on its pulse (13, the hold's
-   * end `lifetime` after); the Brood's release on its 19 (lead 0: the launch,
-   * as the Broodling emerges). False without a rig.
+   * back in step with the server); the Coil's charge on its pulse (13, the
+   * hold's end `lifetime` after). The Kiln's lob (9) and the Brood's release
+   * (19) start from their wind-up instead (`playAttackFromStart`). False
+   * without a rig.
    */
   playAttack (leadMs: number, toward?: { x: number, y: number }): boolean {
     const event = this.npc?.npc.roles.attack?.event
     if (this.npc === undefined || event === undefined) return false
     const aim = toward === undefined ? undefined : { x: toward.x - this.x, y: toward.y - this.y }
     return this.npc.play('attack', aim, attackLead(event, leadMs))
+  }
+
+  /**
+   * Its attack clip from the start of its wind-up (t = 0), so the clip's
+   * event comes `attackEventMs` from now (#52 lane 2, Archie's lane-1 F1):
+   * the Kiln's lob on its marker (9: the gather, then the launch 0.58 s
+   * later, when the slug leaves, `KilnLobEffect`) and the Brood's release on
+   * 19. The server holds both still from that effect, so the wind-up has a
+   * still body to play on. Aimed at `toward` (world position) if given.
+   */
+  playAttackFromStart (toward?: { x: number, y: number }): boolean {
+    const event = this.npc?.npc.roles.attack?.event
+    if (this.npc === undefined || event === undefined) return false
+    const aim = toward === undefined ? undefined : { x: toward.x - this.x, y: toward.y - this.y }
+    return this.npc.play('attack', aim, event)
+  }
+
+  /** Seconds from its attack clip's start to its event; 0 without a rigged attack. */
+  get attackEvent (): number {
+    return this.npc?.npc.roles.attack?.event ?? 0
   }
 
   /** Where its shot leaves (the Crawler's sensor), on screen, global, as `Player`'s eye. */

@@ -583,7 +583,10 @@ export class Game extends Container {
   applyArmor (unit: Unit, data: Record<string, unknown>): void {
     if (typeof data.maxArmor === 'number') unit.maxArmor = data.maxArmor
     if (typeof data.armor === 'number') {
-      if (data.armor < unit.armor) unit.onHurt()
+      // An hp drop in the same record calls `onHurt` through `setHP`: one
+      // hurt (one spark) per record, not two (lane-1 F4).
+      const hpDrops = typeof data.hp === 'number' && unit.hp !== undefined && data.hp < unit.hp
+      if (data.armor < unit.armor && !hpDrops) unit.onHurt()
       unit.armor = data.armor
     }
     if (typeof data.maxArmor === 'number' || typeof data.armor === 'number') unit.onArmor()
@@ -885,9 +888,16 @@ export class Game extends Container {
     // marker: by the blast it may be dead and its id reused.
     if (type === NPC_EFFECT.kilnLob || type === NPC_EFFECT.kilnBlast) {
       const blast = type === NPC_EFFECT.kilnBlast
-      if (aimCell !== undefined) new KilnLobEffect(aimCell, Game.LOCAL.tag, blast, lifetime, blast ? undefined : target)
-      // Its rig's lob (l1-9), from the launch (lead 0): the marker comes at the server's cast.
-      if (!blast && target instanceof Mob) target.playAttack(0, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
+      // Its rig's lob (l1-9) from the start of the gather (#52 lane 2): the
+      // server holds it still from the cast, which is the marker. Drawn where
+      // the server has it first (S1). The slug leaves at the clip's launch
+      // and still lands at `lifetime`; without the clip it flies the whole time.
+      let launchMs = 0
+      if (!blast && target instanceof Mob) {
+        target.catchUpNow()
+        if (target.playAttackFromStart(aimCell === undefined ? undefined : Hex.toPosition(aimCell))) launchMs = target.attackEvent * 1000
+      }
+      if (aimCell !== undefined) new KilnLobEffect(aimCell, Game.LOCAL.tag, blast, lifetime, blast ? undefined : target, launchMs)
       return
     }
 
@@ -921,8 +931,12 @@ export class Game extends Container {
       // Its create came earlier in this flush (creates before effects): the
       // new Broodling emerges now, and only for a viewer who saw the release.
       if (target !== undefined && aimCell !== undefined) emergeReleased(Game.MOBS, target.tag, aimCell, Game.FRAME)
-      // Its rig's release (l1-9), from its launch (lead 0), as the Broodling emerges.
-      if (target instanceof Mob) target.playAttack(0, aimCell === undefined ? undefined : Hex.toPosition(aimCell))
+      // Its rig's release (l1-9) from the start of its wind-up (#52 lane 2:
+      // the server holds it still from the release), 0.18 s before its
+      // launch; the clip then ends with the effect's lifetime. Drawn where
+      // the server has it first (S1).
+      if (target instanceof Mob) target.catchUpNow()
+      if (target instanceof Mob) target.playAttackFromStart(aimCell === undefined ? undefined : Hex.toPosition(aimCell))
       return
     }
 
@@ -949,6 +963,11 @@ export class Game extends Container {
         break
 
       case 3:
+        // A mob's shot (the Crawler's): the server holds it still from the
+        // shot (#52 lane 2), so it is drawn where the server has it first
+        // (S1). A player's shot is not: the local one is predicted and a
+        // remote one keeps moving.
+        if (target instanceof Mob) target.catchUpNow()
         new RangedAttackEffect(target, aimCell)
         break
 

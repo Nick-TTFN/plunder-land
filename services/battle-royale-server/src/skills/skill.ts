@@ -23,10 +23,15 @@ export class Skill {
    * undefined for no aim. Skills that do not aim ignore it.
    */
   execute (aimCell?: Vector) {
-    if (this.executeTime > Date.now() - this.cooldown) { return false }
+    if (!this.ready()) { return false }
 
     this.executeTime = Date.now()
     return true
+  }
+
+  /** True when the cooldown is over, so `execute` would not refuse on it. */
+  ready (): boolean {
+    return !(this.executeTime > Date.now() - this.cooldown)
   }
 
   /**

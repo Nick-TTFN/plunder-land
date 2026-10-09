@@ -30,6 +30,11 @@ export interface BroodlingSpec {
   damage: number
   /** The blast's disc round its cell: the mirror's `attack.rings`, which the client draws. */
   rings: number
+  /**
+   * How long a new Broodling stands still from its creation, in ms on the
+   * tick: the client's `emerge` clip (#52 lane 2). It may still prime.
+   */
+  emergeMs: number
 }
 
 /** What a mob's `onHit` hook is (`Mob.onHit`); structural, since mob.ts imports the archetypes that import this. */
@@ -40,6 +45,10 @@ interface HitHooked { onHit?: (value: number) => boolean }
  * fuse, the adjacent tell and the three ways to go off, which are all one
  * blast (`detonate`).
  *
+ * - **Emerge** (#52 lane 2): from its creation it clears `stepGoal` every
+ *   tick until an `emergeMs` timer owned by the Broodling ends it, so it
+ *   stands on its release cell while the client plays `emerge`. Priming is
+ *   not held back: a player adjacent meanwhile primes it as at any time.
  * - **Fuse:** lit when the routine is built, which is in `Mob`'s constructor,
  *   before its create goes out: a `Timers` entry of `fuseMs` **owned by the
  *   Broodling**, so any other detonation (which destroys it) cancels it. It
@@ -78,12 +87,15 @@ export default class BroodlingFuse implements IAIRoutine {
   primedCell: Vector | undefined
   /** Set as the blast starts, before the destroy; never cleared. */
   detonating = false
+  /** True from its creation until `emergeMs` later. */
+  emerging = true
 
   constructor (owner: Unit, spec: BroodlingSpec) {
     this.owner = owner
     this.spec = spec
     this.fuseEndsAt = Date.now() + spec.fuseMs
     Timers.schedule(spec.fuseMs, () => { this.detonate() }, owner)
+    Timers.schedule(spec.emergeMs, () => { this.emerging = false }, owner)
     // On the create, which `Mob`'s constructor sends after building this
     // routine (and then clears the dirty set); see `showFuse`.
     owner.lifetime = spec.fuseMs
@@ -99,6 +111,7 @@ export default class BroodlingFuse implements IAIRoutine {
     const owner = this.owner
     if (owner.destroyed) return
     this.showFuse()
+    if (this.emerging) owner.stepGoal = undefined
 
     if (this.primedCell !== undefined) {
       owner.stepGoal = undefined

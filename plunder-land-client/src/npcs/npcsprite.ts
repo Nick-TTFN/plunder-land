@@ -184,6 +184,8 @@ export class NpcSprite extends Container {
     if (clip === undefined) return false
     const current = this.action
     if (current?.role === 'death') return false
+    // A death takes over from a hit's flash and jolt, as a robot's fall_apart does (lane-1 F2).
+    if (role === 'death') this.hitShown.clear()
     const roles = this.npc.roles
     // A death on the clip a prime is already playing (the Broodling's
     // detonate) carries on from where the prime is, never earlier than the
@@ -281,8 +283,10 @@ export class NpcSprite extends Container {
     }
     if (dt > 0 && !this.shown()) return
 
-    // The hit's jolt moves the drawn body only, its cast shadow with it; the contact shadows stay put.
-    const jolt = this.hitShown.jolt()
+    // The hit's jolt moves the drawn body only, its cast shadow with it; the
+    // contact shadows stay put. Back from the way it faces: an action's aim,
+    // else its direction (lane-1 F3).
+    const jolt = this.hitShown.jolt((this.action?.aim ?? this.direction).x < 0 ? -1 : 1)
     this.rig.x = jolt
     this.castRig.x = jolt
 
