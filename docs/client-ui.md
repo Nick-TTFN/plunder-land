@@ -28,6 +28,30 @@ COLLECTION tab, the title (PLUNDERLAND here; the mockup says SCAVENGERS). `asset
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the
 bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out as mojibake.
 
+**Layout since 2026-10-09** (Nick's mockup of that day): one CSS grid in `.lb-main`. Desktop: the hero
+(canvas robot, name, class, CHANGE SCAVENGER) spans the left column; on the right the callsign, "Your
+progression" (level, XP bar, `n / span XP` and `n XP to level L+1` from `Standing`), "Your journey",
+three action rows, the season row and READY with the plays line under it. Under 760 px it is one
+column (progression, journey, hero, callsign, rows, season), READY is `position: sticky` at the
+bottom of the scroll, the tabs go and INVITE / settings / PRIVACY fold into the header's menu button.
+Four panels, one open at a time (`Lobby.toggle`): STATS & PAINT (the stat bars over the customize
+rows, key E), SCAVENGERS (the robot cards and tagline, key C), LOADOUT (L), STASH (S). The row
+"Stats & paint" is the mockup's "Loadout & stats": the skill loadout is the Skills row. The heading,
+the arrows beside the robot and the key-hints line are gone (left/right still switch robots).
+- **No skill points exist**: the rows' status lines are facts (the kit READY plays, the first three
+  stats, `stashCount` and "N new"); only the Stash row's dot lights.
+- **The journey** is `journeyStop(level)` in `locks.ts` (pixi-free, `unlocks.spec.ts`): a stop is
+  named Bot / Skill (a skill or loadout slot) / Reward (a colour or pattern) from the same mirrored
+  rows as the locks, its title lists `unlockedBetween(l - 1, l)`. Five stops (four on a phone) from
+  the account's level; the arrows scroll up to `journeyEnd()`. A robot stop shows the card's still.
+- **"N new" in the stash** (`newStashCount` / `markStashSeen`, `net/stash.ts`, localStorage
+  `plunderland_stash_seen`, `{ [account id]: row ids }`): an account with no record takes the stash
+  as it is as seen, so nobody's whole stash shows as new on the first lobby. The stash panel being
+  open marks what it shows; while rows are away in a run the old ids are kept beside the view's.
+- **A browser with no token is shown Level 1** with an empty bar: the server announces no account
+  before the first run makes one (`Worlds.lookup` returns null without a token). With a token it
+  reads "Level ..." until the account lands, "Offline" for an offline account.
+
 **The lobby's STASH panel** (#49, 49-4/49-5; `ui/lobby/stashpanel.ts`, DOM, `lb-st-` classes,
 placeholder chrome; logic in the pixi-free `net/stash.ts`, run by `gear/stashclient.spec.ts` and
 `stasheditclient.spec.ts`). Button beside LOADOUT, key S; one of the three panels open at a time. A
@@ -129,8 +153,8 @@ card (`Skill.aims`: ranged, fireball, icicle, ice breath) arms it (TAP TARGET, a
 world tap casts at that cell instead of moving; the card again casts along facing; it disarms after
 4 s. Other skills cast on the tap. Items (the bomb too) use along facing. **Phone HUD**
 (`HUD.phone()`, either side under 520 px): the leaderboard opens and closes from the clock, the fog
-legend isn't drawn. **Lobby under 500 px tall** (a phone held sideways): three columns, no cards row
-(the arrows switch robots); under 720 px wide PRIVACY sits under READY.
+legend isn't drawn. **Lobby under 520 px tall** (a phone held sideways): the desktop grid, tightened; under 760 px
+wide the one-column layout (see "Lobby").
 
 **Ranged charges on the press** (2026-10-04): your own robot's eye shot starts on the key press
 (`RangedAttackEffect.pressed`), the server's effect no longer restarts it (the shot overlay dedupes
