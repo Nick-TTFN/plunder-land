@@ -15,7 +15,7 @@ import * as kiln from '../../../../plunder-land-client/src/npcs/kiln/rig'
 import * as coil from '../../../../plunder-land-client/src/npcs/coil/rig'
 import * as brood from '../../../../plunder-land-client/src/npcs/brood/rig'
 import { COIL_PULSE } from '../../../../plunder-land-client/src/vfx/coilfield'
-import { NPC_RIGS, attackLead, gaitDirection, gaitPace, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
+import { NPC_RIGS, attackLead, gaitClock, gaitDirection, gaitPace, yieldsToMovement, type NpcDrawList, type NpcImage, type NpcRig } from '../../../../plunder-land-client/src/npcs/npcrig'
 import { PEEP_RIG } from '../../../../plunder-land-client/src/robots/robotrig'
 import { Hex } from '../../../../plunder-land-client/src/utils/hex'
 import { ARCHETYPE_INFO } from '../../../../plunder-land-client/src/utils/archetypes'
@@ -654,20 +654,38 @@ test('crawler: the fixtures\' game-stride runs are the game\'s stride, and the g
   }
 })
 
+/** The rigs with a gait of their own (decision #52 lanes 3 and 4); the rest run as before. */
+const GAITED = ['crawler']
+
+/** A package's own draw scale on top of `sizeScale` (the Broodling's `renderScale`): its feet are drawn that much larger. */
+const DRAWN: Readonly<Record<string, number>> = { broodling: broodling.CFG.renderScale }
+
+interface GaitLeg { foot: { x: number, y: number, z?: number }, worldFoot?: { x: number, y: number, z?: number }, contact?: boolean }
+
+/** A move pose's legs, whatever the port calls them (`state.legs`, the Crawler's `state.state.legs`). */
+function legsOf (pose: { state: unknown }): GaitLeg[] {
+  const s = pose.state as { legs?: GaitLeg[], state?: { legs: GaitLeg[] } }
+  return s.legs ?? s.state!.legs
+}
+
 /**
  * A planted foot's mean world velocity at ground speed `v` along world
  * direction `dir`, as `NpcSprite` plays the move loop: direction and stretch
- * from `gaitDirection`, clip rate `RUN_RATE x gait.rate x stretch x pace`.
- * Foot offsets go to world units as the screen shows them (x; package ground
- * y x 0.68, over TILT). Zero means planted.
+ * from `gaitDirection`, clip rate from `gaitClock` at the pace `gaitPace`
+ * keeps. Foot offsets go to world units as the screen shows them (x; package
+ * ground y x 0.68, over TILT), at the rig's `sizeScale` (and its own draw
+ * scale). Zero means planted.
  */
 function plantedVelocity (rig: NpcRig, v: number, dir: { x: number, y: number }): { x: number, y: number } {
-  const ppu = SPRITE.SCALE * rig.sizeScale
+  const ppu = SPRITE.SCALE * rig.sizeScale * (DRAWN[rig.key] ?? 1)
   const g = gaitDirection(rig.gait, dir.x, dir.y, SPRITE.TILT)
   const pace = gaitPace(rig.gait, v / SPRITE.STRIDE_SPEED, SPRITE.MIN_PACE, SPRITE.MAX_PACE)
-  const rate = SPRITE.RUN_RATE * (rig.gait?.rate ?? 1) * g.stretch * pace
+  const rate = gaitClock(rig, pace, g.stretch, SPRITE)
   const feet = (t: number): Array<{ x: number, y: number, contact: boolean }> =>
-    ((rig.pose(rig.roles.move, t, { x: g.x, y: g.y }).state as crawler.CrawlerPose).state.legs).map((l) => ({ x: l.foot.x * ppu, y: (l.foot.y * 0.68 - l.foot.z) * ppu / SPRITE.TILT, contact: l.contact }))
+    legsOf(rig.pose(rig.roles.move, t, { x: g.x, y: g.y }, undefined, undefined, { clock: t })).map((l) => {
+      const f = l.worldFoot ?? l.foot
+      return { x: f.x * ppu, y: (f.y * 0.68 - (f.z ?? 0)) * ppu / SPRITE.TILT, contact: l.contact === true }
+    })
   const h = 1e-4
   let sx = 0
   let sy = 0
@@ -687,19 +705,74 @@ function plantedVelocity (rig: NpcRig, v: number, dir: { x: number, y: number })
   return { x: sx / n, y: sy / n }
 }
 
-test('crawler: a planted foot keeps still at chase and idle wander speeds, any way it goes', () => {
-  const rig = crawler.CRAWLER_RIG
-  assert.ok(rig.gait !== undefined)
-  const r = Math.SQRT1_2
-  for (const v of [90, 30]) {
-    for (const dir of [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 0, y: 1 }, { x: r, y: -r }, { x: -r, y: r }, { x: 0.8, y: 0.6 }]) {
-      const w = plantedVelocity(rig, v, dir)
-      // 1% of the ground speed: `GAIT.rate` is rounded to 2.71.
-      assert.ok(Math.hypot(w.x, w.y) < 0.01 * v, `${v} u/s along ${dir.x.toFixed(2)},${dir.y.toFixed(2)}: a planted foot moves ${w.x.toFixed(2)},${w.y.toFixed(2)} u/s`)
+/** The share of the ground speed a planted foot should slide at `v`: none below the rig's step cap, the rest above it. */
+function cappedSlide (rig: NpcRig, v: number): number {
+  const gait = rig.gait!
+  const pace = gaitPace(gait, v / SPRITE.STRIDE_SPEED, SPRITE.MIN_PACE, SPRITE.MAX_PACE)
+  const planted = pace * SPRITE.STRIDE_SPEED / (gait.groundSpeed * SPRITE.SCALE * rig.sizeScale)
+  return Math.max(0, 1 - gait.maxSteps * gait.period / planted)
+}
+
+const chaseSpeed = (key: string): number => (ARCHETYPES[key].routines.find((r) => r.kind === 'guard') as Extract<RoutineSpec, { kind: 'guard' }>).chaseSpeed
+const R2 = Math.SQRT1_2
+const GAIT_DIRS = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 0, y: 1 }, { x: R2, y: -R2 }, { x: -R2, y: R2 }, { x: 0.8, y: 0.6 }]
+
+test('every NPC with a gait plants its feet at idle wander and chase, any way it goes, up to its step cap; past it they slide only along the motion', () => {
+  assert.deepEqual(Object.values(NPC_RIGS).filter((r) => r!.gait !== undefined).map((r) => r!.key).sort(), [...GAITED].sort(), 'the rigs with a gait')
+  for (const key of GAITED) {
+    const rig = NPC_RIGS[key]!
+    for (const v of [30, chaseSpeed(key)]) {
+      const want = cappedSlide(rig, v)
+      for (const dir of GAIT_DIRS) {
+        const w = plantedVelocity(rig, v, dir)
+        const d = Math.hypot(dir.x, dir.y)
+        const along = (w.x * dir.x + w.y * dir.y) / d
+        const across = (w.y * dir.x - w.x * dir.y) / d
+        const where = `${key} at ${v} u/s along ${dir.x.toFixed(2)},${dir.y.toFixed(2)}: a planted foot moves ${w.x.toFixed(2)},${w.y.toFixed(2)} u/s, want ${(want * 100).toFixed(1)}% along`
+        // 1% of the ground speed: the derivative is numerical.
+        assert.ok(Math.abs(along - want * v) < 0.01 * v && Math.abs(across) < 0.01 * v, where)
+      }
     }
   }
-  // Every other rig is as before: no gait of its own.
-  for (const other of Object.values(NPC_RIGS)) if (other!.key !== 'crawler') assert.equal(other!.gait, undefined, other!.key)
+  // The Crawler, at the chase speed Nick saw (lane 3), is under its cap: planted.
+  assert.equal(cappedSlide(crawler.CRAWLER_RIG, chaseSpeed('crawler')), 0)
+})
+
+test('a gait follows its rig\'s size: resized 1.25x, the feet stay planted and the legs take 0.8x the steps', () => {
+  for (const key of GAITED) {
+    const rig = NPC_RIGS[key]!
+    const big: NpcRig = { ...rig, sizeScale: rig.sizeScale * 1.25 }
+    // Idle wander: under every rig's step cap at either size.
+    const v = 30
+    assert.equal(cappedSlide(big, v), 0, key)
+    for (const dir of GAIT_DIRS) {
+      const w = plantedVelocity(big, v, dir)
+      assert.ok(Math.hypot(w.x, w.y) < 0.01 * v, `${key} resized, along ${dir.x.toFixed(2)},${dir.y.toFixed(2)}: a planted foot moves ${w.x.toFixed(2)},${w.y.toFixed(2)} u/s`)
+    }
+    const pace = gaitPace(rig.gait, v / SPRITE.STRIDE_SPEED, SPRITE.MIN_PACE, SPRITE.MAX_PACE)
+    const ratio = gaitClock(big, pace, 1, SPRITE) / gaitClock(rig, pace, 1, SPRITE)
+    assert.ok(Math.abs(ratio - 0.8) < 1e-12, `${key}: steps x${ratio}`)
+  }
+  // The Crawler at chase too (under its cap at both sizes): 4.84 steps a second per leg east-west, 3.87 resized.
+  const rig = crawler.CRAWLER_RIG
+  const big: NpcRig = { ...rig, sizeScale: rig.sizeScale * 1.25 }
+  const pace = 90 / SPRITE.STRIDE_SPEED
+  assert.ok(Math.abs(gaitClock(rig, pace, 1, SPRITE) / rig.gait!.period - 4.84) < 0.01)
+  assert.ok(Math.abs(gaitClock(big, pace, 1, SPRITE) / rig.gait!.period - 3.87) < 0.01)
+  const w = plantedVelocity(big, 90, { x: 1, y: 0 })
+  assert.ok(Math.hypot(w.x, w.y) < 0.9, `resized at 90 u/s: ${w.x.toFixed(2)},${w.y.toFixed(2)}`)
+})
+
+test('gaitClock: RUN_RATE x pace without a gait; with one, the planted rate, capped at maxSteps east-west, then stretched', () => {
+  const sprite = { RUN_RATE: 2, STRIDE_SPEED: 140, SCALE: 0.5 }
+  assert.equal(gaitClock({ sizeScale: 3 }, 0.7, 1.3, sprite), 1.4)
+  const gait = { groundSpeed: 40, period: 0.5, maxSteps: 6, minPace: 0.2 }
+  // 70 u/s over (40 x 0.5 x 2) = 1.75 clip seconds a second, 3.5 steps: under the cap (6 steps x 0.5 s = 3 clip seconds a second).
+  assert.ok(Math.abs(gaitClock({ gait, sizeScale: 2 }, 0.5, 1, sprite) - 1.75) < 1e-12)
+  assert.ok(Math.abs(gaitClock({ gait, sizeScale: 2 }, 0.5, 1.36, sprite) - 1.75 * 1.36) < 1e-12)
+  // 280 u/s would need 7 a second, 14 steps: capped at 6 steps x 0.5 s = 3, and the stretch still applies.
+  assert.ok(Math.abs(gaitClock({ gait, sizeScale: 2 }, 2, 1, sprite) - 3) < 1e-12)
+  assert.ok(Math.abs(gaitClock({ gait, sizeScale: 2 }, 2, 1.36, sprite) - 3 * 1.36) < 1e-12)
 })
 
 test('crawler: at the game\'s stride the knees never go straight and no foot meets its neighbour', () => {
@@ -724,8 +797,8 @@ test('crawler: at the game\'s stride the knees never go straight and no foot mee
 
 test('gaitDirection: without groundTilt the direction is kept; with it the stride points along the motion as drawn', () => {
   assert.deepEqual(gaitDirection(undefined, 0.3, -2, 0.92), { x: 0.3, y: -2, stretch: 1 })
-  assert.deepEqual(gaitDirection({ rate: 2, minPace: 0.1 }, 0.3, -2, 0.92), { x: 0.3, y: -2, stretch: 1 })
-  const gait = { rate: 1, minPace: 0.5, groundTilt: 0.68 }
+  assert.deepEqual(gaitDirection({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.1 }, 0.3, -2, 0.92), { x: 0.3, y: -2, stretch: 1 })
+  const gait = { groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.5, groundTilt: 0.68 }
   const tilt = SPRITE.TILT
   assert.equal(gaitDirection(gait, 5, 0, tilt).stretch, 1)
   assert.ok(Math.abs(gaitDirection(gait, 0, -3, tilt).stretch - tilt / 0.68) < 1e-12)
@@ -738,7 +811,7 @@ test('gaitDirection: without groundTilt the direction is kept; with it the strid
     assert.ok(Math.abs(wx - x / d) < 1e-12 && Math.abs(wy - y / d) < 1e-12, `${x},${y}`)
   }
   assert.equal(gaitPace(undefined, 0.2, 0.5, 3), 0.5)
-  assert.equal(gaitPace({ rate: 1, minPace: 0.2 }, 0.1, 0.5, 3), 0.2)
-  assert.equal(gaitPace({ rate: 1, minPace: 0.2 }, 0.3, 0.5, 3), 0.3)
-  assert.equal(gaitPace({ rate: 1, minPace: 0.2 }, 9, 0.5, 3), 3)
+  assert.equal(gaitPace({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.2 }, 0.1, 0.5, 3), 0.2)
+  assert.equal(gaitPace({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.2 }, 0.3, 0.5, 3), 0.3)
+  assert.equal(gaitPace({ groundSpeed: 1, period: 1, maxSteps: 6, minPace: 0.2 }, 9, 0.5, 3), 3)
 })

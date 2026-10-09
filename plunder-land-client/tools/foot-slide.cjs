@@ -80,7 +80,7 @@ function constants () {
   const tilt = fs.readFileSync(path.join(CLIENT, 'src/objects/tilt.ts'), 'utf8')
   if (!/ROW_SCREEN = Math\.round\(ROW \* 0\.93\)/.test(tilt) || !/TILT = ROW_SCREEN \/ ROW/.test(tilt)) throw Error('tilt.ts changed: update foot-slide.cjs')
   const npc = fs.readFileSync(path.join(CLIENT, 'src/npcs/npcsprite.ts'), 'utf8')
-  if (!/this\.baseTime \+= this\.moving \? dt \* RobotSprite\.RUN_RATE \* \(this\.npc\.gait\?\.rate \?\? 1\) \* this\.stretch \* this\.pace : dt/.test(npc)) throw Error('NpcSprite.update changed: update foot-slide.cjs')
+  if (!/this\.baseTime \+= this\.moving \? dt \* gaitClock\(this\.npc, this\.pace, this\.stretch, RobotSprite\) : dt/.test(npc)) throw Error('NpcSprite.update changed: update foot-slide.cjs')
   if (!/gaitDirection\(this\.npc\.gait, x, y, TILT\)/.test(npc) || !/gaitPace\(this\.npc\.gait, pace, RobotSprite\.MIN_PACE, RobotSprite\.MAX_PACE\)/.test(npc)) throw Error('NpcSprite.setDirection/setPace changed: update foot-slide.cjs')
   if (!/RobotSprite\.RUN_RATE \* \(this\.character\.runRate \?\? 1\) \* this\.pace/.test(sprite)) throw Error('RobotSprite.update changed: update foot-slide.cjs')
   const { Hex } = require(path.join(CLIENT, 'src/utils/hex.ts'))
@@ -167,14 +167,14 @@ function robotAdapter (key, rig, C) {
 function npcAdapter (key, rig, C, drawScale = 1) {
   const ppu = C.SCALE * rig.sizeScale * drawScale
   const legsOf = (pose) => pose.state.legs ?? pose.state.state.legs
-  const { gaitDirection, gaitPace } = require(path.join(CLIENT, 'src/npcs/npcrig.ts'))
+  const { gaitClock, gaitDirection, gaitPace } = require(path.join(CLIENT, 'src/npcs/npcrig.ts'))
   return {
     key,
     kind: 'npc',
     period: rig.clips[rig.roles.move].duration,
     pace: (speed) => gaitPace(rig.gait, speed / C.STRIDE_SPEED, C.MIN_PACE, C.MAX_PACE),
-    // A rig's own gait (`NpcGait`, the Crawler since lane 3) as `NpcSprite` reads it: its rate, pace floor and the direction's stretch.
-    rate (speed, dir = DIRS.E) { return C.RUN_RATE * (rig.gait?.rate ?? 1) * gaitDirection(rig.gait, dir.x, dir.y, C.TILT).stretch * this.pace(speed) },
+    // A rig's own gait (`NpcGait`, lanes 3 and 4) as `NpcSprite` reads it: `gaitClock` (its rate from stride and size, its step cap), pace floor and the direction's stretch.
+    rate (speed, dir = DIRS.E) { return gaitClock(rig, this.pace(speed), gaitDirection(rig.gait, dir.x, dir.y, C.TILT).stretch, C) },
     rateNoRunRate (speed, dir = DIRS.E) { return C.RUN_RATE * gaitDirection(rig.gait, dir.x, dir.y, C.TILT).stretch * this.pace(speed) },
     contactSource: 'rig leg.contact',
     feet (t, dir) {

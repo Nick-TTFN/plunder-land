@@ -1,5 +1,5 @@
 import { AlphaFilter, Assets, BLEND_MODES, Container, Graphics, LINE_CAP, LINE_JOIN, Matrix, Point, Rectangle, Sprite, Texture, Ticker, type DisplayObject } from 'pixi.js'
-import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig, gaitDirection, gaitPace, yieldsToMovement } from './npcrig'
+import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPoseOptions, type NpcRig, gaitClock, gaitDirection, gaitPace, yieldsToMovement } from './npcrig'
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
@@ -38,9 +38,10 @@ interface Action {
  *   direction it last moved in (`setDirection`): an NPC's body never turns,
  *   its gait points. The move loop runs at `RobotSprite.RUN_RATE` times the
  *   ground speed over `STRIDE_SPEED`, like the robots' (`setPace`); a rig
- *   with a `gait` (the Crawler, decision #52 lane 3) runs it at its own rate,
- *   pace floor and, with `groundTilt`, pointed and timed for the game's
- *   squash (`gaitDirection`).
+ *   with a `gait` (decision #52 lanes 3 and 4) runs it at the rate its
+ *   stride and size plant its feet at (`gaitClock`), with its own pace floor
+ *   and, with `groundTilt`, pointed and timed for the game's squash
+ *   (`gaitDirection`).
  * - `play` lays an action over it: an attack (aimed, and started so that its
  *   event lands `lead` seconds after the effect: the Crawler's shot at
  *   0.34 s `SHOT.fire` after, when `RangedAttackEffect` fires the beam; the
@@ -259,7 +260,7 @@ export class NpcSprite extends Container {
   }
 
   update (dt: number): void {
-    this.baseTime += this.moving ? dt * RobotSprite.RUN_RATE * (this.npc.gait?.rate ?? 1) * this.stretch * this.pace : dt
+    this.baseTime += this.moving ? dt * gaitClock(this.npc, this.pace, this.stretch, RobotSprite) : dt
     this.hitShown.advance(dt)
     this.age += dt
     const action = this.action

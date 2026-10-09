@@ -36,15 +36,25 @@ export const CONFIG = Object.freeze({ tilt: 0.68, bodyHeight: 32, upperLength: 4
  * units a clip second, 8.6 world units at clip rate 1, a tenth of the chase's
  * 90 u/s: its feet slid 88% (strand B). So the game runs a 3x stride, as far
  * as the legs reach without the knee going straight or a foot meeting its
- * neighbour (`npcrigs.spec.ts` holds both), and the loop `rate` times faster:
- * `rate` = `STRIDE_SPEED` / (`RUN_RATE` x stride / duty / 0.72 x
- * `RobotSprite.SCALE` x `sizeScale`) = 140 / (2 x 134.4 x 0.1921) = 2.71,
- * about 4.8 steps a second per leg at 90 u/s. `minPace` lets idle wander
+ * neighbour (`npcrigs.spec.ts` holds both), and the loop faster, at the rate
+ * `gaitClock` derives from the stride's sweep (`groundSpeed`, stride / duty /
+ * 0.72 = 134.4 rig units a clip second) and the size: 90 u/s / (134.4 x
+ * `RobotSprite.SCALE` x `sizeScale`) = 3.48 clip seconds a second, `RUN_RATE`
+ * x 2.71 x pace, about 4.8 steps a second per leg (lane 4; it was the
+ * literal 2.71 in lane 3). Resized, it keeps the feet planted by itself.
+ * `maxSteps` (6) doesn't bind below 111 u/s. `minPace` lets idle wander
  * (30 u/s, pace 0.21) run the legs at its own speed; `groundTilt` points and
- * times the stride for the game's squash (`gaitDirection`). Change the
- * stride and the rate together.
+ * times the stride for the game's squash (`gaitDirection`).
  */
-export const GAIT: NpcGait & { readonly stride: number } = Object.freeze({ stride: 60, rate: 2.71, minPace: 0.2, groundTilt: CONFIG.tilt })
+const GAME_STRIDE = 60
+export const GAIT: NpcGait & { readonly stride: number } = Object.freeze({
+  stride: GAME_STRIDE,
+  groundSpeed: GAME_STRIDE / CONFIG.duty / CLIPS.run.duration,
+  period: CLIPS.run.duration,
+  maxSteps: 6,
+  minPace: 0.2,
+  groundTilt: CONFIG.tilt
+})
 
 interface Vec { x: number, y: number }
 interface Vec3 { x: number, y: number, z: number }
