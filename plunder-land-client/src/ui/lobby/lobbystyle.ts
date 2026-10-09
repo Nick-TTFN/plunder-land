@@ -44,6 +44,9 @@ export const LOBBY_CSS = `
 .lb-menu, .lb-menu-only { display: none !important; }
 .lb-menu { width: 44px; height: 44px; align-items: center; justify-content: center; color: #E6EEF5; background: none; border: 0; margin-left: auto; }
 
+/* Measured by Lobby.fit: the grid at its content's height, the preview at its floor. */
+.lb-measure .lb-main { min-height: 0; }
+.lb-measure .lb-preview { flex: none; }
 /* The grid */
 .lb-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 .lb-main { width: 100%; max-width: 1280px; min-height: 100%; margin: 0 auto; padding: 28px 40px 28px;

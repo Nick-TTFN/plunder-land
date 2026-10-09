@@ -75,6 +75,13 @@ const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floo
 /** `finish` as its wire bytes, `robot` an archetype key, `bring` the stash rows for keys 3 and 4 (49-4), undefined for none. */
 export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring: BringPair | undefined) => Promise<void>
 
+/** The lobby's phone layout starts at this width or under (`lobbystyle.ts`'s 760 px query). */
+const PHONE_MAX = 760
+/** The desktop grid's comfortable width: narrower windows zoom it rather than squeeze it. */
+const FIT_WIDTH = 1100
+/** The smallest zoom `fit` applies; a shorter window scrolls from there. */
+const FIT_MIN = { desktop: 0.6, phone: 0.75 } as const
+
 /** How many levels the journey strip shows at once. */
 const JOURNEY_SHOWN = 5
 const JOURNEY_WORD = { bot: 'Bot', skill: 'Skill', reward: 'Reward' } as const
@@ -200,7 +207,27 @@ export default class Lobby extends Container {
   private readonly previewClip = new Graphics()
   private readonly preview: HTMLDivElement
   private readonly content: HTMLDivElement
+  /** The header and the grid, measured by `fit`. */
+  private readonly top: HTMLElement
+  private readonly main: HTMLElement
+  /** The zoom `fit` last applied (1: none). */
+  private zoom = 1
   private readonly layoutObserver = new ResizeObserver(() => { this.layout() })
+  /**
+   * `fit` changes the sizes a ResizeObserver reports, so it never runs inside
+   * one's callback (that is a "ResizeObserver loop" error on window.onerror):
+   * a change of the grid's size schedules it for the next frame instead. A
+   * fit that lands on the same zoom changes nothing, so it settles.
+   */
+  private fitFrame = 0
+  private readonly fitObserver = new ResizeObserver(() => {
+    if (this.fitFrame !== 0) return
+    this.fitFrame = requestAnimationFrame(() => {
+      this.fitFrame = 0
+      this.fit()
+      this.layout()
+    })
+  })
   private readonly onScroll = (): void => { this.layoutPreview() }
 
   private readonly root: HTMLDivElement
@@ -232,7 +259,7 @@ export default class Lobby extends Container {
   private readonly stash: StashPanel
 
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
-  private readonly onResize = (): void => { this.layout() }
+  private readonly onResize = (): void => { this.fit(); this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
   private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel(); this.renderRows() }
   /** `teardown` ran: it can be reached twice (`destroy` also emits `removed`). */
@@ -283,7 +310,7 @@ export default class Lobby extends Container {
 
     // Header: brand, tabs, INVITE and settings; under 760 px the last two
     // (and PRIVACY) fold into the menu button's dropdown.
-    const top = el('header', 'lb-top')
+    const top = this.top = el('header', 'lb-top')
     top.innerHTML = `
       <div class="lb-brand"><span class="lb-logo"></span>PLUNDERLAND</div>
       <nav class="lb-tabs"><span class="lb-tab lb-on">Lobby</span><span class="lb-tab lb-off" title="Coming soon">Collection</span></nav>`
@@ -488,7 +515,7 @@ export default class Lobby extends Container {
     // One grid: the hero spans the left column on desktop; under 760 px it all
     // stacks (progression, journey, hero, rows) and READY sticks to the bottom.
     this.content = el('div', 'lb-content')
-    const main = el('main', 'lb-main')
+    const main = this.main = el('main', 'lb-main')
     main.append(hero, callsign, progress, journey, rows, this.season, action)
     this.content.append(main)
     this.root.append(top, this.content, this.customize, this.picker, this.loadout.root, this.stash.root)
@@ -501,6 +528,8 @@ export default class Lobby extends Container {
     this.energyTimer = setInterval(this.onEnergy, 10_000)
     this.layoutObserver.observe(this.preview)
     this.layoutObserver.observe(this.content)
+    // Its height changes with what it shows (the season row, banners): `fit` measures again.
+    this.fitObserver.observe(this.main)
     window.addEventListener('keydown', this.onKey, true)
     window.addEventListener('resize', this.onResize)
     window.addEventListener('pointermove', this.onMove)
@@ -516,6 +545,7 @@ export default class Lobby extends Container {
     this.renderLevel()
     this.renderSeason()
     this.renderEnergy()
+    this.fit()
     this.layout()
   }
 
@@ -908,6 +938,37 @@ export default class Lobby extends Container {
     this.layoutPreview()
   }
 
+  /**
+   * Scale the whole lobby (panels too) to the window: its natural height is
+   * measured unzoomed (`lb-measure` lets the grid shrink to its content), and
+   * the root is zoomed by window / natural, and on desktop by width /
+   * `FIT_WIDTH` too, never above 1 or below `FIT_MIN` (past that it scrolls,
+   * as it did before). The root is given the window's size divided by the
+   * zoom, so it still covers the window. The canvas robot follows through
+   * the preview's measured box (`getBoundingClientRect` reports zoomed sizes).
+   */
+  private fit (): void {
+    if (this.tornDown || this.main === undefined) return
+    const w = window.innerWidth
+    const h = window.innerHeight
+    const phone = w <= PHONE_MAX
+    const style = this.root.style
+    style.removeProperty('zoom')
+    style.removeProperty('width')
+    style.removeProperty('height')
+    this.root.classList.add('lb-measure')
+    const need = this.top.offsetHeight + this.main.offsetHeight
+    this.root.classList.remove('lb-measure')
+    // A few px of slack: zoomed sizes round, and a 3 px scroll is still a scroll.
+    let zoom = Math.min(1, need > 0 ? h / (need + 8) : 1, phone ? 1 : w / FIT_WIDTH)
+    zoom = Math.max(phone ? FIT_MIN.phone : FIT_MIN.desktop, zoom)
+    this.zoom = zoom < 0.995 ? zoom : 1
+    if (this.zoom === 1) return
+    style.setProperty('zoom', String(this.zoom))
+    style.width = `${w / this.zoom}px`
+    style.height = `${h / this.zoom}px`
+  }
+
   /** Fit the canvas art into the same flow layout as its DOM controls, including scrolling. */
   private layoutPreview (): void {
     if (this.preview === undefined || this.tornDown) return
@@ -1165,6 +1226,8 @@ export default class Lobby extends Container {
     window.removeEventListener('resize', this.onResize)
     window.removeEventListener('pointermove', this.onMove)
     this.layoutObserver.disconnect()
+    this.fitObserver.disconnect()
+    cancelAnimationFrame(this.fitFrame)
     this.content.removeEventListener('scroll', this.onScroll)
     this.root.remove()
     this.robot?.destroy()
