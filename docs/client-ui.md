@@ -38,6 +38,16 @@ Four panels, one open at a time (`Lobby.toggle`): STATS & PAINT (the stat bars o
 rows, key E), SCAVENGERS (the robot cards and tagline, key C), LOADOUT (L), STASH (S). The row
 "Stats & paint" is the mockup's "Loadout & stats": the skill loadout is the Skills row. The heading,
 the arrows beside the robot and the key-hints line are gone (left/right still switch robots).
+- **It zooms to fit the window** (`Lobby.fit`, 2026-10-09): the desktop grid needs about 900 px of
+  height and most laptop windows have 600-780, which put READY below the fold. `fit` measures the
+  natural height unzoomed (`lb-measure`), then sets CSS `zoom` on the root to window / natural (on
+  desktop also width / `FIT_WIDTH` 1100), clamped to `FIT_MIN` (0.6 desktop, 0.75 phone; past that
+  it scrolls), and sizes the root to the window divided by the zoom so it still covers it. The
+  canvas robot follows through `getBoundingClientRect`, which reports zoomed sizes in Chrome and
+  WebKit (both checked). **`fit` never runs inside a ResizeObserver callback**: it resizes what the
+  observers watch, which is a "ResizeObserver loop" error on window.onerror; the grid's observer
+  schedules it for the next frame. Measured overflow before → after (Chrome): 1366x625 274 → 0
+  (zoom 0.69), 1536x730 169 → 0, 390x844 171 → 0; a 390x664 phone still scrolls 112 at 0.75.
 - **No skill points exist**: the rows' status lines are facts (the kit READY plays, the first three
   stats, `stashCount` and "N new"); only the Stash row's dot lights.
 - **The journey** is `journeyStop(level)` in `locks.ts` (pixi-free, `unlocks.spec.ts`): a stop is
