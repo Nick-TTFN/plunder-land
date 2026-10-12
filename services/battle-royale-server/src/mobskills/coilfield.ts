@@ -21,7 +21,7 @@ import { type Vector } from '../utils/vector'
  * - **Hold** (`holdMs`): on every tick of it, every live player standing
  *   within `rings` of the field's cell gets a `FieldSlow` of `slow` ending
  *   `tailMs` after the hold ends. One `World.FIND_IN_CELLS` per Coil per
- *   tick of the hold (19 cells at 2 rings), never a walk over players; six
+ *   tick of the hold (37 cells at 3 rings), never a walk over players; six
  *   per charge at 250 ms ticks. A player who walks on mid-hold is caught; one
  *   who walks off keeps the slow to the same end. Every charge's slows end
  *   together, so a hold refreshes nothing but another Coil's slow.

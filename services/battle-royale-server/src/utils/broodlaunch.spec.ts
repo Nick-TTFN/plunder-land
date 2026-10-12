@@ -29,7 +29,8 @@ test('the launch is the Brood clip\'s `spawn` event; the flight lands inside the
   assert.ok(landsAt < fuse.emergeMs, `lands at ${landsAt}, after the ${fuse.emergeMs} ms emerge`)
   assert.ok(landsAt < EMERGE_ABOVE_MS)
   // The emerge plays from `spawn.from` at the effect: curled (fold 1) at the
-  // launch, and unfolding has barely begun on landing; ready (2.8 s) is the emerge's end.
+  // launch, and unfolding has barely begun on landing; `ready` (2.05 s) is
+  // the server's emerge after `from`, when it may walk off (the unfold runs to 2.8 s).
   const spawn = BROODLING_RIG.roles.spawn!
   assert.equal(broodlingPose('emerge', spawn.from + LAUNCH_MS / 1000).fold, 1)
   assert.ok(broodlingPose('emerge', spawn.from + landsAt / 1000).fold >= 0.85, 'unfolded in the air')
