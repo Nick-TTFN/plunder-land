@@ -7,6 +7,9 @@
  * reuse or renumber one. The client keeps the same table in
  * `plunder-land-client/src/vfx/npceffects.ts`; `npceffects.spec.ts` holds the
  * two equal. An old client ignores a type it doesn't know.
+ *
+ * Every new effect type goes in this table, NPC or not (21, `frozen`, is
+ * the ice skills'); the name stays `NPC_EFFECT`, since a rename is a removal.
  */
 export const NPC_EFFECT = Object.freeze({
   /** Kiln lob: landing marker and arc, aimed at the landing cell (l1-4). */
@@ -35,5 +38,7 @@ export const NPC_EFFECT = Object.freeze({
   /** Brood releases a Broodling (l1-7). */
   broodRelease: 19,
   /** Compactor slam, a disc, on the Compactor, aimed at the disc's centre cell (pve-2). */
-  compactorSlam: 20
+  compactorSlam: 20,
+  /** Frozen, on the mob, for the freeze's length (ice-1). */
+  frozen: 21
 })

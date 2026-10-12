@@ -101,7 +101,8 @@ export default class Mob extends Unit {
    * per `contact.cooldownMs`, as before.
    */
   touch (): void {
-    if (this.archetype.contact.damage <= 0 || !this.canAttack) return
+    // A frozen mob deals no contact damage (ice-1).
+    if (this.archetype.contact.damage <= 0 || !this.canAttack || this.frozen) return
     const near = World.FIND_IN_CELLS(this.cell, this.archetype.contact.rings, this.tag, ObjectType.Player)
       .filter((unit) => !unit.destroyed && (unit as { exited?: boolean }).exited !== true)
     if (near.length === 0) return

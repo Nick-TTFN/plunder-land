@@ -2,7 +2,9 @@ import { Skill } from './skill'
 import Multiplayer from '../network/multiplayer'
 import Throwable from '../objects/throwable'
 import { type GameObject, ObjectType } from '../objects/gameobject'
-import Slowdown from '../buffs/slowdown'
+import FieldSlow from '../buffs/fieldslow'
+import { FREEZE, chill } from '../buffs/freeze'
+import { NPC_EFFECT } from '../archetypes/npceffects'
 import { type Unit } from '../objects/unit'
 import World from '../objects/world'
 import { RangedAttack } from './rangedattack'
@@ -45,6 +47,7 @@ export class Throwicicle extends Skill {
     // The client cannot work it out: the destroy record carries no position,
     // and its last one is a tick behind the hit.
     Multiplayer.Instance.effectAt(6, this.owner.id, 500, origin, target.tag)
+    const now = Date.now()
     for (const collidee of World.FIND_IN_CELLS(
       origin,
       Throwicicle.BLAST_RINGS,
@@ -52,14 +55,19 @@ export class Throwicicle extends Skill {
       ObjectType.Player | ObjectType.Mob
     )) {
       if (collidee !== this.owner) {
-        let damage = this.byLevel(Throwicicle.Damage)
-        if (collidee.buffs.length > 0) damage += 10
-
-        // Provoke before slowing: provoking raises a mob to chase speed, and the
-        // slow has to halve that, not the idle speed it was walking at.
         GuardPosition.provoke(collidee, this.owner)
-        collidee.addBuff(new Slowdown(collidee, 2000))
-        if (collidee.hit(this.dealt(damage))) this.owner.onKill(collidee)
+        // Ice (#54, ice-1): a player gets the one ice slow, refreshed, never
+        // stacked; a mob is chilled (a normal mob freezes at once). Both before
+        // the hit, so the freezing hit takes weaker metal (30 -> 45).
+        if (collidee.type === ObjectType.Player) {
+          const until = now + FREEZE.slow.icicleMs
+          if (FieldSlow.apply(collidee, FREEZE.slow.factor, until, now, 'ice')) {
+            Multiplayer.Instance.effect(NPC_EFFECT.slowed, collidee, until - now)
+          }
+        } else {
+          chill(collidee, this.owner, 'icicle', now)
+        }
+        if (collidee.hit(this.dealt(this.byLevel(Throwicicle.Damage)))) this.owner.onKill(collidee)
       }
     }
     // No removal here; see ThrowFireball.explode.

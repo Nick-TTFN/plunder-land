@@ -95,6 +95,8 @@ export default class ReactorBurst implements IAIRoutine {
     const cell = owner.stepTo ?? owner.cell
     if (Hex.distance(cell, Hex.toCell(target.position)) > this.spec.plantRings) return
 
+    // A frozen Reactor plants nothing (ice-1); one already planted runs on.
+    if (owner.frozen) return
     this.plant(cell)
     owner.stepGoal = undefined
   }

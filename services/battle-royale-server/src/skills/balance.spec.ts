@@ -18,6 +18,9 @@ import { Throwicicle } from './throwicicle'
 import { MeleeAttack } from './meleeattack'
 import { ThrowFireball } from './throwfireball'
 import Slowdown from '../buffs/slowdown'
+import Buff from '../buffs/buff'
+import FieldSlow from '../buffs/fieldslow'
+import { FREEZE } from '../buffs/freeze'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
@@ -223,31 +226,66 @@ test('a mob caught in a player\'s breath turns on the player', (t) => {
   advance(t, 1000)
 })
 
-test('an icicle provokes an idle mob into a chase at half chase speed', (t) => {
-  // The icicle provokes before it slows. The other way round, provoking
-  // assigned chase speed over the slow and the mob ran at full speed.
+test('an icicle provokes an idle mob and freezes it, with no slow, and its hit takes weaker metal (no +10)', (t) => {
+  // Ice (#54, ice-1): the mob slow and the "+10 if any buff" went; the mob is
+  // chilled (a normal mob freezes at once) before the hit, so the hit is x1.5.
   mockTimers(t)
   const player = shooterAt(1000, 2000)
   const mob = new Mob(1250, 2000, 0) // past the 200-unit acquire distance
   World.MOBS.push(mob)
   tick()
   assert.equal(mob.target, undefined)
-  assert.equal(mob.maxVelocity, guardSpec('grunt').idleSpeed)
+  mob.addBuff(new Buff(mob, 60000)) // any buff: it used to add 10
+  const hp = mob.hp
 
   assert.equal(new Throwicicle(player).execute(), true)
-  for (let i = 0; i < 10 && mob.buffs.length === 0; i++) {
+  for (let i = 0; i < 10 && mob.hp === hp; i++) {
     advance(t, DT * 1000)
     World.updateProjectiles(DT)
   }
-  assert.equal(mob.buffs.length, 1, 'the icicle never hit the mob')
   assert.equal(mob.target, player, 'the icicle did not provoke the mob')
-  assert.equal(mob.maxVelocity, guardSpec('grunt').chaseSpeed / 2, 'the slow did not halve the chase')
-
-  // Hitting it again while it already chases you must not undo the slow.
-  assert.equal(new RangedAttack(player).execute(), true)
-  assert.ok(mob.hp < mob.maxHP() - World.config.ranged, 'the follow-up shot missed')
-  assert.equal(mob.maxVelocity, guardSpec('grunt').chaseSpeed / 2, 'a second hit cancelled the slow')
+  assert.equal(mob.frozen, true, 'the icicle did not freeze the mob')
+  assert.equal(hp - mob.hp, Math.floor(30 * player.damageScale * FREEZE.damageTaken), 'not 30 x 1.5')
+  assert.equal(mob.buffs.length, 1, 'the icicle slowed a mob')
+  assert.equal(mob.maxVelocity, guardSpec('grunt').chaseSpeed, 'a mob\'s speed changed')
   advance(t, 5000)
+})
+
+test('an icicle on a player applies the one ice slow; a second caster\'s icicle refreshes it, never x0.25', (t) => {
+  mockTimers(t)
+  const a = shooterAt(1000, 2000)
+  const b = shooterAt(1000, 2000 + 4 * Hex.SIZE)
+  const victim = new Player(1000 + 3 * Hex.SIZE, 2000, 0, 'victim')
+  World.PLAYERS.push(victim)
+  const base = victim.maxVelocity
+  const hp = victim.hp + victim.armor
+
+  assert.equal(new Throwicicle(a).execute(), true)
+  for (let i = 0; i < 10 && World.PROJECTILES.some((p) => !p.destroyed); i++) {
+    advance(t, DT * 1000)
+    World.updateProjectiles(DT)
+  }
+  assert.ok(victim.hp + victim.armor < hp, 'test setup: the icicle missed')
+  assert.equal(victim.frozen, false, 'a player froze')
+  assert.equal(victim.maxVelocity, base / 2)
+  const first = FieldSlow.on(victim, 'ice')?.endTime
+  assert.ok(first !== undefined, 'no ice slow')
+
+  advance(t, 500)
+  // The second caster stands off the victim's row and aims at its cell.
+  const hp2 = victim.hp + victim.armor
+  assert.equal(new Throwicicle(b).execute(Hex.toCell(victim.position)), true)
+  for (let i = 0; i < 10 && World.PROJECTILES.some((p) => !p.destroyed); i++) {
+    advance(t, DT * 1000)
+    World.updateProjectiles(DT)
+  }
+  assert.ok(victim.hp + victim.armor < hp2, 'test setup: the second icicle missed')
+  assert.equal(victim.buffs.filter((buff) => buff instanceof FieldSlow).length, 1, 'two ice slows')
+  assert.equal(victim.maxVelocity, base / 2, 'two icicles multiplied')
+  assert.ok((FieldSlow.on(victim, 'ice')?.endTime ?? 0) > first, 'the second icicle did not refresh the end')
+  advance(t, 5000)
+  victim.update(DT)
+  assert.equal(victim.maxVelocity, base)
 })
 
 test('a slow wears off and gives back exactly what it took', () => {
@@ -256,7 +294,7 @@ test('a slow wears off and gives back exactly what it took', () => {
   // and a slowed player stayed at half speed until they died.
   const player = shooterAt(1000, 2000)
   const speed = player.maxVelocity
-  const slow = new Slowdown(player, 2000) // the icicle's own buff type
+  const slow = new Slowdown(player, 2000) // no skill casts it since ice-1; kept while the class is
   player.addBuff(slow)
   assert.equal(player.maxVelocity, speed / 2)
 

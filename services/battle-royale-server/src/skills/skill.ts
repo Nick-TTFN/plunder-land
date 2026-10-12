@@ -23,6 +23,10 @@ export class Skill {
    * undefined for no aim. Skills that do not aim ignore it.
    */
   execute (aimCell?: Vector) {
+    // A frozen mob starts nothing (ice-1). Every skill calls this before any
+    // side effect, so this one gate covers every mob attack cast through a
+    // skill; a wind-up already started is not a cast and still lands.
+    if (this.owner.frozen) return false
     if (!this.ready()) { return false }
 
     this.executeTime = Date.now()
