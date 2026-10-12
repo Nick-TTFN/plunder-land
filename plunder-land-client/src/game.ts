@@ -42,6 +42,7 @@ import { ReactorEffect } from './vfx/reactor.effect'
 import { KilnLobEffect } from './vfx/kilnlob.effect'
 import { CompactorSlamEffect, KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
 import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
+import { FrozenEffect } from './vfx/frozen.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
 import { NPC_FX_SHEET } from './vfx/npcfx'
 import { BroodlingEffect, BroodReleaseEffect, attachFuse, emergeReleased, primeBroodling } from './vfx/brood.effect'
@@ -1006,6 +1007,13 @@ export class Game extends Container {
       // Slowed by a Coil's field (l1-3), on the victim, for the slow's lifetime.
       case NPC_EFFECT.slowed:
         SlowedEffect.show(target, lifetime)
+        break
+
+      // Frozen by ice (ice-1), on the mob, for the freeze's length: the ice
+      // tint and the snowflake cue, restarted by a later one. An attack
+      // already winding up plays on (it still lands on the server).
+      case NPC_EFFECT.frozen:
+        FrozenEffect.show(target, lifetime)
         break
     }
   }
