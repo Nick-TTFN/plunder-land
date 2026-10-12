@@ -12,7 +12,10 @@ import { type NpcClip, type NpcDrawList, type NpcGait, type NpcImage, type NpcPo
  *
  * Four legs on IK under a chassis that never turns, and a piston under it:
  * `fire` is the strike (latch release at 1.15 s, the shoe on the floor at
- * 1.215 s, the `attack` event). `rig-core.mjs` is the packages' shared NPC
+ * 1.215 s, the `attack` event). Since pve-2 the server's slam lands sooner
+ * than that (`impactMs` 750, sent as 700), so the clip starts partway, at
+ * about 0.5 s (`attackLead`), skipping the start of the latch wind-up; no new
+ * art for that release (PROVISIONAL for Nick's look in play). `rig-core.mjs` is the packages' shared NPC
  * core; only the Compactor's path through it is ported (four legs, the
  * `compactor` body, the `piston` tool, the `slam` attack), and not its
  * `NpcController` (stateful foot planting: the game plays the stateless

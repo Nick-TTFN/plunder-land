@@ -11,14 +11,14 @@ import { NPC_EFFECT as CLIENT_NPC_EFFECT } from '../../../../plunder-land-client
  * The NPC effect type numbers (task l1-1, decision #51) are a wire contract:
  * the server sends them in the `effect` record's type byte and the client
  * draws by them. Both tables must agree, and the numbers are the ones
- * assigned centrally for every L1 lane: 9-19, append-only.
+ * assigned centrally for every L1 lane: 9-19, append-only; 20 since pve-2.
  */
 
 test('the client\'s NPC effect table equals the server\'s, name for name', () => {
   assert.deepEqual({ ...CLIENT_NPC_EFFECT }, { ...NPC_EFFECT })
 })
 
-test('the NPC effect types are the assigned 9-19, in order, each once', () => {
+test('the NPC effect types are the assigned 9-20, in order, each once', () => {
   assert.deepEqual(Object.entries(NPC_EFFECT), [
     ['kilnLob', 9],
     ['kilnBlast', 10],
@@ -30,7 +30,8 @@ test('the NPC effect types are the assigned 9-19, in order, each once', () => {
     ['slowed', 16],
     ['broodlingPrimed', 17],
     ['broodlingBlast', 18],
-    ['broodRelease', 19]
+    ['broodRelease', 19],
+    ['compactorSlam', 20]
   ])
 })
 

@@ -278,8 +278,10 @@ test('compactor: the port matches the package on every sampled pose', () => {
 })
 
 // l1-9: the clips' events are the server's moments. The Compactor's strike
-// starts on its shockwave (effect 14, sent `impactMs` before the impact) and
-// its `attack` event, the shoe on the floor, is the impact; the Reactor's
+// starts on its slam (effect 20 since pve-2, sent `impactMs` before the
+// impact) and its `attack` event, the shoe on the floor, is the impact: since
+// pve-2 the impact comes sooner than the clip's event, so the clip starts
+// partway (no new art, Nick 2026-10-12); the Reactor's
 // activation starts on its tell (11, `activateMs` before the release) and
 // release_start/release_end are the release (12) and its end. The wire
 // floors an effect's lifetime to tenths (`effectLifetime`); `attackLead`
@@ -289,11 +291,19 @@ test('the Compactor\'s strike lands on the server\'s impact, and the Reactor\'s 
   const shockwave = new ARCHETYPES.compactor.skills[0].skill({} as unknown as Unit) as Shockwave
   const strike = compactor.COMPACTOR_RIG.roles.attack!
   assert.equal(strike.clip, 'fire')
-  assert.equal(strike.event * 1000, shockwave.impactMs, 'the clip\'s attack event is the server\'s impactMs')
+  assert.ok(shockwave.impactMs <= strike.event * 1000, 'the impact comes after the clip\'s attack event: the clip would start before its 0')
   assert.deepEqual(compactor.CLIPS.fire.events, [{ time: strike.event, name: 'attack' }])
-  // 1215 ms goes out as 1200: the lead is still the event, so the clip starts at its 0.
-  assert.equal(wire(shockwave.impactMs), 1200)
-  assert.equal(attackLead(strike.event, wire(shockwave.impactMs)), shockwave.impactMs / 1000)
+  // 750 ms goes out as 700, outside the event's tenth: the lead is the
+  // lifetime as received, so the clip starts at 1.215 - 0.7 = 0.515 s (the
+  // first half of the latch wind-up skipped) and the shoe lands 700 ms after
+  // the effect, within the wire's tenth before the server's impact.
+  assert.equal(wire(shockwave.impactMs), 700)
+  const lead = attackLead(strike.event, wire(shockwave.impactMs))
+  assert.equal(lead, 0.7)
+  const start = strike.event - lead
+  assert.ok(Math.abs(start - 0.515) < 1e-9, `starts at ${start} s`)
+  assert.ok(start >= 0 && start < compactor.CLIPS.fire.duration)
+  assert.ok(lead * 1000 <= shockwave.impactMs && lead * 1000 > shockwave.impactMs - 100, 'the shoe lands outside the wire\'s tenth')
 
   const burst = ARCHETYPES.reactor.routines.find((r) => r.kind === 'reactorBurst') as Extract<RoutineSpec, { kind: 'reactorBurst' }>
   const release = reactor.REACTOR_RIG.roles.attack!

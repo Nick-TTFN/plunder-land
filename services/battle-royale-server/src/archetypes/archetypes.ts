@@ -504,16 +504,18 @@ const NPC_NUMBERS = Object.freeze({
     shotHoldMs: 500,
     guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: 4 }
   },
-  compactor: { maxHp: 60, body: 30, loot: 50, contact: 0, guard: { acquire: 4, lose: 5, chaseSpeed: 100, standoff: 0 } },
+  compactor: { maxHp: 60, body: 30, loot: 50, contact: 0, guard: { acquire: 4, lose: 5, chaseSpeed: 130, standoff: 0 } },
   /**
-   * The Compactor's Shockwave (l1-6): 35 to each player on the line (its
-   * length is `NPC_SHARED.compactorLine`, mirrored), knocked back 2 cells,
-   * cast within 2 rings, every 3600 ms (the strike clip), the hit 1215 ms
-   * after the cast (the clip's impact frame; it lands on the tick after, 1250).
-   * `holdMs`: it stands still from the cast to 1750 ms, while the clip's shoe
-   * is flat on the floor (#52 lane 2, accepted 2026-10-09; 7 ticks).
+   * The Compactor's slam (l1-6; radial since pve-2, Dez's PvE challenge pass,
+   * accepted by Nick 2026-10-12): 20 to each player on the disc (its rings
+   * are `NPC_SHARED.compactorSlam`, mirrored, round the cell it slams on),
+   * each survivor knocked back 2 cells radially away, cast within 2 rings,
+   * every 2500 ms, the hit 750 ms after the cast (3 ticks; the strike clip
+   * starts partway so its shoe lands then, `attackLead`). `holdMs`: it stands
+   * still from the cast to 1250 ms, the impact plus about the clip's shoe on
+   * the floor (5 ticks).
    */
-  compactorShockwave: { damage: 35, cooldownMs: 3600, withinCells: 2, knockback: 2, impactMs: 1215, holdMs: 1750 },
+  compactorShockwave: { damage: 20, cooldownMs: 2500, withinCells: 2, knockback: 2, impactMs: 750, holdMs: 1250 },
   // Band 5-6 (l1-0 Q1, not the roster's 7-9), lob 30 on a 1-ring blast
   // after 1250 ms (Q2), every 3500 ms, cast within 7 cells (the mirrored
   // `attack.range`). `standoff` is unread with a band; set to its top.
@@ -661,8 +663,8 @@ class CompactorsShockwave extends Shockwave {
 }
 
 /**
- * Melee chaser (#51, the grunt's role): no contact damage; it slams a line
- * of cells toward its target, hurting and knocking back players (l1-6).
+ * Melee chaser (#51, the grunt's role): no contact damage; it slams a disc
+ * of cells round itself, hurting and knocking back players (l1-6, pve-2).
  */
 const compactorBase = npc(ARCHETYPE_INFO.compactor, NPC_NUMBERS.compactor)
 const compactor: Archetype = {

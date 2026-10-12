@@ -19,7 +19,7 @@ import { Vector } from '../utils/vector'
 /**
  * NPC wind-up holds (#52 lane 2, Dez's `ideas/npc-windup-holds.md`, accepted
  * 2026-10-09): the Crawler, the Kiln and the Brood come to rest, then cast,
- * then stand still for their hold; the Compactor stands still to 1750 ms; a
+ * then stand still for their hold; the Compactor stands still to 1250 ms; a
  * new Broodling stands still through its 1500 ms emerge.
  *
  * Driven tick by tick as `World.update` drives it (the clock moves 250 ms,
@@ -55,7 +55,7 @@ const record = (unit: Unit | undefined, type: number, watched: number[]): void =
   casts.set(unit.id, list)
 }
 
-const WATCHED = [3, NPC_EFFECT.kilnLob, NPC_EFFECT.broodRelease, NPC_EFFECT.compactorShockwave]
+const WATCHED = [3, NPC_EFFECT.kilnLob, NPC_EFFECT.broodRelease, NPC_EFFECT.compactorSlam]
 
 beforeEach(() => {
   mock.method(Math, 'random', () => 0.5)
@@ -209,14 +209,14 @@ test('the hold numbers are the accepted ones, and only the Crawler and the Kiln 
   // And as built: the routine itself, not only the row.
   assert.deepEqual([ARCHETYPES.boss, ARCHETYPES.gunner, ARCHETYPES.crawler, ARCHETYPES.kiln].map((a) => useOf(mobAt(a)).holdMs), [undefined, undefined, 500, 750])
   const shock = ARCHETYPES.compactor.routines.find((r) => r.kind === 'shockwave') as { holdMs: number }
-  assert.equal(shock.holdMs, 1750)
+  assert.equal(shock.holdMs, 1250)
   const brood = ARCHETYPES.brood.routines.find((r) => r.kind === 'brood') as { holdMs: number }
   assert.equal(brood.holdMs, 500)
   const fuse = ARCHETYPES.broodling.routines.find((r) => r.kind === 'broodling') as { emergeMs: number, tellMs: number }
   assert.equal(fuse.emergeMs, 1500)
   assert.equal(fuse.tellMs, 500, 'the Broodling tell is unchanged')
   // Each hold is whole ticks, so "the first tick at or after" lands exactly on it.
-  for (const ms of [500, 750, 1750, 1500]) assert.equal(ms % TICK_MS, 0)
+  for (const ms of [500, 750, 1250, 1500]) assert.equal(ms % TICK_MS, 0)
 })
 
 test('a Crawler shooting a player who walks away: it comes to rest, shoots on a centre, and stands still 500 ms', (t) => {
@@ -348,7 +348,7 @@ test('a new Broodling stands on its release cell for 1500 ms, then chases', (t) 
   assert.ok(moved !== undefined, 'never chased after its emerge')
 })
 
-test('a Compactor chasing a player stands still from the first tick at rest after its cast until 1750 ms, then steers again', (t) => {
+test('a Compactor chasing a player stands still from the first tick at rest after its cast until 1250 ms, then steers again', (t) => {
   mockClock(t)
   const compactor = mobAt(ARCHETYPES.compactor)
   const player = playerAt(4)
@@ -356,11 +356,11 @@ test('a Compactor chasing a player stands still from the first tick at rest afte
   assert.ok(routine.skill instanceof Shockwave)
   // Away at 60 u/s: it keeps closing in and slams whenever within 2.
   const frames = run(t, compactor, 60, () => { walk(player, new Vector(1, 0), 60) }, () => false)
-  const list = (casts.get(compactor.id) ?? []).filter((c) => c.at + 1750 <= frames[frames.length - 1].at)
+  const list = (casts.get(compactor.id) ?? []).filter((c) => c.at + 1250 <= frames[frames.length - 1].at)
   assert.ok(list.length >= 2, `only ${list.length} slams`)
   for (const cast of list) {
-    const inHold = frames.filter((f) => f.at >= cast.at && f.at < cast.at + 1750)
-    assert.equal(inHold.length, 1750 / TICK_MS)
+    const inHold = frames.filter((f) => f.at >= cast.at && f.at < cast.at + 1250)
+    assert.equal(inHold.length, 1250 / TICK_MS)
     for (const f of inHold) assert.equal(f.goal, false, `a step goal at +${f.at - cast.at} ms after the slam`)
     // The step in progress at the cast lands (Compactor rule unchanged); then still.
     const rest = inHold.findIndex((f) => f.stepAfter === undefined)
@@ -368,8 +368,8 @@ test('a Compactor chasing a player stands still from the first tick at rest afte
     for (const f of inHold.slice(rest)) {
       assert.deepEqual([f.x, f.y], [inHold[rest].x, inHold[rest].y], `moved at +${f.at - cast.at} ms after the slam`)
     }
-    const end = frames.find((f) => f.at >= cast.at + 1750)
-    if (end !== undefined) assert.equal(end.goal, true, 'still held past 1750')
+    const end = frames.find((f) => f.at >= cast.at + 1250)
+    if (end !== undefined) assert.equal(end.goal, true, 'still held past 1250')
   }
 })
 

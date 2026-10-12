@@ -4,7 +4,7 @@ import { Hex } from '../utils/hex'
 import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { Session } from '../net/session'
 import { TILT } from '../objects/tilt'
-import { type Cell, DIRECTIONS, directionToward, lineFromTip } from './cells'
+import { type AttackShape, type Cell, DIRECTIONS, attackCells, directionToward, lineFromTip } from './cells'
 import { CellHighlight, cellOf, directionVector, facingOf, layerOf } from './cellhighlight'
 import { FxSprite, discard, runFor, stampCells, standAt, warnCells } from './npcfx'
 
@@ -13,14 +13,19 @@ const WARN_COLOUR = 0xffb347
 const IMPACT_COLOUR = 0xff5a2a
 const IMPACT_FLASH_MS = 350
 
-/** The line's length: the Compactor row's line in the mirrored table. */
-function lineLength (): number {
-  const attack = ARCHETYPE_INFO.compactor.attack
-  return attack?.kind === 'line' ? attack.length : 0
-}
+/**
+ * The old line's length. The mirror's Compactor row is a disc since pve-2,
+ * so effect 14 (sent only by an older server, during the deploy) keeps the
+ * line it was built with here. Goes with `ShockwaveEffect`.
+ */
+const LEGACY_LINE_LENGTH = 3
 
 /**
- * A Compactor's shockwave (effect 14, decision #51). Art: Codex `npc-fx-v1`
+ * A Compactor's shockwave line (effect 14, decision #51). **Kept for one
+ * release only (pve-2)**: no current server sends 14 (the slam is the disc of
+ * effect 20, `CompactorSlamEffect`); it draws the line for a new client on
+ * an old server between the two deploys. Delete it, its `game.ts` case and
+ * the mirror's `line` attack kind in the follow-up. Art: Codex `npc-fx-v1`
  * (l1-11). The cells are worked back from the tip the record carries
  * (`lineFromTip`), so they are the server's cells even if the client places
  * the Compactor a cell off. They don't follow the Compactor: the server
@@ -37,7 +42,7 @@ export class ShockwaveEffect {
   constructor (owner: GameObject, lifetime: number, tip: Vector | undefined) {
     if (tip === undefined) return
     const from = cellOf(owner)
-    const cells: Cell[] = lineFromTip(from, tip, lineLength(), (q, r) => Hex.onMap(q, r, Session.mapSize))
+    const cells: Cell[] = lineFromTip(from, tip, LEGACY_LINE_LENGTH, (q, r) => Hex.onMap(q, r, Session.mapSize))
     if (cells.length === 0) return
     const tag = owner.tag
     const windUp = Math.max(0, lifetime)
@@ -76,6 +81,89 @@ export class ShockwaveEffect {
       })
     }
     runFor(windUp, () => {}, impact)
+  }
+}
+
+/**
+ * A Compactor's slam (effect 20, pve-2): the disc of the mirror's
+ * `ARCHETYPE_INFO.compactor.attack` rings round the centre cell the record
+ * carries, which is the set the server hits (`mobskills/shockwave.ts`,
+ * `World.FIND_IN_CELLS`; `shockwave.spec.ts` checks the two for a cast
+ * mid-step, the Compactor drawn a cell off). It doesn't follow the Compactor: the server
+ * fixes the disc at the cast. Art: Codex `npc-fx-v1` (l1-11), no new art
+ * (PROVISIONAL for Nick's look in play).
+ *
+ * Through the wind-up (the record's lifetime, cast to impact) the disc
+ * carries the shared warning (`warnCells`, the centre marked). At the impact
+ * `compactor-shoe-puff` stands at the Compactor and `compactor-wave-cell`
+ * runs outward ring by ring: one per cell off the centre, turned outward from
+ * the centre in the ground plane, each ring starting the clip's `chain`
+ * delay (`meta.clips`, 0.25 s) after the one inside it. A Compactor seen to
+ * die during the wind-up (the server cancels the slam then) ends the warning
+ * and draws no impact.
+ */
+export class CompactorSlamEffect {
+  /** Where the strike clip aims, as a world point: one unit along `owner`'s reported facing (`facingOf`). */
+  static strikeAim (owner: GameObject): { x: number, y: number } {
+    const facing = directionVector(facingOf(owner))
+    return { x: owner.x + facing.x, y: owner.y + facing.y }
+  }
+
+  constructor (owner: GameObject, lifetime: number, centre: Vector | undefined) {
+    if (centre === undefined) return
+    const attack = ARCHETYPE_INFO.compactor.attack as AttackShape | undefined
+    if (attack === undefined) return
+    const middle: Cell = { x: centre.x, y: centre.y }
+    const cells = attackCells(attack, middle).filter((c) => Hex.onMap(c.x, c.y, Session.mapSize))
+    if (cells.length === 0) return
+    const tag = owner.tag
+    const windUp = Math.max(0, lifetime)
+    const dead = (): boolean => (owner as unknown as { killed?: boolean }).killed === true
+
+    warnCells(tag, cells, middle, windUp, WARN_COLOUR, dead)
+
+    const layer = layerOf(tag)
+    if (layer === undefined) return
+    const from = Hex.toPosition(centre)
+    // The wave's cells, ring by ring outward, without the centre (the puff's).
+    const wave = cells
+      .map((c) => ({ cell: c, ring: Hex.distance(new Vector(c.x, c.y), centre) }))
+      .filter((w) => w.ring > 0)
+      .sort((a, b) => a.ring - b.ring)
+    const shoe = { x: owner.x, y: owner.y }
+
+    // Everything about the impact's art is read at the impact, not the cast:
+    // the sheet may land during the wind-up.
+    const impact = (): void => {
+      if (dead()) return
+      if (!FxSprite.ready()) {
+        CellHighlight.flash(tag, cells, IMPACT_COLOUR, IMPACT_FLASH_MS)
+        return
+      }
+      const delay = (FxSprite.meta('fx/compactor-wave-cell')?.chain?.cellDelay ?? 0.25) * 1000
+      const stamped = stampCells(layer, 'fx/compactor-wave-cell', wave.map((w) => w.cell))
+      stamped.decals.forEach((decal, i) => {
+        const at = Hex.toPosition(new Vector(wave[i].cell.x, wave[i].cell.y))
+        decal.rotation = Math.atan2(at.y - from.y, at.x - from.x)
+      })
+      const puff = standAt(layer, 'fx/compactor-shoe-puff', shoe.x, shoe.y)
+      const lastRing = wave.length > 0 ? wave[wave.length - 1].ring : 1
+      const clipMs = stamped.decals.length > 0 ? 1000 * stamped.decals[0].duration : 0
+      // Until the outer ring's clip ends, and the puff's.
+      const waveMs = Math.max((lastRing - 1) * delay + clipMs, 1000 * puff.duration)
+      runFor(waveMs, (since) => {
+        stamped.decals.forEach((decal, i) => {
+          const own = since - (wave[i].ring - 1) * delay
+          decal.visible = own >= 0
+          decal.at(own / 1000)
+        })
+        puff.at(since / 1000)
+      }, () => {
+        discard(stamped.group)
+        discard(puff)
+      })
+    }
+    runFor(windUp, () => {}, impact, dead)
   }
 }
 
