@@ -19,7 +19,7 @@ const STYLE = `
 .st { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
   background: rgba(4,7,13,.55); color: #E6EEF5; font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; user-select: none; }
 .st-panel { width: min(460px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow-y: auto; padding: 18px 20px; border-radius: 10px;
-  background: rgba(11,18,32,.96); border: 1px solid #3a6e7e; box-shadow: 0 0 24px rgba(61,224,208,.18); }
+  background: rgba(11,18,32,.96); border: 1px solid #3a6e7e; box-shadow: 0 0 24px rgba(51,219,211,.18); }
 .st-head { display: flex; justify-content: space-between; align-items: center; font-size: 22px; letter-spacing: .18em;
   padding-bottom: 12px; border-bottom: 1px solid #1E3344; }
 .st-close { background: none; border: 0; color: #E6EEF5; font-size: 28px; cursor: pointer; }
@@ -30,14 +30,14 @@ const STYLE = `
 .st-key { min-width: 38px; padding: 6px 8px; font: inherit; font-size: 14px; color: #E6EEF5; background: #121d2c;
   border: 1px solid #3a5266; border-radius: 5px; cursor: pointer; text-align: center; }
 .st-key small { display: block; font-size: 9px; color: #7f95a8; letter-spacing: .06em; }
-.st-key.st-wait { border-color: #3DE0D0; color: #3DE0D0; }
+.st-key.st-wait { border-color: #33DBD3; color: #33DBD3; }
 .st-choice { display: flex; gap: 6px; }
 .st-opt { padding: 5px 10px; font: inherit; font-size: 13px; color: #a9bccd; background: transparent; border: 1px solid #3a5266; border-radius: 5px; cursor: pointer; }
-.st-opt.st-on { color: #0B1220; background: #3DE0D0; border-color: #3DE0D0; }
+.st-opt.st-on { color: #0B1220; background: #33DBD3; border-color: #33DBD3; }
 .st-hint { font-size: 11px; color: #7f95a8; letter-spacing: .06em; padding: 4px 0 8px; }
 .st-foot { display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #1E3344; margin-top: 10px; }
 .st-reset { padding: 8px 14px; font: inherit; font-size: 13px; letter-spacing: .12em; color: #a9bccd; background: none; border: 1px solid #3a5266; border-radius: 6px; cursor: pointer; }
-.st-done { padding: 10px 36px; font: inherit; font-size: 17px; letter-spacing: .14em; font-weight: 700; color: #0B1220; background: #3DE0D0; border: 0; border-radius: 6px; cursor: pointer; }
+.st-done { padding: 10px 36px; font: inherit; font-size: 17px; letter-spacing: .14em; font-weight: 700; color: #0B1220; background: #33DBD3; border: 0; border-radius: 6px; cursor: pointer; }
 `
 
 function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {

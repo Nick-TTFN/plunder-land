@@ -7,7 +7,7 @@ import { onGround } from '../../objects/tilt'
  * The mockup's cyan (THEME.accent), world-markers M2. It was a warm off-white;
  * the dark shadow below is what keeps either legible on textured ground.
  */
-const COLOUR = 0x3DE0D0
+const COLOUR = 0x33DBD3
 
 /** Corners of the destination hex, pointy-top, a little inside the cell. */
 const CORNERS: number[] = []

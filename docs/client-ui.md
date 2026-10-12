@@ -86,6 +86,10 @@ edits show only at that tab's next `stash`.
 Plunderbot. Internal names (`plunderland_*` storage keys, the party keys, file and event
 names) stay: renaming a storage key loses every player's id and settings.
 
+- Brand art is in `assets/res/brand/`, cut from Nick's logo of 2026-10-12: the wordmark (lobby
+  header, `.lb-wordmark`, height-sized; the privacy page), `favicon.png` (the robot head) and
+  `apple-touch-icon.png` (head on the panel navy). Its palette is the UI's: teal `#33DBD3`
+  (`THEME.accent`), amber `#FCBB4C` (`THEME.loot`), cream `#EFE7D5` (letters; not yet a UI colour).
 - Copy that touches progress, items or saving says what is known, not more: an unanswered
   result is NOT CONFIRMED (not UNAVAILABLE or LOST); an offline run is NOT EARNED OFFLINE;
   the stash past `STASH_SOFT` is not "full" and promises nothing (`STASH_MAX` still cuts);

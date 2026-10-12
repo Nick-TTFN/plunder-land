@@ -312,7 +312,7 @@ export default class Lobby extends Container {
     // (and PRIVACY) fold into the menu button's dropdown.
     const top = this.top = el('header', 'lb-top')
     top.innerHTML = `
-      <div class="lb-brand"><span class="lb-logo"></span>PLUNDERBOTS</div>
+      <div class="lb-brand"><img class="lb-wordmark" src="/res/brand/plunderbots-wordmark.png" alt="Plunderbots"></div>
       <nav class="lb-tabs"><span class="lb-tab lb-on">Lobby</span><span class="lb-tab lb-off" title="Coming soon">Collection</span></nav>`
     const topActions = el('div', 'lb-topactions')
     // Invites (decision #47): the link puts a friend in this player's world.
@@ -986,8 +986,8 @@ export default class Lobby extends Container {
     const glow = this.platform
     glow.clear()
     glow.beginFill(0x0a1520, 0.9).drawEllipse(x, feetY + ry * 0.35, rx, ry).endFill()
-    glow.lineStyle(Math.max(2, scale), 0x3de0d0, 0.55).drawEllipse(x, feetY + ry * 0.35, rx, ry)
-    glow.lineStyle(0).beginFill(0x3de0d0, 0.10).drawEllipse(x, feetY + ry * 0.35, rx * 1.35, ry * 1.5).endFill()
+    glow.lineStyle(Math.max(2, scale), 0x33dbd3, 0.55).drawEllipse(x, feetY + ry * 0.35, rx, ry)
+    glow.lineStyle(0).beginFill(0x33dbd3, 0.10).drawEllipse(x, feetY + ry * 0.35, rx * 1.35, ry * 1.5).endFill()
     if (this.robot !== undefined) {
       this.robot.scale.set(scale)
       this.robot.position.set(x, feetY)

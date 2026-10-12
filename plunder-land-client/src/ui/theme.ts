@@ -18,12 +18,12 @@ export const THEME = {
 
   text: 0xE6EEF5,
   muted: 0x8FA3B5,
-  accent: 0x3DE0D0,
-  loot: 0xFFB547,
+  accent: 0x33DBD3,
+  loot: 0xFCBB4C,
   hp: 0x39E08A,
   armor: 0x3AA0FF,
   danger: 0xFF5A5A,
-  ready: 0x3DE0D0,
+  ready: 0x33DBD3,
   barTrack: 0x1A2533,
 
   pad: 14,
