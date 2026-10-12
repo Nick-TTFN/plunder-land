@@ -30,7 +30,14 @@ vision is the smallest, so under server fog it is the cheapest viewer). The ramp
 `DATABASE_URL`, so its bots get in-memory guest accounts (#48; join size and latency moved
 slightly from `57671dc`). **When the ramp's CPU numbers are noisy** (other lanes or apps on
 the machine, as on 2026-10-03), compare two builds of the tick with `tools/load/tickbench.cjs`
-(deterministic, in-process, 400 players, no sockets), and say that sending isn't in it.
+(in-process, 400 players, no sockets), and say that sending isn't in it. **It is not
+deterministic**, whatever its header says ("the same commit gives the same world every run"):
+on 2026-10-12 (ice-1) one build of `502b902` gave `avgHolders` 9.6 / 9.8 / 10.3 and `moving`
+118 / 102 / 109 across runs, and `tickMsPerTick` 3.58 and 4.10 (14 % apart). Probably the NPCs
+on the real `Date.now` (below). So alternate base and new, at least twice each, and treat a
+few percent as noise. **Its players cast no skills** (they only walk random routes;
+mobs still attack): it measures a player skill's always-on cost (getters and gates read every
+tick) but never a player's cast, a chill, a breath area or a thrown projectile.
 **What tickbench does not exercise.** Its header says mobs are removed, which is stale: the wipe
 (`World.MOBS.length = 0`) runs at construction, before any mob spawns, and `refillLayer` fills
 every layer within the first ticks, so the bench does tick mobs. But every player joins on layer

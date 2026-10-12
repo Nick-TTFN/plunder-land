@@ -138,7 +138,7 @@ box only for Periscope: 12 rings at vision 10 is up to 540 units east-west). **F
 projectile's layer**, not the thrower's (`63d8947`): a thrower who hopped a portal during the
 flight used to send the blast to the wrong layer. Effects are not fogged inside the 500 box
 (#48 rejected hiding them; Nick accepted): a blast or bomb in the dark is sent and drawn.
-**Types 9-20 are the NPC attacks** (#51, L1; 20 since pve-2, #53; numbers in server `archetypes/npceffects.ts`
+**Types 9-20 are the NPC attacks, and 21 the ice skills' freeze** (#51, L1; 20 since pve-2, #53; 21 since ice-1, #54; the table takes every new effect type, NPC or not, and keeps its name; numbers in server `archetypes/npceffects.ts`
 `NPC_EFFECT` and client `vfx/npceffects.ts`, held equal by `npceffects.spec.ts`; append-only, a
 type is never reused). Through `effectAt` on a cell and layer, like the bomb: **9** Kiln lob
 (marker + arc, lifetime = flight; the client draws the arc only if it holds the Kiln), **10** Kiln
@@ -151,12 +151,19 @@ at the line's **uncut** tip; the client works the cells back from the tip, `line
 local length 3; its case is kept one release for a new client on an old server, then removed,
 task pve-3), **15** knockback (on the victim, aimed at the landing
 cell, to its holders including its own connection; see "Knockback" in `docs/movement.md`), **16**
-slowed (on the victim, lifetime = the slow left; resent only past half), **19** Brood release (on
+slowed (on the victim, lifetime = the slow left; resent only past half; sent by the Coil and,
+since #54, by Icicle and Ice Breath for the one ice slow), **19** Brood release (on
 the Brood, aimed at the new Broodling's cell, lifetime = the spawn clip, 1100), **20** Compactor slam (on the
 Compactor, aimed at the disc's **centre cell**, `stepTo ?? cell` at the cast, lifetime =
 `impactMs` 750, sent as 700; the client draws `attackCells(disc, centre)`, so a Compactor drawn a
-cell off still shows the server's disc). An older client has no case for 9-19 and draws nothing
-(hence PROTOCOL 7); one before 8 has none for 20 (hence PROTOCOL 8). Lifetimes go out in tenths, floored:
+cell off still shows the server's disc), **21** frozen (#54, ice-1: on the mob, unaimed, sent once at
+the freeze, lifetime = the freeze: 1500 / 1250 / 750, arriving as 1500 / 1200 / 700, so the look
+ends up to 100 ms before the server's thaw; see "Frozen NPCs" in `docs/npcs.md`). An older client
+has no case for 9-19 and draws nothing (hence PROTOCOL 7); one before 8 has none for 20 (hence
+PROTOCOL 8). **21 needed no bump:** a client without it ends `onEffect`'s `switch` with no case
+and no `default`, draws nothing and changes nothing; it sees the mob stand still and hold its
+attacks, and gets a player's ice slow as `speed` (27) with effect 16, which it already draws. No
+attack reaches it without warning, which is what 7 and 8 were for. Ship the client first anyway. Lifetimes go out in tenths, floored:
 1250 is sent as 1200, so keep NPC timings at multiples of 100 where the client times a
 telegraph by them. The Compactor's impact 750 (sent as 700, its strike's shoe 50 ms early) is a
 reviewed exception (pve-2): rounding instead would touch every effect and make it late.
@@ -223,7 +230,7 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 8 since pve-2** (#53, built 2026-10-12, not yet live): the Compactor's slam is
+tabs left open across a release. **`PROTOCOL` is 8 since pve-2** (#53, live at `502b902`: on 2026-10-12 Railway logged `release 502b902` and a production join got `protocol: 8`): the Compactor's slam is
 effect 20, which an older client never draws, so the slam would land with no telegraph and no
 strike clip (the silent misbehaviour 7 was bumped for); the Coil's third ring and pve-1's
 numbers ride on the same bump. Between the client and the server deploy a new client (8) on the

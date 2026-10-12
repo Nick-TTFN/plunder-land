@@ -75,6 +75,66 @@ stone on its next cell would trap it. `World.BLOCKED` maps each cell to its one
 blocker, not a count, so two blockers on one cell would let the first to expire unblock
 the other's cell. The skip is what makes a stone's unconditional unblock safe.
 
+### Ice: chill, freeze, weaker metal and the one ice slow
+
+Decision #54 (ice-1, Dez's numbers accepted by Nick 2026-10-12). **Ice freezes mobs and slows
+players; a player is never frozen.** Every number is `FREEZE` in `buffs/freeze.ts` (server only:
+the client learns a freeze's length from effect 21's lifetime and a slow from `speed` (27)).
+
+**Chill** (`chill(unit, caster, skill, now)`, the one entry point for both skills). Mobs only;
+a destroyed unit, or one before its `lockoutUntil`, gets nothing (the lockout runs from the
+freeze's end, so this also refuses a frozen mob). The state is a plain record,
+`Unit.chill = { stacks: {caster, at}[], frozenUntil, lockoutUntil }`, undefined until the first
+chill, and not a `Buff`, because the stacks and the lockout outlive the freeze. A chill drops
+stacks older than `windowMs` and adds the caster's own stack, or moves it to now: **one stack per
+caster**, never two. At `threshold` stacks the mob freezes for the class's `freezeMs` of the skill
+that landed the last stack, the stacks clear, and `lockoutUntil` is the freeze's end plus
+`lockoutMs`. Effect 21 goes out once, at the freeze. Nothing extends a freeze.
+
+| Class | Who | Threshold | Window | Icicle freeze | Breath freeze | Lockout after |
+|---|---|---|---|---|---|---|
+| `normal` | every other mob | 1 (freezes at once) | (never read) | 1500 ms | 1250 ms | 0 |
+| `boss` | `World.isSpawnHazard`: Reactor, Brood (and the retired boss) | 4 distinct casters | 4000 ms rolling | 750 ms | 750 ms | 20000 ms, no stacks gained |
+
+**`Unit.frozen`** is a getter (`chill !== undefined && now < chill.frozenUntil`), read by every
+gate and by `damageTaken`; it is never a field (the `armor` shadowing trap), and **a mob's freeze
+is never `maxVelocity`**: `GuardPosition` assigns a mob's speed absolutely, which is why the
+Icicle's old mob slow never held. What a frozen mob does and doesn't do is in `docs/npcs.md`
+("Frozen NPCs").
+
+**Weaker metal: x1.5 on every hit a frozen unit takes** (`FREEZE.damageTaken`), no tail.
+`Unit.damageTaken(value) = floor(value x clamp(1 - damageReduction, 0, 1) x (frozen ? 1.5 : 1))`,
+one floor, then the armor pool, then hp. `hit` and the Broodling's `onHit` both call it. Defend
+and weaker metal are **two factors, never folded into `damageReduction`**: a negative reduction
+would clamp back to 1, and Defend assigns it absolutely. Both skills chill **before** their hit,
+so the freezing hit is boosted: an Icicle does 30, 45 on the hit that freezes; Ice Breath's
+32/s is 8 a tick at 250 ms, 12 frozen (area damage is `damage x dt`, floored once per tick
+inside `hit`).
+
+**Icicle** (`throwicicle.ts`), per unit in the blast: provoke; a player gets the ice slow for
+2000 ms; a mob is chilled (`'icicle'`); then the hit. The mob `Slowdown` and the "+10 if any
+buff" are gone. **Ice Breath** (`icebreath.ts`): the `SectorArea` gets `onOverlap`
+(`area/area.ts`), which `Unit.update`'s area loop calls before that tick's hit (Fire Breath
+leaves it undefined). A player gets the ice slow refreshed to 1000 ms past every tick that hits
+it; a mob is chilled on the first tick of the cast that overlaps it and never again by that cast
+(the hook keeps the set), so one breath is one stack per caster, its freeze runs from the first
+tick, and a mob thawed mid-breath is not re-frozen by the same breath.
+
+**The one ice slow.** `FieldSlow` has a `kind`, `'coil'` or `'ice'`: `FieldSlow.apply` refreshes a
+running slow of the same kind (a later end wins; the factor stays) and adds a second buff for a
+different kind, so **Icicle and Breath slows refresh each other and never stack** (two Icicles
+used to make x0.25), while a Coil slow and an ice slow multiply (x0.4 x x0.5 = x0.2, each giving
+back exactly what it took). Ice x0.5, rounded to tenths like the Coil's. Both ice skills send
+effect 16 (slowed) when `apply` asks for a cue: on a new slow, and on a refresh past half of what
+the last cue announced. The Icicle sending it is new with ice-1 (it sent none before), and that
+line is unspecced (`ice-3-review-nits.md`). `kind` defaults to `'coil'`, so an ice caller that
+forgets the argument would silently get a Coil-kind slow (same nits task).
+
+**`Slowdown` (`buffs/slowdown.ts`) is cast by nothing since ice-1.** It is kept only because three
+specs still build one (`balance.spec.ts`, `gear.spec.ts`, `extract.spec.ts`); retiring it means
+moving them to `FieldSlow` (`ice-3-review-nits.md`). Don't give it a new caster: it goes through
+`addBuff` and stacks.
+
 ## Gear
 
 **Skill items and parts** (decision #49, live 2026-10-05 as `cb645f2`; design
@@ -101,8 +161,8 @@ dropped, from any mob or cache. The T4 stat column and `rollCount(4)` are PROVIS
 **Stats go through the existing paths, cached once at `Player.equipGear`, nothing per tick:**
 damage through the `Unit.damageScale` getter that `Skill.dealt` reads; max HP and armor
 `round(base * (1 + pct/100))`, with hp and armor rising by the same delta (gear only arrives
-mid-run); speed added to `maxVelocity` as a delta rounded to tenths, so a running `Slowdown` still
-restores correctly and `speed` (27) carries it exactly; pickup reach `effectiveReach` (base + bonus,
+mid-run); speed added to `maxVelocity` as a delta rounded to tenths, so a running slow
+(`FieldSlow`, which gives back exactly what it took) still restores correctly and `speed` (27) carries it exactly; pickup reach `effectiveReach` (base + bonus,
 at most 2, Magnet's 3 untouched). Don't declare `armor`/`maxArmor` on `Player` (the TS2610 trap
 above). **A duplicate** (an item whose skill is already in the kit or the other slot) fires that
 existing instance and shares its cooldown; its cooldown roll doesn't apply, its other rolls do
@@ -138,5 +198,6 @@ NPC attacks (#51, L1) are server-side mob skills and routines under `src/mobskil
 mirrored `utils/skills.ts` (a mob skill there would drop as a player item: `rollGear` picks
 uniformly over `SKILL_LIST`). They are hex-cell sets like every area of effect above and hit
 players only, except the Broodling blast. Each one, its timings and its timer ownership: see
-`docs/npcs.md` ("Attacks"). The Coil's slow is a new buff, `FieldSlow` (one per unit, refreshed
-through `FieldSlow.apply`, never `addBuff`), that multiplies with the Icicle's `Slowdown`.
+`docs/npcs.md` ("Attacks"). The Coil's slow is `FieldSlow` (one per unit per kind, refreshed
+through `FieldSlow.apply`, never `addBuff`), kind `coil`; it multiplies with the ice slow (kind
+`ice`, "Ice" above).

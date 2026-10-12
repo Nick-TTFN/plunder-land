@@ -103,12 +103,15 @@ both sides in the same task (details in `docs/wire-format.md`):
   `gear/stasheditclient.spec.ts`, which runs the client's `mergeCheck` against the server's
   `mergeOutcome`). `run_end`'s `gear_brought`, `gear_found`, `gear_kept` are append-only like every
   GA param. Migration 6 (`stash_items`, `gear_holders`) is additive only, as every migration.
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 8 since pve-2, not yet live; 7 since L1, l1-2): bump it with any change an older
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 8 since pve-2, live at `502b902` (confirmed 2026-10-12: Railway `release 502b902`, a production join got `protocol: 8`); 7 since L1, l1-2; ice-1's effect 21 needed no bump): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
 - **The NPC roster (#51, L1):** the mirrored `utils/archetypes.ts` rows 9-15 with `rarity` and
   `attack` (`NPC_SHARED`; the client draws and threat-marks `attackCells`, `effectcells.spec.ts`);
-  effect types 9-20 (server `archetypes/npceffects.ts` `NPC_EFFECT`, client `vfx/npceffects.ts`,
-  `npceffects.spec.ts`; append-only; drawn in `game.ts` `onEffect` and `src/vfx/*.effect.ts`; 14,
+  effect types 9-21 (server `archetypes/npceffects.ts` `NPC_EFFECT`, client `vfx/npceffects.ts`,
+  `npceffects.spec.ts`; append-only; drawn in `game.ts` `onEffect` and `src/vfx/*.effect.ts`;
+  **every new effect type goes in this table, NPC or not**, and it keeps the name `NPC_EFFECT`
+  (a rename is a removal): 21 `frozen` is the ice skills' (#54, ice-1; drawn by ice-2's
+  `vfx/frozen.effect.ts`), and effect 16 (slowed) is now also sent by Icicle and Ice Breath; 14,
   the old Compactor line, is sent by no server since pve-2 and its client case goes in pve-3); the
   knockback mirror, server `Player.knockback` against client `LocalPlayer.knockback` with `Game`
   applying effect 15 after the same flush's `lastInputSeq` (`extract.spec.ts`); a Broodling's
@@ -240,7 +243,7 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). And for the NPCs (#51, L1; l1-0 accepted, retuned by #53): `NPC_NUMBERS` in
+  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1), and for ice (#54): `FREEZE` in `buffs/freeze.ts` (normal and boss chill rules, freeze lengths, lockout, weaker metal x1.5, the ice slow; server only, the client reads a freeze's length from effect 21's lifetime and a slow from `speed` (27)). And for the NPCs (#51, L1; l1-0 accepted, retuned by #53): `NPC_NUMBERS` in
   `archetypes/archetypes.ts` (stats, guards, attacks, timings, pack sizes, per-layer populations;
   server only) and `NPC_SHARED` in the mirrored `utils/archetypes.ts` (Crawler range and every
   attack's cells; both deploys, client first); NPC kill XP in `PROGRESSION.kills.mob`. Some
@@ -255,4 +258,7 @@ literally: an id pattern given as "for example" would have locked out every real
   effects from the `npc-fx` sheet, PROVISIONAL too (l1-11). Sizes, gaits and holds are #52's. #53
   made no art: the Compactor's strike clip starting partway, its wave cells turned outward for
   the radial slam, and the Coil's art over 3 rings are PROVISIONAL for Nick's look (`docs/npcs.md`).
+  The frozen look (#54, ice-2: ice tint 0x9fd8ff and the arena's snowflakes) is PROVISIONAL too; no
+  ice art exists (wanted: an ice shell or frozen overlay and a frozen-status loop, for 1-cell and
+  7-cell bodies, and optionally a thaw one-shot; `docs/npcs.md`, "Frozen look").
   List what is missing, don't make it.

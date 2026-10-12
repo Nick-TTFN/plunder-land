@@ -122,6 +122,8 @@ Old clients stay open across releases and other code reads these formats, so:
   `rollGear` picks uniformly over `SKILL_LIST`, so it would drop as a player item.
 - **A status re-applied every tick goes through a one-per-unit buff** (`FieldSlow.apply`), never
   `Unit.addBuff`, which stacks duplicates and compounds the effect each tick.
+- **A mob's freeze is `Unit.frozen`, never `maxVelocity`**: `GuardPosition` assigns a mob's speed
+  absolutely, so a speed change on a mob silently never holds. A new mob action checks `frozen`.
 - **Delayed world work goes through `Timers`, never `setTimeout`** (which runs outside the
   tick's error boundary). Give a timer the object whose state it changes as owner.
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`**: an unhandled

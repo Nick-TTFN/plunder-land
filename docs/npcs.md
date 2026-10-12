@@ -116,7 +116,8 @@ Tickbench (400 players): about +0.05-0.1 ms a tick, +1-3 %, under half of it the
 Every NPC attack is a hex-cell set (`FIND_IN_CELLS`), never a radius, and **hits players only**
 (Q6), except the Broodling blast, which hits mobs too (Nick: "can hurt nearby mobs"). Every
 victim loop skips `destroyed` and exited players, and kills go through the attacker's `onKill`
-(`killedBy` 'mob'). Effect types are in `docs/wire-format.md` ("Effects", 9-20). The art is
+(`killedBy` 'mob'). Effect types are in `docs/wire-format.md` ("Effects", 9-21; 21, frozen, is
+the ice skills', see "Frozen NPCs" below). The art is
 the `npc-fx` sheet (l1-11, PROVISIONAL until Nick reviews it; `docs/art-pipeline.md`), drawn by
 `vfx/npcfx.ts` (`stampCells` one ground decal per server cell, `standAt`, `warnCells`,
 `burstCells`, `hitSpark`) on the same cell sets the placeholders drew: 9 landing centre and ring
@@ -195,11 +196,11 @@ the disc (37 cells; per Coil, not per player) until hold end + 500. **`FieldSlow
 (`buffs/fieldslow.ts`): one per unit through
 `FieldSlow.apply`, which refreshes the end (never `addBuff`, which stacks and would halve speed
 again every tick), players only, x0.4 (`coilField.slow`; 140 u/s becomes 56) rounded to tenths so `speed` (27) carries it exactly,
-gives back exactly what it took (`declare applied`). Multiplies with Icicle's `Slowdown` (x0.5, so
-x0.2 together; x0.3 at the old x0.6); the speed while both run and one ends is not exactly the other's factor, and heals
+gives back exactly what it took (`declare applied`). Its kind is `coil`; it multiplies with the
+one ice slow (kind `ice`, x0.5 from Icicle or Ice Breath since #54, so x0.2 together; see
+`docs/skills-and-gear.md`, "Ice"); the speed while both run and one ends is not exactly the other's factor, and heals
 when the second ends. Effect 16 (slowed) goes to the victim when applied, again only past half
-its time. An Icicle on a Coil-slowed player gets `Throwicicle`'s +10 "already slowed" bonus
-(noticed, for Dez). Standoff = the field's rings (`discRingsOf`, so 3: it hangs 3 rings off its
+its time. (The Icicle's +10 "already slowed" bonus is gone since #54.) Standoff = the field's rings (`discRingsOf`, so 3: it hangs 3 rings off its
 target); an escort shares the pack's home. The client draws 3 rings (`vfx/coilfield.ts`
 `COIL_PULSE.rings`, held equal to the mirror by `coilfield.spec.ts`) with the art drawn for 2
 (`coil-pulse-burst`, the rig's charge): **PROVISIONAL**, for Nick's look.
@@ -290,6 +291,48 @@ still credited the Broodling and its mob kills, as any kill landing after a deat
 and `killer`, too late for that run's XP and `run_end`. StoneWall stones survive the blast (the bomb breaks
 them; a feel call for Dez). The remaining fuse goes out in **`lifetime` (9)** on the create
 (see `docs/wire-format.md`).
+
+## Frozen NPCs (#54, ice-1)
+
+Icicle and Ice Breath chill mobs; the chill and freeze rules, weaker metal (x1.5 taken while
+frozen) and every number are in `docs/skills-and-gear.md` ("Ice"). **Players are never frozen.**
+**Boss rule:** a "boss" is `World.isSpawnHazard(archetype)` (rarity epic or legendary: Reactor,
+Brood; and the retired boss), the one rule the spawn hazard already uses, not a second list. A
+boss freezes only at 4 distinct casters inside 4000 ms, for 750 ms, then gains no stacks for
+20000 ms; every other mob freezes on its first chill (Icicle 1500 ms, Breath 1250 ms) with no
+lockout. Stacks are invisible to players until the freeze (a chill-stack cue, effect 22, was
+asked and not answered; deferred).
+
+**A frozen mob is stunned** (`Unit.frozen`, never `maxVelocity`, which `GuardPosition` assigns
+absolutely):
+
+- **No movement.** `Unit.update` skips all three movement branches. A mob frozen mid-step stops
+  where it is, keeps both `World.claimStep` claims, and lands on `stepTo`'s centre after the
+  thaw.
+- **No new cast.** `Skill.execute` refuses while the owner is frozen, before the cooldown, so it
+  covers every attack cast through a skill (`UseSkillOnTarget`'s Crawler, gunner, boss breath and
+  Kiln lob, and the Compactor's slam); `UseSkillOnTarget` gets `false` and sets no hold.
+  `ReactorBurst` plants nothing, `CoilField` starts no charge, and `BroodRelease` releases nothing
+  (gated in `beat`, after re-arming its clock, so the cadence holds, and in `tryRelease`, so a
+  pending release found frozen is dropped; the first beat after the thaw releases).
+  `Mob.touch` deals no contact damage.
+- **Routines still run** (not skipped wholesale): a guard may acquire a target and set
+  `stepGoal`, and nothing walks it; a Coil charge already under way pulses on; hold flags clear
+  on their timers.
+- **The commit rule: a wind-up already started lands** (Nick, 2026-10-12). Its timers are owned
+  by the mob (or by nobody, the Kiln's lob) and run on: the Reactor's tell, release and pulses, the
+  Compactor's impact and knockback, a Kiln lob in flight, a Coil field already pulsing, the Brood's
+  hold. **Never `Timers.cancelOwner` a mob to freeze it**: that would also cancel `canAttack`'s
+  reset and the holds. No cancel event exists.
+- **Broodlings:** the chill lands before the hit, and any damaging hit sets a Broodling off at once
+  (`onHit` now goes through `Unit.damageTaken`), so a live frozen Broodling never exists in play.
+  If one did, its routine would still prime its adjacent tell. Nothing built for it.
+- Effect 21 (`frozen`) goes once, at the freeze, through `Multiplayer.effect` to the mob's holders
+  (the effect-16 path; not specced). Lifetime = the freeze, floored to tenths on the wire (1500,
+  1250, 750 arrive as 1500, 1200, 700), so the look ends up to 100 ms before the server's thaw.
+  That is expected: don't "fix" the cue's length against the server number.
+- Specs: `buffs/freeze.spec.ts` (every NPC's gates, frozen 15 ticks then attacking after the thaw,
+  wind-ups landing on time, mid-step claims, boss stacks, window and lockout).
 
 ## Client: rigs and sprites (l1-8, l1-9, #52)
 
@@ -472,6 +515,23 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
   Robots and unrigged mobs keep the wire `radius`, which for NPCs is no longer the drawn size
   (server `body` was left as it was on purpose: nothing visible reads it on a rigged NPC). On the
   Brood's round top some sparks hang in the air beside the dome (a look call for Nick).
+- **Frozen look** (#54, ice-2; **PROVISIONAL**: no ice art exists, for Nick's look). Effect 21's
+  case in `game.ts` `onEffect` calls `FrozenEffect.show` (`vfx/frozen.effect.ts`), mobs only.
+  **Tint:** `ICE_TINT` 0x9fd8ff, a multiply (a tint only darkens), composed with the hit flash by
+  `bodyTint(flashing, frozen, base)` (`vfx/hitoverlay.ts`; the flash alone is exactly the old
+  `TINT`; `hitoverlay.spec.ts`). Rigged NPCs set `NpcSprite.frozen`; old-sprite mobs (grunt, gunner,
+  boss) go through `Mob.setIceTint` (look tint x ice, the look tint back after). **The idle/move
+  loop holds while frozen, never an attack clip**: `frozen` gates only `baseTime`, and `action.t`
+  runs on, so a wind-up started before the freeze strikes on its #52 timing (by reading; pixi, not
+  specced). **Cue:** the arena's `fx/snowflake.png` (Ice Breath's), 3-9 flakes by drawn width
+  (`bodySpan`, else radius), at 35 % and 70 % of feet-to-head, bobbing, 150 ms fades. One per mob
+  in a `WeakMap` (so `resetForRun`-safe), **restarted, not stacked**, by a later effect 21. A child
+  of the mob, so it follows the mob's fog `renderable`; not a ground overlay. **Death clears it**:
+  `play('death')` clears `frozen`, the cue ends on its first update after `Mob.killed` (a mob is
+  never pixi-destroyed), and `show` ignores a killed mob; an old-sprite mob may keep the tint one
+  frame. Known cosmetic nits are in `ice-3-review-nits.md`. **Missing art (Nick):** an ice shell
+  or frozen overlay for NPC bodies and a frozen-status loop, each sized for 1-cell bodies and the
+  7-cell Reactor and Brood; optionally a thaw/shatter one-shot.
 - `objects/mob.ts` uses `NpcSprite` when `lookFor` names an NPC rig whose sheet loaded (sheets
   load in the background from `Game`'s constructor), else `mob/mob`: old ids and unknown ids
   unchanged. HP bar 60 wide for epic and legendary (and the retired boss). Threat rings include
