@@ -95,11 +95,12 @@ function lobOf (kiln: Unit): KilnLob {
 /** Hp plus armor: a Kiln's 30 lands on the armor first. */
 const life = (unit: Unit): number => unit.hp + unit.armor
 
-test('the Kiln row: a 7-cell lob of 30 on a 1-ring blast after 1250 ms, every 3500 ms, cast within 7 (PROVISIONAL l1-0)', () => {
+test('the Kiln row: a 7-cell lob of 30 on a 1-ring blast after 1250 ms, every 2000 ms (PvE challenge pass), cast within 7, chase 110', () => {
   assert.deepEqual(ARCHETYPE_INFO.kiln.attack, { kind: 'lob', range: 7, rings: 1 })
   const kiln = kilnAt(0)
   const lob = lobOf(kiln)
-  assert.deepEqual([lob.range, lob.rings, lob.flightMs, lob.cooldown], [7, 1, FLIGHT, 3500])
+  assert.deepEqual([lob.range, lob.rings, lob.flightMs, lob.cooldown], [7, 1, FLIGHT, 2000])
+  assert.equal((ARCHETYPES.kiln.routines[0] as { chaseSpeed: number }).chaseSpeed, 110, 'one speed for chasing and retreating')
   assert.equal(lob.damage, undefined, 'a SkillSpec damage override would hide the row\'s number')
   const use = kiln.routines.find((r) => r instanceof UseSkillOnTarget) as UseSkillOnTarget
   assert.equal(use.withinCells, 7)
@@ -184,7 +185,7 @@ test('a lob further than 7 cells, or with no aim, is refused and does not spend 
   assert.equal(lob.execute(undefined), false)
   assert.equal(sent.length, 0)
   assert.equal(lob.execute(cellAt(7)), true)
-  advance(t, 3499)
+  advance(t, lob.cooldown - 1)
   assert.equal(lob.execute(cellAt(7)), false, 'within the cooldown')
   advance(t, 1)
   assert.equal(lob.execute(cellAt(7)), true)
@@ -201,7 +202,7 @@ test('a Kiln lobs at its target\'s cell at the cast, within 7 cells, and not bey
   assert.deepEqual(lobs[0].cell, cellAt(6))
 
   // A target 8 away (kept, since lose is 9): it holds fire, cooldown unspent.
-  advance(t, 3500)
+  advance(t, lobOf(kiln).cooldown)
   const far = kilnAt(20)
   const use = far.routines.find((r) => r instanceof UseSkillOnTarget) as UseSkillOnTarget
   far.target = playerAt(28, 0, 'far')
@@ -215,8 +216,8 @@ test('a Kiln lobs at its target\'s cell at the cast, within 7 cells, and not bey
 
 /**
  * The band. The Kiln stands on HOME and the player stands still `rings` east;
- * 12 ticks (3 s) is time for four cells at chase speed 70 (a cell is 45
- * units, 0.64 s). The distance after each tick.
+ * 12 ticks (3 s) is time for four cells at chase speed 110 (a cell is 45
+ * units, 0.41 s; it was at 70). The distance after each tick.
  */
 function bandRun (t: TestContext, rings: number): number[] {
   const kiln = kilnAt(0)

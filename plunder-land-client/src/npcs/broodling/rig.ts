@@ -340,8 +340,12 @@ export const BROODLING_RIG: NpcRig = Object.freeze({
     move: 'walk',
     // A Broodling's death is its blast: from the detonation on, the contraction already over.
     death: Object.freeze({ clip: 'detonate', from: 1.35 }),
-    // Out of the floor and unfolding (the socket's crop is over by 1.3 s); ready by 2.8 s.
-    spawn: Object.freeze({ clip: 'emerge', from: 1.3, ready: 2.8 }),
+    // Out of the floor and unfolding (the socket's crop is over by 1.3 s).
+    // `ready - from` is the server's `emergeMs` (750, the PvE challenge pass,
+    // 2026-10-12; 2.8, the unfold's end, at the old 1500): it may walk off
+    // from 2.05, still mostly curled. `from` stays 1.3: the loaded sockets
+    // and the launch need it curled there (`broodlaunch.spec.ts`).
+    spawn: Object.freeze({ clip: 'emerge', from: 1.3, ready: 2.05 }),
     // The primed tell (effect 17, 500 ms on the server): the contraction's
     // last 0.5 s, so 0.85 + 0.5 lands on the detonation at 1.35 (Dez Q9).
     prime: Object.freeze({ clip: 'detonate', from: 0.85 })

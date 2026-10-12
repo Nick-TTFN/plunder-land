@@ -138,7 +138,7 @@ const INERT_BROOD: Archetype = {
   routines: ARCHETYPES.brood.routines.map((r) => r.kind === 'brood' ? { ...r, child: INERT } : r)
 }
 
-test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood 550 hp, band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
+test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood 550 hp, band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 750, chase 170 (PvE challenge pass)', () => {
   const guard = ARCHETYPES.brood.routines[0] as GuardSpec
   assert.equal(guard.kind, 'guard', 'the guard must run first: it picks the target')
   assert.deepEqual(guard.retreat, { min: 5, max: 6 })
@@ -150,8 +150,13 @@ test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood
 
   const lingGuard = ARCHETYPES.broodling.routines[0] as GuardSpec
   assert.equal(lingGuard.kind, 'guard', 'the guard must run first: it picks whom to chase')
-  assert.deepEqual([lingGuard.acquire, lingGuard.lose, lingGuard.chaseSpeed, lingGuard.standoff], [8, 10, 130, 0])
-  assert.deepEqual(ARCHETYPES.broodling.routines[1], { kind: 'broodling', fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 1500, rings: 1 })
+  assert.deepEqual([lingGuard.acquire, lingGuard.lose, lingGuard.chaseSpeed, lingGuard.standoff], [8, 10, 170, 0])
+  // The client's pick (`vfx/broodpick.ts`) covers a full second of its chase.
+  assert.ok(PICK_REACH >= lingGuard.chaseSpeed, `PICK_REACH ${PICK_REACH} is short of a second at ${lingGuard.chaseSpeed} u/s`)
+  // Under a cell's spacing per tick (about 180 u/s at 250 ms ticks): faster,
+  // and it could pass a cell between two prime checks.
+  assert.ok(lingGuard.chaseSpeed * TICK_MS / 1000 < Hex.SIZE, `${lingGuard.chaseSpeed} u/s covers a whole cell in a ${TICK_MS} ms tick`)
+  assert.deepEqual(ARCHETYPES.broodling.routines[1], { kind: 'broodling', fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 750, rings: 1 })
   assert.equal(BLAST_RINGS, 1)
   assert.equal(PRIME_RINGS, 1)
   assert.deepEqual([ARCHETYPES.broodling.maxHp, ARCHETYPES.broodling.loot, ARCHETYPES.broodling.gearRolls], [1, 0, null])
@@ -288,9 +293,22 @@ test('fuse: a Broodling with nobody near goes off where it stands on the tick it
   assert.equal(ling.hp, 0, 'a destroy without hp 0 reads as leaving view, not a death')
 })
 
+// The test below needs a tick that begins with the Broodling standing on one
+// cell while stepping into the adjacent one. `Unit.cell` is
+// `Hex.toCell(position)`, so it flips at a step's midpoint (22.5 of the 45
+// between centres). At the row's 170 u/s (42.5 per 250 ms tick, still under
+// `Hex.SIZE`) the distance carried over from the step before keeps it past
+// that midpoint at every tick start, so the cell it primes on is already the
+// cell it stands on; at 130 it is not. The prime rule does not read the speed;
+// the next test runs it at the row's speed.
+const STEPPING: Archetype = {
+  ...ARCHETYPES.broodling,
+  routines: ARCHETYPES.broodling.routines.map((r) => r.kind === 'guard' ? { ...r, chaseSpeed: 130 } : r)
+}
+
 test('adjacent: it primes once a player is within 1 ring of the cell it stands on or steps into, stops there, and goes off 500 ms later on that cell', (t) => {
   mockClock(t)
-  const ling = mobAt(ARCHETYPES.broodling)
+  const ling = mobAt(STEPPING)
   const player = playerAt(4)
   let primedAt: number | undefined
   let standingOn: Vector | undefined
@@ -320,6 +338,25 @@ test('adjacent: it primes once a player is within 1 ring of the cell it stands o
   assert.deepEqual(blasts().map((s) => [s.at - T0, key(s.cell)]), [[primedAt + 500, key(primed)]])
   assert.equal(health(player), 150 - 25)
   assert.equal(player.kills, 0)
+})
+
+test('adjacent, at the row\'s chase speed: it primes within 1 ring of a player and the blast takes 25 off them', (t) => {
+  mockClock(t)
+  const ling = mobAt(ARCHETYPES.broodling)
+  const player = playerAt(4)
+  const before = health(player)
+  let primed: Vector | undefined
+  for (let i = 0; i < 20 && primed === undefined; i++) {
+    tick(t)
+    primed = fuseOf(ling)?.primedCell
+  }
+  assert.ok(primed !== undefined, 'never primed')
+  assert.equal(Hex.distance(primed, player.cell), PRIME_RINGS)
+  tick(t)
+  tick(t)
+  assert.equal(ling.destroyed, true)
+  assert.deepEqual(blasts().map((s) => key(s.cell)), [key(primed)])
+  assert.equal(before - health(player), 25)
 })
 
 test('primed, it holds its cell while the player runs: the blast lands on the primed cell and misses them', (t) => {

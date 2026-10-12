@@ -135,7 +135,7 @@ const NPC_SHARED = Object.freeze({
   /** Kiln lob: thrown up to 7 cells (it keeps 5-6 away), blast on the cell + 1 ring. */
   kilnLob: Object.freeze({ kind: 'lob' as const, range: 7, rings: 1 }),
   reactorBurst: Object.freeze({ kind: 'disc' as const, rings: 2 }),
-  coilField: Object.freeze({ kind: 'disc' as const, rings: 2 }),
+  coilField: Object.freeze({ kind: 'disc' as const, rings: 3 }),
   compactorLine: Object.freeze({ kind: 'line' as const, length: 3 }),
   broodlingBlast: Object.freeze({ kind: 'disc' as const, rings: 1 })
 })

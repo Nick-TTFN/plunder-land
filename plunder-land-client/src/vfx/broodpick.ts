@@ -32,11 +32,12 @@ export interface ReleaseCandidate {
 }
 
 /**
- * Three cells (`Hex.SIZE` 45): a Broodling (130 u/s) covers 45.5 px in a
- * 350 ms tick, 130 in a full second's stall. Further than this it is another
+ * A Broodling's chase speed (170 u/s since the PvE challenge pass,
+ * 2026-10-12) for a full second's stall: 59.5 px in a 350 ms tick, 170 in a
+ * second (about 3.8 cells at `Hex.SIZE` 45). Further than this it is another
  * Broodling, created in the same frame by something else.
  */
-export const PICK_REACH = 135
+export const PICK_REACH = 170
 
 /** The released Broodling (see the file comment), or undefined. Ties go to the first in `mobs`. */
 export function pickReleased<T extends ReleaseCandidate> (
@@ -61,11 +62,12 @@ export function pickReleased<T extends ReleaseCandidate> (
 /**
  * How long a released Broodling is drawn over the Brood that released it
  * (decision #52 open items, 5): its emerge, the server's `emergeMs`
- * (`brood.spec.ts` holds the two equal). Its release cell is on ring 2 of the
+ * (`brood.spec.ts` holds the two equal; 750 since the PvE challenge pass,
+ * still past the launch's landing at 630, `broodlaunch.spec.ts`). Its release cell is on ring 2 of the
  * Brood's (ring footprint, option B), and the Brood, drawn about three cells
  * wide, still covers a ring-2 cell on its north side.
  */
-export const EMERGE_ABOVE_MS = 1500
+export const EMERGE_ABOVE_MS = 750
 
 /** Who a new Broodling is drawn over, and until when (`performance.now()` ms). */
 export interface EmergeAbove {

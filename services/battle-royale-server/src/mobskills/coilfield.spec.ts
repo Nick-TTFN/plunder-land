@@ -62,7 +62,10 @@ const east = (cells: number): Vector => Hex.toPosition(Hex.toCell(HOME).add(new 
 
 const FIELD = ARCHETYPES.coil.routines.find((r) => r.kind === 'coilField') as CoilFieldSpec
 const GUARD = ARCHETYPES.coil.routines.find((r) => r.kind === 'guard') as GuardSpec
-const RINGS = 2
+/** The field's rings: 3 since the PvE challenge pass (Nick, 2026-10-12; l1-0's 2). */
+const RINGS = 3
+/** A 140 player on the held field: x0.4 (the PvE challenge pass; l1-0's 0.6, 84). */
+const SLOWED = 56
 
 function mockDate (t: TestContext): void {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
@@ -95,7 +98,7 @@ const of = (type: number): typeof effects => effects.filter((e) => e.type === ty
 
 // --- the row ------------------------------------------------------------------------
 
-test('coil: guard then field, standoff = the field\'s rings = the mirrored disc, l1-0 numbers', () => {
+test('coil: guard then field, standoff = the field\'s rings = the mirrored disc, l1-0 numbers with the PvE challenge pass (3 rings, x0.4)', () => {
   const coil = addCoil()
   assert.deepEqual(coil.routines.map((r) => r.constructor), [GuardPosition, CoilField])
   assert.deepEqual(ARCHETYPE_INFO.coil.attack, { kind: 'disc', rings: RINGS })
@@ -103,7 +106,8 @@ test('coil: guard then field, standoff = the field\'s rings = the mirrored disc,
   assert.equal(GUARD.standoff, RINGS)
   assert.deepEqual(
     [GUARD.acquire, GUARD.lose, GUARD.chaseSpeed, FIELD.slow, FIELD.tellMs, FIELD.holdMs, FIELD.coolMs, FIELD.tailMs, FIELD.cooldownMs],
-    [5, 6, 90, 0.6, 1500, 1500, 700, 500, 6000])
+    [5, 6, 90, 0.4, 1500, 1500, 700, 500, 6000])
+  assert.equal(140 * FIELD.slow, SLOWED)
   assert.equal(ARCHETYPES.coil.contact.damage, 0)
 })
 
@@ -216,10 +220,10 @@ test('a charge: tell, then a held field that slows players on it until the tail 
   mockDate(t)
   const coil = addCoil()
   const near = addPlayer(east(2), 'near')
-  const far = addPlayer(east(3), 'far')
+  const far = addPlayer(east(RINGS + 1), 'far')
   const start = Date.now()
 
-  // The guard acquires `near` (nearest) and the field starts at once: within 2 rings.
+  // The guard acquires `near` (nearest) and the field starts at once: within its rings.
   coil.update(DT)
   assert.equal(coil.target, near)
   const pulses = of(NPC_EFFECT.coilPulse)
@@ -238,10 +242,10 @@ test('a charge: tell, then a held field that slows players on it until the tail 
   }
   assert.ok(speeds.every((s) => s === 140), 'slowed during the tell')
 
-  // The hold: slowed from its first tick; `far` (3 rings) never.
+  // The hold: slowed from its first tick; `far` (a ring beyond the field) never.
   tick(t)
   assert.equal(Date.now() - start, FIELD.tellMs)
-  assert.equal(near.maxVelocity, 84)
+  assert.equal(near.maxVelocity, SLOWED)
   assert.equal(far.maxVelocity, 140)
   assert.equal(of(NPC_EFFECT.slowed).length, 1)
   assert.equal(of(NPC_EFFECT.slowed)[0].id, near.id)
@@ -250,13 +254,13 @@ test('a charge: tell, then a held field that slows players on it until the tail 
   // `far` walks onto the field mid-hold and is caught to the same end.
   far.position = east(-2)
   tick(t)
-  assert.equal(far.maxVelocity, 84)
+  assert.equal(far.maxVelocity, SLOWED)
 
   // Slowed through the hold and the tail, back to 140 the tick after.
   const end = start + FIELD.tellMs + FIELD.holdMs + FIELD.tailMs
   while (Date.now() < end) {
     tick(t)
-    assert.equal(near.maxVelocity, 84, `at ${Date.now() - start}`)
+    assert.equal(near.maxVelocity, SLOWED, `at ${Date.now() - start}`)
     assert.deepEqual(coil.position, at, 'moved during the charge')
   }
   tick(t)
@@ -325,7 +329,7 @@ test('dead and extracted players on the field are left alone', (t) => {
   coil.update(DT)
   assert.equal(coil.target, target)
   for (let i = 0; i < 7; i++) tick(t)
-  assert.equal(target.maxVelocity, 84)
+  assert.equal(target.maxVelocity, SLOWED)
   assert.equal(gone.maxVelocity, 140)
   assert.equal(dead.maxVelocity, 140)
   assert.deepEqual(of(NPC_EFFECT.slowed).map((e) => e.id), [target.id])

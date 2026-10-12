@@ -39,9 +39,10 @@ export const LAUNCH_MS = 180
 /**
  * The flight from the socket to the landing cell, ms. Lands at
  * `LAUNCH_MS + FLIGHT_MS` = 630 ms after the effect, inside the Broodling's
- * 1500 ms emerge (the server holds it still that long; the client plays its
- * `emerge` from 1.3 s, curled to 1.8 s, unfolding to 2.8 s): it flies curled
- * and unfolds on the ground.
+ * 750 ms emerge (the server holds it still that long; the client plays its
+ * `emerge` from 1.3 s, curled to 1.8 s, unfolding to 2.8 s, and lets it walk
+ * off from `spawn.ready`, 2.05 s): it flies curled and starts to unfold on
+ * landing.
  */
 export const FLIGHT_MS = 450
 
