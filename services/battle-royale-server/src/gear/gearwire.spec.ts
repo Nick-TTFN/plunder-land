@@ -79,7 +79,7 @@ const T3: GearInstance = Object.freeze({
   rowId: 'stash-row-7'
 })
 
-test('gear is field 25, carried 26 and speed 27, appended; maxVelocity goes out as speed; PROTOCOL is 7 (L1: tier 4 in 25, 26 and stash)', () => {
+test('gear is field 25, carried 26 and speed 27, appended; maxVelocity goes out as speed; PROTOCOL is 8 (7 for L1: tier 4 in 25, 26 and stash; 8 for pve-2)', () => {
   assert.equal(GameObject.fieldOrder.indexOf('gear'), 25)
   assert.equal(GameObject.fieldOrder.indexOf('carried'), 26)
   assert.equal(GameObject.fieldOrder.indexOf('speed'), 27)
@@ -87,7 +87,7 @@ test('gear is field 25, carried 26 and speed 27, appended; maxVelocity goes out 
   // Index 10 stays in the table, never written.
   assert.equal(GameObject.fieldOrder[10], 'maxVelocity')
   assert.equal(GameObject.WIRE_NAME.maxVelocity, 'speed')
-  assert.equal(PROTOCOL, 7)
+  assert.equal(PROTOCOL, 8)
 })
 
 test('a gear pickup\'s create carries type 128 and the instance under 25, no item field, and decodes to the instance without its rowId', () => {

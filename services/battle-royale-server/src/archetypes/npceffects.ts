@@ -19,7 +19,10 @@ export const NPC_EFFECT = Object.freeze({
   reactorRelease: 12,
   /** Coil pulse (l1-3). */
   coilPulse: 13,
-  /** Compactor shockwave line, aimed at its tip (l1-6). */
+  /**
+   * Compactor shockwave line, aimed at its tip (l1-6). Sent by no server since
+   * pve-2 (20 replaced it); the client keeps drawing it for one release.
+   */
   compactorShockwave: 14,
   /** Knockback, on the victim, aimed at its landing cell (l1-6). */
   knockback: 15,
@@ -30,5 +33,7 @@ export const NPC_EFFECT = Object.freeze({
   /** Broodling blast (l1-7). */
   broodlingBlast: 18,
   /** Brood releases a Broodling (l1-7). */
-  broodRelease: 19
+  broodRelease: 19,
+  /** Compactor slam, a disc, on the Compactor, aimed at the disc's centre cell (pve-2). */
+  compactorSlam: 20
 })

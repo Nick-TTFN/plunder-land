@@ -40,5 +40,10 @@
  * A Coil's slow (l1-3) still reaches an older client as its speed (27) and
  * is predicted, but without the field (13) or the slowed cue (16) it is
  * slowed with no visible cause.
+ * 8: the Compactor's radial slam (pve-2). Its telegraph and strike are the
+ * new effect type 20 (a disc round the slam's centre cell), which an older
+ * client never draws: the slam arrives with no warning and no strike clip,
+ * the same silent misbehaviour 7 was bumped for. Its threat marker would also
+ * still read the old 3-cell line from an older mirror row.
  */
-export const PROTOCOL = 7
+export const PROTOCOL = 8

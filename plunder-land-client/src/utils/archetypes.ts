@@ -46,9 +46,18 @@ export type Rarity = 'common' | 'rare' | 'epic' | 'legendary'
 export type NpcAttack =
   /** Kiln: lobbed at a cell at most `range` away; the blast is that cell and `rings` rings round it. */
   | { readonly kind: 'lob', readonly range: number, readonly rings: number }
-  /** Reactor burst, Coil field, Broodling blast: every cell within `rings` of the NPC's own cell. */
+  /**
+   * Reactor burst, Coil field, Broodling blast: every cell within `rings` of
+   * the NPC's own cell. The Compactor's slam (pve-2): every cell within
+   * `rings` of the cell it slams on.
+   */
   | { readonly kind: 'disc', readonly rings: number }
-  /** Compactor: `length` cells in a straight line out of its cell, along one of the six directions. */
+  /**
+   * `length` cells in a straight line out of the NPC's cell, along one of the
+   * six directions. The Compactor's slam before pve-2; no row uses it now.
+   * Kept one release for the client's effect-14 drawing (an old server during
+   * the deploy); remove it in the follow-up that removes effect 14.
+   */
   | { readonly kind: 'line', readonly length: number }
 
 /**
@@ -136,7 +145,7 @@ const NPC_SHARED = Object.freeze({
   kilnLob: Object.freeze({ kind: 'lob' as const, range: 7, rings: 1 }),
   reactorBurst: Object.freeze({ kind: 'disc' as const, rings: 2 }),
   coilField: Object.freeze({ kind: 'disc' as const, rings: 3 }),
-  compactorLine: Object.freeze({ kind: 'line' as const, length: 3 }),
+  compactorSlam: Object.freeze({ kind: 'disc' as const, rings: 2 }),
   broodlingBlast: Object.freeze({ kind: 'disc' as const, rings: 1 })
 })
 
@@ -175,7 +184,7 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
   kiln: Object.freeze({ id: 10, key: 'kiln', kind: 'mob', unlockLevel: null, rarity: 'rare', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.kilnLob }),
   reactor: Object.freeze({ id: 11, key: 'reactor', kind: 'mob', unlockLevel: null, rarity: 'epic', bodyRings: 1, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.reactorBurst }),
   coil: Object.freeze({ id: 12, key: 'coil', kind: 'mob', unlockLevel: null, rarity: 'rare', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.coilField }),
-  compactor: Object.freeze({ id: 13, key: 'compactor', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.compactorLine }),
+  compactor: Object.freeze({ id: 13, key: 'compactor', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.compactorSlam }),
   // No attack cells of its own: it releases Broodlings (l1-7).
   brood: Object.freeze({ id: 14, key: 'brood', kind: 'mob', unlockLevel: null, rarity: 'legendary', bodyRings: 1, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
   broodling: Object.freeze({ id: 15, key: 'broodling', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.broodlingBlast })

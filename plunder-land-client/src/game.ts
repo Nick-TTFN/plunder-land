@@ -40,7 +40,7 @@ import { BlastEffect } from './vfx/blast.effect'
 import { BombEffect } from './vfx/bomb.effect'
 import { ReactorEffect } from './vfx/reactor.effect'
 import { KilnLobEffect } from './vfx/kilnlob.effect'
-import { KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
+import { CompactorSlamEffect, KnockbackEffect, ShockwaveEffect } from './vfx/shockwave.effect'
 import { CoilPulseEffect, SlowedEffect } from './vfx/coilfield.effect'
 import { NPC_EFFECT } from './vfx/npceffects'
 import { NPC_FX_SHEET } from './vfx/npcfx'
@@ -977,6 +977,18 @@ export class Game extends Container {
         new DefendEffect(target, lifetime)
         break
 
+      // The slam's disc (pve-2), aimed at its centre cell. Its rig's strike
+      // (l1-9) starts partway (`attackLead`) so the shoe lands `lifetime`
+      // later, on the server's impact, aimed along the Compactor's facing (the
+      // centre is its own cell). Planted for it first (S1, decision #52).
+      case NPC_EFFECT.compactorSlam:
+        if (target instanceof Mob) target.catchUpNow()
+        new CompactorSlamEffect(target, lifetime, aimCell)
+        if (target instanceof Mob) target.playAttack(lifetime, CompactorSlamEffect.strikeAim(target))
+        break
+
+      // The old line (14): sent only by a server from before pve-2. Kept one
+      // release for a new client on the old server during the deploy.
       case NPC_EFFECT.compactorShockwave:
         new ShockwaveEffect(target, lifetime, aimCell)
         // Its rig's strike (l1-9), started so the clip's `attack` event (the
