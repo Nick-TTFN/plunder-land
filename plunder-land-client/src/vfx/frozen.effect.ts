@@ -25,6 +25,7 @@ const BOB_PX = 3
  *   drawn width (`Mob.bodySpan`, so a 7-cell Reactor or Brood gets more) and
  *   height (`feetY` to `headY`), bobbing and turning. A stand-in until there
  *   is frozen-status art (PROVISIONAL, Nick's).
+ * - A death clears it at once (tint and flakes): the death clip plays untinted.
  * - Never pauses an attack: a wind-up started before the freeze still lands
  *   on the server, and its clip is timed to it (#52). Only the idle/move loop
  *   holds (`NpcSprite.update`).
@@ -42,7 +43,7 @@ export class FrozenEffect {
   private readonly startedAt = performance.now()
 
   static show (owner: GameObject, lifetime: number): void {
-    if (!(owner instanceof Mob) || owner.destroyed) return
+    if (!(owner instanceof Mob) || owner.destroyed || owner.killed) return
     const running = FrozenEffect.shown.get(owner)
     if (running !== undefined && !running.cue.destroyed && running.cue.parent !== null) {
       running.restart(lifetime)
@@ -92,7 +93,11 @@ export class FrozenEffect {
     this.tween = new TWEEN.Tween(state)
       .to({ ms: duration }, duration)
       .onUpdate(() => {
-        if (this.cue.destroyed || this.owner.destroyed) {
+        // Dead (or gone from view): cleared at once, so its death clip plays
+        // untinted (Nick, via the coordinator, 2026-10-12). `dispose` sets
+        // `killed`; a mob is never pixi-destroyed, so that check alone would
+        // never fire. The rig's own tint is already off (`NpcSprite.play`).
+        if (this.cue.destroyed || this.owner.destroyed || this.owner.killed) {
           this.end()
           return
         }

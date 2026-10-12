@@ -246,8 +246,12 @@ export class NpcSprite extends Container {
     if (clip === undefined) return false
     const current = this.action
     if (current?.role === 'death') return false
-    // A death takes over from a hit's flash and jolt, as a robot's fall_apart does (lane-1 F2).
-    if (role === 'death') this.hitShown.clear()
+    // A death takes over from a hit's flash and jolt, as a robot's fall_apart does (lane-1 F2),
+    // and from a freeze's tint (ice-2): the death clip plays untinted.
+    if (role === 'death') {
+      this.hitShown.clear()
+      this.frozen = false
+    }
     const roles = this.npc.roles
     // A death on the clip a prime is already playing (the Broodling's
     // detonate) carries on from where the prime is, never earlier than the

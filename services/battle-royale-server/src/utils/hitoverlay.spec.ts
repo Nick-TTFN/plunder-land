@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { HitOverlay, multiplyTint } from '../../../../plunder-land-client/src/vfx/hitoverlay'
+import { HitOverlay, ICE_TINT, bodyTint, multiplyTint } from '../../../../plunder-land-client/src/vfx/hitoverlay'
 
 // Decision #52: a hit is an overlay (tint flash and a small jolt of the drawn
 // body), shown by `RobotSprite` and `NpcSprite` over whatever plays.
@@ -56,4 +56,29 @@ test('a finish colour through the hit tint is multiplied per channel', () => {
   assert.equal(multiplyTint(0xffffff, HitOverlay.TINT), HitOverlay.TINT)
   assert.equal(multiplyTint(0x000000, HitOverlay.TINT), 0)
   assert.equal(multiplyTint(0x808080, 0xff0000), 0x800000)
+})
+
+// ice-2: a frozen mob's tint (effect 21) is the ice multiply, composed with
+// the hit flash rather than replacing it (`bodyTint`, `NpcSprite`, `Mob.setIceTint`).
+
+test('bodyTint, no flash and not frozen: the base, white by default', () => {
+  assert.equal(bodyTint(false, false), 0xffffff)
+  assert.equal(bodyTint(false, false, 0x7fb2ff), 0x7fb2ff)
+})
+
+test('bodyTint, the flash alone is exactly the old HitOverlay.TINT', () => {
+  assert.equal(bodyTint(true, false), HitOverlay.TINT)
+})
+
+test('bodyTint, frozen alone is the ice tint over the base, and the base comes back after', () => {
+  assert.equal(bodyTint(false, true), ICE_TINT)
+  assert.equal(bodyTint(false, true, 0x7fb2ff), multiplyTint(0x7fb2ff, ICE_TINT))
+  assert.equal(bodyTint(false, false, 0x7fb2ff), 0x7fb2ff)
+})
+
+test('bodyTint, a flash while frozen still shows: unlike frozen alone and the flash alone', () => {
+  const both = bodyTint(true, true)
+  assert.equal(both, multiplyTint(HitOverlay.TINT, ICE_TINT))
+  assert.notEqual(both, bodyTint(false, true))
+  assert.notEqual(both, bodyTint(true, false))
 })
