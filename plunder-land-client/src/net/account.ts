@@ -192,7 +192,9 @@ export function xpLine (progress: ProgressInfo | undefined, waited: boolean, off
       ? [`+${progress.gained}  LEVEL UP ${progress.level}`, 'accent']
       : [`+${progress.gained}  LV ${progress.level}`, 'text']
   }
-  // An offline run earns nothing, so there is nothing to wait for.
-  if (offline || waited) return ['UNAVAILABLE', 'muted']
+  // An offline run earns nothing, so there is nothing to wait for. A run
+  // that waited out its answer may still have earned: not confirmed, not lost.
+  if (offline) return ['NOT EARNED OFFLINE', 'muted']
+  if (waited) return ['NOT CONFIRMED', 'muted']
   return ['...', 'pending']
 }

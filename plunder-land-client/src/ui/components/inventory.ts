@@ -10,6 +10,7 @@ import { Panel } from './panel'
 import { THEME } from '../theme'
 import { GearBag, GearSlot } from './gearpanel'
 import { type GearInstance, GEAR_BAG, GEAR_FIRST_SLOT, GEAR_SLOTS } from '../../utils/gear'
+import { SETTINGS, keyLabel } from '../../net/settings'
 
 const SLOT = 58
 const SLOT_GAP = 8
@@ -17,8 +18,8 @@ const SLOT_GAP = 8
 const ICON = 36
 
 /**
- * The five inventory slots, as in the mockup: a card per slot with its key
- * (1-5) on a tab, the item's icon, and the count. Keys 1-5 or a tap use one.
+ * The five inventory slots, as in the mockup: a card per slot with its bound
+ * key (1-5 by default, settings) on a tab, the item's icon, and the count. Keys 1-5 or a tap use one.
  * Lives in the status panel (`StatusPanel`).
  *
  * Slots are fixed per kind (utils/items.ts), so key 1 is always the medkit and
@@ -30,6 +31,8 @@ export class Inventory extends Container {
   private _counts: number[] = new Array<number>(INVENTORY_SLOTS).fill(0)
   private readonly _countTexts: Text[] = []
   private readonly _icons: Container[] = []
+  /** Each non-gear slot's key caption (the gear slots carry their own). */
+  private readonly _keyTexts: Text[] = []
   /** Keys 3 and 4: the gear slots (decision #49), in place of two empty item slots. */
   readonly gear: GearSlot[] = []
   /** The bag of 4, under the slots. */
@@ -39,7 +42,7 @@ export class Inventory extends Container {
     super()
     for (let slot = 0; slot < INVENTORY_SLOTS; slot++) {
       if (slot >= GEAR_FIRST_SLOT && slot < GEAR_FIRST_SLOT + GEAR_SLOTS) {
-        const gear = new GearSlot(slot, String(slot + 1))
+        const gear = new GearSlot(slot, Inventory.keyOf(slot))
         gear.x = slot * (SLOT + SLOT_GAP)
         gear.y = 10
         this.gear.push(gear)
@@ -69,7 +72,7 @@ export class Inventory extends Container {
         .drawRoundedRect(SLOT / 2 - 11, -10, 22, 18, 4)
         .endFill()
       card.addChild(tab)
-      const key = Panel.text(String(slot + 1), THEME.smallSize, THEME.text)
+      const key = this._keyTexts[slot] = Panel.text(Inventory.keyOf(slot), THEME.smallSize, THEME.text)
       key.anchor.set(0.5, 0.5)
       key.x = SLOT / 2
       key.y = -1
@@ -148,6 +151,17 @@ export class Inventory extends Container {
    * client can already see is out of range is not sent; the server checks
    * again against its own position, and may still refuse one at the edge.
    */
+  /** The key bound to `slot` as its tab shows it (settings; 1-5 by default). */
+  static keyOf (slot: number): string {
+    return keyLabel(SETTINGS.value.itemKeys[slot] ?? String(slot + 1))
+  }
+
+  /** New item keys from settings, mid-run: every tab shows its slot's key. */
+  rekey (): void {
+    this._keyTexts.forEach((text, slot) => { text.text = Inventory.keyOf(slot) })
+    this.gear.forEach((gear) => { gear.setKeyLabel(Inventory.keyOf(gear.slot)) })
+  }
+
   use (slot: number): void {
     const gear = this.gear[slot - GEAR_FIRST_SLOT]
     if (gear !== undefined) {

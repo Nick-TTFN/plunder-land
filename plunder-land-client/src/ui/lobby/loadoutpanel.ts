@@ -200,7 +200,7 @@ export class LoadoutPanel {
       this.flush()
     } else {
       this.loadouts = mergeSaved(this.loadouts, answer)
-      this.statusText = answer.ok ? 'SAVED' : 'NOT SAVED'
+      this.statusText = answer.ok ? 'SAVED' : 'COULDN\'T SAVE CHANGES'
       this.render()
       this.resolveSettled()
     }
@@ -281,7 +281,7 @@ export class LoadoutPanel {
     empty.onclick = () => { this.change(clear(current, this.slot)) }
     this.grid.append(empty)
 
-    this.status.textContent = editable ? this.statusText : 'PLAY A RUN TO SAVE LOADOUTS'
+    this.status.textContent = editable ? this.statusText : ACCOUNT.info?.offline === true ? 'LOADOUTS CAN\'T BE SAVED OFFLINE' : 'PLAY YOUR FIRST RUN TO SAVE LOADOUTS'
   }
 
   dispose (): void {

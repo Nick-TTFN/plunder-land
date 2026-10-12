@@ -18,8 +18,8 @@ export class SpectateBar extends Container {
     const panel = this._panel = new Panel('SPECTATING')
     this._name = Panel.text('', THEME.bodySize, THEME.accent)
     panel.body.addChild(this._name)
-    const card = SpectateBar.button('RUN CARD', 130, onCard, true)
-    const again = SpectateBar.button('PLAY AGAIN', 150, onAgain, false)
+    const card = SpectateBar.button('RUN SUMMARY', 130, onCard, true)
+    const again = SpectateBar.button('BACK TO LOBBY', 150, onAgain, false)
     card.y = again.y = 30
     again.x = 140
     panel.body.addChild(card, again)

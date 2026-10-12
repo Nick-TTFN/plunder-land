@@ -10,7 +10,8 @@ import {
 import { tierTint } from '../../objects/gearpickup'
 import { iconTexture } from '../../skills/catalog'
 import { itemLines } from '../components/gearpanel'
-import { BRING_LEVEL, GEAR_SLOTS, STASH_SOFT, tierName } from '../../utils/gear'
+import { BRING_LEVEL, GEAR_FIRST_SLOT, GEAR_SLOTS, STASH_SOFT, tierName } from '../../utils/gear'
+import { SETTINGS, keyLabel } from '../../net/settings'
 import { SKILL_LIST, skillById } from '../../utils/skills'
 import { lockBadge, lockTitle } from './locks'
 
@@ -55,6 +56,11 @@ async function loadIcons (): Promise<void> {
 
 function css (colour: number): string {
   return `#${colour.toString(16).padStart(6, '0')}`
+}
+
+/** The key bound to gear slot `slot` (settings; 3 and 4 by default). */
+function gearKey (slot: number): string {
+  return keyLabel(SETTINGS.value.itemKeys[GEAR_FIRST_SLOT + slot] ?? String(GEAR_FIRST_SLOT + slot + 1))
 }
 
 /** What the detail area shows: an item, or an empty key waiting for one. */
@@ -331,11 +337,11 @@ export class StashPanel {
     this.notice.classList.toggle('lb-st-bad', this.note?.bad === true)
 
     if (view === undefined) {
-      this.status.textContent = ACCOUNT.info?.offline === true ? 'NO STASH OFFLINE' : 'EXTRACT WITH GEAR TO START A STASH'
+      this.status.textContent = ACCOUNT.info?.offline === true ? 'STASH UNAVAILABLE OFFLINE' : 'EXTRACT WITH GEAR TO START A STASH'
     } else if (!open) {
       this.status.textContent = `BRING GEAR IN FROM LV ${BRING_LEVEL}`
     } else {
-      this.status.textContent = view.away > 0 ? `${view.away} OUT IN A RUN` : ''
+      this.status.textContent = view.away > 0 ? `${view.away} IN AN ACTIVE RUN` : ''
     }
   }
 
@@ -344,7 +350,7 @@ export class StashPanel {
     this.detail.replaceChildren()
     const focus = this.focus
     if (focus === undefined) {
-      this.detail.append(el('div', 'lb-st-hint', STASH.view === undefined || STASH.view.items.length === 0 ? 'ITEMS YOU EXTRACT WITH LAND HERE' : 'PICK AN ITEM'))
+      this.detail.append(el('div', 'lb-st-hint', STASH.view === undefined || STASH.view.items.length === 0 ? 'GEAR YOU EXTRACT WITH IS STORED HERE' : 'PICK AN ITEM'))
       return
     }
     if ('slot' in focus) {
@@ -370,7 +376,7 @@ export class StashPanel {
       this.renderScrapConfirm(actions, item)
       return
     }
-    const scrap = el('button', 'lb-chip lb-st-danger', 'SCRAP')
+    const scrap = el('button', 'lb-chip lb-st-danger', 'DISCARD')
     scrap.disabled = this.pending !== undefined
     scrap.title = 'Delete this item. It gives nothing back.'
     scrap.onclick = () => {
@@ -384,7 +390,7 @@ export class StashPanel {
     }
     const at = bringSlotOf(shown, item.id)
     for (let slot = 0; slot < GEAR_SLOTS; slot++) {
-      const b = el('button', at === slot ? 'lb-chip lb-sel' : 'lb-chip', at === slot ? `ON KEY ${3 + slot}` : `BRING ON ${3 + slot}`)
+      const b = el('button', at === slot ? 'lb-chip lb-sel' : 'lb-chip', at === slot ? `ON KEY ${gearKey(slot)}` : `BRING ON ${gearKey(slot)}`)
       b.disabled = !open || at === slot
       b.onclick = () => {
         this.setPair(placeBring(shown, slot, item.id))
@@ -406,8 +412,8 @@ export class StashPanel {
   /** SCRAP's confirm, in place of the card's actions. */
   private renderScrapConfirm (actions: HTMLDivElement, item: StashItem): void {
     actions.classList.add('lb-st-confirm')
-    actions.append(el('div', 'lb-st-ask', 'SCRAP THIS ITEM? IT GIVES NOTHING BACK.'))
-    const yes = el('button', 'lb-chip lb-st-danger lb-st-yes', this.pending?.kind === 'scrap' ? 'SCRAPPING…' : 'SCRAP IT')
+    actions.append(el('div', 'lb-st-ask', 'DISCARD THIS ITEM FOR GOOD? YOU GET NOTHING BACK.'))
+    const yes = el('button', 'lb-chip lb-st-danger lb-st-yes', this.pending?.kind === 'scrap' ? 'DISCARDING…' : 'DISCARD IT')
     yes.disabled = this.pending !== undefined
     yes.onclick = () => { this.sendScrap(item) }
     const no = el('button', 'lb-chip', 'KEEP IT')
@@ -426,7 +432,7 @@ export class StashPanel {
     const merging = this.mode === 'merge'
     const b = el('button', merging ? 'lb-chip lb-sel' : 'lb-chip', merging ? 'CANCEL MERGE' : 'MERGE')
     b.disabled = view === undefined || (!merging && view.items.length < MERGE_INPUTS) || this.pending?.kind === 'merge'
-    b.title = 'Merge 3 items of one rarity into 1 of the next'
+    b.title = 'Merge 3 items of the same rarity into higher-rarity gear. 3 Legendary parts make a Legendary skill item.'
     b.onclick = () => {
       if (merging) this.mode = 'browse'
       else this.startMerge()
@@ -570,7 +576,7 @@ export class StashPanel {
       this.pendingTimer = undefined
       if (this.pending === undefined || this.disposed) return
       this.pending = undefined
-      this.note = { text: 'NO ANSWER FROM THE SERVER · CHECK THE STASH AND TRY AGAIN', bad: true }
+      this.note = { text: 'NO CONFIRMATION YET · CHECK THE STASH BEFORE TRYING AGAIN', bad: true }
       this.render()
     }, STASH_EDIT_WAIT_MS)
   }
@@ -589,7 +595,7 @@ export class StashPanel {
     const answer = onMerged(data)
     this.clearPending()
     if (answer === undefined) {
-      this.note = { text: 'MERGE ANSWERED · CHECK THE STASH', bad: false }
+      this.note = { text: 'MERGE RESULT UNKNOWN · CHECK THE STASH', bad: false }
       this.mode = 'browse'
     } else if (answer.ok) {
       this.result = { heading: mergeHeading(pending.inputs, answer.item), item: answer.item }
@@ -614,10 +620,10 @@ export class StashPanel {
     this.clearPending()
     this.scrapping = undefined
     if (answer === undefined) {
-      this.note = { text: 'SCRAP ANSWERED · CHECK THE STASH', bad: false }
+      this.note = { text: 'DISCARD RESULT UNKNOWN · CHECK THE STASH', bad: false }
     } else if (answer.ok) {
       if (this.focus !== undefined && 'item' in this.focus && this.focus.item === pending.item.id) this.focus = undefined
-      this.note = { text: `SCRAPPED ${tierName(pending.item.tier)} ${this.shortName(pending.item)}`, bad: false }
+      this.note = { text: `DISCARDED ${tierName(pending.item.tier)} ${this.shortName(pending.item)}`, bad: false }
     } else {
       this.note = { text: stashEditMessage('scrap', answer.reason ?? 'store'), bad: true }
     }

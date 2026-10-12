@@ -244,8 +244,8 @@ also carries its standing, `xp, level, levelAt, nextAt` (#48 step 3).
 **`progress`** (server → client, text, #48 step 3): `{ gained, xp, level, levelAt, nextAt,
 levelUp }` once a run's grant is written, a database round trip after the run's end (sometimes
 before its own destroy reaches the client). Never sent after the next run's `hello` (`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; then the new standing goes as a mid-run `account { id, xp, level, levelAt, nextAt }` instead, which moves only the lobby badge; the run card's
-XP row says UNAVAILABLE after `PROGRESS_WAIT_MS` (6 s) without it, at once offline. Additive, no
-PROTOCOL bump; until the server has it, every card says UNAVAILABLE.
+XP row says NOT CONFIRMED after `PROGRESS_WAIT_MS` (6 s) without it, NOT EARNED OFFLINE at once offline. Additive, no
+PROTOCOL bump; until the server has it, every card says NOT CONFIRMED.
 
 **`energy`** (server → client, JSON, #48 step 7): `{ stock, cap, nextInMs, regenMs }`
 (`nextInMs` relative, null at or above the cap), after each spend (the run began) and each refund;

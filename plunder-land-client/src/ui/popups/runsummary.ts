@@ -135,7 +135,7 @@ export class RunSummaryCard extends Container {
   private _gearWait: ReturnType<typeof setTimeout> | undefined
 
   /**
-   * `onWatch`, on a death: a WATCH button that puts the card away to spectate
+   * `onWatch`, on a death: a SPECTATE button that puts the card away to spectate
    * (decision #47), shown once there is someone to watch (`setWatchable`).
    */
   constructor (outcome: RunOutcome, run: RunRecord, private readonly _again: () => void, onWatch?: () => void) {
@@ -149,8 +149,8 @@ export class RunSummaryCard extends Container {
       // Gear (decision #49): kept in the stash or lost (`showGear`).
       ['GEAR', '', THEME.text],
       ['KILLS', String(run.kills), THEME.text],
-      ['DEEPEST', run.deepest > 0 ? `LAYER ${two(run.deepest)}` : '-', THEME.text],
-      ['ROBOT', run.robot, THEME.text],
+      ['DEEPEST LAYER', run.deepest > 0 ? `LAYER ${two(run.deepest)}` : '-', THEME.text],
+      ['PLUNDERBOT', run.robot, THEME.text],
       ['XP', '', THEME.text]
     ]
     const inner = WIDTH - 2 * THEME.pad
@@ -194,17 +194,17 @@ export class RunSummaryCard extends Container {
       }
     }
 
-    const button = this.button('PLAY AGAIN', inner, () => { this.again() })
+    const button = this.button('BACK TO LOBBY', inner, () => { this.again() })
     this._buttonsY = rows.length * ROW + 12
     this._buttons.push(button)
     panel.body.addChild(button)
     if (onWatch !== undefined) {
-      const watch = this._watch = this.button('WATCH', inner, onWatch, true)
+      const watch = this._watch = this.button('SPECTATE', inner, onWatch, true)
       this._buttons.push(watch)
       panel.body.addChild(watch)
     }
     this.placeButtons()
-    // Fitted with WATCH in place (pixi leaves invisible children out of the
+    // Fitted with SPECTATE in place (pixi leaves invisible children out of the
     // bounds), so the panel has its room when it appears.
     panel.fit(WIDTH)
     if (this._watch !== undefined) this._watch.visible = false
@@ -281,13 +281,13 @@ export class RunSummaryCard extends Container {
     panel.y = -panel.panelHeight / 2
   }
 
-  /** PLAY AGAIN and WATCH under the rows and the unlock line. */
+  /** BACK TO LOBBY and SPECTATE under the rows and the unlock line. */
   private placeButtons (): void {
     const extra = this._unlocked === undefined || this._unlocked.text === '' ? 0 : this._unlocked.height + 8
     this._buttons.forEach((b, i) => { b.y = this._buttonsY + extra + i * 48 })
   }
 
-  /** Show WATCH once the server says whom this player spectates; hide it when nobody is left. */
+  /** Show SPECTATE once the server says whom this player spectates; hide it when nobody is left. */
   setWatchable (watchable: boolean): void {
     if (this._watch !== undefined) this._watch.visible = watchable
   }
@@ -311,7 +311,7 @@ export class RunSummaryCard extends Container {
     return button
   }
 
-  /** PLAY AGAIN, from the card or the spectate bar. Once: a click and a key can both land. */
+  /** BACK TO LOBBY, from the card or the spectate bar. Once: a click and a key can both land. */
   again (): void {
     if (this._done) return
     this._done = true

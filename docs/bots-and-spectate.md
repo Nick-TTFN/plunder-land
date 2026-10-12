@@ -13,7 +13,7 @@ the world has a human; one bot joins per 2 s; a human over the target makes the 
 leave by extracting, or exit where it stands after 90 s. **Bots are not humans anywhere a world
 counts them** (`Worlds.activePlayers`: world choice and cap, idle closing, draining), write no
 Redis stats and send no analytics (both guarded on `player.bot`); a human's kill on a bot counts.
-They show as players with a BOT tag on the leaderboard (standings flags). The brain thinks once
+They show as players with an AI tag on the leaderboard (standings flags). The brain thinks once
 per its layer's `reactionMs` (`BOT_SKILL`: 650/450/300 ms, aim missing by a cell 45/25/12% of the
 time): heal when hurt, fight the nearest human in reach (but not in the first 10 s of the
 human's run, `SPAWN_GRACE_MS`) and another bot or a mob only within 2 cells, head out once loaded or late (`lootGoal` 1500-4000, `deadline` 3-8 min, both
@@ -38,8 +38,8 @@ spectators beside its own connection (`viewersOf`, static scratch arrays). Death
 view as a layer change does; when the watched run ends, on to the nearest live player (same
 layer first, bots included), or stop (`spectate` `{ id: null }`). The client is told whom it
 follows with a plain `spectate` `{ id, name }` event, text, which framed clients still decode;
-its camera, fog and shown plane follow that unit (`Game.SPECTATE_ID`). The run card gets WATCH,
-and a SPECTATING bar (RUN CARD, PLAY AGAIN) sits above the popups. No spectate after an
+its camera, fog and shown plane follow that unit (`Game.SPECTATE_ID`). The run card gets SPECTATE,
+and a SPECTATING bar (RUN SUMMARY, BACK TO LOBBY) sits above the popups. No spectate after an
 extraction. `forget` ends any spectating (a new run, a move to another world, a disconnect).
 The view itself is the watched robot's: the server sends by its vision (see "Who gets what")
 and the client's fog follows it (`Fog.setRadius`), since #48.

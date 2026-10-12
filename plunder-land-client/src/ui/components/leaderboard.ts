@@ -10,7 +10,7 @@ export { Standing, decodeStanding, type StandingRow } from './standings'
 const STATUS_LABEL: Record<number, string> = {
   [Standing.ACTIVE]: 'ACTIVE',
   [Standing.EXTRACTED]: 'EXTRACTED',
-  [Standing.DEAD]: 'DEAD'
+  [Standing.DEAD]: 'DESTROYED'
 }
 const STATUS_COLOUR: Record<number, number> = {
   [Standing.ACTIVE]: THEME.armor,
@@ -43,7 +43,7 @@ export class Leaderboard extends Panel {
   private readonly _footer: Text
 
   constructor () {
-    super('LEADERBOARD', 'THIS RUN')
+    super('LEADERBOARD', 'THIS WORLD')
     Leaderboard.Instance = this
 
     this.body.addChild(this._highlight)
@@ -110,7 +110,7 @@ export class Leaderboard extends Panel {
       texts.rank.text = two(entry.rank)
       texts.rank.style.fill = entry.rank === 1 ? THEME.loot : THEME.text
       // Bots look like players but are marked here (decision #47).
-      texts.name.text = entry.row.bot ? `${entry.row.name} · BOT` : entry.row.name
+      texts.name.text = entry.row.bot ? `${entry.row.name} · AI` : entry.row.name
       texts.name.style.fill = isOwn ? THEME.accent : THEME.text
       texts.name.alpha = finished ? 0.6 : 1
       texts.loot.text = entry.row.loot.toLocaleString('en-US')

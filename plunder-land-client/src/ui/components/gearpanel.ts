@@ -9,7 +9,7 @@ import { skillFor } from '../../skills/catalog'
 import { Game } from '../../game'
 import { type GameObject } from '../../objects/gameobject'
 import { tierTint } from '../../objects/gearpickup'
-import { type GearInstance, type GearRoll, gearStatById, itemCooldownMs, rollValue, tierName } from '../../utils/gear'
+import { type GearInstance, type GearRoll, GEAR_TIERS, gearStatById, itemCooldownMs, rollValue, tierName } from '../../utils/gear'
 import { skillById } from '../../utils/skills'
 
 /** How long a press must be held on touch to show an item's lines instead of using it, ms. */
@@ -29,7 +29,7 @@ export function rollLine (roll: GearRoll, tier: number, duplicate: boolean): str
     case 'reach': return `+${n(v)} pickup reach`
     // A duplicate shares the kit's skill and its cooldown, which the roll
     // doesn't shorten (Nick 2026-10-05, #49; `DUPLICATE_CUTS_COOLDOWN`).
-    case 'cooldown': return duplicate ? `-${n(v)}% cooldown (not on a shared skill)` : `-${n(v)}% cooldown`
+    case 'cooldown': return duplicate ? `-${n(v)}% cooldown (inactive: skill already equipped)` : `-${n(v)}% cooldown`
   }
 }
 
@@ -37,12 +37,14 @@ export function rollLine (roll: GearRoll, tier: number, duplicate: boolean): str
 export function itemLines (item: GearInstance, duplicate: boolean): string[] {
   const name = item.skill === 0 ? 'PART' : (skillById(item.skill)?.label ?? 'SKILL').toUpperCase()
   const lines = [`${tierName(item.tier)} ${name}`]
-  if (item.skill !== 0 && duplicate) lines.push('ALREADY IN KIT')
+  if (item.skill !== 0 && duplicate) lines.push('SKILL ALREADY EQUIPPED')
   for (const roll of item.rolls) {
     const line = rollLine(roll, item.tier, duplicate)
     if (line !== '') lines.push(line)
   }
-  if (item.skill === 0) lines.push('MERGE 3 FOR THE NEXT TIER')
+  // 3 Legendary parts make a Legendary skill item; a Legendary skill item never merges.
+  if (item.skill === 0) lines.push(item.tier >= GEAR_TIERS ? `MERGE 3 FOR A ${tierName(GEAR_TIERS)} SKILL ITEM` : 'MERGE 3 FOR A HIGHER RARITY')
+  else if (item.tier >= GEAR_TIERS) lines.push('MAX RARITY · CAN\'T MERGE')
   return lines
 }
 
@@ -141,6 +143,7 @@ export class GearSlot extends SkillCard {
   private readonly _iconHolder = new Container()
   private readonly _cd: Text
   private readonly _tip = new ItemTip()
+  private readonly _keyLabel: Text
   private readonly _press: { longPressed: () => boolean }
 
   /** `slot` is the inventory slot, 2 or 3; `label` the key printed on its tab. */
@@ -158,7 +161,7 @@ export class GearSlot extends SkillCard {
       .drawRoundedRect(S / 2 - 11, -10, 22, 18, 4)
       .endFill()
     this.addChild(tab)
-    const key = Panel.text(label, THEME.smallSize, THEME.text)
+    const key = this._keyLabel = Panel.text(label, THEME.smallSize, THEME.text)
     key.anchor.set(0.5, 0.5)
     key.x = S / 2
     key.y = -1
@@ -192,6 +195,11 @@ export class GearSlot extends SkillCard {
    * (nothing leaves a slot but death), so a slot that already holds an item
    * keeps its cooldown.
    */
+  /** The key printed on the tab, after a rebind in settings. */
+  setKeyLabel (label: string): void {
+    this._keyLabel.text = label
+  }
+
   setItem (item: GearInstance | null, duplicate: boolean): void {
     if (item === null) {
       this._item = null

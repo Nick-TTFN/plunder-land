@@ -61,11 +61,12 @@ function density (): number {
   return densityFor(SETTINGS.value.density, window.devicePixelRatio)
 }
 
-// A change in settings is in force at once: density, the overlay, the HUD's skill keys.
+// A change in settings is in force at once: density, the overlay, the HUD's skill and item keys.
 SETTINGS.listeners.add(() => {
   onResize()
   showStats(statsByQuery || SETTINGS.value.perfOverlay)
   if (Session.skills !== undefined) Game.hud?.rekey(slotsFor(Session.skills, SETTINGS.value.skillKeys).keys)
+  Game.hud?.status?.inventory.rekey()
 })
 
 // Render at the screen's density. With pixi's default resolution of 1 a Retina

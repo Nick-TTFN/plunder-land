@@ -14,7 +14,7 @@ import { ARCHETYPE_INFO, SELECTABLE_ROBOTS, type RobotStats } from '../../utils/
 export interface RosterEntry {
   readonly key: string
   readonly name: string
-  /** The small line over the name ("BALANCED"). */
+  /** The small line over the name ("ALL-ROUNDER"). */
   readonly kind: string
   readonly tagline: string
   /** The archetype key when it can be picked; undefined while locked. */
@@ -22,7 +22,7 @@ export interface RosterEntry {
 }
 
 export const ROSTER: readonly RosterEntry[] = Object.freeze([
-  { key: 'peep', name: 'PEEP', kind: 'BALANCED', tagline: 'A little bot. A lot of possibility.', robot: 'peep' },
+  { key: 'peep', name: 'PEEP', kind: 'ALL-ROUNDER', tagline: 'A little bot. A lot of possibility.', robot: 'peep' },
   { key: 'periscope', name: 'PERISCOPE', kind: 'SCOUT', tagline: 'Sees the trouble first.', robot: 'periscope' },
   { key: 'magnet', name: 'MAGNET', kind: 'COLLECTOR', tagline: 'Loot comes to it.', robot: 'magnet' },
   { key: 'hopper', name: 'HOPPER', kind: 'JUMPER', tagline: 'Over walls, not around them.', robot: 'hopper' },

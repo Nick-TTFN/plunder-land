@@ -22,8 +22,8 @@ each later start (`Worlds.retryAccount`: the handshake token looked up again, sa
 Sentry throttle) and creates an account only once the store has answered that it knows none (or
 there is no token), never while a lookup is unanswered, failed or timed out. At most one creation is in flight per connection
 (`Worlds.create`): one the timeout gave up on is waited on again at the next start and its account
-taken if it landed, so a slow store makes one row per connection, not one per PLAY AGAIN. Still failing, the
-run plays offline under the same id. Every PLAY AGAIN while offline waits on the store again (up
+taken if it landed, so a slow store makes one row per connection, not one per run start. Still failing, the
+run plays offline under the same id. Every run start while offline waits on the store again (up
 to 3 s while it hangs).
 Sentry hears of account failures once per stretch (`Worlds.accountFailure`: the first after a
 success, then one per `ACCOUNTS_REPORT_MS`, 10 min), and of a failing migration runner once per

@@ -129,7 +129,8 @@ test('count and the warning from 12 items', () => {
   assert.equal(stashCount({ ...some, away: 2 }), `1 / ${STASH_SOFT} · 2 AWAY`)
   assert.equal(stashWarning(some), undefined)
   const full = view(...Array.from({ length: STASH_SOFT }, (_, i): [string, number] => [String(i + 1), 0]))
-  assert.match(stashWarning(full) ?? '', /KEEPS EVERYTHING/)
+  assert.match(stashWarning(full) ?? '', /^12\+ ITEMS · MERGE OR DISCARD/)
+  assert.doesNotMatch(stashWarning(full) ?? '', /FULL|KEEPS EVERYTHING/, 'the soft limit is no cap, and STASH_MAX still cuts')
   assert.equal(stashWarning({ ...full, items: full.items.slice(1) }), undefined)
 })
 
@@ -139,7 +140,7 @@ test('run card row: lost on a death or offline, kept from the settle, STASH FULL
   assert.deepEqual(gearLine(true, 2, true, undefined, false), ['GEAR LOST', '2', 'danger'], 'offline keeps nothing')
   assert.deepEqual(gearLine(true, 0, false, undefined, false), ['GEAR KEPT', '0', 'text'], 'nothing carried: no settle to wait for')
   assert.deepEqual(gearLine(true, 2, false, undefined, false), ['GEAR KEPT', '...', 'pending'])
-  assert.deepEqual(gearLine(true, 2, false, undefined, true), ['GEAR KEPT', 'UNAVAILABLE', 'muted'])
+  assert.deepEqual(gearLine(true, 2, false, undefined, true), ['GEAR KEPT', 'NOT CONFIRMED', 'muted'])
   assert.deepEqual(gearLine(true, 2, false, { kept: 2, full: 0 }, true), ['GEAR KEPT', '2', 'loot'], 'a late settle still shows')
   assert.deepEqual(gearLine(true, 3, false, { kept: 2, full: 1 }, false), ['STASH FULL', 'KEPT 2 · LOST 1', 'danger'])
 })

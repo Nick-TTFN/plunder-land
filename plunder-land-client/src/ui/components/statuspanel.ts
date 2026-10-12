@@ -28,7 +28,7 @@ export class StatusPanel extends Panel {
   private _shown = { loot: NaN, hp: NaN, maxHp: NaN, armor: NaN, maxArmor: NaN }
 
   constructor () {
-    super('HEX / EXTRACTION')
+    super('EXTRACTION')
 
     this._lootLabel = Panel.text('LOOT', THEME.smallSize, THEME.muted)
     this._loot = Panel.text('0', THEME.titleSize, THEME.loot)

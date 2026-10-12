@@ -149,7 +149,7 @@ export class SettingsPanel {
     this.body.append(perf)
 
     this.body.append(el('div', 'st-section', 'SOUND'))
-    this.body.append(el('div', 'st-row st-off', 'VOLUME  ·  COMING WITH SOUNDS'))
+    this.body.append(el('div', 'st-row st-off', 'VOLUME  ·  SOUND COMING SOON'))
   }
 
   private keyRow (label: string, group: 'skillKeys' | 'itemKeys', names: string[]): HTMLDivElement {

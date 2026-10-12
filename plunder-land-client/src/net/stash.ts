@@ -310,10 +310,11 @@ export function stashCount (view: StashView): string {
 /**
  * From `STASH_SOFT` (12) items: extraction still keeps everything (Nick
  * 2026-10-05, #49), but the stash asks to be thinned. Undefined below it.
+ * Not "full" and no promise to keep everything: `STASH_MAX` still cuts.
  */
 export function stashWarning (view: StashView): string | undefined {
   if (view.items.length < STASH_SOFT) return undefined
-  return 'STASH FULL · EXTRACTION STILL KEEPS EVERYTHING · MERGE OR SCRAP SOON'
+  return `${STASH_SOFT}+ ITEMS · MERGE OR DISCARD WHAT YOU DON'T NEED`
 }
 
 /** The tone of a run card line, as `xpLine`'s. */
@@ -329,7 +330,7 @@ export type GearTone = 'pending' | 'muted' | 'text' | 'loot' | 'danger'
  * - Otherwise the settle's `stash` with `run` says KEPT n; STASH FULL only
  *   when the ceiling turned some away. It can land before or after the own
  *   destroy; until it does, `...`; after `PROGRESS_WAIT_MS` without it,
- *   UNAVAILABLE (a failed settle sends nothing; its rows come back later).
+ *   NOT CONFIRMED (a failed settle sends nothing; its rows come back later).
  */
 export function gearLine (extracted: boolean, carried: number, offline: boolean, run: StashRun | undefined, waited: boolean): [string, string, GearTone] {
   if (!extracted || offline) return ['GEAR LOST', String(carried), carried === 0 ? 'text' : 'danger']
@@ -338,7 +339,7 @@ export function gearLine (extracted: boolean, carried: number, offline: boolean,
     return ['GEAR KEPT', String(run.kept), run.kept === 0 ? 'text' : 'loot']
   }
   if (carried === 0) return ['GEAR KEPT', '0', 'text']
-  if (waited) return ['GEAR KEPT', 'UNAVAILABLE', 'muted']
+  if (waited) return ['GEAR KEPT', 'NOT CONFIRMED', 'muted']
   return ['GEAR KEPT', '...', 'pending']
 }
 
@@ -462,20 +463,20 @@ export function mergeCheck (view: StashView | undefined, picked: readonly string
   }
   if (inputs.length < MERGE_INPUTS) {
     const left = MERGE_INPUTS - inputs.length
-    return { ok: false, reason: inputs.length === 0 ? 'PICK 3 ITEMS OF ONE TIER' : `PICK ${left} MORE OF THE SAME TIER` }
+    return { ok: false, reason: inputs.length === 0 ? 'PICK 3 ITEMS OF THE SAME RARITY' : `PICK ${left} MORE OF THE SAME RARITY` }
   }
   const tier = inputs[0].tier
-  if (!inputs.every((item) => item.tier === tier)) return { ok: false, reason: 'ALL 3 MUST BE THE SAME TIER' }
+  if (!inputs.every((item) => item.tier === tier)) return { ok: false, reason: 'ALL 3 MUST BE THE SAME RARITY' }
   const chosen = keepFor(inputs, keep)
   if (chosen !== null) {
-    if (tier >= GEAR_TIERS) return { ok: false, reason: `${tierName(GEAR_TIERS)} SKILL ITEMS CAN'T MERGE · ONLY ${tierName(GEAR_TIERS)} PARTS` }
+    if (tier >= GEAR_TIERS) return { ok: false, reason: `${tierName(GEAR_TIERS)} SKILL ITEMS CAN'T MERGE · PICK ${tierName(GEAR_TIERS)} PARTS` }
     const kept = stashItem(view, chosen)
     const name = (skillById(kept?.skill ?? 0)?.label ?? 'SKILL').toUpperCase()
-    return { ok: true, ids: inputs.map((item) => item.id), keep: chosen, inputs, preview: `MAKES A ${tierName(tier + 1)} ${name} · FRESH ROLLS` }
+    return { ok: true, ids: inputs.map((item) => item.id), keep: chosen, inputs, preview: `MAKES A ${tierName(tier + 1)} ${name} · NEW RANDOM BONUSES` }
   }
   const preview = tier >= GEAR_TIERS
     ? `MAKES A ${tierName(GEAR_TIERS)} SKILL ITEM · ALWAYS`
-    : `MAKES A ${tierName(tier + 1)} PART · OR, BY CHANCE, A SKILL ITEM`
+    : `MAKES A ${tierName(tier + 1)} PART, WITH A CHANCE OF A SKILL ITEM`
   return { ok: true, ids: inputs.map((item) => item.id), keep: null, inputs, preview }
 }
 
@@ -500,9 +501,9 @@ export function mergeHeading (inputs: readonly GearInstance[], result: GearInsta
 /** A refused merge or scrap, in plain words. */
 export function stashEditMessage (action: 'merge' | 'scrap', reason: StashEditReason): string {
   if (reason === 'busy') return 'STILL SAVING THE LAST CHANGE · TRY AGAIN IN A MOMENT'
-  if (reason === 'invalid') return action === 'merge' ? 'THOSE ITEMS CAN\'T MERGE NOW · NOTHING CHANGED' : 'THAT ITEM CAN\'T BE SCRAPPED NOW · NOTHING CHANGED'
+  if (reason === 'invalid') return action === 'merge' ? 'THOSE ITEMS CAN\'T MERGE NOW · NOTHING CHANGED' : 'THAT ITEM CAN\'T BE DISCARDED NOW · NOTHING CHANGED'
   // Not "nothing changed": a write the server's timeout gave up on may still land; the stash that follows is the truth.
-  return 'COULDN\'T REACH THE STASH · TRY AGAIN LATER'
+  return 'COULDN\'T CONFIRM THE CHANGE · CHECK THE STASH BEFORE TRYING AGAIN'
 }
 
 /** How long the panel waits for an answer before freeing its buttons (the server answers within its 3 s store timeout). */

@@ -427,8 +427,8 @@ test('client: progress and standing are read only when whole and consistent; the
   assert.equal(clientStanding({ id: 'x' }), undefined, 'an account from a server before XP')
 
   assert.deepEqual(xpLine(undefined, false, false), ['...', 'pending'])
-  assert.deepEqual(xpLine(undefined, true, false), ['UNAVAILABLE', 'muted'])
-  assert.deepEqual(xpLine(undefined, false, true), ['UNAVAILABLE', 'muted'], 'an offline run waits for nothing')
+  assert.deepEqual(xpLine(undefined, true, false), ['NOT CONFIRMED', 'muted'])
+  assert.deepEqual(xpLine(undefined, false, true), ['NOT EARNED OFFLINE', 'muted'], 'an offline run waits for nothing')
   assert.deepEqual(xpLine(good, false, false), ['+87  LEVEL UP 2', 'accent'])
   assert.deepEqual(xpLine({ ...good, levelUp: false }, true, false), ['+87  LV 2', 'text'])
   assert.ok(PROGRESS_WAIT_MS >= 3000, 'the card gives up before a slow grant could land')

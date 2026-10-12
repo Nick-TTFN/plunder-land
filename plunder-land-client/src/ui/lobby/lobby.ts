@@ -239,7 +239,7 @@ export default class Lobby extends Container {
   private readonly statRows: Array<{ fill: HTMLDivElement, value: HTMLSpanElement }> = []
   /** STATS & PAINT: the stat bars over the customize rows. */
   private readonly customize: HTMLDivElement
-  /** CHANGE SCAVENGER: the robot cards and the chosen one's tagline. */
+  /** CHOOSE PLUNDERBOT: the robot cards and the chosen one's tagline. */
   private readonly picker: HTMLDivElement
   /** The action rows' status lines and dots (Skills, Stats & paint, Stash). */
   private readonly rowStatus: Record<'skills' | 'paint' | 'stash', { text: HTMLSpanElement, dot: HTMLSpanElement }>
@@ -312,7 +312,7 @@ export default class Lobby extends Container {
     // (and PRIVACY) fold into the menu button's dropdown.
     const top = this.top = el('header', 'lb-top')
     top.innerHTML = `
-      <div class="lb-brand"><span class="lb-logo"></span>PLUNDERLAND</div>
+      <div class="lb-brand"><span class="lb-logo"></span>PLUNDERBOTS</div>
       <nav class="lb-tabs"><span class="lb-tab lb-on">Lobby</span><span class="lb-tab lb-off" title="Coming soon">Collection</span></nav>`
     const topActions = el('div', 'lb-topactions')
     // Invites (decision #47): the link puts a friend in this player's world.
@@ -342,7 +342,7 @@ export default class Lobby extends Container {
     this.nameLine = el('div', 'lb-robot')
     this.kindLine = el('div', 'lb-kind')
     const change = el('button', 'lb-change')
-    change.innerHTML = `Change scavenger ${ICON.down}`
+    change.innerHTML = `Choose Plunderbot ${ICON.down}`
     change.onclick = () => { this.toggle('pick') }
     plate.append(this.nameLine, this.kindLine, change)
     hero.append(this.preview, plate)
@@ -369,7 +369,7 @@ export default class Lobby extends Container {
     this.xpLine = el('span')
     this.xpToGo = el('span')
     xpRow.append(this.xpLine, this.xpToGo)
-    progress.append(el('div', 'lb-eyebrow', 'Your progression'), this.levelHeading, this.xpBar, xpRow)
+    progress.append(el('div', 'lb-eyebrow', 'Progress'), this.levelHeading, this.xpBar, xpRow)
 
     // Journey: what opens at each level, from the mirrored unlock rows (`journeyStop`).
     const journey = el('section', 'lb-journey')
@@ -382,7 +382,7 @@ export default class Lobby extends Container {
     this.journeyNext.onclick = () => { this.moveJourney(1) }
     this.journeyStops = el('div', 'lb-jstops')
     strip.append(this.journeyPrev, this.journeyStops, this.journeyNext)
-    journey.append(el('div', 'lb-eyebrow', 'Your journey'), strip)
+    journey.append(el('div', 'lb-eyebrow', 'Upcoming unlocks'), strip)
 
     // The three panels, as rows: Skills (the loadout), Stats & paint, Stash.
     const rows = el('section', 'lb-acts')
@@ -406,8 +406,8 @@ export default class Lobby extends Container {
     }
     this.rowStatus = {
       skills: row('skills', ICON.bolt, 'Skills', 'Equip', 'L', () => { this.toggle('loadout') }),
-      paint: row('paint', ICON.bars, 'Stats & paint', 'Paint', 'E', () => { this.toggle('paint') }),
-      stash: row('stash', ICON.box, 'Stash', 'View', 'S', () => { this.toggle('stash') })
+      paint: row('paint', ICON.bars, 'Stats & paint', 'Customize', 'E', () => { this.toggle('paint') }),
+      stash: row('stash', ICON.box, 'Stash', 'Open', 'S', () => { this.toggle('stash') })
     }
 
     this.season = el('section', 'lb-season')
@@ -429,7 +429,7 @@ export default class Lobby extends Container {
     this.renderFull()
 
     const ready = this.readyButton = el('button', 'lb-ready')
-    ready.innerHTML = `Ready up ${ICON.right}`
+    ready.innerHTML = `Start run ${ICON.right}`
     ready.onclick = () => { this.ready() }
     this.playsLine = el('span', 'lb-ready-sub')
     const action = el('div', 'lb-action')
@@ -471,12 +471,12 @@ export default class Lobby extends Container {
     foot.append(this.mixButton, done)
     this.customize.append(foot)
 
-    // CHANGE SCAVENGER: the robot cards (stills rendered from the rigs), locked ones badged.
+    // CHOOSE PLUNDERBOT: the robot cards (stills rendered from the rigs), locked ones badged.
     this.picker = el('div', 'lb-custom lb-picker lb-hidden')
     const pickHead = el('div', 'lb-customhead')
     const pickClose = el('button', 'lb-close', '\u00D7')
     pickClose.onclick = () => { this.toggle(undefined) }
-    pickHead.append(el('span', undefined, 'SCAVENGERS'), pickClose)
+    pickHead.append(el('span', undefined, 'PLUNDERBOTS'), pickClose)
     const cards = el('div', 'lb-cards')
     for (const entry of ROSTER) {
       const card = el('button', entry.robot === undefined ? 'lb-card lb-locked' : 'lb-card')
@@ -632,7 +632,7 @@ export default class Lobby extends Container {
     if (this.invite === undefined) return
     const who = this.invite.from === '' ? 'A FRIEND' : this.invite.from
     // textContent: the name came from a link.
-    this.joinBanner.append(el('span', 'lb-join-text', `JOINING ${who.toUpperCase()}'S WORLD`))
+    this.joinBanner.append(el('span', 'lb-join-text', `JOIN ${who.toUpperCase()}'S WORLD`))
     const cancel = el('button', 'lb-join-x', '\u2715')
     cancel.title = 'Play in any world instead'
     cancel.onclick = () => {
@@ -654,7 +654,7 @@ export default class Lobby extends Container {
       fallback()
       return
     }
-    navigator.clipboard.writeText(url).then(() => { done('LINK COPIED') }, fallback)
+    navigator.clipboard.writeText(url).then(() => { done('INVITE LINK COPIED') }, fallback)
   }
 
   private static loadJson (key: string): unknown {
@@ -1080,7 +1080,7 @@ export default class Lobby extends Container {
       const offline = ACCOUNT.info?.offline === true
       this.levelHeading.textContent = offline ? 'Offline' : fresh ? 'Level 1' : 'Level \u2026'
       this.xpFill.style.width = '0%'
-      this.xpLine.textContent = offline ? 'XP is saved when the server is back' : fresh ? 'Play a run to start earning XP' : ''
+      this.xpLine.textContent = offline ? 'Progress isn\'t saved in offline mode' : fresh ? 'Play a run to start earning XP' : ''
       this.xpToGo.textContent = ''
     } else {
       const into = standing.xp - standing.levelAt
@@ -1207,7 +1207,7 @@ export default class Lobby extends Container {
     this.playsLine.textContent = view === undefined ? '' : energyLine(view, elapsed)
     const out = outOfPlays(view, elapsed)
     this.readyButton.disabled = out
-    this.readyButton.title = out ? 'A run costs a play; extracting gives it back' : ''
+    this.readyButton.title = out ? 'Each run uses 1 play. Extract to get it back.' : ''
   }
 
   private teardown (): void {

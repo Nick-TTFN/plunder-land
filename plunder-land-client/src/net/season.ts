@@ -136,19 +136,19 @@ function plural (n: number, word: string): string {
 
 /** The lobby's season line, `msSinceReceived` after the view arrived. */
 export function seasonLine (view: SeasonView, msSinceReceived: number): string {
-  const resets = `RESETS IN ${resetsIn(view.endsInMs - msSinceReceived)}`
+  const resets = `ENDS IN ${resetsIn(view.endsInMs - msSinceReceived)}`
   if (view.rank === null) {
     const needs: string[] = []
     const runs = Math.max(0, view.minRuns - view.runs)
     const extractions = Math.max(0, view.minExtractions - view.extractions)
-    if (runs > 0) needs.push(plural(runs, 'RUN'))
+    if (runs > 0) needs.push(plural(runs, 'MORE RUN'))
     if (extractions > 0) needs.push(plural(extractions, 'EXTRACTION'))
-    const what = needs.length > 0 ? `${needs.join(' + ')} TO RANK` : 'BANK LOOT TO RANK'
+    const what = needs.length > 0 ? `${needs.join(' + ')} TO QUALIFY` : 'BANK LOOT TO QUALIFY'
     return ['SEASON', what, resets].join(DOT)
   }
   const place = `#${view.rank} OF ${view.ranked}`
   if (view.tier === null) return ['SEASON', place, resets].join(DOT)
-  return ['SEASON', place, `TOP ${view.tier}% +${view.payout} XP`, resets].join(DOT)
+  return ['SEASON', place, `TOP ${view.tier}% · ON TRACK FOR +${view.payout} XP`, resets].join(DOT)
 }
 
 /**

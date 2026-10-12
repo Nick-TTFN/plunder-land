@@ -22,20 +22,21 @@ canvas (`lobbystyle.ts`, all `lb-` classes, placeholder chrome) carries the name
 (stills rendered from the rigs; pickable from their unlock level since 2026-10-01, `ui/lobby/roster.ts`,
 whose class lines and taglines other than Peep's are placeholder copy), stat bars read from the
 mirrored `stats`, CUSTOMIZE (head/body/limbs rows of the presets' swatches, or MIX for any colour
-and pattern) and READY UP. Keys: left/right, E, Enter. It remembers robot, finish and name
+and pattern) and START RUN. Keys: left/right, E, Enter. It remembers robot, finish and name
 (`plunderland_player_robot`, `_finish`, `_name`). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art), the
-COLLECTION tab, the title (PLUNDERLAND here; the mockup says SCAVENGERS). `assets/index.html`
+COLLECTION tab. The game is called **Plunderbots** (Nick, 2026-10-12): the wordmark, the
+picker's heading and its button ("Choose Plunderbot") say so; see "Player-facing copy" below. `assets/index.html`
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the
 bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out as mojibake.
 
 **Layout since 2026-10-09** (Nick's mockup of that day): one CSS grid in `.lb-main`. Desktop: the hero
-(canvas robot, name, class, CHANGE SCAVENGER) spans the left column; on the right the callsign, "Your
-progression" (level, XP bar, `n / span XP` and `n XP to level L+1` from `Standing`), "Your journey",
+(canvas robot, name, class, CHOOSE PLUNDERBOT) spans the left column; on the right the callsign, "Progress"
+(level, XP bar, `n / span XP` and `n XP to level L+1` from `Standing`), "Upcoming unlocks",
 three action rows, the season row and READY with the plays line under it. Under 760 px it is one
 column (progression, journey, hero, callsign, rows, season), READY is `position: sticky` at the
 bottom of the scroll, the tabs go and INVITE / settings / PRIVACY fold into the header's menu button.
 Four panels, one open at a time (`Lobby.toggle`): STATS & PAINT (the stat bars over the customize
-rows, key E), SCAVENGERS (the robot cards and tagline, key C), LOADOUT (L), STASH (S). The row
+rows, key E), PLUNDERBOTS (the robot cards and tagline, key C), LOADOUT (L), STASH (S). The row
 "Stats & paint" is the mockup's "Loadout & stats": the skill loadout is the Skills row. The heading,
 the arrows beside the robot and the key-hints line are gone (left/right still switch robots).
 - **It zooms to fit the window** (`Lobby.fit`, 2026-10-09): the desktop grid needs about 900 px of
@@ -74,10 +75,32 @@ stays remembered while its row is away** (out of `items` during the run that car
 the same id on extraction), so it is dropped only from what is shown and sent (`shownBring`), not
 from memory. MERGE picks 3 (other tiers dimmed but tappable, so the reason line can say why), a
 keep chip when skill items are among them, then MERGE 3; the result card (OK, MERGE MORE) is where
-the Q11 reroll would go if Nick ever says yes. SCRAP sits on every card behind a confirm. **The
+the Q11 reroll would go if Nick ever says yes. DISCARD (the `scrap` message) sits on every card behind a confirm. **The
 client copies no merge odds**: its preview says "by chance", so `PART_MERGE_SKILL_CHANCE` has one
 copy, on the server. No answer within `STASH_EDIT_WAIT_MS` (8 s) frees the buttons. Another tab's
 edits show only at that tab's next `stash`.
+
+## Player-facing copy
+
+**The game is Plunderbots** (one word; PLUNDERBOTS in the wordmark), a playable robot a
+Plunderbot. Internal names (`plunderland_*` storage keys, the party keys, file and event
+names) stay: renaming a storage key loses every player's id and settings.
+
+- Copy that touches progress, items or saving says what is known, not more: an unanswered
+  result is NOT CONFIRMED (not UNAVAILABLE or LOST); an offline run is NOT EARNED OFFLINE;
+  the stash past `STASH_SOFT` is not "full" and promises nothing (`STASH_MAX` still cuts);
+  a merge or scrap whose answer can't be read says RESULT UNKNOWN.
+- Merge copy is conditional at Legendary: 3 Legendary parts make a Legendary skill item, and
+  a Legendary skill item can't merge (`gearpanel.ts` `itemLines`, the MERGE tooltip).
+- Key captions read the bound key (`SETTINGS.value.itemKeys`), never a literal 3 or 4: the stash
+  panel, and the in-run inventory tabs (`Inventory.rekey` on a settings change, as the skill cards).
+- The destructive stash action is DISCARD (the `scrap`/`scrapped` messages keep their names):
+  "scrap" suggested getting material back, and it gives nothing. A computer player's leaderboard
+  badge is AI, since "bot" now means a Plunderbot.
+- "Rarity", not "tier", in anything the player reads.
+- Not yet decided (2026-10-12): Skills vs Abilities, kit/loadout, "skill item" vs Module,
+  Medkit vs Repair Kit, and the eight skill names. Skill labels live in the mirrored `utils/skills.ts` and in each skill class, so a
+  rename changes both packages and every class together.
 
 ## Fog, markers and the run card
 
@@ -121,7 +144,7 @@ Its GEAR row (`gearLine` in `net/stash.ts`): a death, or any offline end, is GEA
 count from the player's last `carried`; an extraction carrying nothing is GEAR KEPT 0 at once (the
 server sends no settle then); otherwise `...` until the `stash` with `run` (which can land before or
 after the destroy; `RunRecord.stashRun`, reset in `start`), then GEAR KEPT `run.kept`, or STASH FULL
-when `run.full` > 0, and UNAVAILABLE after `PROGRESS_WAIT_MS`.
+when `run.full` > 0, and NOT CONFIRMED after `PROGRESS_WAIT_MS`.
 
 **The canvas renders at the screen's density** (`index.ts`: `resolution` = devicePixelRatio
 capped at 2, `autoDensity`, re-read on resize). pixi's default of 1 gave a Retina screen a

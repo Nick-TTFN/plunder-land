@@ -11,7 +11,7 @@ export class LoaderOverlay extends Container {
     this.dimmer = new Graphics().beginFill(0, 0.5).drawRect(0, 0, 1000, 1000).endFill()
     this.addChild(this.dimmer)
 
-    this.text = ToolKit.createText('please wait..')
+    this.text = ToolKit.createText('Loading…')
     this.addChild(this.text)
 
     this.visible = false
