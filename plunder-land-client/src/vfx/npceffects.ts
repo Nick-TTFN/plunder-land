@@ -35,5 +35,7 @@ export const NPC_EFFECT = Object.freeze({
   /** Brood releases a Broodling (l1-7). */
   broodRelease: 19,
   /** Compactor slam, a disc, on the Compactor, aimed at the disc's centre cell (pve-2). */
-  compactorSlam: 20
+  compactorSlam: 20,
+  /** Frozen, on the mob, for the freeze's length (ice-1). */
+  frozen: 21
 })

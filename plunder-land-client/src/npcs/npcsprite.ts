@@ -3,7 +3,7 @@ import { type NpcDrawList, type NpcImage, type NpcMark, type NpcPose, type NpcPo
 import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
-import { HitOverlay } from '../vfx/hitoverlay'
+import { HitOverlay, bodyTint } from '../vfx/hitoverlay'
 import { TILT } from '../objects/tilt'
 
 /** An `NpcMasked` drawn: its images in a container cut by its mask sprite. */
@@ -55,6 +55,10 @@ interface Action {
  *   (`yieldsToMovement`, decision #52 A1), so planted feet don't slide.
  * - `hit` is an overlay, never a clip (decision #52): a tint flash and a
  *   small jolt of the drawn body (`HitOverlay`), over whatever plays.
+ * - `frozen` (effect 21, ice-2, `FrozenEffect`) tints the body with
+ *   `ICE_TINT`, multiplied with the hit flash, and holds the idle/move loop
+ *   still. Never an action: an attack already winding up keeps its clock, so
+ *   its event still lands on the server's impact (#52), as the strike does.
  * - `poseOptions` feeds the package's pose parameters each frame (the
  *   Broodling's cord length from its fuse left).
  *
@@ -117,6 +121,8 @@ export class NpcSprite extends Container {
   /** The last pose shown, an action's included: what a `fromAction` death starts from. */
   private shownPose: NpcPose | undefined
   private readonly hitShown = new HitOverlay()
+  /** Frozen (effect 21, `FrozenEffect`): the ice tint, and the idle/move loop held still. */
+  frozen = false
   /** Seconds since it was made, for the rigs' own clocks (`NpcPoseOptions.clock`: the Kiln's furnace, the Brood's lamps). */
   private age = 0
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
@@ -318,7 +324,8 @@ export class NpcSprite extends Container {
 
   update (dt: number): void {
     if (this.pinned !== undefined) return
-    this.baseTime += this.moving ? dt * gaitClock(this.npc, this.pace, this.stretch, RobotSprite) : dt
+    // Frozen holds the idle/move loop only; an action's clock below never stops.
+    if (!this.frozen) this.baseTime += this.moving ? dt * gaitClock(this.npc, this.pace, this.stretch, RobotSprite) : dt
     this.hitShown.advance(dt)
     this.age += dt
     const action = this.action
@@ -379,7 +386,7 @@ export class NpcSprite extends Container {
     let graphics = 0
     let groups = 0
     let open: Graphics | undefined
-    const tint = this.hitShown.flashing ? HitOverlay.TINT : 0xffffff
+    const tint = bodyTint(this.hitShown.flashing, this.frozen)
     for (const item of list.items) {
       if (item.kind === 'image') {
         open = undefined

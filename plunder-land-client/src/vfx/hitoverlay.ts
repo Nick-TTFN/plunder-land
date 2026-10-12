@@ -63,3 +63,19 @@ export function multiplyTint (a: number, b: number): number {
   const bl = Math.round((a & 0xff) * (b & 0xff) / 255)
   return (r << 16) | (g << 8) | bl
 }
+
+/**
+ * A frozen mob's tint (effect 21, ice-2): a cool multiply, since a tint can
+ * only darken. PROVISIONAL until Nick looks.
+ */
+export const ICE_TINT = 0x9fd8ff
+
+/**
+ * A body's tint over `base` (its look's own, white for none): the hit flash
+ * and the ice tint multiplied together, so a hit still shows while frozen.
+ */
+export function bodyTint (flashing: boolean, frozen: boolean, base = 0xffffff): number {
+  let tint = flashing ? multiplyTint(base, HitOverlay.TINT) : base
+  if (frozen) tint = multiplyTint(tint, ICE_TINT)
+  return tint
+}
