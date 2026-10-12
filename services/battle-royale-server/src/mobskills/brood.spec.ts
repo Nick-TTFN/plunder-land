@@ -138,7 +138,7 @@ const INERT_BROOD: Archetype = {
   routines: ARCHETYPES.brood.routines.map((r) => r.kind === 'brood' ? { ...r, child: INERT } : r)
 }
 
-test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood 550 hp, band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 1500', () => {
+test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood 550 hp, band 5-6, every 1000 ms, cap 6, hold 500; Broodling fuse 6000, tell 500, 25 on the mirror\'s 1 ring, emerge 750, chase 170 (PvE challenge pass)', () => {
   const guard = ARCHETYPES.brood.routines[0] as GuardSpec
   assert.equal(guard.kind, 'guard', 'the guard must run first: it picks the target')
   assert.deepEqual(guard.retreat, { min: 5, max: 6 })
@@ -150,8 +150,10 @@ test('the rows are the l1-0 provisional numbers with Nick\'s Brood stream: Brood
 
   const lingGuard = ARCHETYPES.broodling.routines[0] as GuardSpec
   assert.equal(lingGuard.kind, 'guard', 'the guard must run first: it picks whom to chase')
-  assert.deepEqual([lingGuard.acquire, lingGuard.lose, lingGuard.chaseSpeed, lingGuard.standoff], [8, 10, 130, 0])
-  assert.deepEqual(ARCHETYPES.broodling.routines[1], { kind: 'broodling', fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 1500, rings: 1 })
+  assert.deepEqual([lingGuard.acquire, lingGuard.lose, lingGuard.chaseSpeed, lingGuard.standoff], [8, 10, 170, 0])
+  // The client's pick (`vfx/broodpick.ts`) covers a full second of its chase.
+  assert.ok(PICK_REACH >= lingGuard.chaseSpeed, `PICK_REACH ${PICK_REACH} is short of a second at ${lingGuard.chaseSpeed} u/s`)
+  assert.deepEqual(ARCHETYPES.broodling.routines[1], { kind: 'broodling', fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 750, rings: 1 })
   assert.equal(BLAST_RINGS, 1)
   assert.equal(PRIME_RINGS, 1)
   assert.deepEqual([ARCHETYPES.broodling.maxHp, ARCHETYPES.broodling.loot, ARCHETYPES.broodling.gearRolls], [1, 0, null])
@@ -288,9 +290,17 @@ test('fuse: a Broodling with nobody near goes off where it stands on the tick it
   assert.equal(ling.hp, 0, 'a destroy without hp 0 reads as leaving view, not a death')
 })
 
+// At the row's 170 u/s a Broodling crosses a cell inside one 250 ms tick, so
+// a tick never begins with it mid-step and the stepping-into case below never
+// arises; at 130 it does. The prime rule does not read the speed.
+const STEPPING: Archetype = {
+  ...ARCHETYPES.broodling,
+  routines: ARCHETYPES.broodling.routines.map((r) => r.kind === 'guard' ? { ...r, chaseSpeed: 130 } : r)
+}
+
 test('adjacent: it primes once a player is within 1 ring of the cell it stands on or steps into, stops there, and goes off 500 ms later on that cell', (t) => {
   mockClock(t)
-  const ling = mobAt(ARCHETYPES.broodling)
+  const ling = mobAt(STEPPING)
   const player = playerAt(4)
   let primedAt: number | undefined
   let standingOn: Vector | undefined

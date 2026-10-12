@@ -515,32 +515,36 @@ const NPC_NUMBERS = Object.freeze({
    */
   compactorShockwave: { damage: 35, cooldownMs: 3600, withinCells: 2, knockback: 2, impactMs: 1215, holdMs: 1750 },
   // Band 5-6 (l1-0 Q1, not the roster's 7-9), lob 30 on a 1-ring blast
-  // after 1250 ms (Q2), every 3500 ms, cast within 7 cells (the mirrored
+  // after 1250 ms (Q2), every 2000 ms, cast within 7 cells (the mirrored
   // `attack.range`). `standoff` is unread with a band; set to its top.
+  // Cooldown 3500 -> 2000 and chase 70 -> 110 (one speed for chasing and
+  // retreating): Dez's PvE challenge pass, accepted by Nick 2026-10-12.
   kiln: {
     maxHp: 80,
     body: 30,
     loot: 100,
     contact: 0,
-    lob: { damage: 30, cooldownMs: 3500, flightMs: 1250 },
+    lob: { damage: 30, cooldownMs: 2000, flightMs: 1250 },
     /**
      * Rest, lob, then stand still this long from the lob (#52 lane 2,
      * accepted 2026-10-09): the clip's 0.58 s gather and launch kick, which
      * the client plays from the lob's effect. 3 ticks.
      */
     lobHoldMs: 750,
-    guard: { acquire: 7, lose: 9, chaseSpeed: 70, standoff: 6, retreat: { min: 5, max: 6 } }
+    guard: { acquire: 7, lose: 9, chaseSpeed: 110, standoff: 6, retreat: { min: 5, max: 6 } }
   },
-  // Standoff is the field's rings (l1-3, l1-0's "2 (its field)"): it hangs
-  // at the edge of its own field, so whoever it chases is inside it.
+  // Standoff is the field's rings (l1-3, l1-0's "2 (its field)"; 3 since the
+  // PvE challenge pass, 2026-10-12): it hangs at the edge of its own field,
+  // so whoever it chases is inside it.
   coil: { maxHp: 70, body: 32, loot: 75, contact: 0, guard: { acquire: 5, lose: 6, chaseSpeed: 90, standoff: discRingsOf(ARCHETYPE_INFO.coil) } },
   /**
-   * The Coil's field (l1-3). Slow x0.6, tail 500 and cooldown 6000 (start to
-   * start) are l1-0's. Tell, hold and cool are the approved clip's
+   * The Coil's field (l1-3). Tail 500 and cooldown 6000 (start to start) are
+   * l1-0's; slow x0.4 (l1-0's 0.6) is Dez's PvE challenge pass, accepted by
+   * Nick 2026-10-12. Tell, hold and cool are the approved clip's
    * (`codex_output/npc-refinements/coil-v4/tools/coil.mjs` `pose`, charge
    * mode: gather 0-1.2 s, release 1.2-1.5, hold 1.5-3.0, cool 3.0-3.7).
    */
-  coilField: Object.freeze({ slow: 0.6, tellMs: 1500, holdMs: 1500, coolMs: 700, tailMs: 500, cooldownMs: 6000 }),
+  coilField: Object.freeze({ slow: 0.4, tellMs: 1500, holdMs: 1500, coolMs: 700, tailMs: 500, cooldownMs: 6000 }),
   reactor: { maxHp: 360, body: 40, loot: 500, contact: 15, guard: { acquire: 5, lose: 6, chaseSpeed: 110, standoff: 0 } },
   /**
    * The Reactor's burst (l1-5): plants within 2 rings, 25 to each player on
@@ -585,9 +589,11 @@ const NPC_NUMBERS = Object.freeze({
     loot: 0,
     contact: 0,
     // `emergeMs`: a new Broodling stands still this long from its release,
-    // the client's `emerge` clip, 1.3-2.8 s (#52 lane 2, accepted 2026-10-09).
-    fuse: { fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 1500 },
-    guard: { acquire: 8, lose: 10, chaseSpeed: 130, standoff: 0 }
+    // the client's `emerge` clip, `spawn.from` to `spawn.ready`, 1.3-2.05 s
+    // (#52 lane 2). 1500 -> 750 and chase 130 -> 170: Dez's PvE challenge
+    // pass, accepted by Nick 2026-10-12 (750 still covers the 630 ms launch).
+    fuse: { fuseMs: 6000, tellMs: 500, damage: 25, emergeMs: 750 },
+    guard: { acquire: 8, lose: 10, chaseSpeed: 170, standoff: 0 }
   },
   /** Every NPC guard's idle speed, wander and refresh (today's). */
   idleSpeed: 30,

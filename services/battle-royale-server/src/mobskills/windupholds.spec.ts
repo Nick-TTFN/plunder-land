@@ -20,7 +20,8 @@ import { Vector } from '../utils/vector'
  * NPC wind-up holds (#52 lane 2, Dez's `ideas/npc-windup-holds.md`, accepted
  * 2026-10-09): the Crawler, the Kiln and the Brood come to rest, then cast,
  * then stand still for their hold; the Compactor stands still to 1750 ms; a
- * new Broodling stands still through its 1500 ms emerge.
+ * new Broodling stands still through its emerge (750 ms since the PvE
+ * challenge pass, Nick 2026-10-12; 1500 before).
  *
  * Driven tick by tick as `World.update` drives it (the clock moves 250 ms,
  * due timers run, the mobs update last to first) against a player the spec
@@ -213,10 +214,10 @@ test('the hold numbers are the accepted ones, and only the Crawler and the Kiln 
   const brood = ARCHETYPES.brood.routines.find((r) => r.kind === 'brood') as { holdMs: number }
   assert.equal(brood.holdMs, 500)
   const fuse = ARCHETYPES.broodling.routines.find((r) => r.kind === 'broodling') as { emergeMs: number, tellMs: number }
-  assert.equal(fuse.emergeMs, 1500)
+  assert.equal(fuse.emergeMs, 750, 'the PvE challenge pass (Nick, 2026-10-12)')
   assert.equal(fuse.tellMs, 500, 'the Broodling tell is unchanged')
   // Each hold is whole ticks, so "the first tick at or after" lands exactly on it.
-  for (const ms of [500, 750, 1750, 1500]) assert.equal(ms % TICK_MS, 0)
+  for (const ms of [500, 750, 1750, fuse.emergeMs]) assert.equal(ms % TICK_MS, 0)
 })
 
 test('a Crawler shooting a player who walks away: it comes to rest, shoots on a centre, and stands still 500 ms', (t) => {
@@ -309,8 +310,9 @@ test('a Brood at rest at its beat releases in that tick, as before, and its pend
   assert.deepEqual(list.map((c) => c.at - T0), list.map((_, i) => 250 + interval * (i + 1)))
 })
 
-test('a new Broodling stands on its release cell for 1500 ms, then chases', (t) => {
+test('a new Broodling stands on its release cell for its 750 ms emerge, then chases', (t) => {
   mockClock(t)
+  const emerge = (ARCHETYPES.broodling.routines.find((r) => r.kind === 'broodling') as { emergeMs: number }).emergeMs
   const brood = mobAt(ARCHETYPES.brood)
   // 5 rings: the Brood holds its band; the Broodling has 4 cells to cover.
   playerAt(5)
@@ -334,17 +336,17 @@ test('a new Broodling stands on its release cell for 1500 ms, then chases', (t) 
     }
   }
   assert.ok(ling !== undefined, 'never released')
-  assert.ok(seen.every((s) => s.at > born + 1500 || !s.primed), 'test setup: it primed during its emerge')
+  assert.ok(seen.every((s) => s.at > born + emerge || !s.primed), 'test setup: it primed during its emerge')
   const start = seen[0]
-  const held = seen.filter((s) => s.at < born + 1500)
-  assert.equal(held.length, 1500 / TICK_MS)
+  const held = seen.filter((s) => s.at < born + emerge)
+  assert.equal(held.length, emerge / TICK_MS)
   for (const s of held) {
     assert.deepEqual([s.x, s.y], [start.x, start.y], `moved at +${s.at - born} ms, inside the emerge`)
     assert.equal(s.goal, false)
   }
-  const after = seen.find((s) => s.at >= born + 1500)
+  const after = seen.find((s) => s.at >= born + emerge)
   assert.ok(after !== undefined && after.goal, 'no step goal once the emerge is over')
-  const moved = seen.find((s) => s.at > born + 1500 && (s.x !== start.x || s.y !== start.y))
+  const moved = seen.find((s) => s.at > born + emerge && (s.x !== start.x || s.y !== start.y))
   assert.ok(moved !== undefined, 'never chased after its emerge')
 })
 

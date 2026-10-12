@@ -13,7 +13,7 @@
 export const COIL_PULSE = Object.freeze({
   tellMs: 1500,
   holdMs: 1500,
-  rings: 2
+  rings: 3
 })
 
 /**
