@@ -103,12 +103,13 @@ both sides in the same task (details in `docs/wire-format.md`):
   `gear/stasheditclient.spec.ts`, which runs the client's `mergeCheck` against the server's
   `mergeOutcome`). `run_end`'s `gear_brought`, `gear_found`, `gear_kept` are append-only like every
   GA param. Migration 6 (`stash_items`, `gear_holders`) is additive only, as every migration.
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 7 since L1, l1-2, not yet live; 6 since #49, 49-2): bump it with any change an older
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 8 since pve-2, not yet live; 7 since L1, l1-2): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
 - **The NPC roster (#51, L1):** the mirrored `utils/archetypes.ts` rows 9-15 with `rarity` and
   `attack` (`NPC_SHARED`; the client draws and threat-marks `attackCells`, `effectcells.spec.ts`);
-  effect types 9-19 (server `archetypes/npceffects.ts` `NPC_EFFECT`, client `vfx/npceffects.ts`,
-  `npceffects.spec.ts`; append-only; drawn in `game.ts` `onEffect` and `src/vfx/*.effect.ts`); the
+  effect types 9-20 (server `archetypes/npceffects.ts` `NPC_EFFECT`, client `vfx/npceffects.ts`,
+  `npceffects.spec.ts`; append-only; drawn in `game.ts` `onEffect` and `src/vfx/*.effect.ts`; 14,
+  the old Compactor line, is sent by no server since pve-2 and its client case goes in pve-3); the
   knockback mirror, server `Player.knockback` against client `LocalPlayer.knockback` with `Game`
   applying effect 15 after the same flush's `lastInputSeq` (`extract.spec.ts`); a Broodling's
   remaining fuse in `lifetime` (9) on its create (server `mobskills/broodling.ts`, client
@@ -122,7 +123,9 @@ both sides in the same task (details in `docs/wire-format.md`):
   bodies (`World.bodyAt`), against client `vfx/cells.ts` `firstOnLine`/`lineIndexOf` and the
   candidate filter in `vfx/rangedattack.effect.ts` (`effectcells.spec.ts` sweeps `firstOnLine`;
   the filter is unspecced). Likewise `FIND_IN_CELLS`/`CONE_CELLS` against `discCells`/`coneCells`
-  and every NPC `attackCells`. Change a hit rule, change the drawing.
+  and every NPC `attackCells`, including the Compactor's slam: server `FIND_IN_CELLS(stepTo ?? cell,
+  rings)` against client `attackCells(disc, centre)` from effect 20's centre cell
+  (`shockwave.spec.ts`, with the caster seen a cell off). Change a hit rule, change the drawing.
 - **Who is sent what is a contract too, though no byte changes** (server fog, #48):
   `Multiplayer.viewOf` and the effect paths (`effect`, `effectAt`) on the server against what
   the client draws (`objects/fog.ts`, `Game.onEffect`). `interest.spec.ts` (and
@@ -237,7 +240,7 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). And for the NPCs (#51, L1, PROVISIONAL until Nick accepts l1-0): `NPC_NUMBERS` in
+  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1). And for the NPCs (#51, L1; l1-0 accepted, retuned by #53): `NPC_NUMBERS` in
   `archetypes/archetypes.ts` (stats, guards, attacks, timings, pack sizes, per-layer populations;
   server only) and `NPC_SHARED` in the mirrored `utils/archetypes.ts` (Crawler range and every
   attack's cells; both deploys, client first); NPC kill XP in `PROGRESSION.kills.mob`. Some
@@ -249,5 +252,7 @@ literally: an id pattern given as "for example" would have locked out every real
 - Art is Nick's boundary. Two player clips are still missing (the arena pass of 2026-09-28
   covered everything else); all seven NPCs are drawn from Codex rigs, five of them (Kiln, Coil,
   Compactor, Reactor, Brood) PROVISIONAL until Nick approves their packages (l1-9), and the NPC
-  effects from the `npc-fx` sheet, PROVISIONAL too (l1-11). Sizes, gaits and holds are #52's.
+  effects from the `npc-fx` sheet, PROVISIONAL too (l1-11). Sizes, gaits and holds are #52's. #53
+  made no art: the Compactor's strike clip starting partway, its wave cells turned outward for
+  the radial slam, and the Coil's art over 3 rings are PROVISIONAL for Nick's look (`docs/npcs.md`).
   List what is missing, don't make it.

@@ -1,8 +1,9 @@
 # NPCs: roster, spawning, attacks and rigs
 
-The mob roster since L1 (decision #51; tasks l1-1..l1-8, merged 2026-10-07 on local `l1`). Every
-number below is **PROVISIONAL (l1-0)**: Dez's `ideas/npc-numbers.md` table, not yet accepted by
-Nick. The code is the source: server-only numbers in `NPC_NUMBERS`
+The mob roster since L1 (decision #51; tasks l1-1..l1-8, merged 2026-10-07 on local `l1`). The
+numbers are Dez's `ideas/npc-numbers.md`: the l1-0 table (accepted by Nick, #51 numbers), with
+the Kiln, Coil, Compactor and Broodling retuned by the PvE challenge pass (#53, tasks pve-1 and
+pve-2). The code is the source: server-only numbers in `NPC_NUMBERS`
 (`src/archetypes/archetypes.ts`), the ones the client draws in `NPC_SHARED` (mirrored
 `utils/archetypes.ts`). Each block points at the other.
 
@@ -15,13 +16,14 @@ Seven NPCs, archetype ids **9-15** (append-only; 6-8 stay reserved, see below):
 | 9 | crawler | common | all, in packs | shoots like the old gunner (8 dmg / 2000 ms, 5 cells, holds at 4) | `RangedAttack` + `useSkillOnTarget` |
 | 10 | kiln | rare | -1, -2 | keeps 5-6 away, lobs at the target's cell | `mobskills/kilnlob.ts` |
 | 11 | reactor | epic | -1, -2 | charges, plants, bursts a 2-ring disc; contact 15 | `mobskills/reactorburst.ts` |
-| 12 | coil | rare | -1, -2, as a pack escort | slowing field on a 2-ring disc, no damage | `mobskills/coilfield.ts`, `buffs/fieldslow.ts` |
-| 13 | compactor | common | all | slams a 3-cell line, knocks players back 2 | `mobskills/shockwave.ts` |
+| 12 | coil | rare | -1, -2, as a pack escort | slowing field on a 3-ring disc, no damage | `mobskills/coilfield.ts`, `buffs/fieldslow.ts` |
+| 13 | compactor | common | all | slams a 2-ring disc round itself, knocks players 2 cells away from it | `mobskills/shockwave.ts` |
 | 14 | brood | legendary | -2 only | keeps 5-6 away, releases Broodlings | `mobskills/brood.ts` |
 | 15 | broodling | common | never spawned by a layer | fuse, primes when adjacent, blasts | `mobskills/broodling.ts` |
 
 `rarity` (`'common' | 'rare' | 'epic' | 'legendary' | null`) and the optional `attack` cell shape
-(`lob {range, rings}`, `disc {rings}`, `line {length}`) are mirror fields, so the client draws
+(`lob {range, rings}`, `disc {rings}`; `line {length}` has no row since pve-2 and goes with
+effect 14, task pve-3) are mirror fields, so the client draws
 and threat-marks the cells the server damages (`vfx/cells.ts` `attackCells`/`attackReach`,
 checked against the server by `effectcells.spec.ts`). Contact damage is 0 for every NPC but
 the Reactor.
@@ -68,7 +70,7 @@ PROTOCOL bump), read through the `Unit.bodyRings` getter. Everyone else is still
   (melee, bomb, fireball/icicle blast, Broodling blast), `FIRST_ON_LINE` (ranged: the body is on
   the line at its earliest cell), `Throwable.findHit` (a swath ranks a body by its best cell),
   `SectorArea.overlaps(value, unit)` (breaths, damage and provoke). Counted once. Players-only
-  queries (every NPC attack, `Mob.touch`, the shockwave's `UNITS_ON`) never look, and
+  queries (every NPC attack, the Compactor's slam included, and `Mob.touch`) never look, and
   `NEAREST_IN_CELLS` (guard acquire, bot scuffle) measures from the centre, deliberately.
 - **Kept off by other mobs**: `mobHolds` answers for ring cells, so a mob stalls on ring 2; a body
   steps or spawns only where all 7 target cells are `mobCellFree` (`mobFits`, from `mobCanEnter`
@@ -114,16 +116,20 @@ Tickbench (400 players): about +0.05-0.1 ms a tick, +1-3 %, under half of it the
 Every NPC attack is a hex-cell set (`FIND_IN_CELLS`), never a radius, and **hits players only**
 (Q6), except the Broodling blast, which hits mobs too (Nick: "can hurt nearby mobs"). Every
 victim loop skips `destroyed` and exited players, and kills go through the attacker's `onKill`
-(`killedBy` 'mob'). Effect types are in `docs/wire-format.md` ("Effects", 9-19). The art is
+(`killedBy` 'mob'). Effect types are in `docs/wire-format.md` ("Effects", 9-20). The art is
 the `npc-fx` sheet (l1-11, PROVISIONAL until Nick reviews it; `docs/art-pipeline.md`), drawn by
 `vfx/npcfx.ts` (`stampCells` one ground decal per server cell, `standAt`, `warnCells`,
 `burstCells`, `hitSpark`) on the same cell sets the placeholders drew: 9 landing centre and ring
 plus the slug and its shadow, 10 impact cells and burst; 11 warning, 12 release cells and a core
 flare on the Reactor's rig; 13 warning through the tell, then pulse cells and burst over the hold;
-16 a slow-status loop on the victim; 14 warning through the wind-up, then wave cells chained 0.25 s
-apart along the line and a shoe puff; 15 a skid under the victim; 17 warning, 18 scorch cells and
-burst; a hit spark on every mob or player damage. **The Kiln's landing warning stands in for every
-tell (11, 13, 14, 17)**: the package has no tell art (Beck's call, kept provisional for Nick).
+16 a slow-status loop on the victim; 20 warning on the disc (centre marked) through the wind-up,
+then a shoe puff at the Compactor and `compactor-wave-cell` stamped on every other disc cell,
+each turned outward from the centre, chained ring by ring 0.25 s apart (the clip's `cellDelay`;
+**PROVISIONAL**: no ring art was made, the line's wave cell stands in, for Nick's look); 14
+(legacy, the old line: warning, wave cells chained along it, shoe puff); 15 a skid under the
+victim; 17 warning, 18 scorch cells and burst; a hit spark on every mob or player damage. **The
+Kiln's landing warning stands in for every tell (11, 13, 17, 20)**: the package has no tell art
+(Beck's call, kept provisional for Nick).
 Effect 19's pod (thrown from the Brood to the cell) has no package art and keeps its placeholder;
 since the Brood stream it is drawn only when no Broodling is launched off a socket (see "Loaded +
 launch" below); the cell flash always shows. Before the sheet loads,
@@ -142,8 +148,10 @@ waited for a step can be followed by the next beat's 250-500 ms later, inside it
 release inside a hold restarts it** (one `holdTimer`, cancelled on each release, owned by the
 Brood), so the older timer cannot end the newer hold (`windupholds.spec.ts`, chased Brood). The
 Compactor
-(`compactorShockwave.holdMs` 1750) still plants at the cast and holds until the later of its
-wind-up and the timer. A new Broodling stands `broodling.fuse.emergeMs` (1500) from its release
+(`compactorShockwave.holdMs` 1250; 1750 before #53) still plants at the cast and holds until the
+later of its wind-up and the timer. A new Broodling stands `broodling.fuse.emergeMs` (750; 1500
+before #53, not 0 because the launch lands at 630 ms and popping eggs near the Brood is its
+counterplay) from its release
 (`emerging`), and can still be primed, shot and chain-blasted meanwhile. Each hold is long enough
 for the client's catch-up lead to be spent before the NPC moves again against the 500 ms ceiling
 on `interpolationDelay` (rest-first: hold + 250 > 500; the Compactor: hold > 500;
@@ -160,11 +168,13 @@ Broodling's fuse and tell are **owned by the NPC**, so its death cancels them.
 **Kiln lob** (l1-4). `GuardSpec.retreat { min 5, max 6 }`: below `min` it backs away
 (`stepGoal.away`, a greedy mode of `Unit.chooseStep`: the furthest enterable neighbour, staying
 put with `stepBlocked` if none is further), holds within the band, closes beyond `max`. It
-lobs within 7 cells (`attack.range`) at the target's cell at cast time, every 3500 ms: effect
-9 (`effectAt`, lifetime = flight 1250 ms), then an ownerless timer lands effect 10 and 30 to
-every player on the cell + 1 ring. Dodge by moving. A cast with no aim, off the map or out of
-range is refused without spending the cooldown. Nick still owes the band (5-6 here, his
-earlier "7-9").
+lobs within 7 cells (`attack.range`) at the target's cell at cast time, every 2000 ms (3500
+before #53; still longer than the 1250 ms flight and the 1.7 s `fire` clip, so lobs never
+overlap): effect 9 (`effectAt`, lifetime = flight 1250 ms), then an ownerless timer lands effect
+10 and 30 to every player on the cell + 1 ring. Dodge by moving. A cast with no aim, off the map
+or out of range is refused without spending the cooldown. It chases and retreats at one speed,
+`guard.chaseSpeed` 110 (70 before #53; a separate retreat speed was proposed and rejected). The
+5-6 band was accepted with l1-0 over Nick's earlier "7-9" (robots see 6).
 
 **Reactor burst** (l1-5). Chases (standoff 0); when its target is within 2 rings of
 `stepTo ?? cell` it **plants** (it clears `stepGoal` every tick after the guard until the settle
@@ -175,31 +185,59 @@ offset (`Timers.schedule(offsetMs, ...)`), owned by the Reactor: killed in the t
 release, nothing more happens. Contact 15/s stays on in every phase. The burst is not
 retargeted if the target walks off.
 
-**Coil field** (l1-3). When the guard's target is within 2 rings it charges, at most every
+**Coil field** (l1-3; 3 rings and x0.4 since #53, 2 rings and x0.6 before). When the guard's
+target is within the field's rings (3, the mirrored `NPC_SHARED.coilField`) it charges, at most every
 6000 ms start to start, and stays planted for tell 1500 + hold 1500 + cool 700 (the clip's
 timings). Effect 13 goes out **once at the charge start** with lifetime tell + hold (the only
 way the tell reaches the wire; a viewer arriving mid-charge sees nothing but can still be
 slowed). On each hold tick one `FIND_IN_CELLS` on `stepTo ?? cell` slows every live player on
-the disc until hold end + 500. **`FieldSlow`** (`buffs/fieldslow.ts`): one per unit through
+the disc (37 cells; per Coil, not per player) until hold end + 500. **`FieldSlow`**
+(`buffs/fieldslow.ts`): one per unit through
 `FieldSlow.apply`, which refreshes the end (never `addBuff`, which stacks and would halve speed
-again every tick), players only, x0.6 rounded to tenths so `speed` (27) carries it exactly,
-gives back exactly what it took (`declare applied`). Multiplies with Icicle's `Slowdown` (x0.3
-together); the speed while both run and one ends is not exactly the other's factor, and heals
+again every tick), players only, x0.4 (`coilField.slow`; 140 u/s becomes 56) rounded to tenths so `speed` (27) carries it exactly,
+gives back exactly what it took (`declare applied`). Multiplies with Icicle's `Slowdown` (x0.5, so
+x0.2 together; x0.3 at the old x0.6); the speed while both run and one ends is not exactly the other's factor, and heals
 when the second ends. Effect 16 (slowed) goes to the victim when applied, again only past half
 its time. An Icicle on a Coil-slowed player gets `Throwicicle`'s +10 "already slowed" bonus
-(noticed, for Dez). Escort: standoff = the field's rings, home shared with the pack.
+(noticed, for Dez). Standoff = the field's rings (`discRingsOf`, so 3: it hangs 3 rings off its
+target); an escort shares the pack's home. The client draws 3 rings (`vfx/coilfield.ts`
+`COIL_PULSE.rings`, held equal to the mirror by `coilfield.spec.ts`) with the art drawn for 2
+(`coil-pulse-burst`, the rig's charge): **PROVISIONAL**, for Nick's look.
 
-**Compactor shockwave** (l1-6). Cast within 2 rings, every 3600 ms. The line is fixed at the
-cast: from the Compactor's cell (or the cell it is stepping into), along the aim snapped to one
-of six (`World.FACING_INDEX`), 3 cells (`attack.length`), cut at the map edge; valleys, walls and
-stones don't stop it. Effect 14 on the Compactor, aimed at the **uncut tip**. It holds still for
-the wind-up (clears `stepGoal`), and the hit lands 1215 ms later (on the 1250 tick) on a timer
-it owns: 35 to each live player on the line, then each survivor gets
+**Compactor slam** (l1-6; a radial disc since pve-2, #53: Nick wanted it "similar to reactor",
+faster, with a shorter warning and less damage). `compactorShockwave`: cast within 2 rings
+(`withinCells`), cooldown 2500 ms, impact 750 ms, hold 1250 ms, 20 damage, knockback 2 cells; the
+Compactor chases at 130 (`compactor.guard`). Before #53: a 3-cell line along its aim, 35 damage,
+impact 1215, hold 1750, cooldown 3600, chase 100. At the cast the disc is fixed: **2 rings**
+(the mirrored `NPC_SHARED.compactorSlam`, `Shockwave.rings` throws on a row without a disc) round
+`stepTo ?? cell`, cut at the map edge; valleys, walls and stones don't stop it. The Compactor
+turns to its target unless a step in progress is still turning it, and that facing, snapped to
+one of six (`World.FACING_INDEX`), is the centre cell's knockback direction. **Effect 20**
+(`compactorSlam`) on the Compactor's holders, **aimed at the centre cell**, lifetime `impactMs`,
+so a client that places the Compactor a cell off still draws the server's disc (the Reactor's
+precedent). Effect 14 is never sent since pve-2. It holds still for the wind-up and the hold
+(`ShockwaveRoutine` clears `stepGoal`), and the hit lands at 750 ms (a whole tick) on a timer it
+owns: every live, unexited player on the disc, **the centre cell included** (players may share a
+mob's cell), via `FIND_IN_CELLS(centre, 2, tag, Player)`. All victims are gathered first, all
+take 20, then every survivor's direction is taken from where it stood, then all move: a victim
+knocked onto another disc cell is hit once. Mobs are never hit or moved.
+
+**Knockback direction** (`Shockwave.outwardDirection`, pure, integer): radially away from the
+centre. Each offset is `m` steps along one `Hex.DIRECTIONS` axis plus `n` along the next
+(one sextant each) and the nearer axis wins. **Ties** (`m = n`: ring 2's six edge cells; none on
+rings 1 or 3) take the direction whose walk lands further (`Shockwave.reachOf`), else the lower
+index; never `FACING_INDEX`'s float rounding. The centre cell takes the Compactor's facing at the
+cast (Nick, #53). **`reachOf` is a copy of `Player.knockback`'s walk without the move**, held to it
+by `shockwave.spec.ts` over void, wall, stone, portal, exit, arrival, Peep and Hopper; a stop rule
+added to `knockback` alone drifts it silently (only the way a ring-2 tie goes; the real move is
+still `Player.knockback`). Sharing one `Player.knockbackLanding` is task pve-3.
+
 **`Player.knockback(direction, 2)`**: a neighbour walk stopping before any cell the player
-`blocks` (Hopper passes walls and stones), any gate cell and any arrival cell; with no free cell
-nothing happens (no stop, no effect). Otherwise `stop()`, `connection.lastWaypoints = []`, the
-landing centre through the setter, and effect 15 to the victim's holders including itself. The
-client mirror is in `docs/movement.md` ("Knockback").
+`blocks` (Hopper passes walls and stones), any gate cell and any arrival cell, so never into a
+valley; with no free cell nothing happens (no stop, no effect). Otherwise `stop()`,
+`connection.lastWaypoints = []`, the landing centre through the setter, and effect 15 (the
+landing cell, not a direction, so the client mirror did not change for the disc) to the victim's
+holders including itself. The client mirror is in `docs/movement.md` ("Knockback").
 
 **Brood and Broodlings** (l1-7; the Brood stream, Nick 2026-10-09). The Brood has 550 hp (400
 until Dez's `ideas/brood-stream-numbers.md`) and keeps the Kiln's 5-6 band. Its release clock
@@ -219,11 +257,17 @@ a second, in pairs 250-500 ms apart when chased; a chased Brood stands about hal
 longer keeps its band; the cap is in effect fuse-bound (`fuseMs` 6000 / 1000).
 
 A **Broodling** (`BroodlingFuse`) lights a 6000 ms fuse in its constructor (timer owned by it),
-chases at 130 and goes off three ways, all the same blast (25 to every live unextracted player
+chases at 170 (130 before #53) and goes off three ways, all the same blast (25 to every live unextracted player
 **and mob** on its 1-ring disc but itself, effect 18):
 - the fuse ends: where it stands;
 - a live player within 1 ring of `stepTo ?? cell`: effect 17 (primed, 500 ms), held in place,
-  blast on the primed cell 500 ms later;
+  blast on the primed cell 500 ms later. **The prime check sees every `stepTo` only while one
+  tick's walk is under a cell** (`chaseSpeed x TICK_MS / 1000 < Hex.SIZE`, a ceiling of about
+  180 u/s, asserted in `brood.spec.ts`'s row test). At 170 the margin is a tick of about 265 ms
+  (346 at 130): a late tick can let it enter and leave a cell unseen, so it primes a cell later,
+  on the player's cell, and the blast still covers them. `Unit.cell` flips at the half-step, so
+  at 170 a tick usually starts with it already counted on its `stepTo` (why the spec's
+  "adjacent" test uses a 130 u/s `STEPPING` Broodling beside one at the row speed);
 - **any damaging hit** (`Mob.onHit`, the hook only the Broodling sets): at once, in place
   (`detonate(true)`); the hit returns true, so the hitter is credited the kill (`mobKills` +
   `commonKills`, 0 XP). A 0-damage hit does nothing.
@@ -327,7 +371,11 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
   moves: Crawler `fire` 0.34 (its fire event), Kiln `fire` 0.58 (`LAUNCH`), Brood `spawn` 0.18
   (`SPAWN_EVENT`), Coil `charge` 3.0 (`CHARGE.holdEnd`, the server's hold end), Reactor `activate`
   1.0 (`release_start`), Compactor `fire` 1.215 (`IMPACT_TIME`); the Broodling's spawn at
-  `spawn.ready` 2.8. Before that moment it plays on; a death and a prime never yield.
+  `spawn.ready` 2.05 (2.8 before #53). `spawn.from` stays 1.3: `BroodSockets` pins it (curled)
+  and `broodlaunch.spec.ts` needs fold 1 at the launch; `ready - from` = 0.75 s = `emergeMs`
+  (`windupclient.spec.ts`). So a Broodling that moves at 750 ms switches to its walk at fold
+  about 0.84, a short pop from mostly curled (an art question for Nick: keep, or a short Codex
+  unfold). Before that moment it plays on; a death and a prime never yield.
 - **Gait** (#52 lanes 3-4, PROVISIONAL): without `NpcRig.gait` a rig's move loop runs at
   `RUN_RATE x pace`, the same whatever its stride, and its planted feet slid 88-99 %. With
   `NpcGait { groundSpeed, period, maxSteps, minPace, groundTilt }`, `gaitClock` derives the loop's
@@ -340,8 +388,9 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
   Gaits: Crawler stride 60 (package 20) and Kiln 26 (package 20), both ports taking a `stride`
   option with run speed scaled so lean and bob are unchanged; Compactor, Reactor and Brood at their
   package strides, which leg reach limits (a longer one needs art, not a rate). **Coil and
-  Broodling have none** (planted would need 23 and 46 steps/s at chase). Above the cap the feet
-  slide the rest along the motion only (Compactor about 42 %, Reactor 39 % at chase; the Brood at
+  Broodling have none** (planted would need 23 and 46 steps/s at their #52 chase speeds). Above the cap the feet
+  slide the rest along the motion only (Compactor about 42 % at its #52 chase 100, more at 130;
+  #53 accepted that the faster Kiln, Compactor and Broodling slide more; Reactor 39 % at chase; the Brood at
   2.5 about 10 % at 60 u/s); `npcrigs.spec.ts` measures planted-foot velocity from each gaited
   rig's real pose in 7 directions and holds each `period` to the loop's real step cycle.
   `tools/foot-slide.cjs` measures slide per rig and direction, and guards the sprite's clock
@@ -349,9 +398,15 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
 - **Attack clips on effects** (l1-9): `Mob.playAttack(leadMs, toward?)` starts the attack clip so
   its event lands `attackLead(event, leadMs)` seconds later. The wire floors an effect's lifetime
   to 100 ms, so when the clip's own event falls inside that tenth after the lifetime it is taken
-  as exact (the Compactor's impact 1215 ms arrives as 1200), else the lifetime as received (a
-  retuned server). Effect 14 starts the Compactor's strike (`fire`) aimed at the tip, impact on the
-  server's hit; effect 11 starts the Reactor's `activate` with the tell's lifetime, so its release
+  as exact (the old impact 1215 ms arrived as 1200), else the lifetime as received (a retuned
+  server). **Effect 20 starts the Compactor's strike (`fire`) partway** (pve-2): its impact 750
+  arrives as 700, outside the tenth below the clip's 1.215 s event, so the lead is 0.7 s and the
+  clip starts at 0.515 s, skipping the first part of the latch wind-up; the shoe lands 50 ms
+  before the server's hit (accepted: rounding instead of flooring would touch every effect and
+  make 750 arrive late as 800). `npcrigs.spec.ts` holds `impactMs <= event` and the start offset.
+  **PROVISIONAL**: no retimed clip was made, for Nick's look. Aimed one unit along the
+  Compactor's reported facing (the centre is its own cell). Effect 14 (legacy) still starts it
+  aimed at the line's tip. Effect 11 starts the Reactor's `activate` with the tell's lifetime, so its release
   event lands with effect 12, and effect 12 restarts it with lead 0 (back in step, or the start
   for a viewer who missed the tell). Effect 13 starts the Coil's `charge` with the pulse's
   lifetime (3000 ms, so it starts at 0 and the hold ends with the server's field). **Effects 9 and
@@ -365,20 +420,22 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
 - **Catch-up on planting effects** (#52 S1, `Unit.catchUpNow`, `objects/track.ts` `CatchUp`): a
   remote unit is drawn about `interpolationDelay` behind the server, so a planted clip would start
   where it was, then slide to where it is. On effects 3 (a mob's shot only), 9, 11 (not 12), 13,
-  14, 17 and 19 that one unit's render clock is run onto its newest state over 100 ms, along its
+  14, 17, 19 and 20 that one unit's render clock is run onto its newest state over 100 ms, along its
   real track, before the clip starts. Mechanism in `docs/movement.md`.
 - **Clips:** idle/move by movement, paced like robots; Crawler `fire` on effect 3, started at
   `event - SHOT.fire` so its fire event meets the beam, beam from the sensor (`Mob.eyeGlobal`);
   the hit overlay and a spark on an hp drop (above); death
   never replaced, held, removed after `duration - from + 0.5` s. Broodling: `spawn` (emerge) only
   on a real release, picked by effect 19 (`vfx/broodpick.ts` `pickReleased`: a live Broodling on
-  the Brood's layer created in this frame, nearest the release cell within 3 cells; a late
+  the Brood's layer created in this frame, nearest the release cell within `PICK_REACH` 170 px,
+  a second of the Broodling's chase, held `>= chaseSpeed` by `brood.spec.ts`; a late
   viewer sees none); primed tell = `detonate` from 0.85 s (`roles.prime`), clamped short of the
   blast until the destroy arrives, which carries on from 1.35 s; the cord length is the remaining
   fuse (`clamp(left / 3000, 0.25, 2)`, from the create's `lifetime`). The code-drawn cord is only
   for the `mob/mob` fallback. **A released Broodling is drawn over its Brood while it emerges**
   (#52 lane 5): `emergeReleased` stamps `Mob.emergeAbove { parent, until }` for
-  `EMERGE_ABOVE_MS` (1500, equal to the server's `emergeMs`, held by `brood.spec.ts`), and
+  `EMERGE_ABOVE_MS` (750, equal to the server's `emergeMs`, held by `brood.spec.ts`, and above
+  the launch's 630 ms landing, `broodlaunch.spec.ts`), and
   `Mob.update` sets `zIndex` to `emergeDepth` (at least the parent's y + 1, until then or until the
   parent is killed or destroyed). The Brood, about 3 cells wide, still covers a ring-2 cell on its
   north side. It relies on the Brood updating before its Broodlings in a frame (`Game.MOBS` is
@@ -398,7 +455,7 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
   landing cell (`pickSocket`; none loaded, the best of all). **The flying Broodling is the real
   unit** the server created on its cell: drawn in the socket from the effect (the cosmetic seat
   emptied), launched at `LAUNCH_MS` 180 (the Brood clip's `spawn` event), flying `FLIGHT_MS` 450
-  on `kilnFlight` with an `ARC_PX` 36 arc, landing at 630 ms inside its 1500 ms emerge, its HP bar
+  on `kilnFlight` with an `ARC_PX` 36 arc, landing at 630 ms inside its 750 ms emerge, its HP bar
   hidden in flight (`Mob.fly`, `NpcSprite.lift`). Never drawn on the ground before it lands, so
   never twice. The seat follows the Brood until the launch, then the path is fixed (a Brood dying
   mid-flight changes nothing). Killed or removed mid-flight: `dispose` calls `land()`, so its death
@@ -418,7 +475,7 @@ gitignored `codex_output/`; only fixtures and sheets are committed.
 - `objects/mob.ts` uses `NpcSprite` when `lookFor` names an NPC rig whose sheet loaded (sheets
   load in the background from `Game`'s constructor), else `mob/mob`: old ids and unknown ids
   unchanged. HP bar 60 wide for epic and legendary (and the retired boss). Threat rings include
-  NPC attacks (`attackReach`: a Kiln shows 8 rings); whether a lob should be marked by its reach
+  NPC attacks (`attackReach`: a Kiln shows 8 rings, a Coil 3, a Compactor 2 since its disc); whether a lob should be marked by its reach
   is Dez's to propose after play. `game.ts` reads them through `ui/elements/threatmarker.ts`
   `threatRings(archetype)`, which passes the mirror's `attack` (l1-9).
 - Unmeasured: client cost of many rigged NPCs in view (each poses, draws and, with shadows on,

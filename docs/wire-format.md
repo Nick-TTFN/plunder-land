@@ -138,7 +138,7 @@ box only for Periscope: 12 rings at vision 10 is up to 540 units east-west). **F
 projectile's layer**, not the thrower's (`63d8947`): a thrower who hopped a portal during the
 flight used to send the blast to the wrong layer. Effects are not fogged inside the 500 box
 (#48 rejected hiding them; Nick accepted): a blast or bomb in the dark is sent and drawn.
-**Types 9-19 are the NPC attacks** (#51, L1; numbers in server `archetypes/npceffects.ts`
+**Types 9-20 are the NPC attacks** (#51, L1; 20 since pve-2, #53; numbers in server `archetypes/npceffects.ts`
 `NPC_EFFECT` and client `vfx/npceffects.ts`, held equal by `npceffects.spec.ts`; append-only, a
 type is never reused). Through `effectAt` on a cell and layer, like the bomb: **9** Kiln lob
 (marker + arc, lifetime = flight; the client draws the arc only if it holds the Kiln), **10** Kiln
@@ -146,14 +146,20 @@ blast (originator ignored: the Kiln may be dead), **11** Reactor activate and **
 the planted cell; the client ends them early if it sees the Reactor die), **13** Coil pulse (sent
 once at the charge start, lifetime tell + hold, cell = the field's centre), **17** Broodling
 primed (lifetime = tell) and **18** Broodling blast. Through `effect` on a unit's holders:
-**14** Compactor shockwave (on the Compactor, aimed at the line's **uncut** tip; the client works
-the cells back from the tip, `lineFromTip`), **15** knockback (on the victim, aimed at the landing
+**14** Compactor shockwave (legacy: **no server sends it since pve-2**; on the Compactor, aimed
+at the line's **uncut** tip; the client works the cells back from the tip, `lineFromTip`, with a
+local length 3; its case is kept one release for a new client on an old server, then removed,
+task pve-3), **15** knockback (on the victim, aimed at the landing
 cell, to its holders including its own connection; see "Knockback" in `docs/movement.md`), **16**
 slowed (on the victim, lifetime = the slow left; resent only past half), **19** Brood release (on
-the Brood, aimed at the new Broodling's cell, lifetime = the spawn clip, 1100). An older client
-has no case for 9-19 and draws nothing (hence PROTOCOL 7). Lifetimes go out in tenths, floored:
+the Brood, aimed at the new Broodling's cell, lifetime = the spawn clip, 1100), **20** Compactor slam (on the
+Compactor, aimed at the disc's **centre cell**, `stepTo ?? cell` at the cast, lifetime =
+`impactMs` 750, sent as 700; the client draws `attackCells(disc, centre)`, so a Compactor drawn a
+cell off still shows the server's disc). An older client has no case for 9-19 and draws nothing
+(hence PROTOCOL 7); one before 8 has none for 20 (hence PROTOCOL 8). Lifetimes go out in tenths, floored:
 1250 is sent as 1200, so keep NPC timings at multiples of 100 where the client times a
-telegraph by them.
+telegraph by them. The Compactor's impact 750 (sent as 700, its strike's shoe 50 ms early) is a
+reviewed exception (pve-2): rounding instead would touch every effect and make it late.
 `changedAt`/`seen` and `pendingObjectIDs` are gone. Measured 2026-10-03 (`tools/load/`, Peep
 bots): per-client bytes 36-40% lower at 100 and 400 players (about 270-410 B/s decompressed,
 from 430-700), update records 55-63% fewer; Periscope bots only 10% lower. `Multiplayer.update`
@@ -217,7 +223,12 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 7 since L1** (#51, l1-2, built 2026-10-07, not yet live): gear tier 4 in `gear` (25),
+tabs left open across a release. **`PROTOCOL` is 8 since pve-2** (#53, built 2026-10-12, not yet live): the Compactor's slam is
+effect 20, which an older client never draws, so the slam would land with no telegraph and no
+strike clip (the silent misbehaviour 7 was bumped for); the Coil's third ring and pve-1's
+numbers ride on the same bump. Between the client and the server deploy a new client (8) on the
+old server (7) reloads up to 6 times at 20 s, then plays on and draws the old line from its kept
+effect-14 case. 7 was L1 (#51, l1-2, live with L1): gear tier 4 in `gear` (25),
 `carried` (26) and `stash`, which an older `decodeGear` refuses; NPC ids 9-15, which an older
 client draws as the old mob sprite; effects 9-19, which it never draws (dodgeable attacks with no
 warning, a slow with no cause, a knockback it never applies and rubber-bands back from). 6 was gear (#49, 49-2, live 2026-10-05: field indices 25-27; an older client stops parsing its own player's create at 26 or 27, losing its speed, which now goes out as 27 only, and drops a gear pickup's fields); 5 was energy (#48 step 7, 2026-10-04: a start can be refused with `start_refused`, which an older client never hears, so its READY would leave it on an empty screen); 4 was robot and finish locks (an older client offers every robot and finish, which the server would silently replace); 3 was skill loadouts (an older client sends the `skill` slot as an index into eight), 2 guest accounts.

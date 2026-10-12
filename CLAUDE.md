@@ -139,7 +139,9 @@ Old clients stay open across releases and other code reads these formats, so:
 - **Projectiles are removed only in `World.updateProjectiles`** (walks backwards).
 - **`LocalPlayer._step` mirrors the server's `Unit.walkPath`, and `LocalPlayer.knockback`
   mirrors `Player.knockback`** (effect 15, applied with the same flush's `lastInputSeq`):
-  change one, change the other (`extract.spec.ts` will tell you).
+  change one, change the other (`extract.spec.ts` will tell you). The Compactor's
+  `Shockwave.reachOf` copies `Player.knockback`'s stop rules too; `shockwave.spec.ts` catches
+  only the stops it lists.
 - **A new ground-plane overlay needs `onGround`** or it draws unsquashed by the tilt.
 - **`app.stage.hitArea` must cover the canvas** and `onPointerDown` ignores non-stage targets;
   a HUD button listens on its container, not its background.
