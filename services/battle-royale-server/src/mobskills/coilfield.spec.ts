@@ -8,7 +8,6 @@ import Player from '../objects/player'
 import Mob, { MobPack } from '../objects/mob'
 import { type GameObject } from '../objects/gameobject'
 import GuardPosition from '../ai/guardposition'
-import Slowdown from '../buffs/slowdown'
 import FieldSlow from '../buffs/fieldslow'
 import CoilField from './coilfield'
 import { ARCHETYPES, LAYERS, type CoilFieldSpec, type GuardSpec, isPackEntry } from '../archetypes/archetypes'
@@ -184,7 +183,7 @@ test('speed restores exactly after the slow ends, gear speed delta included', (t
   assert.equal(other.maxVelocity, 148.4)
 })
 
-test('Icicle and Coil multiply, and restore to base in either end order', (t) => {
+test('an ice slow and a Coil slow multiply (separate kinds), and restore to base in either end order', (t) => {
   mockDate(t)
   for (const coilEndsFirst of [true, false]) {
     for (const coilFirst of [true, false]) {
@@ -192,7 +191,7 @@ test('Icicle and Coil multiply, and restore to base in either end order', (t) =>
       const coilEnd = Date.now() + (coilEndsFirst ? 500 : 1500)
       const icicleMs = coilEndsFirst ? 1500 : 500
       if (coilFirst) FieldSlow.apply(player, 0.6, coilEnd)
-      player.addBuff(new Slowdown(player, icicleMs))
+      FieldSlow.apply(player, 0.5, Date.now() + icicleMs, Date.now(), 'ice')
       if (!coilFirst) FieldSlow.apply(player, 0.6, coilEnd)
       assert.equal(player.maxVelocity, 42, 'x0.6 x0.5 = x0.3 of 140')
       t.mock.timers.tick(501)
@@ -204,6 +203,28 @@ test('Icicle and Coil multiply, and restore to base in either end order', (t) =>
       assert.equal(player.buffs.length, 0)
     }
   }
+})
+
+test('a second ice slow refreshes the first, never multiplies; a Coil slow refreshes only the Coil\'s', (t) => {
+  mockDate(t)
+  const player = addPlayer(HOME)
+  const now = Date.now()
+  assert.equal(FieldSlow.apply(player, 0.5, now + 2000, now, 'ice'), true)
+  assert.equal(FieldSlow.apply(player, 0.5, now + 2500, now, 'ice'), false, 'refreshed inside half its cue')
+  assert.equal(player.maxVelocity, 70, 'two ice slows multiplied')
+  assert.equal(FieldSlow.on(player, 'ice')?.endTime, now + 2500)
+  assert.equal(FieldSlow.on(player, 'coil'), undefined, 'an ice slow read as the Coil\'s')
+
+  assert.equal(FieldSlow.apply(player, 0.4, now + 500, now), true, 'the Coil\'s was taken for a refresh of the ice')
+  assert.equal(player.maxVelocity, 28, 'x0.5 x0.4 of 140')
+  assert.equal(player.buffs.filter((b) => b instanceof FieldSlow).length, 2)
+  assert.equal(FieldSlow.on(player, 'ice')?.endTime, now + 2500, 'the Coil moved the ice slow\'s end')
+  t.mock.timers.tick(501)
+  player.update(DT)
+  assert.equal(player.maxVelocity, 70, 'the Coil\'s gave back what it took')
+  t.mock.timers.tick(2000)
+  player.update(DT)
+  assert.equal(player.maxVelocity, 140)
 })
 
 test('FieldSlow refuses anything but a player', () => {

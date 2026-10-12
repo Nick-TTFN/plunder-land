@@ -7,6 +7,14 @@ export default class Area extends Vector {
   tag: number
   damage: number
   continious: boolean
+  /**
+   * Called by `Unit.update` for each unit the area overlaps on a tick,
+   * **before** that tick's hit, with the tick's clock (ice-1: Ice Breath
+   * chills a mob and slows a player here, so the freezing tick is boosted).
+   * Undefined for an area that only damages (Fire Breath). Set after
+   * construction.
+   */
+  onOverlap: ((unit: Unit, now: number) => void) | undefined = undefined
 
   constructor (target: GameObject) {
     super(target.position.x, target.position.y)

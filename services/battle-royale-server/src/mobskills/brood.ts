@@ -115,6 +115,8 @@ export default class BroodRelease implements IAIRoutine {
     const targetCell = this.targetCell()
     if (targetCell === undefined) return
     this.arm()
+    // Frozen (ice-1): no release and none left pending; the clock is re-armed.
+    if (this.owner.frozen) return
     if (this.atCap()) return
     if (this.owner.stepTo !== undefined) {
       this.pending = true
@@ -131,6 +133,10 @@ export default class BroodRelease implements IAIRoutine {
 
   /** Release toward `targetCell` unless at the cap, and hold if it did. */
   private tryRelease (targetCell: Vector): void {
+    // A frozen Brood releases nothing (ice-1). The clock was re-armed at the
+    // beat, so the cadence holds; a pending release found frozen is dropped,
+    // and the first beat after the thaw releases.
+    if (this.owner.frozen) return
     if (this.atCap()) return
     if (!this.release(targetCell)) return
     this.holding = true

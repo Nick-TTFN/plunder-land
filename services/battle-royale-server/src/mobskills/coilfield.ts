@@ -81,6 +81,8 @@ export default class CoilField implements IAIRoutine {
     }
 
     if (now - this.lastChargeAt < spec.cooldownMs) return
+    // A frozen Coil starts no charge (ice-1); one under way pulses on above.
+    if (this.owner.frozen) return
     const target = this.owner.target
     if (target == null || !CoilField.slowable(target) || target.tag !== this.owner.tag) return
     if (Hex.distance(this.owner.cell, Hex.toCell(target.position)) > this.rings) return

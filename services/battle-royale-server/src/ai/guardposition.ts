@@ -93,13 +93,9 @@ export default class GuardPosition implements IAIRoutine {
 
     if (this.owner.target === attacker) return
     this.owner.target = attacker
-    // Assigned, like the acquisition below, and only on a change of target, so
-    // repeated hits from the unit it is already chasing - every ranged shot,
-    // every tick of a breath - do not cancel a Slowdown each time. Assigning
-    // over one does cancel it, which is why the icicle provokes before it slows.
-    // Known wrinkle: Slowdown.stop() adds back what it took, so if this (or the
-    // 2 s refresh below) reassigned speed mid-slow, the unit runs fast until the
-    // next refresh reassigns it again - at most one refresh period, mobs only.
+    // Assigned, like the acquisition below, and only on a change of target.
+    // No slow ever lands on a mob (the Icicle's went with ice-1, #54; a mob's
+    // freeze is `Unit.frozen`, never its speed), so nothing here can undo one.
     this.owner.maxVelocity = this.spec.chaseSpeed
   }
 
