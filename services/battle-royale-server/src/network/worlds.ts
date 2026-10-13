@@ -18,6 +18,7 @@ import { type GearCounts, gearStoreOf, lineageOf, stashEvent, type StashRunResul
 import type { GearStore, Spent, StashEdits, StashItem } from '../db/accounts'
 import { mergedItem, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from '../gear/merge'
 import { BRING_LEVEL, type GearInstance } from '../utils/gear'
+import { Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -253,8 +254,11 @@ export default class Worlds {
     // The protocol before anything else, so a stale client reloads at the
     // lobby (utils/protocol.ts).
     socket.emit('welcome', { protocol: PROTOCOL })
+    const auth = socket.handshake?.auth
+    const visit = connection.visit = new Visit(portalOf(auth), Date.now(), tokenOf(auth) === undefined)
     // At once, while the player is still in the lobby: READY doesn't wait on it.
-    connection.accountReady = this.lookup(connection, tokenOf(socket.handshake?.auth))
+    const ready = connection.accountReady = this.lookup(connection, tokenOf(auth))
+    void ready.then((account) => { visitStart(visit, account, this.redis) })
     if (this.draining) Worlds.redirect(connection)
     socket.on('start_requested', (data) => {
       Multiplayer.guarded(() => { this.start(connection, data) })
@@ -281,6 +285,7 @@ export default class Worlds {
       this.inWorld(connection, (mp) => { mp.onUseItem(connection, data) })
     })
     socket.on('disconnect', () => {
+      visitEnd(visit, connection.account, connection.started ? 'run' : this.draining ? 'drain' : 'lobby')
       connection.closed = true
       this.inWorld(connection, (mp) => { mp.release(connection) })
       this.worldOf.delete(connection)
@@ -838,6 +843,7 @@ export default class Worlds {
           // A refused spend carries nothing (store contract); return anything all the same.
           this.uncarry(carried)
           if (!connection.closed) connection.socket.emit('start_refused', { reason: 'energy', energy: energyView(spent.energy, this.now()) })
+          if (connection.visit !== undefined) energyOut(connection.visit, account)
           return
         }
         if (connection.closed || this.draining || connection.account !== account) {

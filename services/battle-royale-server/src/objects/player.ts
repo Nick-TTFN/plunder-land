@@ -458,7 +458,7 @@ export default class Player extends Unit {
     this.loot += value
     if (this.firstLootAt === undefined && value > 0 && this.bot === undefined) {
       this.firstLootAt = Date.now()
-      Analytics.send({ playerId: this.playerId, startedAt: this.createdAt, offline: Multiplayer.isOffline(this) }, 'first_loot', {
+      Analytics.send({ playerId: this.playerId, startedAt: this.createdAt, offline: Multiplayer.isOffline(this), portal: this.connection?.visit?.portal }, 'first_loot', {
         seconds: Math.round((this.firstLootAt - this.createdAt) / 100) / 10
       }, this.firstLootAt)
     }

@@ -98,8 +98,10 @@ test('run_start counts the friends already there (party_size)', async () => {
     sent.length = 0
     await client(worlds, 'friend').start('cccccc')
     for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve))
-    assert.equal(sent.length, 1)
-    assert.equal(sent[0].party_size, 1)
+    // The friend's run_start; its connection's visit_start (network/visits.ts) is not counted.
+    const starts = sent.filter((e) => e.party_size !== undefined)
+    assert.equal(starts.length, 1)
+    assert.equal(starts[0].party_size, 1)
   } finally {
     Analytics.post = realPost
     delete process.env.GA_MEASUREMENT_ID

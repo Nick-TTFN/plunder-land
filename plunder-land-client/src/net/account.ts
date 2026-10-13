@@ -130,10 +130,11 @@ export function readToken (storage: TokenStorage | undefined): string | undefine
 }
 
 /** The handshake's `auth`, read on every (re)connect: `{ token }`, or `{}` with none. */
-export function handshakeAuth (storage: () => TokenStorage | undefined): (cb: (data: object) => void) => void {
+export function handshakeAuth (storage: () => TokenStorage | undefined, portal?: string): (cb: (data: object) => void) => void {
   return (cb) => {
     const token = readToken(storage())
-    cb(token === undefined ? {} : { token })
+    // `portal` (#56): where this client runs, for analytics only; an older server ignores it.
+    cb({ ...(token === undefined ? {} : { token }), ...(portal === undefined ? {} : { portal }) })
   }
 }
 

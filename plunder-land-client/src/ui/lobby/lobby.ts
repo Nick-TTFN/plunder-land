@@ -20,6 +20,8 @@ import { type BringPair, STASH, markStashSeen, newStashCount, stashCount } from 
 import { loadoutOf } from '../../net/loadout'
 import { SKILL_LIST, loadoutSlotsAt } from '../../utils/skills'
 import { Sfx } from '../../audio/sfx'
+import { PORTAL } from '../../config'
+import { invitesShown, privacyUrl } from '../../net/portal'
 import {
   type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
@@ -313,13 +315,14 @@ export default class Lobby extends Container {
     // (and PRIVACY) fold into the menu button's dropdown.
     const top = this.top = el('header', 'lb-top')
     top.innerHTML = `
-      <div class="lb-brand"><img class="lb-wordmark" src="/res/brand/plunderbots-wordmark.png" alt="Plunderbots"></div>
+      <div class="lb-brand"><img class="lb-wordmark" src="res/brand/plunderbots-wordmark.png" alt="Plunderbots"></div>
       <nav class="lb-tabs"><span class="lb-tab lb-on">Lobby</span><span class="lb-tab lb-off" title="Coming soon">Collection</span></nav>`
     const topActions = el('div', 'lb-topactions')
     // Invites (decision #47): the link puts a friend in this player's world.
     this.inviteButton = el('button', 'lb-invite', 'Invite')
     this.inviteButton.title = 'Copy a link that puts a friend in your world'
     this.inviteButton.onclick = () => { this.closeMenu(); this.copyInvite() }
+    if (!invitesShown(PORTAL)) this.inviteButton.style.display = 'none'
     // Settings (L3): key bindings and graphics, a panel over the lobby.
     const settings = el('button', 'lb-invite lb-settings')
     settings.innerHTML = `${ICON.gear}<span class="lb-menu-label">Settings</span>`
@@ -328,7 +331,7 @@ export default class Lobby extends Container {
     settings.onclick = () => { this.closeMenu(); SettingsPanel.show() }
     // Portals ask for it, and it is what the game collects (decision #46).
     const privacy = (className: string): HTMLAnchorElement =>
-      Object.assign(el('a', className), { href: '/privacy', target: '_blank', rel: 'noopener', textContent: 'Privacy' })
+      Object.assign(el('a', className), { href: privacyUrl(PORTAL), target: '_blank', rel: 'noopener', textContent: 'Privacy' })
     topActions.append(this.inviteButton, settings, privacy('lb-privacy lb-menu-only'))
     const menu = el('button', 'lb-menu')
     menu.innerHTML = ICON.menu

@@ -471,8 +471,11 @@ for (const mode of ['throw', 'not-ready', 'hang'] as const) {
       })
       await settle()
       assert.deepEqual(writes, [], 'an offline run wrote to Redis')
-      assert.deepEqual(sent.map((e) => e.name).sort(), ['first_loot', 'run_end', 'run_start'])
-      for (const event of sent) assert.equal(event.params.offline, 1, `${event.name} without offline: 1`)
+      // The run's events. The connection's visit_start (network/visits.ts) came
+      // before any account (no token), under a one-off id, so it isn't offline.
+      const run = sent.filter((e) => e.name !== 'visit_start')
+      assert.deepEqual(run.map((e) => e.name).sort(), ['first_loot', 'run_end', 'run_start'])
+      for (const event of run) assert.equal(event.params.offline, 1, `${event.name} without offline: 1`)
     } finally {
       Analytics.post = realPost
       delete process.env.GA_MEASUREMENT_ID

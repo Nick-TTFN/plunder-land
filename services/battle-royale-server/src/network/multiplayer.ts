@@ -15,6 +15,7 @@ import { kitFor } from '../progress/loadouts'
 import { lockedStart } from '../progress/unlocks'
 import type { GearInstance } from '../utils/gear'
 import { type GearCounts, parseBring } from '../gear/stash'
+import type { Visit } from './visits'
 
 type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update: Buffer[], destroy: Buffer[] }
 
@@ -43,6 +44,8 @@ export class Connection {
   starting: boolean = false
   /** The socket disconnected: a start still waiting on the account is dropped. */
   closed: boolean = false
+  /** This connection as one visit, for analytics only (`network/visits.ts`); set by `Worlds` on connect. */
+  visit: Visit | undefined
   /**
    * The server closed this connection to stop (`Worlds.closeAll`: a drain's
    * deadline): a run it cuts short gets its play back (decision #48 step 7).
@@ -496,7 +499,8 @@ export default class Multiplayer {
           if (p !== player && connection.party !== undefined && p.connection?.party === connection.party) party++
         }
       }
-      Analytics.runStart({ playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player) }, this.redis, player.archetype.key, humans, bots, party)
+      if (connection.visit !== undefined) connection.visit.runs++
+      Analytics.runStart({ playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player), portal: connection.visit?.portal }, this.redis, player.archetype.key, humans, bots, party)
     } catch (e) {
       connection.started = false
       connection.player = undefined // before destroy, so no stats are written for it
@@ -1730,7 +1734,9 @@ export default class Multiplayer {
       gear_found: gear?.found ?? 0,
       gear_kept: gear?.kept ?? 0
     }
-    const run = { playerId: player.playerId, startedAt: player.createdAt, offline }
+    const visit = player.connection?.visit
+    if (visit !== undefined) visit.lastOutcome = outcome
+    const run = { playerId: player.playerId, startedAt: player.createdAt, offline, portal: visit?.portal }
     queueMicrotask(() => {
       Analytics.send(run, 'run_end', outcome === 'died' ? { ...params, killed_by: player.killedBy ?? 'other' } : params, at)
     })

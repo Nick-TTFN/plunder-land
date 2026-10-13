@@ -44,6 +44,11 @@ import type Redis from 'ioredis'
  * kept in Redis, `player-<id>` `firstDay` (days since the epoch), outside the
  * public `stats-*` hashes.
  *
+ * `portal` (#56, added for the itch soft launch): on every event of a run
+ * whose connection said where it runs (`web`, `itch`, ...; `web` for a
+ * client from before it), and on the visit events (`network/visits.ts`:
+ * `visit_start`, `visit_end`, `energy_out`).
+ *
  * EU endpoint (`region1`): the data is collected in the EU.
  */
 const ENDPOINT = 'https://region1.google-analytics.com/mp/collect'
@@ -58,6 +63,8 @@ export interface RunInfo {
   startedAt: number
   /** On an offline account: every event gets `offline: 1`. */
   offline?: boolean
+  /** Where its client runs (`network/visits.ts` `portalOf`): every event gets `portal`. Bots have none. */
+  portal?: string
 }
 
 /** The Measurement Protocol body for one event. Exported for the spec. */
@@ -70,6 +77,7 @@ export function payload (run: RunInfo, name: string, params: Params, at: number)
       params: {
         ...params,
         ...(run.offline === true ? { offline: 1 } : {}),
+        ...(run.portal !== undefined ? { portal: run.portal } : {}),
         session_id: String(Math.floor(run.startedAt / 1000)),
         // GA counts a user as engaged only with some engagement time.
         engagement_time_msec: Math.max(1, at - run.startedAt)

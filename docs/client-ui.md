@@ -14,6 +14,14 @@ ROBOT SHADOWS (`RobotSprite`'s cast pass) from the next run. VOLUME (OFF/LOW/MID
 sound module's own setting, not a `Settings` field (see Sound). The old S key toggled an unused
 `Game.simulate`: removed.
 
+## Portals (itch)
+
+`net/portal.ts` (#56): `PORTAL` (`config.ts`) is `itch` inside itch's embed. There the lobby hides
+INVITE (a link is built from the page's own address, which in the embed is the bare game on
+itch.zone; Nick: hide for now) and Privacy links to our own site (`SITE_URL`). Every asset path is
+relative (`res/...`), because itch serves the build from a subfolder; the Worker serves the game only
+at `/`, so that is safe there. `SITE_URL` changes with a custom domain.
+
 ## Sound
 
 The minimal sound pass before the itch soft launch (#56). Effects only, no music.

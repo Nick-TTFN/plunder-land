@@ -12,6 +12,7 @@ import { ARCHETYPES } from './archetypes/archetypes'
 import Analytics, { payload } from './analytics'
 import { MemoryAccountStore } from './db/accounts'
 import { xpToReach } from './progress/xp'
+import { portalOf } from './network/visits'
 
 /**
  * The game events sent to GA4 (decision #46): what each run sends, and that
@@ -60,17 +61,18 @@ function redisStub (): Redis {
   }) as unknown as Redis
 }
 
-function client (worlds: Worlds, id: string, token?: string): { connection: Connection, start: () => void } {
+function client (worlds: Worlds, id: string, token?: string, portal?: string): { connection: Connection, start: () => void, disconnect: () => void } {
   const handlers: Record<string, (data?: unknown) => void> = {}
+  const auth = token === undefined && portal === undefined ? undefined : { ...(token !== undefined ? { token } : {}), ...(portal !== undefined ? { portal } : {}) }
   const socket = {
     id,
-    handshake: { query: { frames: '1' }, auth: token === undefined ? undefined : { token } },
+    handshake: { query: { frames: '1' }, auth },
     on: (event: string, cb: (data?: unknown) => void) => { handlers[event] = cb },
     emit: () => true,
     conn: { write: () => {}, close: () => { handlers.disconnect?.() } }
   } as unknown as Socket
   const connection = worlds.onConnection(socket)
-  return { connection, start: () => { handlers.start_requested({ id: 'abc123', name: id, robot: 'magnet' }) } }
+  return { connection, start: () => { handlers.start_requested({ id: 'abc123', name: id, robot: 'magnet' }) }, disconnect: () => { handlers.disconnect() } }
 }
 
 /** Let the analytics' Redis reads and the stub's sends settle. */
@@ -78,8 +80,15 @@ async function settle (): Promise<void> {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
+/** The runs' events: the visit events (`network/visits.ts`) have their own tests below. */
 function events (): Array<{ name: string, params: Record<string, unknown> }> {
-  return sent.flatMap((s) => s.body.events)
+  return all().filter((e) => !VISIT_EVENTS.includes(e.name))
+}
+
+const VISIT_EVENTS = ['visit_start', 'visit_end', 'energy_out']
+
+function all (): Array<{ name: string, params: Record<string, unknown>, clientId: string }> {
+  return sent.flatMap((s) => s.body.events.map((e) => ({ ...e, clientId: s.body.client_id })))
 }
 
 test('a run sends run_start, first_loot and run_end, to the EU endpoint, as one GA session', async () => {
@@ -113,7 +122,7 @@ test('a run sends run_start, first_loot and run_end, to the EU endpoint, as one 
   assert.equal(end.params.deepest_layer, 1)
   assert.equal(end.params.robot, 'magnet')
   assert.equal(end.params.killed_by, undefined, 'only on a death')
-  for (const s of sent) {
+  for (const s of sent.filter((s) => !VISIT_EVENTS.includes(s.body.events[0].name))) {
     assert.ok(s.url.startsWith('https://region1.google-analytics.com/mp/collect?measurement_id=G-TEST&api_secret=secret'))
     // The account's id (decision #48), never the start's 'abc123'.
     assert.equal(s.body.client_id, a.connection.account?.publicId)
@@ -175,6 +184,84 @@ test('an offline run\'s events carry offline: 1, and only an offline run\'s', ()
   assert.deepEqual(offline.events[0].params, { outcome: 'left', offline: 1, session_id: '10', engagement_time_msec: 2500 })
   const online = payload({ playerId: 'abc123', startedAt: 10_000, offline: false }, 'run_end', { outcome: 'left' }, 12_500) as Sent['body']
   assert.equal(online.events[0].params.offline, undefined)
+})
+
+test('portalOf: the allowlist, other for anything else, web for none (a client from before it)', () => {
+  assert.equal(portalOf(undefined), 'web')
+  assert.equal(portalOf({ token: 'x' }), 'web')
+  assert.equal(portalOf({ portal: 'itch' }), 'itch')
+  assert.equal(portalOf({ portal: 'crazygames' }), 'crazygames')
+  assert.equal(portalOf({ portal: 'evil.example' }), 'other')
+  assert.equal(portalOf({ portal: 5 }), 'other')
+})
+
+test('a visit: visit_start, its runs carry the portal, visit_end says how it went', async () => {
+  const accounts = new MemoryAccountStore()
+  const { account, token } = await accounts.create()
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => 0, accounts })
+  const a = client(worlds, 'a', token, 'itch')
+  await settle()
+  a.start()
+  await settle()
+  const player = a.connection.player
+  const world = worlds.worldFor(a.connection)
+  assert.ok(player !== undefined && world !== undefined)
+  World.run(world, () => { player.addLoot(3); player.exit() })
+  worlds.tickAll(250)
+  await settle()
+  a.disconnect()
+  await settle()
+
+  assert.deepEqual(all().map((e) => e.name), ['visit_start', 'run_start', 'first_loot', 'run_end', 'visit_end'])
+  for (const e of all()) {
+    assert.equal(e.params.portal, 'itch', e.name)
+    assert.equal(e.clientId, account.publicId, e.name)
+  }
+  const [start] = all()
+  assert.equal(start.params.new_player, 0)
+  assert.equal(start.params.days_since_first, undefined, 'no run before this visit')
+  const end = all()[4]
+  assert.deepEqual(
+    { runs: end.params.runs, ended_in: end.params.ended_in, last_outcome: end.params.last_outcome, energy_refusals: end.params.energy_refusals, new_player: end.params.new_player },
+    { runs: 1, ended_in: 'lobby', last_outcome: 'extracted', energy_refusals: 0, new_player: 0 }
+  )
+})
+
+test('a new player\'s visit starts under a one-off id and ends under the account its first READY made', async () => {
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => 0, accounts: new MemoryAccountStore() })
+  const a = client(worlds, 'a')
+  await settle()
+  a.start()
+  await settle()
+  a.disconnect()
+  await settle()
+  const start = all().find((e) => e.name === 'visit_start')
+  const end = all().find((e) => e.name === 'visit_end')
+  assert.ok(start !== undefined && end !== undefined)
+  assert.match(start.clientId, /^anon-[0-9a-f]{12}$/)
+  assert.equal(start.params.new_player, 1)
+  assert.equal(start.params.portal, 'web', 'no portal: a client from before it')
+  assert.equal(end.clientId, a.connection.account?.publicId)
+  assert.equal(end.params.ended_in, 'run', 'disconnected mid-run')
+  assert.equal(end.params.new_player, 1)
+})
+
+test('READY with no plays left sends energy_out, and visit_end counts it', async () => {
+  const accounts = new MemoryAccountStore()
+  const { account, token } = await accounts.create()
+  for (let i = 0; i < 6; i++) assert.equal((await accounts.spend(account.publicId, 0)).ok, true)
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => 0, accounts })
+  const a = client(worlds, 'a', token)
+  await settle()
+  a.start()
+  await settle()
+  assert.equal(a.connection.player, undefined, 'refused')
+  a.disconnect()
+  await settle()
+  const out = all().find((e) => e.name === 'energy_out')
+  assert.equal(out?.params.runs, 0)
+  const end = all().find((e) => e.name === 'visit_end')
+  assert.deepEqual({ refusals: end?.params.energy_refusals, runs: end?.params.runs, ended_in: end?.params.ended_in }, { refusals: 1, runs: 0, ended_in: 'lobby' })
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).

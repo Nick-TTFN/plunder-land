@@ -10,7 +10,7 @@ import { HUD } from './ui/components/hud'
 import { Application, Assets, Point, Rectangle, type Renderer, SCALE_MODES, settings } from 'pixi.js'
 import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
-import { SERVER_URL } from './config'
+import { PORTAL, SERVER_URL } from './config'
 import { Aim } from './skills/aim'
 import { TouchAim } from './skills/touchaim'
 import { SkillCard } from './ui/components/skillpanel'
@@ -141,7 +141,7 @@ function setup (): void {
   // `auth` is a function so socket.io reads the stored token again on every
   // reconnect: a token issued during the first run is used from the next
   // connection on (guest accounts, decision #48; net/account.ts).
-  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage) })
+  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage, PORTAL) })
 
   Game.socket.on('connect', () => {
     // A new connection announces its own account: the last one's is stale

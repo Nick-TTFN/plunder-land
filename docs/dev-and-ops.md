@@ -176,6 +176,19 @@ sent whether or not the grant lands) and, since #49, `gear_brought`, `gear_found
 whether or not the settle lands). Smoke tests against production send real events, and since #48 the
 server picks the id, so record the id the `account` event gives the smoke test.
 
+**Visits and portals (#56, for the itch soft launch and the CrazyGames gate).** The client says
+where it runs in the handshake (`auth.portal`, `net/portal.ts`: `itch` on `*.itch.zone`/`*.itch.io`,
+else `web`, `?portal=` overrides); the server reads it through an allowlist (`network/visits.ts`
+`portalOf`: anything else `other`, none `web`) and puts `portal` on every run event and on three
+visit events, one visit per connection: `visit_start` (`new_player`; `days_since_first` for an
+account with a first run), `visit_end` (`seconds`, `runs`, `ended_in` run/lobby/drain,
+`last_outcome`, `energy_refusals`, `new_player`) and `energy_out` (`runs`, `seconds`). A new
+player has no account until their first READY, so their visit starts under a one-off
+`anon-<12 hex>` id (never stored) and ends under the account if one was made. The gate's measures
+from these: conversion = visits with `seconds` >= 60 and `runs` >= 1; playtime = median
+`visit_end.seconds`; D1 = players with a `visit_start` at `days_since_first` 1. Valid from the
+release that added them (`portal` absent before it).
+
 **The client has no Firebase since 2026-10-02** (#46: game events go from the server to GA4).
 It was `firebase/app` + `firebase/analytics`, about 96 KB parsed with its `tslib` and `idb`;
 the whole `firebase` import once cost 832 KB. Also gone in that cleanup: `axios` (unused),
