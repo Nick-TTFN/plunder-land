@@ -155,15 +155,15 @@ export default class BroodlingFuse implements IAIRoutine {
   }
 
   /**
-   * `Mob.hit` while this routine lives: any hit that would do damage (the
-   * same arithmetic as `Unit.hit`) blasts at once and returns true, so the
-   * caller credits the kill. A hit that would do none does nothing.
+   * `Mob.hit` while this routine lives: any hit that would do damage
+   * (`Unit.damageTaken`, the same helper `Unit.hit` uses, weaker metal
+   * included) blasts at once and returns true, so the caller credits the
+   * kill. A hit that would do none does nothing.
    */
   onHit (value: number): boolean {
     const owner = this.owner
     if (owner.destroyed || this.detonating) return false
-    const multiplier = Math.max(0, Math.min(1, 1 - owner.damageReduction))
-    if (Math.floor(value * multiplier) <= 0) return false
+    if (owner.damageTaken(value) <= 0) return false
     return this.detonate(true)
   }
 

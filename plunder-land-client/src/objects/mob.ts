@@ -7,6 +7,7 @@ import { NpcSprite } from '../npcs/npcsprite'
 import { RobotSprite } from '../robots/robotsprite'
 import { SETTINGS } from '../net/settings'
 import { hitSpark } from '../vfx/npcfx'
+import { bodyTint } from '../vfx/hitoverlay'
 import { type EmergeAbove, emergeDepth } from '../vfx/broodpick'
 import { BROODLING_RIG } from '../npcs/broodling/rig'
 import { BroodSockets } from '../vfx/broodsockets'
@@ -238,6 +239,17 @@ export default class Mob extends Unit {
   /** An NPC's body never turns (its gait points instead): nothing to flip. */
   flip (left: boolean): void {
     if (this.npc === undefined) super.flip(left)
+  }
+
+  /**
+   * An old-sprite mob's (grunt, gunner, boss, or a rig whose sheet hasn't
+   * loaded) frozen look (effect 21, `FrozenEffect`): its look's own tint
+   * times `ICE_TINT` while frozen, its own tint back after. A rigged NPC's is
+   * `NpcSprite.frozen` instead. These sprites have no hit flash.
+   */
+  setIceTint (frozen: boolean): void {
+    if (this.animation === undefined || this.animation.destroyed) return
+    this.animation.tint = bodyTint(false, frozen, lookFor('mob', this.archetype).tint ?? 0xffffff)
   }
 
   /** A hit is an overlay over whatever plays (decision #52): the rig's flash and jolt, and the spark. */

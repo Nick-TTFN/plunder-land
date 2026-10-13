@@ -3,6 +3,7 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Path } from '../utils/path'
 import World from './world'
+import { type ChillState, FREEZE } from '../buffs/freeze'
 import type Buff from '../buffs/buff'
 import { type IAIRoutine } from '../ai/airoutine'
 import { type Archetype } from '../archetypes/archetypes'
@@ -140,6 +141,29 @@ export class Unit extends GameObject {
    */
   armorRefillAt: number = 0
   armorCarry: number = 0
+
+  /**
+   * The ice skills' chill and freeze (#54, task ice-1; `buffs/freeze.ts`):
+   * undefined until the first chill, and only ever set on a mob. A plain
+   * initialiser: no base-constructor hook writes it.
+   */
+  chill: ChillState | undefined = undefined
+
+  /**
+   * True while frozen (`buffs/freeze.ts` `chill`): a frozen mob does not move
+   * (`update`), starts no skill (`Skill.execute`), no Reactor plant, Coil
+   * charge or Brood release, and deals no contact damage (`Mob.touch`); a
+   * wind-up already started still lands. It takes `FREEZE.damageTaken` times
+   * every hit (`damageTaken`). Never true for a player.
+   *
+   * **A mob's freeze is this, never `maxVelocity`**: `GuardPosition` assigns
+   * the speed absolutely. A getter (the `armor` trap: never declare a
+   * `frozen` field on a subclass). Reads the clock per call; every reader in
+   * a tick is in the same tick, so a thaw moves only the tick it falls in.
+   */
+  get frozen (): boolean {
+    return this.chill !== undefined && Date.now() < this.chill.frozenUntil
+  }
 
   /**
    * What kind of unit this is (archetypes.ts). Undefined only for the bare
@@ -549,7 +573,12 @@ export class Unit extends GameObject {
     // step only into free ones, so nothing ever needs shoving out of a rock,
     // a stone, a gate or another unit. The client's `LocalPlayer._step` lost
     // its push-out in the same change.
-    if (this.stepGoal !== undefined || this.stepTo !== undefined) {
+    if (this.frozen) {
+      // Frozen (ice-1): no movement of any kind. A mob caught mid-step stops
+      // where it is and keeps both of its `World.claimStep` claims; it lands
+      // on `stepTo`'s centre after the thaw. Its routines still ran above
+      // (a guard may set a goal; nothing walks it).
+    } else if (this.stepGoal !== undefined || this.stepTo !== undefined) {
       // A mob, stepping cell to cell toward its AI's goal.
       const walked = this.step(px, py, dt * this.maxVelocity)
       px = walked.x
@@ -580,6 +609,8 @@ export class Unit extends GameObject {
       if (area.tag !== this.tag) continue
       if (area.target === this) continue
       if (area.overlaps(this.position, this)) {
+        // Before the hit, so a tick that freezes is boosted (Ice Breath).
+        if (area.onOverlap !== undefined) area.onOverlap(this, Date.now())
         const damage = area.getEffect(dt)
         this.hit(damage)
       }
@@ -731,6 +762,20 @@ export class Unit extends GameObject {
     this.armor = Math.min(this.maxArmor, this.armor + whole)
   }
 
+  /**
+   * What a hit of `value` takes from this unit's armor and hp: Defend's
+   * reduction, clamped so a stacked one can never turn a hit into a heal,
+   * times weaker metal (`FREEZE.damageTaken` while `frozen`, #54), floored
+   * once. Two factors, never folded into `damageReduction`: a negative one
+   * would be clamped back to 1, and Defend assigns it absolutely. `hit` and
+   * the Broodling's `onHit` both go through here.
+   */
+  damageTaken (value: number): number {
+    const multiplier = Math.max(0, Math.min(1, 1 - this.damageReduction))
+    const weaker = this.frozen ? FREEZE.damageTaken : 1
+    return Math.floor(value * multiplier * weaker)
+  }
+
   hit (value: number): boolean {
     // A dead unit stays in its world list until the next tick sweeps it, and
     // FIND_IN_CELLS does not skip it, so a second hit in the same tick reached
@@ -738,10 +783,9 @@ export class Unit extends GameObject {
     // objects then share it) and the second killer was credited too.
     if (this.destroyed) return false
 
-    // Defend first, then the armor pool, then hp (#16). The reduction is
-    // clamped so a stacked one can never turn a hit into a heal.
-    const multiplier = Math.max(0, Math.min(1, 1 - this.damageReduction))
-    const damage = Math.floor(value * multiplier)
+    // Defend and weaker metal first (`damageTaken`), then the armor pool,
+    // then hp (#16).
+    const damage = this.damageTaken(value)
 
     let absorbed = 0
     if (damage > 0) {
