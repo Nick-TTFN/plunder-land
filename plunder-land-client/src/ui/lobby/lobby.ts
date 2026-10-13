@@ -19,6 +19,7 @@ import { StashPanel } from './stashpanel'
 import { type BringPair, STASH, markStashSeen, newStashCount, stashCount } from '../../net/stash'
 import { loadoutOf } from '../../net/loadout'
 import { SKILL_LIST, loadoutSlotsAt } from '../../utils/skills'
+import { Sfx } from '../../audio/sfx'
 import {
   type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
@@ -788,8 +789,12 @@ export default class Lobby extends Container {
     // socket listener twice.
     if (this.started) return
     // No play left (Enter bypasses the disabled button).
-    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt)) return
+    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt)) {
+      Sfx.play('ui_error')
+      return
+    }
     this.started = true
+    Sfx.play('ready')
     const name = this.nameInput.value.trim()
     // An empty name is remembered too, so clearing the field sticks.
     writeStorage(NAME_KEY, name)

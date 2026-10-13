@@ -2,10 +2,11 @@ import {
   type Density, DEFAULT_SETTINGS, SETTINGS, type Settings, bindKey, bindable, keyLabel, setSettings
 } from '../../net/settings'
 import { localTokenStorage } from '../../net/account'
+import { Sfx, type SoundLevel } from '../../audio/sfx'
 
 /**
- * The settings panel (L3, without sound): key bindings, graphics and the
- * performance overlay, with a greyed SOUND row until there are sounds. DOM
+ * The settings panel (L3): key bindings, graphics, the performance overlay
+ * and the volume (kept by `audio/sfx.ts`, not in `Settings`). DOM
  * over the canvas, like the lobby, in the same placeholder chrome (`st-`
  * classes). Opened from the lobby's SETTINGS button and with Escape in game;
  * Escape or DONE closes it. While it is open every key is its own: a key
@@ -149,7 +150,12 @@ export class SettingsPanel {
     this.body.append(perf)
 
     this.body.append(el('div', 'st-section', 'SOUND'))
-    this.body.append(el('div', 'st-row st-off', 'VOLUME  ·  SOUND COMING SOON'))
+    const volume = el('div', 'st-row')
+    volume.append(el('span', undefined, 'VOLUME'), this.choice<SoundLevel>([[0, 'OFF'], [1, 'LOW'], [2, 'MID'], [3, 'HIGH']], Sfx.level, (level) => {
+      Sfx.setLevel(level)
+      this.render()
+    }))
+    this.body.append(volume)
   }
 
   private keyRow (label: string, group: 'skillKeys' | 'itemKeys', names: string[]): HTMLDivElement {

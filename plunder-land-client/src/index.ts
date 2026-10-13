@@ -22,10 +22,14 @@ import { onStash, setStash } from './net/stash'
 import { parseSaved, slotsFor } from './net/loadout'
 import { SETTINGS, densityFor, loadSettings } from './net/settings'
 import { Session } from './net/session'
+import { Sfx } from './audio/sfx'
 
 initErrorReporting()
 // Before anything reads them: the renderer's density, the HUD's keys.
 loadSettings(localTokenStorage())
+// Audio starts on the first press (browsers' rule); the menus click by delegation.
+Sfx.init()
+Sfx.bindDom(document)
 
 // The stats.js developer overlay (fps, socket bytes), with ?stats=1 or the
 // settings' PERFORMANCE OVERLAY. It sat on top of the HUD's status panel for

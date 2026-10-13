@@ -68,6 +68,8 @@ import { RunMap, resetForRun } from './net/runmap'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
 import { SpectateBar } from './ui/popups/spectatebar'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
+import { Sfx } from './audio/sfx'
+import { GameSfx } from './audio/gamesfx'
 
 /** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
 const UPDATE_HEADER_BYTES = 8
@@ -237,6 +239,8 @@ export class Game extends Container {
   constructor () {
     super()
     this.mapSize = 4000
+    // Sounds are heard from your robot, or from the one you spectate.
+    Sfx.listener = () => Game.PLAYER ?? (Game.SPECTATE_ID !== undefined ? this.LOOKUP[Game.SPECTATE_ID] : undefined)
     Player.wallAt = (q, r, tag) => Game.WALLS.get(tag)?.has(Hex.key(q, r)) === true
 
     // The NPC rigs' sheets (l1-8), in the background: a mob created before
@@ -397,6 +401,7 @@ export class Game extends Container {
    */
   onStartRefused (data: unknown): void {
     const refusal = onRefused(data)
+    Sfx.play('ui_error')
     if (refusal?.energy !== undefined) setEnergy(refusal.energy, Date.now())
     if (Game.PLAYER !== undefined) return
     Game.hud.clearGameUI()
@@ -700,6 +705,7 @@ export class Game extends Container {
       Game.hud.legend.visible = Game.FOG.radius !== null
 
       Game.RUN.start(archetypeById(data.archetype)?.key)
+      GameSfx.runStart()
       Game.RUN.layer(Session.layerNumber(data.tag))
       if (typeof data.kills === 'number') Game.RUN.kills = data.kills
 
@@ -745,6 +751,7 @@ export class Game extends Container {
       obj.y = data.position.y
       // Its first position: it glides from here once the next one arrives.
       if (projectile) (obj as unknown as Throwable).setMoveTarget(new Vector(data.position.x, data.position.y))
+      if (projectile) GameSfx.projectile(data.position)
       // Obstacles never move and are never fed through `update`, so this is the
       // only place their depth can be set. Without it they sit at zIndex 0 and
       // every unit on the plane draws in front of them - which nobody noticed
@@ -844,6 +851,8 @@ export class Game extends Container {
     }
 
     const target = this.LOOKUP[targetid]
+    // The Kiln's launch sounds from its branch, which knows when the slug leaves.
+    if (type !== NPC_EFFECT.kilnLob) GameSfx.effect(type, target, aimCell, lifetime)
 
     // A blast is drawn on its cell, not on its caster, who may be dead or out
     // of view by the time the projectile lands. The caster only says which
@@ -899,6 +908,7 @@ export class Game extends Container {
         if (target.playAttackFromStart(aimCell === undefined ? undefined : Hex.toPosition(aimCell))) launchMs = target.attackEvent * 1000
       }
       if (aimCell !== undefined) new KilnLobEffect(aimCell, Game.LOCAL.tag, blast, lifetime, blast ? undefined : target, launchMs)
+      if (!blast) GameSfx.effect(type, target, aimCell, lifetime, launchMs)
       return
     }
 
@@ -1085,9 +1095,15 @@ export class Game extends Container {
 
       if (typeof data.extractProgress === 'number' && obj instanceof Player) {
         ExtractRing.show(obj, data.extractProgress, obj.radius)
+        if (obj === Game.PLAYER) GameSfx.ownExtract(data.extractProgress)
       }
 
+      const hpBefore = obj instanceof Unit ? obj.hp : undefined
       if (data.hp !== undefined && obj.setHP) obj.setHP(data.hp)
+      if (data.hp !== undefined && obj instanceof Unit) {
+        if (hpBefore !== undefined && data.hp < hpBefore) GameSfx.hurt(obj, obj === Game.PLAYER)
+        if (obj === Game.PLAYER && obj.maxHP > 0) GameSfx.ownHealth(data.hp / obj.maxHP)
+      }
 
       if (data.level !== undefined && obj.setLevel) {
         obj.setLevel(data.level)
@@ -1098,7 +1114,10 @@ export class Game extends Container {
 
       if (Array.isArray(data.carried) && obj === Game.PLAYER) this.applyCarried(data.carried)
 
-      if (typeof data.kills === 'number' && obj === Game.PLAYER) Game.RUN.kills = data.kills
+      if (typeof data.kills === 'number' && obj === Game.PLAYER) {
+        if (data.kills > Game.RUN.kills) GameSfx.ownKill()
+        Game.RUN.kills = data.kills
+      }
 
       if (data.loot !== undefined && data.loot !== obj.loot) {
         // Was `+${data.loot < obj.loot ? data.loot : data.loot - obj.loot}`, which
@@ -1117,6 +1136,7 @@ export class Game extends Container {
         // A rise on a total already known is a pickup; the first value seen for
         // a robot that just came into view is its haul so far, not a pickup.
         if (obj instanceof Player && delta > 0 && obj.loot !== undefined) obj.onLootGained()
+        if (obj === Game.PLAYER && delta > 0 && Game.PLAYER.loot !== undefined) GameSfx.ownLoot()
         obj.loot = data.loot
 
         if (obj === Game.PLAYER) Game.hud.updateStats(data)
@@ -1129,6 +1149,7 @@ export class Game extends Container {
         this.layerOf(obj.tag)?.addChild(obj)
 
         if (obj === Game.PLAYER) {
+          GameSfx.ownLayer()
           this.updateLayerVisibility(data.tag)
           Game.RUN.layer(Session.layerNumber(data.tag))
         }
@@ -1185,6 +1206,7 @@ export class Game extends Container {
         // with hp 0 is a death; without hp, an extraction.
         Game.RUN.finish((obj as Unit).loot ?? 0)
         const dead = data.hp === 0
+        GameSfx.ownGone(dead)
         const card = this.runCard = new RunSummaryCard(dead ? 'dead' : 'extracted', Game.RUN, this.start.bind(this),
           dead ? () => { card.visible = false } : undefined)
         Game.popups.show(card)
@@ -1206,6 +1228,8 @@ export class Game extends Container {
       // Picked up (pickup-reach): it flies to whoever took it, then goes.
       const collector = data.collector !== undefined ? this.LOOKUP[data.collector] : undefined
       if (collector instanceof Unit && (obj instanceof Consumable || obj instanceof ItemPickup || obj instanceof GearPickup)) {
+        // Loot (a Consumable) sounds through your loot rising; an item or gear raises none.
+        if (collector === Game.PLAYER && !(obj instanceof Consumable)) GameSfx.ownGear()
         Game.flyToCollector(obj, collector)
       } else {
         obj.dispose()

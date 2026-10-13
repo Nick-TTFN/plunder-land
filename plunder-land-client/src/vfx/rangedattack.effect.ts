@@ -10,6 +10,7 @@ import { CellHighlight, cellOf, facingOf, layerOf } from './cellhighlight'
 import { onGround, TILT } from '../objects/tilt'
 import AnimationClip from '../animation/animationclip'
 import { SHOT } from '../robots/eyeshot'
+import { GameSfx } from '../audio/gamesfx'
 
 /**
  * A beam from the caster to where the shot stops: the first unit on its hex
@@ -139,6 +140,7 @@ export class RangedAttackEffect {
 
   /** The beam, the cells it lit, and (for a sprite without a rig) a muzzle flash. */
   private static fire (owner: GameObject, layer: Container, from: Vector, end: Vector, struck: Cell | undefined, crossed: Cell[], rigged: boolean): void {
+    GameSfx.shot(from, (Game.MOBS as GameObject[]).includes(owner))
     if (struck !== undefined) CellHighlight.flash(owner.tag, [struck], 0x88ffff, 300)
     // Dimmer than the struck cell: the path, not the hit.
     if (crossed.length > 0) CellHighlight.flash(owner.tag, crossed, 0x2f6f7a, 300)

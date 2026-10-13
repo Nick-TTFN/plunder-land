@@ -5,6 +5,7 @@ import { HUD } from '../components/hud'
 import { ACCOUNT, PROGRESS_WAIT_MS, type ProgressInfo, xpLine } from '../../net/account'
 import { unlockedBetween } from '../lobby/locks'
 import { type GearTone, type StashRun, gearLine } from '../../net/stash'
+import { Sfx } from '../../audio/sfx'
 
 /** How a run ended, from the own player's destroy record. */
 export type RunOutcome = 'extracted' | 'dead'
@@ -250,6 +251,8 @@ export class RunSummaryCard extends Container {
     }
   }
 
+  private _levelUpSounded = false
+
   private showXp (run: RunRecord): void {
     const v = this._xp
     if (v === undefined) return
@@ -257,6 +260,11 @@ export class RunSummaryCard extends Container {
     v.text = text
     v.style.fill = tone === 'accent' ? THEME.accent : tone === 'text' ? THEME.text : THEME.muted
     if (run.progress !== undefined) clearTimeout(this._wait)
+    // Once per card, after the run's own sting (death or extraction) has played.
+    if (run.progress?.levelUp === true && !this._levelUpSounded) {
+      this._levelUpSounded = true
+      setTimeout(() => { Sfx.play('level_up') }, 900)
+    }
     this.showUnlocked(run)
   }
 
@@ -307,7 +315,7 @@ export class RunSummaryCard extends Container {
     button.addChild(bg, text)
     button.eventMode = 'static'
     button.cursor = 'pointer'
-    button.on('pointertap', onTap)
+    button.on('pointertap', () => { Sfx.play('ui_click'); onTap() })
     return button
   }
 

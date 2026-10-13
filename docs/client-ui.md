@@ -10,8 +10,34 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
 while open it takes every key (the lobby's handler steps aside). Skill keys (Q W E R) and item keys
 (1-5) rebind, single characters only, Enter/Space/Escape reserved, a key in use swaps; mid-run the
 cards rekey with cooldowns kept (`HUD.rekey`). Resolution auto/1x/2x (`densityFor`) applies at once;
-ROBOT SHADOWS (`RobotSprite`'s cast pass) from the next run. SOUND is a greyed row until there are
-sounds. The old S key toggled an unused `Game.simulate`: removed.
+ROBOT SHADOWS (`RobotSprite`'s cast pass) from the next run. VOLUME (OFF/LOW/MID/HIGH) is the
+sound module's own setting, not a `Settings` field (see Sound). The old S key toggled an unused
+`Game.simulate`: removed.
+
+## Sound
+
+The minimal sound pass before the itch soft launch (#56). Effects only, no music.
+
+- **`audio/sfx.ts`**: Web Audio, no library. `BANK` maps each slot name to its files in
+  `assets/res/sfx/` (Nick's picks from Kenney's CC0 packs, `LICENSE.txt` there), a gain, an
+  optional minimum gap and a pitch variety; a slot with several files never repeats the last one.
+  Swapping a sound is a `BANK` edit. Files ship as Ogg Vorbis and MP3; the browser fetches one.
+  Paths are relative (`./res/sfx/`).
+- **Starts on the first pointer or key press** (browsers' autoplay rule): the context is made and
+  the files load then; a play before that is dropped, not queued. A hidden tab suspends it.
+- **Volume**: localStorage `plunderland_sound`, 0-3, default MID (2). Kept out of `Settings` so the
+  settings shape and its spec stay as they are.
+- **Placed by distance only**: full within 200 world px of the listener (your robot, or the one you
+  spectate), silent from 800, no panning. An effect whose unit or cell is unknown is not played.
+- **`audio/gamesfx.ts`** holds the game logic, called from `Game` with plain values: effect types
+  to sounds, wind-ups cut at their impact (Compactor, Reactor), the Kiln thruster from its launch,
+  the extraction loop with a tick a second (stops on `extractProgress` 0 or the robot's end), and a
+  low-HP tick at 30% or less. The ranged shot sounds in `RangedAttackEffect.fire`, with its beam.
+- **Menus**: `Sfx.bindDom` delegates clicks and mouse hovers on the DOM UI: closing buttons
+  `ui_back`, choices and chips `ui_toggle`, the rest `ui_click`. READY and the no-plays refusal are
+  the lobby's own. The run card's pixi buttons click from `RunSummaryCard`.
+- PROVISIONAL: gains are set from measured loudness, not by ear; a projectile's cast sound plays on
+  its create, so a fireball coming into view from off-screen sounds there.
 
 ## Lobby
 

@@ -1,5 +1,5 @@
 /**
- * The player's settings (L3, without sound): key bindings for the 4 skill
+ * The player's settings (L3; the volume is `audio/sfx.ts`'s own): key bindings for the 4 skill
  * slots and the 5 item slots, the render density, robot cast shadows and the
  * performance overlay. Pixi-free, so the server's specs run it
  * (`network/settings.spec.ts` there). Kept in localStorage

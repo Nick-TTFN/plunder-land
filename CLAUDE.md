@@ -31,7 +31,7 @@ backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 | Hex grid, routing, prediction, interpolation, mob steps, liveness | `docs/movement.md` |
 | Robot stats table, rigs, eye shot, finishes | `docs/robots.md` |
 | Generated sheets (hex, ground, arena, blasts), tilt, unused atlas frames | `docs/art-pipeline.md` |
-| Settings, lobby, stash panel, fog drawing, markers, run card, input and touch | `docs/client-ui.md` |
+| Settings, sound, lobby, stash panel, fog drawing, markers, run card, input and touch | `docs/client-ui.md` |
 | Accounts, loadouts, XP, seasons, energy, stash store, admin endpoints ("Accounts") | `docs/accounts.md` |
 | Skills, areas of effect, projectiles, StoneWall, gear and merge ("Skills", "Gear") | `docs/skills-and-gear.md` |
 | Bots and spectating | `docs/bots-and-spectate.md` |

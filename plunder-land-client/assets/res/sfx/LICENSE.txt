@@ -1,0 +1,5 @@
+Sound effects in this folder come from Kenney's packs (www.kenney.nl), all
+Creative Commons Zero (CC0): Sci-Fi Sounds, Impact Sounds, UI Audio,
+Interface Sounds, Casino Audio and Music Jingles. File names keep the packs'
+own names; each is converted to Ogg Vorbis and MP3 (mono, except the jingles).
+Which sound plays when is src/audio/sfx.ts (BANK).
