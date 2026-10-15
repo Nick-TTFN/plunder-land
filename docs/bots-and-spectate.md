@@ -24,7 +24,7 @@ within 20-100 s: run length is decided by time, not loot.
 **A quarter of bots join carrying cargo** (#49, 49-6; `BOT_CARGO` in `brain.ts`: chance 0.25,
 skill item 30% else a part, tier 1): one rowless item in the bag, given in `BotFill.spawn` after
 `player.bot` is set (before it, `addGear` would equip a skill item and change the bot's stats).
-A bot puts everything it picks up in the bag and never casts gear; it drops it all on death like a
+A bot never picks gear up (`Player.gearRoom`, decision #57), keeps its cargo in the bag and never casts gear; it drops it all on death like a
 player, and its extraction loses found gear and deletes stash rows it carried (`discardGear`).
 
 ## Spectate

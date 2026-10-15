@@ -125,7 +125,7 @@ function units (): Array<[string, Unit, number]> {
 }
 
 // robot-finishes: a player's finish (field 23, counted, the default here) follows its archetype.
-const FINISH_MINT = [23, 6, 2, 1, 1, 0, 1, 0]
+const FINISH_MINT = [23, 6, 2, 0, 1, 0, 1, 0]
 
 test('every archetype unit\'s create record ends with [16, id] (then a player\'s finish), and its serialised value is the id', () => {
   for (const [key, unit, id] of units()) {

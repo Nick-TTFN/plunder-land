@@ -311,12 +311,11 @@ export default class Lobby extends Container {
     Lobby.injectStyle()
     this.root = el('div', 'lb')
 
-    // Header: brand, tabs, INVITE and settings; under 760 px the last two
+    // Header: brand, INVITE and settings; under 760 px the last two
     // (and PRIVACY) fold into the menu button's dropdown.
     const top = this.top = el('header', 'lb-top')
     top.innerHTML = `
-      <div class="lb-brand"><img class="lb-wordmark" src="res/brand/plunderbots-wordmark.png" alt="Plunderbots"></div>
-      <nav class="lb-tabs"><span class="lb-tab lb-on">Lobby</span><span class="lb-tab lb-off" title="Coming soon">Collection</span></nav>`
+      <div class="lb-brand"><img class="lb-wordmark" src="res/brand/plunderbots-wordmark.png" alt="Plunderbots"></div>`
     const topActions = el('div', 'lb-topactions')
     // Invites (decision #47): the link puts a friend in this player's world.
     this.inviteButton = el('button', 'lb-invite', 'Invite')

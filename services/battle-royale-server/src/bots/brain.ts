@@ -104,7 +104,8 @@ export function kitOf (temperament: Temperament, random: () => number): number[]
  * everything for a bot, so no slot fills and no stat changes), a part 70% of
  * the time and a skill item 30%, rolled by `rollGear`. A bot is a gear source
  * like any player: it drops what it carries on death. The brain never casts
- * it (keys 3-4) and doesn't seek gear on purpose. Given by `BotFill.spawn`.
+ * it (keys 3-4), and a bot never picks gear up (`Player.gearRoom`). Given by
+ * `BotFill.spawn`.
  * Tunables (TEAM.md, at accept).
  */
 export const BOT_CARGO: Readonly<{ chance: number, skillShare: number, tier: GearTier }> = Object.freeze({ chance: 0.25, skillShare: 0.3, tier: 1 })
@@ -282,9 +283,10 @@ export default class BotBrain implements IAIRoutine {
       for (const obj of World.PICKUPS.at(me.tag, key)) {
         if (obj.destroyed) continue
         if (World.isGear(obj)) {
-          // Gear shares ObjectType.Item but has no `kind` (decision #49,
-          // 49-2): reading one threw inside the tick. A bot bags gear.
-          if (!me.gearRoom(obj.instance)) continue
+          // A bot never takes gear (`Player.gearRoom`, decision #57), so it
+          // never walks to any. Gear shares ObjectType.Item but has no `kind`:
+          // reading one below threw inside the tick (#49, 49-2).
+          continue
         } else if (obj.type !== ObjectType.Consumable) {
           const kind = (obj as unknown as { kind: { slot: number, maxStack: number } }).kind
           if ((me.inventory[kind.slot] ?? 0) >= kind.maxStack) continue

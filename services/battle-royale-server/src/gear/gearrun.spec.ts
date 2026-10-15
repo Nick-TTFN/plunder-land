@@ -10,7 +10,7 @@ import Player from '../objects/player'
 import Mob from '../objects/mob'
 import GearPickup from '../objects/gearpickup'
 import { type Unit } from '../objects/unit'
-import { ARCHETYPES, ITEMS, LAYERS, MOB_GEAR_CHANCE, MOB_GEAR_ROLLS, mobGearRolls } from '../archetypes/archetypes'
+import { ARCHETYPES, ITEMS, LAYERS, MOB_GEAR_ROLLS, mobGearRolls } from '../archetypes/archetypes'
 import { ARCHETYPE_INFO } from '../utils/archetypes'
 import { SKILL_INFO } from '../utils/skills'
 import { GEAR_BAG, GEAR_STATS, type GearInstance, type GearTier } from '../utils/gear'
@@ -149,7 +149,7 @@ test('with no room the pickup stays on the ground; a skill item still takes a fr
   assert.ok(!part.destroyed)
 })
 
-test('a bot puts a skill item in the bag and its stats do not change', () => {
+test('a bot leaves gear on the ground (2026-10-15) and its stats do not change', () => {
   noRefill()
   const player = peep('bot')
   player.bot = {} as unknown as BotBrain
@@ -157,10 +157,14 @@ test('a bot puts a skill item in the bag and its stats do not change', () => {
   const found = item(2, FIREBALL)
   dropAt(found)
   player.update(0.25)
-  assert.deepEqual(player.bag, [found], 'the bot did not bag it')
+  assert.deepEqual(player.bag, [], 'the bot took it')
+  assert.equal(World.GEAR.length, 1, 'the pickup is gone')
   assert.deepEqual(player.gear, [null, null], 'the bot equipped it')
   assert.deepEqual([player.maxHp, player.maxArmor, player.maxVelocity, player.damageScale, player.pickupReach], before)
   assert.equal(player.gearSkill(0), null)
+  // Cargo still goes in the bag: it is carried in, not picked up.
+  assert.ok(player.addGear(item(1, 0)))
+  assert.equal(player.bag.length, 1)
 })
 
 test('the carried bytes are 6 entries, slots then bag, each as encodeGear writes it', () => {
@@ -344,6 +348,24 @@ test('caches stand at the layer\'s count, a taken one respawns after the layer\'
   }
 })
 
+test('caches grow by one per humansPerCache humans on the layer; bots, dead players and other layers don\'t count', () => {
+  noRefill()
+  const top = LAYERS[0]
+  const per = top.gear.humansPerCache
+  assert.equal(World.cachesWanted(top), top.gear.caches, 'nobody on it')
+  const humans: Player[] = []
+  for (let n = 0; n < per - 1; n++) humans.push(peep(`h${n}`))
+  assert.equal(World.cachesWanted(top), top.gear.caches, `${per - 1} humans`)
+  const bot = peep('bot')
+  bot.bot = {} as unknown as BotBrain
+  assert.equal(World.cachesWanted(top), top.gear.caches, 'a bot counted')
+  humans.push(peep('last'))
+  assert.equal(World.cachesWanted(top), top.gear.caches + 1, `${per} humans`)
+  assert.equal(World.cachesWanted(LAYERS[1]), LAYERS[1].gear.caches, 'another layer\'s humans counted')
+  humans[0].destroyed = true
+  assert.equal(World.cachesWanted(top), top.gear.caches, 'a dead player counted')
+})
+
 test('a player standing on a cache takes it, and the world starts its respawn', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   noRefill()
@@ -388,8 +410,7 @@ function gearCells (): string[] {
   })
 }
 
-test('the drop table (#51): flat 4% rolls by mob rarity, own tier a skill item from Rare up, every NPC row reads its rarity\'s, the Broodling and the retired rows none', () => {
-  assert.equal(MOB_GEAR_CHANCE, 0.04)
+test('the drop table (#51): rolls by mob rarity, own tier a skill item from Rare up, every NPC row reads its rarity\'s, the Broodling and the retired rows none', () => {
   assert.deepEqual(MOB_GEAR_ROLLS, {
     common: { rolls: [1, 0, 0], skillTier: null },
     rare: { rolls: [2, 1, 0], skillTier: 2 },
@@ -411,7 +432,7 @@ test('a kill rolls each of its rolls on its own: a Crawler one T1 by the layer\'
   assert.deepEqual(world.createGearFrom(crawler, seq(0, 0)), [{ tier: 1, skill: 0, rolls: [] }])
   assert.equal(World.GEAR.length, 1)
   // At or over the chance: nothing, and no pickup.
-  assert.deepEqual(world.createGearFrom(crawler, seq(MOB_GEAR_CHANCE)), [])
+  assert.deepEqual(world.createGearFrom(crawler, seq(LAYERS[0].gear.mobChance)), [])
   assert.equal(World.GEAR.length, 1)
   // Under the chance, over `part`: a skill item.
   const skill = world.createGearFrom(crawler, seq(0, LAYERS[0].gear.mobMix.part))
@@ -473,14 +494,15 @@ test('the Broodling, the retired rows and robots drop nothing, on every layer', 
   assert.equal(World.GEAR.length, 0)
 })
 
-test('100,000 seeded kills per rarity: items per kill 0.04 / 0.12 / 0.28 / 0.60, own-tier rolls skill items, the rest by mobMix, never a T4', () => {
+test('100,000 seeded kills per rarity on the bottom layer: items per kill 0.1 / 0.3 / 0.7 / 1.5, own-tier rolls skill items, the rest by mobMix, never a T4', () => {
   noRefill()
   // Placement is the tests above; here only what rolls, so no pickups pile up.
   const placing = world as unknown as { dropGear: () => void }
   placing.dropGear = () => {}
   const KILLS = 100_000
   const layer = LAYERS[2]
-  const expected: Record<string, number> = { crawler: 0.04, kiln: 0.12, reactor: 0.28, brood: 0.60 }
+  const expected: Record<string, number> = { crawler: 0.1, kiln: 0.3, reactor: 0.7, brood: 1.5 }
+  const chance = layer.gear.mobChance
   const random = lcg(51)
   for (const key of ['crawler', 'kiln', 'reactor', 'brood'] as const) {
     const mob = mobOn(key, layer.tag)
@@ -488,7 +510,7 @@ test('100,000 seeded kills per rarity: items per kill 0.04 / 0.12 / 0.28 / 0.60,
     assert.ok(table !== null)
     const rolls = table.rolls.reduce((x, y) => x + y, 0)
     // The table's own per-kill expectation is the accepted figure.
-    assert.ok(Math.abs(rolls * MOB_GEAR_CHANCE - expected[key]) < 1e-9, `${key}: ${rolls} rolls`)
+    assert.ok(Math.abs(rolls * chance - expected[key]) < 1e-9, `${key}: ${rolls} rolls`)
     let items = 0
     let byMix = 0
     let byMixParts = 0
@@ -508,11 +530,11 @@ test('100,000 seeded kills per rarity: items per kill 0.04 / 0.12 / 0.28 / 0.60,
     }
     const mean = items / KILLS
     // Five standard errors of a sum of Bernoulli rolls: deterministic (seeded), but not tuned to the seed.
-    const se = Math.sqrt(rolls * MOB_GEAR_CHANCE * (1 - MOB_GEAR_CHANCE) / KILLS)
+    const se = Math.sqrt(rolls * chance * (1 - chance) / KILLS)
     assert.ok(Math.abs(mean - expected[key]) < 5 * se, `${key}: ${mean} items a kill, expected ${expected[key]} +- ${5 * se}`)
     assert.equal(tiers[4], 0, `${key}: a T4 dropped`)
     for (let tier = 1; tier <= 3; tier++) {
-      const share = table.rolls[tier - 1] * MOB_GEAR_CHANCE * KILLS
+      const share = table.rolls[tier - 1] * chance * KILLS
       if (share === 0) assert.equal(tiers[tier], 0, `${key}: T${tier} from no rolls`)
       else assert.ok(Math.abs(tiers[tier] - share) < 5 * Math.sqrt(share), `${key}: ${tiers[tier]} T${tier}, expected ${share}`)
     }
@@ -549,7 +571,7 @@ test('a Brood killed in the world drops every item it rolled on the sweep, on di
 
 // --- bots see gear (an ITEMS-like site outside the lists: bots/brain.ts) -----------
 
-test('a bot\'s pickup search treats a gear pickup as gear, not as an item kind: no throw, and only with room', async () => {
+test('a bot\'s pickup search skips a gear pickup (bots never take gear): no throw', async () => {
   noRefill()
   const { default: BotBrain } = await import('../bots/brain')
   const me = peep('bot')
@@ -558,8 +580,6 @@ test('a bot\'s pickup search treats a gear pickup as gear, not as an item kind: 
   const near = (): Vector | undefined => (brain as unknown as { nearestPickup: (cell: Vector) => Vector | undefined }).nearestPickup(me.cell)
   const cell = new Vector(HOME_CELL.x + 3, HOME_CELL.y)
   dropAt(item(1, FIREBALL), cell)
-  assert.deepEqual(near(), cell, 'the bot does not see the gear it has room for')
+  assert.equal(near(), undefined, 'the bot walks to gear (bots never take it, 2026-10-15)')
   assert.doesNotThrow(() => { brain.update() })
-  for (let i = 0; i < GEAR_BAG; i++) me.addGear(item(1, 0))
-  assert.equal(near(), undefined, 'the bot walks to gear it has no room for')
 })

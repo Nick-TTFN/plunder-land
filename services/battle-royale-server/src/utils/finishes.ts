@@ -18,8 +18,9 @@
  *
  * **Each colour and pattern opens at an account level** (`unlockLevel`, #48
  * step 5; Dez's v1, `ideas/meta-progression-numbers.md` section 3, accepted as
- * a draft): 3 colours and 2 patterns at level 1, among them every part of
- * `DEFAULT_FINISH`, so the default is never locked. A later colour or pattern
+ * a draft): 3 colours and PLAIN at level 1, among them every part of
+ * `DEFAULT_FINISH`, so the default is never locked. ZEBRA opens at 13, after
+ * the last robot (Nick, 2026-10-15), so a level-1 robot is plain all over. A later colour or pattern
  * is appended with its own level (Nick: more unusual ones unlock later). The
  * levels are tunables: a retune needs both deploys, client first; deployed
  * apart, the lobby shows a lock the server doesn't enforce or the other way
@@ -68,7 +69,7 @@ export interface PatternInfo {
 
 export const PATTERNS: readonly PatternInfo[] = Object.freeze([
   Object.freeze({ id: 0, key: 'none', label: 'PLAIN', opacity: 0, unlockLevel: 1 }),
-  Object.freeze({ id: 1, key: 'zebra', label: 'ZEBRA', opacity: 1, unlockLevel: 1 }),
+  Object.freeze({ id: 1, key: 'zebra', label: 'ZEBRA', opacity: 1, unlockLevel: 13 }),
   Object.freeze({ id: 2, key: 'checker', label: 'CHECKER', opacity: 1, unlockLevel: 7 }),
   Object.freeze({ id: 3, key: 'camo', label: 'CAMO', opacity: 0.45, unlockLevel: 3 })
 ] as PatternInfo[])
@@ -95,11 +96,12 @@ function finish (head: [number, number], body: [number, number], limbs: [number,
 
 /**
  * The drop's six presets, in its order. Its limbs always copy its body.
- * Mint is the default: the finish every robot had before finishes, and what a
- * missing or unreadable one means.
+ * Mint is the default, and what a missing or unreadable finish means: the
+ * drop's mint with a plain cream head (Nick, 2026-10-15; the drop's head is
+ * zebra, which now opens last).
  */
 export const FINISH_PRESETS: ReadonlyArray<{ readonly key: string, readonly label: string, readonly finish: Finish }> = Object.freeze([
-  { key: 'mint', label: 'MINT', finish: finish([2, 1], [1, 0], [1, 0]) },
+  { key: 'mint', label: 'MINT', finish: finish([2, 0], [1, 0], [1, 0]) },
   { key: 'field', label: 'FIELD', finish: finish([4, 0], [3, 3], [3, 3]) },
   { key: 'wild', label: 'WILD', finish: finish([2, 1], [3, 3], [3, 3]) },
   { key: 'arctic', label: 'ARCTIC', finish: finish([6, 1], [5, 3], [5, 3]) },

@@ -170,8 +170,8 @@ const ARCHETYPE = (v: number): number[] => [16, v]
 // run-summary-card, deliberate: a player's kills this run, uint16 at 21.
 const KILLS = (v: number): number[] => [21, ...u16(v)]
 const INVENTORY = (...counts: number[]): number[] => [18, counts.length, ...counts]
-// robot-finishes: the default finish (mint), counted: head cream zebra, body and limbs mint plain.
-const FINISH_MINT = [23, 6, 2, 1, 1, 0, 1, 0]
+// robot-finishes: the default finish (mint), counted: head cream plain, body and limbs mint plain.
+const FINISH_MINT = [23, 6, 2, 0, 1, 0, 1, 0]
 
 test('the byte helpers use today\'s field indices', () => {
   assert.deepEqual(

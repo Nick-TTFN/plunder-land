@@ -151,10 +151,13 @@ slots), `GEAR_SLOTS` 2, `GEAR_BAG` 4, `STASH_SOFT` 12, `STASH_MAX` 100, `BRING_L
 skill's cooldown, so a retune needs both deploys, client first. The drops are server-only:
 caches, respawn and the part/skill mixes in `LAYERS[].gear`; mob drops by rarity (#51, l1-2) in
 `MOB_GEAR_ROLLS`, on each archetype as the required `gearRolls` (a forgotten row is a type error,
-not a silent no-drop). Every roll is a flat `MOB_GEAR_CHANCE` 4% on its own; rolls at T1/T2/T3 are
-common 1/0/0, rare 2/1/0, epic 4/2/1, legendary 8/4/3 (the Brood's own-tier roll becomes a third
-Epic one), so 0.04 / 0.12 / 0.28 / 0.60 items per kill. **The own-tier roll from Rare up is
-always a skill item**; every other roll goes by the layer's `mobMix`. Broodlings, robots and the
+not a silent no-drop). Rolls at T1/T2/T3 are common 1/0/0, rare 2/1/0, epic 4/2/1, legendary
+8/4/3 (the Brood's own-tier roll becomes a third Epic one); each succeeds on its own at the
+layer's `gear.mobChance`, **8 / 8 / 10%** (decision #57, 2026-10-15; #51 had a flat 4%). So a
+Crawler on the top layer drops 0.08 items, a Reactor below 0.7, the Brood 1.5. **The own-tier
+roll from Rare up is always a skill item**; every other roll goes by the layer's `mobMix`,
+skill **50 / 40 / 45%** (was 20 / 25 / 30): about one skill item per 25 top-layer kills, against
+one per 125 before. Broodlings, robots and the
 retired grunt/gunner/boss drop nothing. **T4 (Legendary) is merge only**: never found, never
 dropped, from any mob or cache. The T4 stat column and `rollCount(4)` are PROVISIONAL (l1-0).
 
@@ -168,13 +171,15 @@ above). **A duplicate** (an item whose skill is already in the kit or the other 
 existing instance and shares its cooldown; its cooldown roll doesn't apply, its other rolls do
 (Nick, #49; `DUPLICATE_CUTS_COOLDOWN` false is the whole rule).
 
-**In the run** (49-2): natural caches per layer (`gear.caches`, no expiry) are placed one a tick
+**In the run** (49-2): natural caches per layer (`gear.caches`, plus one per `humansPerCache` 10
+humans on the layer, `World.cachesWanted`, #57; bots don't count; no expiry) are placed one a tick
 while the layer is short, and a taken one comes back after `cacheRespawnMs` on a timer owned by the
 world (`CACHES_PENDING`), not refilled every tick like medkits, which would make gear unbounded. Mobs
 drop by `World.createGearFrom` beside `createLootFrom`, several items per kill, each on its own
 `dropCells` cell while distinct free ones remain, then on any of them; drops expire after 30 s. A skill item goes
-into the first empty key (3 or 4), else the bag; a part, and everything a bot takes, into the bag;
-with no room the pickup stays. Nothing moves between bag and keys mid-run (Nick, #49). Death and
+into the first empty key (3 or 4), else the bag; a part into the bag; with no room the pickup
+stays. **Bots never pick gear up** and never walk to it (`Player.gearRoom`, #57): with few humans
+online they took most of it. Nothing moves between bag and keys mid-run (Nick, #49). Death and
 disconnect drop keys and bag (`takeGear`, `rowId` kept). The HUD's keys 3-4 are gear cards
 (`ui/components/gearpanel.ts`, `GearSlot` extends `SkillCard`, so touch arming works; cooldown from
 the client's skill class times the roll, the kit card's for a duplicate) with roll lines on hover or

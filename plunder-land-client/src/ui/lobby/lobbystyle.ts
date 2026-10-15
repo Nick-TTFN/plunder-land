@@ -31,11 +31,7 @@ export const LOBBY_CSS = `
 .lb-brand { font-size: 20px; letter-spacing: .32em; font-weight: 600; display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 /* The wordmark (res/brand, cut from Nick's logo of 2026-10-12): its height sets its size. */
 .lb-wordmark { display: block; height: 36px; width: auto; flex-shrink: 0; }
-.lb-tabs { display: flex; gap: 36px; font-size: 16px; margin: 0 auto; align-self: stretch; }
-.lb-tab { display: flex; align-items: center; padding: 0 18px; border-bottom: 3px solid transparent; }
-.lb-on { color: #fff; font-weight: 600; border-bottom-color: #33DBD3; }
-.lb-off { color: #8193a5; pointer-events: auto; cursor: default; }
-.lb-topactions { display: flex; align-items: center; gap: 12px; }
+.lb-topactions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 .lb-invite { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; padding: 0 26px;
   font-size: 15px; font-weight: 600; color: #33dbd3; background: rgba(51,219,211,.06); border: 1px solid #2f7f80; border-radius: 6px; }
 .lb-invite:hover { background: rgba(51,219,211,.14); }
@@ -266,12 +262,11 @@ export const LOBBY_CSS = `
 @media (max-width: 1100px) {
   .lb-main { column-gap: 40px; padding: 24px 28px; grid-template-columns: minmax(0, 1fr) minmax(340px, 480px); }
   .lb-hero { padding-right: 40px; margin-right: -20px; }
-  .lb-tabs { gap: 16px; }
 }
 @media (max-width: 760px) {
   .lb-top { min-height: 60px; padding: 0 max(12px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
   .lb-wordmark { height: 30px; }
-  .lb-tabs, .lb-desk-only { display: none !important; }
+  .lb-desk-only { display: none !important; }
   .lb-menu { display: flex !important; }
   .lb-topactions { display: none; position: absolute; top: calc(100% + 6px); right: 12px; z-index: 3; min-width: 200px;
     flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; border-radius: 10px;

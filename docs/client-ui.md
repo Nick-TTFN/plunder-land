@@ -57,8 +57,8 @@ canvas (`lobbystyle.ts`, all `lb-` classes, placeholder chrome) carries the name
 whose class lines and taglines other than Peep's are placeholder copy), stat bars read from the
 mirrored `stats`, CUSTOMIZE (head/body/limbs rows of the presets' swatches, or MIX for any colour
 and pattern) and START RUN. Keys: left/right, E, Enter. It remembers robot, finish and name
-(`plunderland_player_robot`, `_finish`, `_name`). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art), the
-COLLECTION tab. The game is called **Plunderbots** (Nick, 2026-10-12): the wordmark, the
+(`plunderland_player_robot`, `_finish`, `_name`). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art). The
+header has no tabs: the LOBBY / COLLECTION stub was removed (Nick, 2026-10-15). The game is called **Plunderbots** (Nick, 2026-10-12): the wordmark, the
 picker's heading and its button ("Choose Plunderbot") say so; see "Player-facing copy" below. `assets/index.html`
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the
 bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out as mojibake.
@@ -68,7 +68,7 @@ bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out 
 (level, XP bar, `n / span XP` and `n XP to level L+1` from `Standing`), "Upcoming unlocks",
 three action rows, the season row and READY with the plays line under it. Under 760 px it is one
 column (progression, journey, hero, callsign, rows, season), READY is `position: sticky` at the
-bottom of the scroll, the tabs go and INVITE / settings / PRIVACY fold into the header's menu button.
+bottom of the scroll, and INVITE / settings / PRIVACY fold into the header's menu button.
 Four panels, one open at a time (`Lobby.toggle`): STATS & PAINT (the stat bars over the customize
 rows, key E), PLUNDERBOTS (the robot cards and tagline, key C), LOADOUT (L), STASH (S). The row
 "Stats & paint" is the mockup's "Loadout & stats": the skill loadout is the Skills row. The heading,

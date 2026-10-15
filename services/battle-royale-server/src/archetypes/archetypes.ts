@@ -434,8 +434,8 @@ export function npcKillStats (rarity: Rarity | null): KillStat[] {
 /**
  * What a kill of one mob rarity rolls (decision #51 drops, Dez's table in
  * `ideas/npc-roster.md` "Drop table by mob rarity", ACCEPTED by Nick
- * 2026-10-07). Each roll succeeds at `MOB_GEAR_CHANCE` on its own and gives
- * one item, so a kill can drop several.
+ * 2026-10-07). Each roll succeeds at the layer's `gear.mobChance` on its own
+ * and gives one item, so a kill can drop several.
  */
 export interface MobGearRolls {
   /** Rolls at T1 (Common), T2 (Rare) and T3 (Epic). No T4: Legendary is merge only. */
@@ -448,15 +448,13 @@ export interface MobGearRolls {
   readonly skillTier: GearTier | null
 }
 
-/** Every mob gear roll's chance, whatever the mob or layer (#51: flat 4%; depth pays through which mobs live there). */
-export const MOB_GEAR_CHANCE = 0.04
-
 /**
  * Rolls per mob rarity: a mob rolls once at its own tier, twice the tier
  * below, four times the one below that. The Legendary Brood's own-tier roll
  * becomes a third Epic roll (T4 is never found): 8 / 4 / 3, all 3 Epic rolls
- * skill items. Items per kill 0.04 / 0.12 / 0.28 / 0.60 (derived). The
- * Broodling is Common but drops nothing (its row sets null).
+ * skill items. Rolls per kill 1 / 3 / 7 / 15, times the layer's `mobChance`
+ * for items per kill. The Broodling is Common but drops nothing (its row sets
+ * null).
  */
 export const MOB_GEAR_ROLLS: Readonly<Record<Rarity, MobGearRolls>> = Object.freeze({
   common: Object.freeze({ rolls: Object.freeze([1, 0, 0]) as readonly [number, number, number], skillTier: null }),
@@ -878,12 +876,22 @@ export interface GearMix { part: number, t1: number, t2: number }
  * A layer's gear drops (decision #49, spec `ideas/skill-items-and-stash.md`
  * section 3; all judgement, Dez). Read by 49-2 (caches and mob drops) and
  * 49-5. What a kill rolls is the mob's (`Archetype.gearRolls`, by rarity,
- * #51); the layer only decides part or skill item (`mobMix`). T4 is never
- * found, only merged; caches give T2 at most.
+ * #51); the layer decides each roll's chance (`mobChance`) and part or skill
+ * item (`mobMix`). T4 is never found, only merged; caches give T2 at most.
+ *
+ * **Drop pass, Nick 2026-10-15** (PROVISIONAL, nobody playing yet): #51's flat
+ * 4% and 20-30% skill share left a newcomer on the top layer a skill item
+ * about once per 125 kills. Now 8 / 8 / 10% and 50 / 40 / 45% skill, so about
+ * one per 25 kills on top, and deeper kills pay more per roll as well as
+ * through rarer mobs. Caches grow with the humans on a layer.
  */
 export interface GearDrops {
-  /** Natural caches standing on the layer. */
+  /** Natural caches standing on the layer with no humans on it. */
   caches: number
+  /** One more cache per this many humans on the layer (`World.cachesWanted`). */
+  humansPerCache: number
+  /** Each mob gear roll's chance on this layer. */
+  mobChance: number
   /** How long after a cache is taken another one appears, in ms. */
   cacheRespawnMs: number
   /** What a cache holds: a part, a T1 skill item or a T2 skill item. */
@@ -985,9 +993,11 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     ],
     gear: {
       caches: 1,
+      humansPerCache: 10,
       cacheRespawnMs: 180000,
       cacheMix: { part: 0.75, t1: 0.22, t2: 0.03 },
-      mobMix: { part: 0.8, skill: 0.2 }
+      mobChance: 0.08,
+      mobMix: { part: 0.5, skill: 0.5 }
     }
   },
   {
@@ -1007,9 +1017,11 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     ],
     gear: {
       caches: 1,
+      humansPerCache: 10,
       cacheRespawnMs: 120000,
       cacheMix: { part: 0.65, t1: 0.28, t2: 0.07 },
-      mobMix: { part: 0.75, skill: 0.25 }
+      mobChance: 0.08,
+      mobMix: { part: 0.6, skill: 0.4 }
     }
   },
   {
@@ -1029,9 +1041,11 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     ],
     gear: {
       caches: 2,
+      humansPerCache: 10,
       cacheRespawnMs: 90000,
       cacheMix: { part: 0.55, t1: 0.33, t2: 0.12 },
-      mobMix: { part: 0.7, skill: 0.3 }
+      mobChance: 0.1,
+      mobMix: { part: 0.55, skill: 0.45 }
     }
   }
 ])

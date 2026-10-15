@@ -52,19 +52,19 @@ test('the unlock table is Dez\'s section 3 v1', () => {
     [6, 'SKY', 5], [7, 'PEACH', 6], [8, 'CORAL', 7], [9, 'VIOLET', 9], [10, 'BONE', 10]
   ])
   assert.deepEqual(PATTERNS.map((p) => [p.id, p.label, p.unlockLevel]), [
-    [0, 'PLAIN', 1], [1, 'ZEBRA', 1], [2, 'CHECKER', 7], [3, 'CAMO', 3]
+    [0, 'PLAIN', 1], [1, 'ZEBRA', 13], [2, 'CHECKER', 7], [3, 'CAMO', 3]
   ])
   // The default finish is open to everyone.
   for (const g of FINISH_GROUPS) {
     assert.ok(colourUnlocked(DEFAULT_FINISH[g].colour, 1), `${g} colour`)
     assert.ok(patternUnlocked(DEFAULT_FINISH[g].pattern, 1), `${g} pattern`)
   }
-  // "3 finishes" is 3 colours (Nick, #48 addendum), and 2 patterns.
+  // "3 finishes" is 3 colours (Nick, #48 addendum), and PLAIN: ZEBRA opens at 13, after the last robot (Nick, 2026-10-15).
   assert.deepEqual(PALETTE.filter((c) => colourUnlocked(c.id, 1)).map((c) => c.label), ['MINT', 'CREAM', 'SAND'])
-  assert.deepEqual(PATTERNS.filter((p) => patternUnlocked(p.id, 1)).map((p) => p.label), ['PLAIN', 'ZEBRA'])
+  assert.deepEqual(PATTERNS.filter((p) => patternUnlocked(p.id, 1)).map((p) => p.label), ['PLAIN'])
   // Each preset opens at the highest swatch level among its groups.
   const opens = FINISH_PRESETS.map((p) => [p.label, Math.max(...FINISH_GROUPS.map((g) => swatchLevel(p.finish[g].colour, p.finish[g].pattern) as number))])
-  assert.deepEqual(opens, [['MINT', 1], ['FIELD', 3], ['WILD', 3], ['ARCTIC', 5], ['SUNSET', 7], ['ARCADE', 10]])
+  assert.deepEqual(opens, [['MINT', 1], ['FIELD', 3], ['WILD', 13], ['ARCTIC', 13], ['SUNSET', 13], ['ARCADE', 10]])
   assert.equal(swatchLevel(99, 0), undefined)
   assert.equal(swatchLevel(1, 99), undefined)
 })
@@ -82,21 +82,22 @@ test('robotUnlocked: selectable robots at their level; mobs and anything else ne
 
 test('lockFinish: per group and per half, to that group\'s own default', () => {
   const g = (colour: number, pattern: number): { colour: number, pattern: number } => ({ colour, pattern })
-  // Unlock levels in brackets: CORAL (7) + ZEBRA (1) on the head, SAND (1) + CHECKER (7) on the body, CORAL + CAMO (3) on the limbs.
-  const f: Finish = { head: g(8, 1), body: g(4, 2), limbs: g(8, 3) }
+  // Unlock levels in brackets: CREAM (1) + CHECKER (7) on the head, SAND (1) + CAMO (3) on the body, CORAL (7) + ZEBRA (13) on the limbs.
+  const f: Finish = { head: g(2, 2), body: g(4, 3), limbs: g(8, 1) }
   assert.deepEqual(lockFinish(f, 1), {
-    head: g(2, 1), // the colour falls back to the head's CREAM, the open pattern stays
-    body: g(4, 0), // the open colour stays, the pattern falls back to the body's PLAIN
-    limbs: g(1, 0) // both fall back, to the limbs' MINT + PLAIN, not the head's CREAM + ZEBRA
+    head: g(2, 0), // the open colour stays, the pattern falls back to the head's PLAIN
+    body: g(4, 0), // the same on the body
+    limbs: g(1, 0) // both fall back, to the limbs' own MINT + PLAIN
   })
-  assert.deepEqual(lockFinish(f, 3), { head: g(2, 1), body: g(4, 0), limbs: g(1, 3) })
-  assert.deepEqual(lockFinish(f, 7), f)
-  // At level 10 every finish is unchanged.
-  for (const p of FINISH_PRESETS) assert.deepEqual(lockFinish(p.finish, 10), p.finish, p.key)
+  assert.deepEqual(lockFinish(f, 3), { head: g(2, 0), body: g(4, 3), limbs: g(1, 0) })
+  assert.deepEqual(lockFinish(f, 7), { head: g(2, 2), body: g(4, 3), limbs: g(8, 0) }) // the colour opens before the pattern
+  assert.deepEqual(lockFinish(f, 13), f)
+  // At level 13 every finish is unchanged.
+  for (const p of FINISH_PRESETS) assert.deepEqual(lockFinish(p.finish, 13), p.finish, p.key)
   for (const c of PALETTE) {
     for (const pat of PATTERNS) {
       const any: Finish = { head: g(c.id, pat.id), body: g(c.id, pat.id), limbs: g(c.id, pat.id) }
-      assert.deepEqual(lockFinish(any, 10), any)
+      assert.deepEqual(lockFinish(any, 13), any)
     }
   }
   assert.deepEqual(lockFinish(DEFAULT_FINISH, 1), DEFAULT_FINISH)
@@ -201,8 +202,9 @@ test('a join plays the robot and finish the account\'s level allows, and is neve
   assert.equal((await join(worlds, await accountAt(store, 1), { robot: 'periscope' })).archetype, id('peep'), 'Periscope at level 1')
   assert.equal((await join(worlds, await accountAt(store, 5), { robot: 'periscope' })).archetype, id('periscope'), 'Periscope at level 5')
   assert.equal((await join(worlds, await accountAt(store, 4), { robot: 'magnet' })).archetype, id('magnet'), 'Magnet at level 4')
-  assert.deepEqual((await join(worlds, await accountAt(store, 1), { finish: sunset })).finish, [2, 1, 1, 0, 1, 0], 'SUNSET at level 1')
-  assert.deepEqual((await join(worlds, await accountAt(store, 7), { finish: sunset })).finish, sunset, 'SUNSET at level 7')
+  assert.deepEqual((await join(worlds, await accountAt(store, 1), { finish: sunset })).finish, [2, 0, 1, 0, 1, 0], 'SUNSET at level 1')
+  assert.deepEqual((await join(worlds, await accountAt(store, 7), { finish: sunset })).finish, [8, 0, 7, 3, 7, 3], 'SUNSET at level 7: all but the ZEBRA')
+  assert.deepEqual((await join(worlds, await accountAt(store, 13), { finish: sunset })).finish, sunset, 'SUNSET at level 13')
 })
 
 test('an offline account (store down) gets level-1 locks whatever XP the store holds', async () => {
@@ -291,21 +293,21 @@ test('lobby: card and swatch lock levels are the mirrored table\'s', () => {
 
 test('lobby: painting from the shown group never resurrects a hidden locked part', () => {
   const g = (colour: number, pattern: number): { colour: number, pattern: number } => ({ colour, pattern })
-  // A level-10 player's wish, seen at level 1: the head's CHECKER is hidden.
+  // A level-13 player's wish, seen at level 3: the head's CHECKER is hidden.
   const wish: Finish = { head: g(9, 2), body: g(8, 3), limbs: g(10, 1) }
-  assert.deepEqual(shownFinish(wish, 1), { head: g(2, 1), body: g(1, 0), limbs: g(1, 1) })
-  // MIX a colour on the head: the shown pattern (the head's ZEBRA) is kept, not CHECKER.
-  const colour = mixColour(wish, 1, 'head', 4)
-  assert.deepEqual(colour.head, g(4, 1))
+  assert.deepEqual(shownFinish(wish, 3), { head: g(2, 0), body: g(1, 3), limbs: g(1, 0) })
+  // MIX a colour on the head: the shown pattern (the head's PLAIN) is kept, not CHECKER.
+  const colour = mixColour(wish, 3, 'head', 4)
+  assert.deepEqual(colour.head, g(4, 0))
   assert.deepEqual(colour.body, wish.body, 'the other groups\' wishes are left alone')
   assert.deepEqual(colour.limbs, wish.limbs)
   // MIX a pattern on the body: the shown colour (MINT) is kept, not CORAL.
-  assert.deepEqual(mixPattern(wish, 1, 'body', 1).body, g(1, 1))
+  assert.deepEqual(mixPattern(wish, 3, 'body', 0).body, g(1, 0))
   // A preset swatch sets the group whole.
   assert.deepEqual(paintWish(wish, 'limbs', g(2, 1)).limbs, g(2, 1))
   assert.deepEqual(paintWish(wish, 'limbs', g(2, 1)).head, wish.head)
   // Sent is what is shown.
-  assert.deepEqual(shownFinish(wish, 10), wish)
+  assert.deepEqual(shownFinish(wish, 13), wish)
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).
@@ -318,7 +320,8 @@ test('client: a level-up names exactly what opened, robots first, from the same 
   assert.deepEqual(unlockedBetween(2, 3), ['MAGNET', 'CAMO'])
   assert.deepEqual(unlockedBetween(4, 5), ['PERISCOPE', 'SKY'])
   assert.deepEqual(unlockedBetween(9, 10), ['LOADOUT 2', 'BONE'])
-  assert.deepEqual(unlockedBetween(12, 14), [], 'nothing opens at 13 or 14')
+  assert.deepEqual(unlockedBetween(12, 13), ['ZEBRA'], 'ZEBRA opens after Waddle')
+  assert.deepEqual(unlockedBetween(13, 14), [], 'nothing opens at 14')
   assert.deepEqual(unlockedBetween(3, 3), [], 'no level-up')
   // Two levels at once name both levels' unlocks.
   assert.deepEqual(unlockedBetween(1, 3), ['MAGNET', 'DEFEND', 'OLIVE', 'CAMO'])
@@ -338,8 +341,10 @@ test('client: a journey stop is named after its robot, then a skill or loadout s
   assert.equal(journeyStop(4).kind, 'skill', 'Throw Fireball beats Ice')
   assert.equal(journeyStop(7).kind, 'reward', 'Coral and Checker only')
   assert.equal(journeyStop(10).kind, 'skill', 'loadout 2 counts as a skill stop')
-  assert.equal(journeyStop(13).kind, undefined)
-  assert.deepEqual(journeyStop(13).names, [])
+  assert.equal(journeyStop(13).kind, 'reward', 'ZEBRA only')
+  assert.deepEqual(journeyStop(13).names, ['ZEBRA'])
+  assert.equal(journeyStop(14).kind, undefined)
+  assert.deepEqual(journeyStop(14).names, [])
   // Every level with something to name has a kind, and the strip reaches the last of them.
   for (let l = 1; l <= journeyEnd(); l++) assert.equal(journeyStop(l).kind !== undefined, journeyStop(l).names.length > 0, `level ${l}`)
   assert.ok(journeyStop(journeyEnd()).kind !== undefined)

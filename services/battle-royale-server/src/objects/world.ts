@@ -9,7 +9,7 @@ import { Random } from '../utils/random'
 import Portal from './portal'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob, { MobPack } from './mob'
-import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, MOB_GEAR_CHANCE, rollGear } from '../archetypes/archetypes'
+import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, rollGear } from '../archetypes/archetypes'
 import { type GearInstance, type GearTier } from '../utils/gear'
 import { ARCHETYPE_INFO, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
@@ -937,7 +937,9 @@ export default class World {
 
     World.updateProjectiles(dt)
 
-    for (const layer of World.LAYERS) this.refillLayer(layer)
+    // Humans per layer, counted once a tick for the caches (`cachesWanted`).
+    const humans = World.humansByLayer()
+    for (const layer of World.LAYERS) this.refillLayer(layer, humans.get(layer.tag) ?? 0)
 
     // Pickups never move or change, so nothing else would tell a player who
     // walks up to one that it is there: their create goes only to players in
@@ -976,7 +978,7 @@ export default class World {
    * Q11). Its members are not counted against a single entry of the same
    * archetype: a single entry counts mobs with no pack.
    */
-  private refillLayer (layer: LayerSpec): void {
+  private refillLayer (layer: LayerSpec, humans: number): void {
     const tag = layer.tag
 
     // Natural pickups only: a death drop has an expiry, and does not count.
@@ -1023,24 +1025,25 @@ export default class World {
       if (pos !== undefined) World.PICKUPS.push(World.ITEMS, new ItemPickup(pos.x, pos.y, tag, item))
     }
 
-    this.refillCaches(layer)
+    this.refillCaches(layer, humans)
   }
 
   /**
    * Natural gear caches (decision #49, spec section 3): at most one placed a
    * tick while the layer's caches standing plus the respawn timers still
-   * running (`CACHES_PENDING`) are short of `gear.caches`. So the first ticks
+   * running (`CACHES_PENDING`) are short of `cachesWanted` (`gear.caches`, more
+   * with many humans on the layer). So the first ticks
    * of a world place them all, and a taken one comes back on the first tick
    * after its timer (`gearTaken`). **Timed, not refilled every tick like
    * medkits**: a standing count refilled at once would make gear unbounded
    * (bots took 400-1200 loot in 20-100 s that way). A cache holds a part, a
    * T1 or a T2 skill item by the layer's `cacheMix`; T3 is never found.
    */
-  private refillCaches (layer: LayerSpec): void {
+  private refillCaches (layer: LayerSpec, humans: number): void {
     const tag = layer.tag
     let standing = World.CACHES_PENDING.get(tag) ?? 0
     for (const pickup of World.GEAR) if (pickup.tag === tag && pickup.cache && !pickup.destroyed) standing++
-    if (standing >= layer.gear.caches) return
+    if (standing >= World.cachesWanted(layer, humans)) return
     const pos = this.getUnobstructedPosition(tag)
     if (pos === undefined) return
     const mix = layer.gear.cacheMix
@@ -1049,6 +1052,25 @@ export default class World {
       ? rollGear(1, 'part', Math.random)
       : rollGear(roll < mix.part + mix.t1 ? 1 : 2, 'skill', Math.random)
     World.PICKUPS.push(World.GEAR, new GearPickup(pos.x, pos.y, tag, item, 0, true))
+  }
+
+  /**
+   * How many natural caches `layer` keeps: its `gear.caches`, plus one per
+   * `gear.humansPerCache` humans on it (bots don't count), so gear per player
+   * holds as a world fills (Nick, 2026-10-15). Extra caches beyond the base
+   * aren't taken away when players leave: the standing ones stay until taken.
+   */
+  static cachesWanted (layer: LayerSpec, humans: number = World.humansByLayer().get(layer.tag) ?? 0): number {
+    return layer.gear.caches + Math.floor(humans / layer.gear.humansPerCache)
+  }
+
+  /** Live human players per layer tag (bots and the dead left out), one pass over `PLAYERS`. */
+  static humansByLayer (): Map<number, number> {
+    const counts = new Map<number, number>()
+    for (const p of World.PLAYERS) {
+      if (p.bot === undefined && !p.destroyed) counts.set(p.tag, (counts.get(p.tag) ?? 0) + 1)
+    }
+    return counts
   }
 
   /**
@@ -1080,7 +1102,7 @@ export default class World {
    * A dead mob's gear drops, beside `createLootFrom` (decision #51 drops,
    * Dez's table in `ideas/npc-roster.md`): the mob's `gearRolls` (by its
    * rarity; null drops nothing: the Broodling, robots, the retired rows),
-   * each roll `MOB_GEAR_CHANCE` on its own, so a kill can drop several. A
+   * each roll the layer's `gear.mobChance` on its own, so a kill can drop several. A
    * roll at the mob's `skillTier` is always a skill item; any other is a part
    * or a skill item by the layer's `mobMix`. T1-T3 only: T4 is never found.
    * Each item lands on its own `dropCells` cell while distinct ones remain
@@ -1095,7 +1117,7 @@ export default class World {
     for (let t = 0; t < drops.rolls.length; t++) {
       const tier = (t + 1) as GearTier
       for (let n = 0; n < drops.rolls[t]; n++) {
-        if (random() >= MOB_GEAR_CHANCE) continue
+        if (random() >= layer.gear.mobChance) continue
         const kind = tier === drops.skillTier || random() >= layer.gear.mobMix.part ? 'skill' : 'part'
         dropped.push(rollGear(tier, kind, random))
       }

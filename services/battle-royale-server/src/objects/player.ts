@@ -579,12 +579,16 @@ export default class Player extends Unit {
   }
 
   /**
-   * Whether `addGear` would take `item`: a skill item while a gear slot is
-   * empty (never for a bot), else while the bag has room.
+   * Whether this player takes `item` from the ground: a skill item while a
+   * gear slot is empty, else while the bag has room. **Never a bot** (Nick,
+   * 2026-10-15): with few humans online the bots took most of the little gear
+   * there was. A bot still carries its cargo (`BOT_CARGO`, through `addGear`)
+   * and drops it on death.
    */
   gearRoom (item: GearInstance): boolean {
+    if (this.bot !== undefined) return false
     if (this._bag.length < GEAR_BAG) return true
-    return this.bot === undefined && item.skill !== 0 && this._gear.includes(null)
+    return item.skill !== 0 && this._gear.includes(null)
   }
 
   /**
