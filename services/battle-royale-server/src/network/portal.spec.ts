@@ -9,7 +9,7 @@ import { portalOf } from './visits'
 test('client: itch\'s embed reads itch, our own site web, ?portal= overrides', () => {
   assert.equal(portalFrom('v6p9d9t4.ssl.hwcdn.net', ''), 'web')
   assert.equal(portalFrom('html-classic.itch.zone', ''), 'itch')
-  assert.equal(portalFrom('nick-ttfn.itch.io', ''), 'itch')
+  assert.equal(portalFrom('nick-gamedev.itch.io', ''), 'itch')
   assert.equal(portalFrom('plunder-land.nick-ttfn.workers.dev', ''), 'web')
   assert.equal(portalFrom('notitch.zone', ''), 'web', 'only itch.zone and its subdomains')
   assert.equal(portalFrom('plunder-land.nick-ttfn.workers.dev', '?portal=itch&server=x'), 'itch')
