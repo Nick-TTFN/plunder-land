@@ -194,6 +194,15 @@ An invisible plane sets `layer.visible = false` rather than sitting at alpha 0 â
 the only flag that skips PIXI's transform pass as well as the draw, and there are now about a
 thousand pads behind it.
 
+## Latency readout
+
+Under the run clock (top centre; every corner is taken): the round trip to the server, from the
+`latency` probe every 2 s (`net/latency.ts`, wire detail in `docs/wire-format.md`). Shown is the
+median of the last 5 answers, so one slow packet doesn't jump the number. Green under 100 ms, amber
+under 200, red from 200; grey `--` when no answer came in 6 s (an older server, a dead
+connection). It is the network plus the server's event loop, not the tick: a correction can still
+wait up to a tick on top of it. Nick asked for it so players can see the game cares about lag.
+
 ## Input: the stage has to be its own hit target
 
 **`app.stage.hitArea` must cover the canvas** (set in `onResize`), or click-to-move works only

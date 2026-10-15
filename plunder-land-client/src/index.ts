@@ -23,6 +23,7 @@ import { parseSaved, slotsFor } from './net/loadout'
 import { SETTINGS, densityFor, loadSettings } from './net/settings'
 import { Session } from './net/session'
 import { Sfx } from './audio/sfx'
+import { INTERVAL_MS, TIMEOUT_MS } from './net/latency'
 
 initErrorReporting()
 // Before anything reads them: the renderer's density, the HUD's keys.
@@ -150,8 +151,17 @@ function setup (): void {
     setSeason(undefined, Date.now())
     setEnergy(undefined, Date.now())
     setStash(undefined)
+    Game.latency.reset()
     onConnect()
   })
+  // The HUD's latency readout. Only while connected: socket.io would buffer a
+  // probe sent while disconnected and time it from now.
+  setInterval(() => {
+    if (!Game.socket.connected) return
+    Game.latency.measure((done) => {
+      Game.socket.timeout(TIMEOUT_MS).emit('latency', (err: unknown) => { done(err == null) })
+    })
+  }, INTERVAL_MS)
   Game.socket.on('welcome', onWelcome)
   // Here, not per run: it can arrive on connect, before any start.
   Game.socket.on('account', (data: unknown) => {

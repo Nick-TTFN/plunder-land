@@ -274,6 +274,11 @@ export default class Worlds {
     socket.on('scrap', (data) => {
       Multiplayer.guarded(() => { this.scrap(connection, data) })
     })
+    // The HUD's latency readout (client net/latency.ts): answered at once,
+    // in no world. A probe without an ack is ignored.
+    socket.on('latency', (ack: unknown) => {
+      Multiplayer.guarded(() => { if (typeof ack === 'function') ack() })
+    })
     // Applied on arrival, as with one world (`Multiplayer.onConnect`).
     socket.on('pointer', (data) => {
       this.inWorld(connection, (mp) => { mp.onPointer(connection, data) })

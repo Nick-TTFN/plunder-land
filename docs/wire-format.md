@@ -294,6 +294,11 @@ unless the account is persisted, the robot selectable and unlocked at the accoun
 snaps back. One write in flight per connection (a second meanwhile answers `busy`); the account in
 memory changes only after the write resolves; one landing after the 3 s timeout is stored but
 answered `ok: false` (the next connection reads it). READY waits up to 4 s for a save in flight.
+
+**`latency`** (client → server, text, no payload, with a socket.io ack; any time, no world) is
+acked at once by `Worlds.onConnection`, for the HUD's latency readout (`net/latency.ts`). The
+client sends one every 2 s while connected, with a 4 s timeout. A server without the handler never
+acks; the readout then shows grey `--`. Additive.
 The client applies every `loadout_saved` to its account in `index.ts`, so a late one still counts
 after the lobby is gone; the LOADOUT panel is read-only until the account carries `loadouts`. A
 persisted account's `account` carries `loadouts` (`loadoutsFor`: every robot, the level's loadouts,

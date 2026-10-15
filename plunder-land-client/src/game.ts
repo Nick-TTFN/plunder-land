@@ -70,6 +70,7 @@ import { SpectateBar } from './ui/popups/spectatebar'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
 import { Sfx } from './audio/sfx'
 import { GameSfx } from './audio/gamesfx'
+import { Latency } from './net/latency'
 
 /** [uint32 tick][uint16 lastInputSeq][uint16 ackElapsedMs] */
 const UPDATE_HEADER_BYTES = 8
@@ -95,6 +96,8 @@ export class Game extends Container {
   /** Red cells under the mobs that can reach you (world-markers). */
   threatMarker: ThreatMarker | undefined
   static socket: Socket
+  /** The round trip to the server, for the HUD (`net/latency.ts`); probed from index.ts. */
+  static latency = new Latency(() => performance.now())
   static hud: HUD
   static socketBytes: number
   static PLAYER: Player | undefined
