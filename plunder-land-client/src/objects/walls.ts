@@ -1,10 +1,11 @@
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js'
+import { contactOfShape, type Contact } from './contact'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { FOG_TINT, SEEN, type Seen } from './fog'
 import { HexTerrain } from './hexterrain'
 import { shadowOffset } from './shadow'
-import { TILT } from './tilt'
+import { onGround, TILT } from './tilt'
 
 /** One wall cell: its pieces, kept for re-tinting. */
 interface Piece {
@@ -12,6 +13,8 @@ interface Piece {
   face: Sprite
   left: Sprite
   right: Sprite
+  /** Its floor contact shade, in the plane's ground layer (`Walls.ground`). */
+  ground: Sprite
   q: number
   r: number
 }
@@ -24,6 +27,12 @@ interface Piece {
  * (`HexTerrain.faceOf`) lifted `HEIGHT` px, with the ground's edge drop-offs
  * (the fade halves `HexTerrain` hangs under an edge above void) hung under its
  * two lower edges at full strength, and a shadow to the bottom right.
+ *
+ * Contact shading (`contact.ts`, the BTFC town's approach): the sides darken
+ * toward the ground, the drop-offs' spill below the base darkens away from it,
+ * and the floor round each cell gets the brush and halo. The floor half goes
+ * in one ground layer under everything that stands (`ground`), so a cell's
+ * shade never falls on a neighbouring wall or on a unit.
  *
  * Each cell is its own object in the plane, sorted by `y` with the units
  * (`zIndex` at the cell's north boundary), so a wall hides the feet of
@@ -48,15 +57,29 @@ export class Walls {
   /** Half the distance between rows, world units: a cell's centre to its north boundary. */
   private static readonly HALF_ROW = Hex.toPosition(new Vector(0, 1)).y / 2
 
+  /** The face is a hex 7% larger than the lattice (the ground's pads are). */
+  private static readonly FACE_SCALE = 1.07
+
   private readonly pieces: Piece[] = []
 
-  constructor (private readonly plane: Container, private readonly terrain: HexTerrain, private readonly tint: number) {}
+  /**
+   * Every cell's floor shade, lying on the ground over the terrain and under
+   * the path marker (-1) and everything standing.
+   */
+  private readonly ground = onGround(new Container())
+
+  constructor (private readonly plane: Container, private readonly terrain: HexTerrain, private readonly tint: number) {
+    this.ground.zIndex = -2
+    this.ground.eventMode = 'none'
+    plane.addChild(this.ground)
+  }
 
   /** Replace every wall with `cells` (`Hex.key`s) of a map `mapSize` units across. */
   set (cells: ReadonlySet<number> | undefined, mapSize: number): void {
     for (const piece of this.pieces) {
       piece.node.parent?.removeChild(piece.node)
       piece.node.destroy({ children: true })
+      piece.ground.destroy()
     }
     this.pieces.length = 0
     if (cells === undefined) return
@@ -71,7 +94,10 @@ export class Walls {
       // (`Player.raise`); a unit in the row north is still behind it.
       piece.node.zIndex = at.y - Walls.HALF_ROW
       piece.node.renderable = false
+      piece.ground.position.set(at.x, at.y)
+      piece.ground.renderable = false
       this.plane.addChild(piece.node)
+      this.ground.addChild(piece.ground)
       this.pieces.push(piece)
     }
   }
@@ -81,6 +107,7 @@ export class Walls {
     for (const piece of this.pieces) {
       const seen = seenOf?.(piece.q, piece.r) ?? SEEN.VISIBLE
       piece.node.renderable = seen !== SEEN.UNKNOWN
+      piece.ground.renderable = piece.node.renderable
       if (!piece.node.renderable) continue
       const tint = Walls.multiply(FOG_TINT[seen], this.tint)
       piece.face.tint = tint
@@ -107,7 +134,7 @@ export class Walls {
       .drawPolygon(hull([...base, ...base.map(([x, y]) => [x + o.x, y + o.y])]).flat())
       .endFill()
     // The face's highlight: the pad is a hex 7% larger than the lattice.
-    const k = 1.07
+    const k = Walls.FACE_SCALE
     const highlight = new Graphics()
       .beginFill(0xffffff, Walls.HIGHLIGHT)
       .drawPolygon(base.flatMap(([x, y]) => [x * k, y * k - h]))
@@ -123,8 +150,47 @@ export class Walls {
     const left = sprite(this.terrain.fadeLeft)
     const right = sprite(this.terrain.fadeRight)
     const face = sprite(this.terrain.faceOf(q, r))
-    node.addChild(shadow, left, right, face, highlight)
-    return { node, face, left, right, q, r }
+    // Contact shading: the spill of the drop-offs below the base and the
+    // sides' gradient go over the drop-offs and under the face; the floor
+    // half goes in the ground layer, unsquashed against the tilt there.
+    const contact = Walls.contact()
+    const { x: ox, y: oy } = Walls.CONTACT_ORIGIN
+    const under = new Sprite(contact.under)
+    under.position.set(-ox - contact.pad, -oy - contact.pad)
+    const sides = new Sprite(contact.wall)
+    sides.position.set(-ox, -oy)
+    const ground = new Sprite(contact.floor)
+    ground.eventMode = 'none'
+    ground.anchor.set((ox + contact.pad) / contact.floor.width, (oy + contact.pad) / contact.floor.height)
+    ground.scale.y = 1 / TILT
+    node.addChild(shadow, left, right, under, sides, face, highlight)
+    return { node, face, left, right, ground, q, r }
+  }
+
+  /** Where a cell's centre is in its contact shape, CSS px from the top left. */
+  private static readonly CONTACT_ORIGIN = {
+    x: Hex.SIZE / 2 * Walls.FACE_SCALE,
+    y: Hex.SIZE / Math.sqrt(3) * TILT * Walls.FACE_SCALE + Walls.HEIGHT
+  }
+
+  /**
+   * One wall cell's contact shading, the same for every cell: the shape is
+   * the hull of its ground hex and its lifted top face, standing on the
+   * ground hex's lower edges, its gradient as tall as the wall.
+   */
+  private static contact (): Contact {
+    const { x: ox, y: oy } = Walls.CONTACT_ORIGIN
+    const w = Hex.SIZE / 2 * Walls.FACE_SCALE
+    const v = Hex.SIZE / Math.sqrt(3) * TILT * Walls.FACE_SCALE
+    const h = Walls.HEIGHT
+    return contactOfShape(`wall:${Hex.SIZE}:${h}`, 2 * ox, oy + v, 2, h, (ctx) => {
+      const hex = [[0, -v], [w, -v / 2], [w, v / 2], [0, v], [-w, v / 2], [-w, -v / 2]]
+      const outline = hull([...hex, ...hex.map(([x, y]) => [x, y - h])])
+      ctx.beginPath()
+      outline.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x + ox, y + oy) : ctx.lineTo(x + ox, y + oy))
+      ctx.closePath()
+      ctx.fill()
+    })
   }
 
   /** Two 0xRRGGBB tints multiplied channel by channel, as `HexTerrain` does. */

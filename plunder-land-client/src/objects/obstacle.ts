@@ -1,5 +1,6 @@
 import { Sprite, type Texture } from 'pixi.js'
 import { GameObject } from './gameobject'
+import { shadeContact } from './contact'
 
 /**
  * A StoneWall stone standing on one blocked cell: the arena crate (art pass
@@ -11,6 +12,12 @@ import { GameObject } from './gameobject'
  * texture.width`, and a boulder and a shrub came out the same size.
  */
 export class Obstacle extends GameObject {
+  /**
+   * How far up the crate its contact gradient runs, CSS px: about its front
+   * face's height in the art (Claude's pick from the frame, unreviewed).
+   */
+  static readonly CONTACT_LENGTH = 14
+
   shadow: Sprite
 
   constructor (texture: Texture, radius: number) {
@@ -28,5 +35,7 @@ export class Obstacle extends GameObject {
     // on two different ground lines and the depth sort by `y` stops agreeing
     // with what the eye sees.
     this.addChild(this.main)
+    // Contact shading where it meets the ground (contact.ts).
+    shadeContact(this, this.main, Obstacle.CONTACT_LENGTH)
   }
 }

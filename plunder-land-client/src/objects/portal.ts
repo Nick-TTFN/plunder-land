@@ -1,4 +1,5 @@
 import { GameObject } from './gameobject'
+import { shadeContact } from './contact'
 import { Sprite, Texture } from 'pixi.js'
 import { namePlate } from '../ui/elements/nameplate'
 import { PAD_HEIGHT, shadowOffset } from './shadow'
@@ -26,6 +27,8 @@ export class Portal extends GameObject {
     shadow.position.set(offset.x, offset.y)
     this.addChild(shadow)
     this.addChild(this.main)
+    // Contact shading where it meets the ground (contact.ts).
+    shadeContact(this, this.main, PAD_HEIGHT)
 
     const arrow = new Sprite(Texture.from(up ? 'map/portal_up.png' : 'map/portal_down.png'))
     this.addChild(arrow)

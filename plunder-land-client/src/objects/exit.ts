@@ -1,4 +1,5 @@
 import { GameObject } from './gameobject'
+import { shadeContact } from './contact'
 import { Sprite, Texture } from 'pixi.js'
 import { namePlate } from '../ui/elements/nameplate'
 import { PAD_HEIGHT, shadowOffset } from './shadow'
@@ -22,6 +23,8 @@ export class Exit extends GameObject {
     shadow.position.set(offset.x, offset.y)
     this.addChild(shadow)
     this.addChild(this.main)
+    // Contact shading where it meets the ground (contact.ts).
+    shadeContact(this, this.main, PAD_HEIGHT)
 
     // "EXTRACT" under the pad, as the mockup (world-markers): exits are marked
     // through fog (#16), and this is what says what the pad is.

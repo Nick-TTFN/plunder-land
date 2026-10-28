@@ -120,3 +120,24 @@ four `obstacle_*` groups in the TexturePacker atlas are now unused, and so are t
 frames in `hex.json`. They stay
 because regenerating that atlas needs TexturePacker, which is not in this toolchain; that is
 about 40 KB of the 327 KB atlas sitting there for nothing.
+
+## Contact shading (AO) on walls and props
+
+`src/objects/contact.ts` follows the BTFC town's approach (its study page "How the town is
+drawn", D-032): where a standing thing meets the ground, the object's own pixels darken
+linearly toward its contact line (each column's lowest opaque pixel), and the floor outside its
+silhouette gets a brush from that line falling off as (1 - d/r)^3, plus a faint halo weighted
+0.2 above the silhouette's middle. No cavity AO; cast shadows (`shadow.ts`) are unchanged. The
+sizes are BTFC's world px halved (its default zoom is 0.5; this game draws at 1:1): brush 13 px
+at 0.9, halo 7 px at 0.5 and 1.5 px at 0.7, colour `0x050912`. All values are PROVISIONAL until
+Nick reviews them.
+
+The textures are computed once per source texture from its alpha, on the CPU, and cached
+forever (four of them): `shadeContact` puts the floor half under a prop's sprite and the wall
+half over it (portal and exit pad: gradient `PAD_HEIGHT` tall; StoneWall crate:
+`Obstacle.CONTACT_LENGTH` 14). A wall cell's shape is the hull of its ground hex and lifted
+face; its side gradient (as tall as `Walls.HEIGHT`, so it ends at the face) and the darkened
+spill of the drop-offs below its base go between the drop-offs and the face, and its floor half
+goes in one `onGround` container per plane at zIndex -2, so a cell's shade never falls on a
+neighbouring wall or a unit. A prop's floor half is its own child, so its faint top halo can
+lie over the feet of a unit standing just north of it.
