@@ -1,73 +1,102 @@
-import { type IPointData, Point } from 'pixi.js'
+import { type IPointData } from 'pixi.js'
 import { Game } from '../game'
 import { Session } from '../net/session'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
+import { skillById } from '../utils/skills'
+import { RANGED_RANGE_CELLS } from '../vfx/cells'
+import { AutoAim, bombCell, type Cell, rangeCellsOf, skillCell, type TargetView } from './autoaim'
 
 /**
- * Where the desktop mouse is aiming, for skills (decision #21).
- *
- * Only the pointer's **screen** position is kept, and it is turned into a cell
- * at the moment a skill fires. The camera follows the player, so a mouse held
- * still points at a different world cell every frame the player walks; a cell
- * worked out on the last mouse-move would be stale by the time the key is
- * pressed.
- *
- * This records and nothing else. It never routes the player: click-to-move
- * stays a press on the stage, and the stage has no route-building move handler
- * (see `index.ts`).
+ * Where a press aims (decision #58): the shared auto-aim target
+ * (`skills/autoaim.ts`), else the movement direction. Mouse and touch aim are
+ * gone; a tap or a key casts at once. `Game.updateAim` feeds this each frame
+ * with what the client holds; the press paths (`Skill.execute`,
+ * `GearSlot.invoke`, `Inventory.use`) ask it for the cell to send.
  */
 export class Aim {
-  /** Last mouse position over the world, in canvas coordinates; undefined for none. */
-  private static _screen: Point | undefined
+  private static readonly auto = new AutoAim()
+  /** This frame's target as last picked, or undefined for none. */
+  private static _target: TargetView | undefined
+
+  /** A new run (`Game.start`): no target. */
+  static reset (): void {
+    Aim.auto.reset()
+    Aim._target = undefined
+  }
+
+  /** The own robot's cell, predicted (`Game.LOCAL`). */
+  private static own (): Cell {
+    return Hex.toCell(new Vector(Game.LOCAL.x, Game.LOCAL.y))
+  }
+
+  private static isWall (q: number, r: number): boolean {
+    const tag = Game.LOCAL.tag
+    return tag !== undefined && Game.WALLS.get(tag)?.has(Hex.key(q, r)) === true
+  }
+
+  /** Pick this frame's target from `views`; undefined for none (or no own robot). */
+  static update (views: readonly TargetView[]): TargetView | undefined {
+    if (Game.PLAYER === undefined) {
+      Aim.reset()
+      return undefined
+    }
+    Aim._target = Aim.auto.update(Aim.own(), Game.LOCAL.tag, views, Aim.isWall)
+    return Aim._target
+  }
+
+  /** The current target, as last picked by `update`. */
+  static get target (): TargetView | undefined {
+    return Aim._target
+  }
 
   /**
-   * A mouse moved. `overWorld` is false when the pointer is on something
-   * interactive (the HUD), which is the same "target is not the stage" rule
-   * click-to-move uses. Touch is ignored: mobile aiming is a later design
-   * (drag from the button, or auto-aim), and a finger's last position is the
-   * last tap, not an aim.
+   * A tap or click on the world at `world`: true if it landed on a target,
+   * which it now aims at instead of moving there (#58 addendum 2).
    */
-  static track (x: number, y: number, pointerType: string | undefined, overWorld: boolean): void {
-    if (pointerType !== undefined && pointerType !== 'mouse') return
-    Aim._screen = overWorld ? new Point(x, y) : undefined
-  }
-
-  /** The mouse left the canvas. */
-  static clear (): void {
-    Aim._screen = undefined
+  static tapAt (world: IPointData, views: readonly TargetView[]): boolean {
+    if (Game.PLAYER === undefined) return false
+    const cell = Hex.toCell(new Vector(world.x, world.y))
+    if (!Aim.auto.tap(cell, Aim.own(), Game.LOCAL.tag, views)) return false
+    Aim._target = views.find((v) => v.id === Aim.auto.targetId)
+    return true
   }
 
   /**
-   * The world point under the mouse, or undefined when there is no mouse over
-   * the world. No map or own-cell check: the robot's gun follows it
-   * (`Player.aimAt`), and pointing off the map is still pointing.
+   * The cell an aimed skill press sends: the target's cell, else the cell
+   * its reach along the movement direction (`noTargetCell`). `skillId` is
+   * the mirrored skill id; one this build can't place gets the ranged reach.
+   * Only for skills that aim (`Skill.aims`). Undefined (the bare slot, along
+   * the server's `facing`) off the map.
    */
-  static world (): IPointData | undefined {
-    if (Aim._screen === undefined || Game.CONTAINER === undefined) return undefined
-    return Game.CONTAINER.toLocal(Aim._screen)
+  static skillCell (skillId: number | undefined): Vector | undefined {
+    if (Game.PLAYER === undefined) return undefined
+    const range = rangeCellsOf(skillById(skillId)?.key, Game.PLAYER.archetype?.rangedCells) ?? RANGED_RANGE_CELLS
+    return Aim.checked(skillCell(Aim.own(), Aim._target?.cell, Game.LOCAL.facingX, Game.LOCAL.facingY, range, Session.mapSize))
+  }
+
+  /** The cell a bomb (an item reaching `aimRange`) is thrown at (`autoaim.ts` `bombCell`). */
+  static bombCell (aimRange: number): Vector | undefined {
+    if (Game.PLAYER === undefined) return undefined
+    return Aim.checked(bombCell(Aim.own(), Aim._target?.cell, Game.LOCAL.facingX, Game.LOCAL.facingY, aimRange, Session.mapSize))
+  }
+
+  /** `cellAt`'s map and own-cell rules on a picked cell. */
+  private static checked (cell: Cell | undefined): Vector | undefined {
+    return cell === undefined ? undefined : Aim.cellAt(Hex.toPosition(new Vector(cell.x, cell.y)))
   }
 
   /**
-   * The absolute cell under the mouse, or undefined for "no aim": no mouse over
-   * the world, a cell off the map, or the player's own cell. The server treats
-   * no aim as "fire along facing", and it applies the own-cell rule again
-   * against its own position.
+   * The aim cell for a world point, or undefined for "no aim": a cell off the
+   * map, or the player's own cell. The server treats no aim as "fire along
+   * facing", and it applies the own-cell rule again against its own position.
    */
-  static cell (): Vector | undefined {
-    if (Aim._screen === undefined || Game.CONTAINER === undefined || Game.PLAYER === undefined) return undefined
-
-    // The same transform click-to-move uses: the container carries the camera.
-    return Aim.cellAt(Game.CONTAINER.toLocal(Aim._screen))
-  }
-
-  /** The aim cell for a world point (a tap on touch): the same off-map and own-cell rules as `cell`. */
   static cellAt (world: IPointData): Vector | undefined {
     if (Game.PLAYER === undefined) return undefined
     const cell = Hex.toCell(new Vector(world.x, world.y))
     if (!Hex.onMap(cell.x, cell.y, Session.mapSize)) return undefined
 
-    const own = Hex.toCell(new Vector(Game.LOCAL.x, Game.LOCAL.y))
+    const own = Aim.own()
     if (own.x === cell.x && own.y === cell.y) return undefined
 
     return cell

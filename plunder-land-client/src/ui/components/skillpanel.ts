@@ -1,8 +1,7 @@
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
 import { Panel } from './panel'
 import { THEME } from '../theme'
-import { type Aimed, type Skill } from '../../skills/skill'
-import { TouchAim } from '../../skills/touchaim'
+import { type Skill } from '../../skills/skill'
 
 const CARD_W = 104
 const CARD_H = 112
@@ -16,9 +15,6 @@ const CARD_GAP = 8
  */
 export class SkillCard extends Container {
   private _readyAt = 0
-  /** Armed on touch, waiting for a tap on its target (`TouchAim`). */
-  private _armed = false
-  private readonly _ring = new Graphics()
   private readonly _status: Text
   private readonly _icon: Sprite | undefined
   private _shown = ''
@@ -59,7 +55,7 @@ export class SkillCard extends Container {
     // only the card's empty edges cast.
     this.eventMode = 'static'
     this.cursor = 'pointer'
-    this.on('pointertap', (e: { pointerType?: string }) => { this.tap(e.pointerType) })
+    this.on('pointertap', () => { this.tap() })
 
     this._icon = new Sprite(skill.uiTexture)
     this._icon.anchor.set(0.5, 0.5)
@@ -89,35 +85,11 @@ export class SkillCard extends Container {
     this._status.x = CARD_W / 2
     this._status.y = CARD_H - 6
     this.addChild(this._status)
-
-    this._ring.lineStyle(2, THEME.accent, 1).drawRoundedRect(1, 1, CARD_W - 2, CARD_H - 2, 6)
-    this._ring.visible = false
-    this.addChild(this._ring)
   }
 
-  /**
-   * A tap: on touch an aimed skill arms, and a second tap on its card casts
-   * it along facing (`TouchAim`); anything else casts at once (on desktop
-   * the mouse aims).
-   */
-  tap (pointerType: string | undefined): void {
-    if (this.skill === null) return
-    if (pointerType === 'touch' && this.skill.aims && performance.now() >= this._readyAt) {
-      if (TouchAim.armed(performance.now()) === this) {
-        TouchAim.disarm()
-        this.invoke({ cell: undefined })
-      } else {
-        TouchAim.arm(this, performance.now())
-      }
-      return
-    }
-    this.invoke(pointerType === 'touch' ? { cell: undefined } : undefined)
-  }
-
-  setArmed (armed: boolean): void {
-    this._armed = armed
-    if (this.skill !== null) this._ring.visible = armed
-    this._shown = ''
+  /** A tap casts at once, at the auto-aim target (#58), mouse and touch alike. */
+  tap (): void {
+    this.invoke()
   }
 
   get key (): string {
@@ -130,18 +102,18 @@ export class SkillCard extends Container {
     this._keyText.text = key.toUpperCase()
   }
 
-  invoke (aim?: Aimed): void {
+  invoke (): void {
     if (this.skill === null) return
     const now = performance.now()
     if (now < this._readyAt) return
-    this.skill.execute(aim)
+    this.skill.execute()
     this._readyAt = now + (this.skill.cooldown ?? 0) * 1000
   }
 
   update (now: number): void {
     if (this.skill === null || this._icon === undefined) return
     const left = this._readyAt - now
-    const text = left > 0 ? `${Math.ceil(left / 1000)} s` : this._armed ? 'TAP TARGET' : 'READY'
+    const text = left > 0 ? `${Math.ceil(left / 1000)} s` : 'READY'
     if (text === this._shown) return
     this._shown = text
     this._status.text = text

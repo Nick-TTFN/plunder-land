@@ -1,10 +1,7 @@
 import { Container, Graphics, Sprite, type Text } from 'pixi.js'
 import { Game } from '../../game'
 import { Aim } from '../../skills/aim'
-import { Hex } from '../../utils/hex'
-import { Vector } from '../../utils/vector'
 import { INVENTORY_SLOTS, itemInSlot } from '../../utils/items'
-import { TextEffect } from '../elements/texteffect'
 import { ItemPickup } from '../../objects/itempickup'
 import { Panel } from './panel'
 import { THEME } from '../theme'
@@ -144,13 +141,6 @@ export class Inventory extends Container {
     }
   }
 
-  /**
-   * Use the item in a 0-based slot: the `use_item` message, in the same bytes
-   * as a skill press (`Aim.message`). An item that aims sends the cell under
-   * the mouse, or no aim (the server then throws along facing). An aim the
-   * client can already see is out of range is not sent; the server checks
-   * again against its own position, and may still refuse one at the edge.
-   */
   /** The key bound to `slot` as its tab shows it (settings; 1-5 by default). */
   static keyOf (slot: number): string {
     return keyLabel(SETTINGS.value.itemKeys[slot] ?? String(slot + 1))
@@ -162,6 +152,10 @@ export class Inventory extends Container {
     this.gear.forEach((gear) => { gear.setKeyLabel(Inventory.keyOf(gear.slot)) })
   }
 
+  /**
+   * Use the item in a 0-based slot: the `use_item` message, in the same bytes
+   * as a skill press (`Aim.message`). Keys 3-4 cast their gear (`GearSlot`).
+   */
   use (slot: number): void {
     const gear = this.gear[slot - GEAR_FIRST_SLOT]
     if (gear !== undefined) {
@@ -171,18 +165,10 @@ export class Inventory extends Container {
     const info = itemInSlot(slot)
     if (info === undefined || (this._counts[slot] ?? 0) <= 0 || Game.PLAYER === undefined) return
 
-    let cell: Vector | undefined
-    if (info.aimRange !== null) {
-      cell = Aim.cell()
-      if (cell !== undefined) {
-        const own = Hex.toCell(new Vector(Game.LOCAL.x, Game.LOCAL.y))
-        if (Hex.distance(own, cell) > info.aimRange) {
-          new TextEffect('TOO FAR', Game.CONTAINER, Game.LOCAL.x, Game.LOCAL.y - 40, 24, 'orange', 300) // eslint-disable-line no-new
-          return
-        }
-      }
-    }
-
+    // An item that aims (the bomb) is thrown along the auto-aim line, between
+    // 3 cells out and a cell inside its reach (`Aim.bombCell`, #58 Q12), so
+    // it can no longer be aimed too far.
+    const cell = info.aimRange !== null ? Aim.bombCell(info.aimRange) : undefined
     Game.socket.emit('use_item', Aim.message(slot, cell))
   }
 }

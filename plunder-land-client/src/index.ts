@@ -12,8 +12,6 @@ import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { PORTAL, SERVER_URL } from './config'
 import { Aim } from './skills/aim'
-import { TouchAim } from './skills/touchaim'
-import { SkillCard } from './ui/components/skillpanel'
 import { decideWelcome, KEY, readPending } from './net/protocol'
 import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
@@ -278,10 +276,6 @@ function onConnect (): void {
     // it. A click is a route.
     app.stage.on('pointerdown', onPointerDown)
     app.stage.on('pointerup', onPointerUp)
-    // The move handler only records where the mouse is, for aiming skills
-    // (decision #21). It must never route.
-    app.stage.on('pointermove', onPointerMove)
-    app.stage.on('pointerleave', () => { Aim.clear() })
 
     window.addEventListener('resize', onResize)
 
@@ -310,12 +304,10 @@ function onPointerDown (event: { shiftKey?: boolean, target?: unknown, data: { b
   // interactive was hit, which is exactly the world.
   if (event.target !== undefined && event.target !== app.stage) return
 
-  // A skill armed on touch (`TouchAim`) takes this tap as its target, not a move.
-  const armed = TouchAim.take(performance.now())
-  if (armed instanceof SkillCard && Game.CONTAINER !== undefined) {
-    armed.invoke({ cell: Aim.cellAt(Game.CONTAINER.toLocal(new Point(event.data.global.x, event.data.global.y))) })
-    return
-  }
+  // A tap or click on an enemy makes it the auto-aim target instead of
+  // walking there (#58 addendum 2); on the ground it is a move as before.
+  if (Game.PLAYER !== undefined && Game.CONTAINER !== undefined &&
+    Aim.tapAt(Game.CONTAINER.toLocal(new Point(event.data.global.x, event.data.global.y)), Game.Instance.aimViews())) return
 
   // Shift-click appends a leg instead of replacing the route, so a way round
   // something can be built up click by click. Only on the press: dragging with
@@ -341,12 +333,6 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
   // Record the intent only. Sending happens on a fixed cadence in frame().
   if (_appendNext) Game.LOCAL.appendDestination(world.x, world.y)
   else Game.LOCAL.setDestination(world.x, world.y)
-}
-
-function onPointerMove (event: { target?: unknown, pointerType?: string, global: { x: number, y: number } }): void {
-  // Over the world only when nothing interactive is under the pointer - the
-  // same test onPointerDown uses. On the HUD, a skill press sends no aim.
-  Aim.track(event.global.x, event.global.y, event.pointerType, event.target === app.stage)
 }
 
 function onPointerUp (): void {

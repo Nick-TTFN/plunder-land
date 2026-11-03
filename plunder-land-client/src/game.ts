@@ -34,6 +34,8 @@ import { FireBreathEffect } from './vfx/firebreath.effect'
 import { IceBreathEffect } from './vfx/icebreath.effect'
 import { MeleeAttackEffect } from './vfx/meleeattack.effect'
 import { Aim } from './skills/aim'
+import { type TargetView } from './skills/autoaim'
+import { AimLine } from './vfx/aimline'
 import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
 import { BlastEffect } from './vfx/blast.effect'
@@ -95,6 +97,8 @@ export class Game extends Container {
   pathMarker: PathMarker | undefined
   /** Red cells under the mobs that can reach you (world-markers). */
   threatMarker: ThreatMarker | undefined
+  /** The auto-aim line and crosshair (#58), on the player's plane. */
+  aimLine: AimLine | undefined
   static socket: Socket
   /** The round trip to the server, for the HUD (`net/latency.ts`); probed from index.ts. */
   static latency = new Latency(() => performance.now())
@@ -332,6 +336,9 @@ export class Game extends Container {
     // is standing on, and a portal moves them between planes mid-run.
     this.pathMarker = new PathMarker()
     this.threatMarker = new ThreatMarker()
+    // Auto-aim's target is an id of the last run's world (#39): forgotten.
+    this.aimLine = new AimLine()
+    Aim.reset()
 
     // Nothing of the last run's map, or of what it saw, is kept: the next run
     // may be in another world (worlds-per-process, #39), with other valleys,
@@ -1337,6 +1344,62 @@ export class Game extends Container {
     marker.setThreats(threats)
   }
 
+  /**
+   * What auto-aim may pick from (#58): every unit this client holds, with its
+   * id (a `LOOKUP` key), drawn cell, and whether it is drawn: VISIBLE in the
+   * fog (the `renderable` rule of `applyFog`, never the margin ring), not
+   * killed, not hidden as gone from view. Pickups, stones, portals and exits
+   * are not units and never enter. `autoaim.ts` filters the rest.
+   */
+  aimViews (): TargetView[] {
+    const views: TargetView[] = []
+    for (const id in this.LOOKUP) {
+      const obj = this.LOOKUP[id]
+      if (!(obj instanceof Unit)) continue
+      const cell = Hex.toCell(new Vector(obj.x, obj.y))
+      views.push({
+        id: Number(id),
+        kind: obj instanceof Player ? 'player' : obj instanceof Mob ? 'mob' : 'other',
+        own: obj === Game.PLAYER,
+        alive: !obj.killed && !obj.destroyed && obj.visible,
+        seen: Game.FOG.state(cell.x, cell.y, obj.tag) === SEEN.VISIBLE,
+        tag: obj.tag,
+        cell: { x: cell.x, y: cell.y },
+        bodyRings: obj.archetype?.bodyRings ?? 0
+      })
+    }
+    return views
+  }
+
+  /**
+   * Auto-aim (#58): pick this frame's target, draw the line to it (or along
+   * the movement direction with none) on the player's plane, and turn the
+   * robot's gun to it. Nothing while dead, extracted, spectating or between
+   * runs: there is no own robot then.
+   */
+  updateAim (): void {
+    const line = this.aimLine
+    const player = Game.PLAYER
+    if (player === undefined) {
+      Aim.reset()
+      line?.hide()
+      return
+    }
+    const target = Aim.update(this.aimViews())
+    const unit = target !== undefined ? this.LOOKUP[target.id] : undefined
+    const at = unit !== undefined ? { x: unit.x, y: unit.y } : undefined
+
+    if (line !== undefined && this.layers != null) {
+      const layer = this.layerOf(Game.LOCAL.tag)
+      if (layer !== undefined && line.parent !== layer) layer.addChild(line)
+      line.show({ x: Game.LOCAL.renderX, y: Game.LOCAL.renderY }, at, target?.bodyRings ?? 0, Game.LOCAL.facingX, Game.LOCAL.facingY)
+    }
+
+    // A dash runs the way it goes: with the aim behind a standing dash the
+    // robot faced it and ran backwards (Nick, 2026-10-01).
+    player.aimAt(Game.LOCAL.dashLeft > 0 ? undefined : at)
+  }
+
   update (dt: number): void {
     // for (const obstacle of Game.OBSTACLES) {
     //   obstacle.update(dt)
@@ -1379,9 +1442,7 @@ export class Game extends Container {
       if (player === Game.PLAYER) {
         player.visible = true
         player.applyPosition(Game.LOCAL.renderX, Game.LOCAL.renderY, now, Game.LOCAL.moveX, Game.LOCAL.moveY)
-        // A dash runs the way it goes: with the mouse behind a standing dash the
-        // robot faced the mouse and ran backwards (Nick, 2026-10-01).
-        player.aimAt(Game.LOCAL.dashLeft > 0 ? undefined : Aim.world())
+        // Its gun follows the auto-aim target, in `updateAim` once the mobs have moved.
         continue
       }
       if (this.stillPresent(player, staleBefore, viewpoint)) {
@@ -1403,6 +1464,7 @@ export class Game extends Container {
 
     // After the mobs have moved to where they are drawn this frame.
     this.updateThreatMarker()
+    this.updateAim()
 
     const layers = this.layers
 

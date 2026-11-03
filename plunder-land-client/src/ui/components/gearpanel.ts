@@ -2,9 +2,8 @@ import { Container, Graphics, Sprite, type Text } from 'pixi.js'
 import { Panel } from './panel'
 import { THEME } from '../theme'
 import { SkillCard } from './skillpanel'
-import { TouchAim } from '../../skills/touchaim'
 import { Aim } from '../../skills/aim'
-import { type Aimed, Skill } from '../../skills/skill'
+import { type Skill } from '../../skills/skill'
 import { skillFor } from '../../skills/catalog'
 import { Game } from '../../game'
 import { type GameObject } from '../../objects/gameobject'
@@ -119,10 +118,9 @@ function bindTip (target: Container, tip: ItemTip, width: number, lines: () => s
  * the aim, in the same bytes as a skill press (`Aim.message`); the server
  * casts the slot's skill through the same `Skill.execute` a kit press uses.
  *
- * **Extends `SkillCard` only so touch aiming works unchanged**: `index.ts`
- * casts an armed card on a world tap if it is a `SkillCard`. It is built as
- * an empty card and draws itself; every method `index.ts`, `TouchAim` and the
- * HUD call is overridden here, so nothing of the parent's drawing is used.
+ * Extends `SkillCard` for the HUD's key map, which holds cards. It is built
+ * as an empty card and draws itself; every method the HUD calls is
+ * overridden here, so nothing of the parent's drawing is used.
  *
  * The cooldown is the client's estimate, as on the skill cards: the client
  * skill class's cooldown times the item's own cooldown roll, or, for a
@@ -137,7 +135,6 @@ export class GearSlot extends SkillCard {
   private _duplicate = false
   private _cooldownMs = 0
   private _gearReadyAt = 0
-  private _gearArmed = false
   private _gearShown = ''
   private readonly _frame = new Graphics()
   private readonly _iconHolder = new Container()
@@ -179,9 +176,9 @@ export class GearSlot extends SkillCard {
 
     this.eventMode = 'static'
     this.cursor = 'pointer'
-    this.on('pointertap', (e: { pointerType?: string }) => {
+    this.on('pointertap', () => {
       if (this._press.longPressed()) return
-      this.tap(e.pointerType)
+      this.tap()
     })
     this._press = bindTip(this, this._tip, S, () => this._item !== null ? itemLines(this._item, this._duplicate) : undefined)
   }
@@ -236,41 +233,28 @@ export class GearSlot extends SkillCard {
       .lineStyle(this._item !== null ? 2 : 1, tint, 1)
       .drawRoundedRect(0, 0, S, S, 5)
       .endFill()
-    if (this._gearArmed) this._frame.lineStyle(2, THEME.accent, 1).drawRoundedRect(-2, -2, S + 4, S + 4, 6)
   }
 
-  /** As `SkillCard.tap`: on touch an aimed skill arms, and its card again casts along facing. */
-  tap (pointerType: string | undefined): void {
-    const skill = this._gearSkill
-    if (this._item === null || skill === null) return
-    const now = performance.now()
-    if (pointerType === 'touch' && skill.aims && now >= this._gearReadyAt) {
-      if (TouchAim.armed(now) === this) {
-        TouchAim.disarm()
-        this.invoke({ cell: undefined })
-      } else {
-        TouchAim.arm(this, now)
-      }
-      return
-    }
-    this.invoke(pointerType === 'touch' ? { cell: undefined } : undefined)
-  }
-
-  setArmed (armed: boolean): void {
-    this._gearArmed = armed
-    this._gearShown = ''
-    this.drawFrame()
+  /** As `SkillCard.tap`: casts at once, at the auto-aim target (#58). */
+  tap (): void {
+    this.invoke()
   }
 
   /** Inventory slot keys are fixed labels; settings rebind what presses them (`HUD.onKeyDown`). */
   setKey (_key: string): void {}
 
-  /** `use_item` with this slot and the aim (the mouse's, a tapped cell, or none: along facing). */
-  invoke (aim?: Aimed): void {
+  /**
+   * `use_item` with this slot and the aim: for a skill that aims, the
+   * auto-aim target's cell or its reach along the movement direction
+   * (`Aim.skillCell`); otherwise none, and the server casts along `facing`
+   * (Dash and StoneWall follow movement, #58 Q11).
+   */
+  invoke (): void {
     if (this._item === null || this._gearSkill === null || Game.PLAYER === undefined) return
     const now = performance.now()
     if (now < this._gearReadyAt) return
-    Game.socket.emit('use_item', Aim.message(this.slot, Skill.cellOf(aim)))
+    const cell = this._gearSkill.aims ? Aim.skillCell(this._item.skill) : undefined
+    Game.socket.emit('use_item', Aim.message(this.slot, cell))
     this._gearReadyAt = now + this._cooldownMs
   }
 
@@ -278,7 +262,7 @@ export class GearSlot extends SkillCard {
     const left = this._gearReadyAt - now
     const text = this._item === null
       ? ''
-      : this._item.skill === 0 ? '' : left > 0 ? `${Math.ceil(left / 1000)} s` : this._gearArmed ? 'TAP' : 'READY'
+      : this._item.skill === 0 ? '' : left > 0 ? `${Math.ceil(left / 1000)} s` : 'READY'
     if (text === this._gearShown) return
     this._gearShown = text
     this._cd.text = text

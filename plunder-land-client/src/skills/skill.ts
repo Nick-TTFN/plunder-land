@@ -1,13 +1,13 @@
 import { type Texture } from 'pixi.js'
 import { Game } from '../game'
 import { type GameObject } from '../objects/gameobject'
+import { Session } from '../net/session'
 import { Aim } from './aim'
 import { type Vector } from '../utils/vector'
 
 /**
- * Where a press aims: `cell` is the absolute cell (undefined: no aim, along
- * facing). Absent, the desktop mouse's cell (`Aim.cell`). Touch passes the
- * tapped cell (`TouchAim`).
+ * Unused since auto-aim (#58): a press no longer carries its own aim. Kept
+ * so the skill classes that still name it in `execute`'s signature compile.
  */
 export interface Aimed { cell: Vector | undefined }
 
@@ -21,7 +21,7 @@ export class Skill {
   /**
    * Whether the server aims it at the pressed cell (ranged, fireball, icicle,
    * ice breath; decision #21). Dash, Melee, Defend and StoneWall ignore the
-   * aim. On touch an aimed skill waits for a tap on its target (`TouchAim`).
+   * aim and follow the movement direction (#58 Q11).
    */
   aims = false
 
@@ -29,15 +29,19 @@ export class Skill {
     this.owner = owner
   }
 
-  execute (aim?: Aimed): void {
+  execute (_aim?: Aimed): void {
     if (this.index === undefined) return
-    // Every skill sends the cell under the mouse (or the tapped one), or no
-    // aim; the server decides which skills use it (decision #21).
-    Game.socket.emit('skill', Aim.message(this.index, Skill.cellOf(aim)))
+    Game.socket.emit('skill', Aim.message(this.index, this.aimCell()))
   }
 
-  /** The cell a press aims at: the one given, else the mouse's. */
-  static cellOf (aim: Aimed | undefined): Vector | undefined {
-    return aim !== undefined ? aim.cell : Aim.cell()
+  /**
+   * The cell this press sends (`Aim.skillCell`): the auto-aim target's, or
+   * the skill's reach along the movement direction; undefined, the bare
+   * slot, for a skill that doesn't aim. The id is this slot's in
+   * `hello.skills`.
+   */
+  aimCell (): Vector | undefined {
+    if (!this.aims || this.index === undefined) return undefined
+    return Aim.skillCell(Session.skills?.[this.index])
   }
 }
