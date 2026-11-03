@@ -1,11 +1,14 @@
 import { type Socket } from 'socket.io'
 import type Redis from 'ioredis'
-import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
+import Multiplayer, { type Connection, type Join, type Start, ThrottledLog } from './multiplayer'
 import World from '../objects/world'
 import { PROTOCOL } from '../utils/protocol'
 import { captureError, reportError } from '../errors'
 import BotFill from '../bots/fill'
-import { type Account, type AccountStore, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
+import { type Account, type AccountStore, type FirstRunStore, firstRunStoreOf, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
+import Analytics, { type RunInfo } from '../analytics'
+import { buildFirstRun, FIRST_RUN } from '../firstrun/scenario'
+import { carryKills } from '../progress/run'
 import { NotReadyError } from '../db/pgstore'
 import type Player from '../objects/player'
 import { levelOf, standingOf } from '../progress/xp'
@@ -53,10 +56,38 @@ export interface WorldsOptions {
    * carries and settles are bounded by it, not by `bounded`.
    */
   ledger?: GearLedger
+  /**
+   * First-run worlds this process keeps open at once (`FIRST_RUN_CAP`,
+   * decision #58, provisional). Over it a start plays a normal run and the
+   * account stays not done. Absent: `FIRST_RUN_CAP_DEFAULT`.
+   */
+  firstRunCap?: number
 }
 
 /** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
 export const FULL_RETRY_MS = 2000
+
+/** `FIRST_RUN_CAP` when unset (decision #58, retest-4; provisional). */
+export const FIRST_RUN_CAP_DEFAULT = 50
+
+/**
+ * Mob clearance, in cells, of the one spawn a first run's handoff joins on
+ * (decision #58 addendum 2, Q10): the first real NPC just outside vision.
+ * Every other join keeps `World.SPAWN_CLEARANCE`.
+ */
+export const HANDOFF_CLEARANCE = 6
+
+/** A first-run world's one run (`Worlds.firstRunOf`). */
+interface FirstRunState {
+  readonly connection: Connection
+  /** The start that asked for it: the handoff begins the shared run with it. */
+  readonly start: Start
+  readonly data: unknown
+  /** Its player, once joined. */
+  player: Player | undefined
+  /** The player stood on the gate this tick: hand off once the tick is done. */
+  due: boolean
+}
 
 /**
  * Every world in this process (worlds-per-process, decision #39), and the one
@@ -153,6 +184,20 @@ export default class Worlds {
    * ledger's timeout.
    */
   private readonly settling = new WeakMap<Connection, Promise<void>>()
+  /**
+   * Private first-run worlds (decision #58, task retest-4), one player each,
+   * **apart from `worlds`**, so nothing that picks, fills or idles a shared
+   * world ever sees one: `choose`, bot fill and `closeIdle` read `worlds`
+   * only. `activeRuns`, `drained` (and so `full` and a drain) count both.
+   * Ticked after the shared ones; each closes once its player hands off or
+   * leaves (`tickAll`, the disconnect handler).
+   */
+  readonly firstRuns: World[] = []
+  /** Each open first-run world's run. */
+  private readonly firstRunOf = new Map<World, FirstRunState>()
+  private readonly firstRunCap: number
+  /** The store's first-run half (`firstRunStoreOf`); undefined: no first runs at all. */
+  private readonly firstRunStore: (AccountStore & FirstRunStore) | undefined
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
@@ -187,21 +232,48 @@ export default class Worlds {
     this.gear = gearStoreOf(this.accounts)
     this.ledger = this.gear !== undefined ? options.ledger : undefined
     this.edits = this.gear !== undefined ? stashEditsOf(this.accounts) : undefined
+    this.firstRunCap = options.firstRunCap ?? FIRST_RUN_CAP_DEFAULT
+    this.firstRunStore = firstRunStoreOf(this.accounts)
     World.strict = true
     this.open()
   }
 
-  /** A new world with its own Multiplayer, not left current. */
-  open (): World {
+  /**
+   * A Multiplayer whose runs end through this: XP, the refund and the gear.
+   * A first-run world's too, so a run there that ever ended as a run would
+   * show (it never should: `Player.runOver` is set first, `handoff`).
+   */
+  private multiplayer (): Multiplayer {
     const multiplayer = new Multiplayer(this.tickLengthMs, this.redis)
     multiplayer.runEnded = (connection, player, xp) => {
       this.grant(connection, player, xp)
       this.refundRun(connection, player)
     }
     multiplayer.gearEnded = (connection, player) => this.gearEnded(connection, player)
-    const world = World.build(this.mapSize, { multiplayer })
+    return multiplayer
+  }
+
+  /** A new world with its own Multiplayer, not left current. */
+  open (): World {
+    const world = World.build(this.mapSize, { multiplayer: this.multiplayer() })
     world.gearExpired = (item) => { this.discard([item]) }
     this.worlds.push(world)
+    return world
+  }
+
+  /**
+   * A new private first-run world (decision #58): the scenario's small map
+   * (`firstrun/scenario.ts`), in `firstRuns`, never in `worlds`. Its gate
+   * marks its run due for `handoff`.
+   */
+  private openFirstRun (): World {
+    const world = World.build(FIRST_RUN.mapSize, { multiplayer: this.multiplayer(), firstRun: true })
+    World.run(world, () => { buildFirstRun(world) })
+    world.handoff = (player) => {
+      const state = this.firstRunOf.get(world)
+      if (state !== undefined && state.player === player) state.due = true
+    }
+    this.firstRuns.push(world)
     return world
   }
 
@@ -292,9 +364,14 @@ export default class Worlds {
     socket.on('disconnect', () => {
       visitEnd(visit, connection.account, connection.started ? 'run' : this.draining ? 'drain' : 'lobby')
       connection.closed = true
+      // Inside a first run: it ends free and not done (before the release
+      // below destroys the player, which would end it as a run).
+      const world = this.worldOf.get(connection)
+      Multiplayer.guarded(() => { this.leaveFirstRun(connection) })
       this.inWorld(connection, (mp) => { mp.release(connection) })
       this.worldOf.delete(connection)
       this.connections.delete(connection)
+      if (world !== undefined && this.firstRunOf.has(world)) Multiplayer.guarded(() => { this.close(world) })
     })
     return connection
   }
@@ -721,6 +798,18 @@ export default class Worlds {
    * the rest runs in `guarded` and `World.run` as on arrival, and checks again
    * that the socket is still open and the server isn't draining.
    */
+  /**
+   * Whether this start plays a first run (decision #58, retest-4): the client
+   * asked (`firstRun`), the account is persisted and has explicitly not done
+   * it (`firstRunDone === false`; anything else fails closed to a normal run),
+   * the store can record it, no drain, and under `firstRunCap`.
+   */
+  private firstRunFor (connection: Connection, start: Start): boolean {
+    const account = connection.account
+    return start.firstRun === true && account !== undefined && account.persisted && account.firstRunDone === false &&
+      this.firstRunStore !== undefined && !this.draining && this.firstRuns.length < this.firstRunCap
+  }
+
   start (connection: Connection, data: unknown): void {
     if (connection.started || connection.starting) return
     const start = Multiplayer.parseStart(data)
@@ -772,7 +861,7 @@ export default class Worlds {
    * a run that then doesn't start (the socket closed, a drain began, the join
    * threw) is given back.
    */
-  private admit (connection: Connection, start: { party?: string, bring?: Array<string | null> }, data: unknown): void {
+  private admit (connection: Connection, start: Start, data: unknown): void {
     const account = connection.account
     if (account === undefined || !account.persisted) {
       // Offline: no stash, so `bring` is ignored.
@@ -827,8 +916,10 @@ export default class Worlds {
    * `equipGear` refused) goes back to the stash (`uncarry`). A store failure
    * or a timeout plays free and with no gear (fail open, as energy).
    */
-  private spendAndBegin (connection: Connection, account: Account, start: { party?: string, bring?: Array<string | null> }, data: unknown): void {
-    const ids = this.bringFor(account, start.bring)
+  private spendAndBegin (connection: Connection, account: Account, start: Start, data: unknown): void {
+    // A first run brings nothing in (its private world has no stash to
+    // settle into, and it ends without a run's end).
+    const ids = this.firstRunFor(connection, start) ? [] : this.bringFor(account, start.bring)
     const ledger = this.ledger
     const gear = this.gear
     const spending: Promise<Spent> = ids.length > 0 && ledger !== undefined && gear !== undefined
@@ -922,17 +1013,142 @@ export default class Worlds {
     }).catch((e) => { Worlds.accountFailure(e) })
   }
 
-  /** The run itself: `start` once the connection has its account and, if it pays, its play (`admit`). */
-  private begin (connection: Connection, start: { party?: string }, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>): void {
+  /**
+   * The run itself: `start` once the connection has its account and, if it
+   * pays, its play (`admit`). A start that gets a first run (`firstRunFor`,
+   * and no gear) goes to a new private world; a handoff's (`join`) never does.
+   */
+  private begin (connection: Connection, start: Start, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>, join?: Join): void {
     connection.party = start.party
-    const target = this.choose(start.party)
-    const from = this.worldOf.get(connection)
-    if (from !== target) {
-      if (from !== undefined) World.run(from, () => { from.multiplayer?.release(connection) })
-      World.run(target, () => { target.multiplayer?.adopt(connection) })
-      this.worldOf.set(connection, target)
+    if (join === undefined && gear === undefined && this.firstRunFor(connection, start)) {
+      this.beginFirstRun(connection, start, data)
+      return
     }
-    World.run(target, () => { target.multiplayer?.startRequested(connection, data, gear) })
+    const target = this.choose(start.party)
+    this.moveTo(connection, target)
+    World.run(target, () => { target.multiplayer?.startRequested(connection, data, gear, join) })
+  }
+
+  /** `connection` leaves its world, if it is in another, for `target`. */
+  private moveTo (connection: Connection, target: World): void {
+    const from = this.worldOf.get(connection)
+    if (from === target) return
+    if (from !== undefined) World.run(from, () => { from.multiplayer?.release(connection) })
+    World.run(target, () => { target.multiplayer?.adopt(connection) })
+    this.worldOf.set(connection, target)
+  }
+
+  /** The first run (decision #58): a new private world, and the run in it. */
+  private beginFirstRun (connection: Connection, start: Start, data: unknown): void {
+    const world = this.openFirstRun()
+    const state: FirstRunState = { connection, start, data, player: undefined, due: false }
+    this.firstRunOf.set(world, state)
+    this.moveTo(connection, world)
+    // A join that throws leaves the world empty, and the next tick closes it.
+    World.run(world, () => { world.multiplayer?.startRequested(connection, data) })
+    if (connection.started) state.player = connection.player
+  }
+
+  /** What a first run's analytics events need: its player's run. */
+  private static firstRunInfo (player: Player, connection: Connection): RunInfo {
+    return { playerId: player.playerId, startedAt: player.createdAt, portal: connection.visit?.portal }
+  }
+
+  /**
+   * The account has done its first run: at once in memory, so no later start
+   * on this connection plays another, then in the store, bounded and not
+   * waited for. A failed write is reported, not retried: the next connection
+   * plays the first run once more (accepted, retest-3).
+   */
+  private finishFirstRun (account: Account): void {
+    account.firstRunDone = true
+    const store = this.firstRunStore
+    if (store === undefined || !account.persisted) return
+    this.bounded(store.finishFirstRun(account.publicId, this.now())).then(() => { Worlds.accountSuccess() }, (e) => { Worlds.accountFailure(e) })
+  }
+
+  /**
+   * "A single teleport into a regular layer" (decision #58): the first run's
+   * player stood on the gate. In order:
+   *
+   * 1. Its run ends **not as a run**: `runOver` first, so the release below
+   *    (which destroys the player) grants no XP, refunds nothing, writes no
+   *    Redis stats, sends no `run_end` and settles no gear. A spec drops this
+   *    line and sees all of them fire.
+   * 2. The account is done (`finishFirstRun`); `first_run_done` to GA.
+   * 3. `handoff` to the client, before the new world's `hello`: socket.io
+   *    keeps one socket's events in order, so the client resets its world
+   *    before any record of the new one arrives (ids from two worlds collide).
+   * 4. The shared run begins as any start does (`begin`: `choose`, release,
+   *    adopt, `startRequested` with the start's robot, loadout and party), on
+   *    layer 0 at a spawn `HANDOFF_CLEARANCE` from every mob, and carrying the
+   *    first run's loot, kills and kill credit (so its XP is paid at the
+   *    shared run's end). HP, armor, time alive and items start fresh.
+   * 5. The play spent at the start moves to the new player (`paid`), so the
+   *    shared run's extraction refunds it as any run's would.
+   *
+   * Draining, or a `begin` that fails: the client is redirected as a drain
+   * does, the account stays done and the play is refunded. Either way the
+   * private world closes.
+   */
+  private handoff (world: World, state: FirstRunState): void {
+    const { connection, start, data } = state
+    const player = state.player
+    state.due = false
+    try {
+      if (player === undefined || player.runOver || player.destroyed || connection.closed || connection.player !== player) return
+      player.runOver = true
+      const paid = this.paid.get(player)
+      this.paid.delete(player)
+      const account = connection.account
+      if (account !== undefined) this.finishFirstRun(account)
+      Analytics.send(Worlds.firstRunInfo(player, connection), 'first_run_done', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
+      connection.socket.emit('handoff', {})
+      connection.started = false
+
+      let next: Player | undefined
+      if (!this.draining) {
+        const join: Join = {
+          clearance: HANDOFF_CLEARANCE,
+          prepare: (into) => {
+            into.loot = player.loot
+            into.kills = player.kills
+            carryKills(player, into)
+          }
+        }
+        try {
+          this.begin(connection, start, data, undefined, join)
+          if (connection.started && connection.player !== player) next = connection.player
+        } catch (e) {
+          reportError('handoff', e)
+        }
+      }
+      if (next === undefined) {
+        if (paid !== undefined) this.refund(paid, connection)
+        if (!connection.closed) Worlds.redirect(connection)
+        return
+      }
+      if (paid !== undefined) this.paid.set(next, paid)
+    } finally {
+      this.close(world)
+    }
+  }
+
+  /**
+   * The connection is leaving (its disconnect) while in a first run: the run
+   * ends free (`runOver` first, so the release that follows ends nothing, and
+   * its play back) and the account stays not done, so its next start plays
+   * the first run again (decision #58 addendum 5). `first_run_left` to GA.
+   */
+  private leaveFirstRun (connection: Connection): void {
+    const world = this.worldOf.get(connection)
+    const player = connection.player
+    if (world === undefined || !this.firstRunOf.has(world) || player === undefined || player.runOver) return
+    player.runOver = true
+    const paid = this.paid.get(player)
+    this.paid.delete(player)
+    if (paid !== undefined) this.refund(paid, connection)
+    Analytics.send(Worlds.firstRunInfo(player, connection), 'first_run_left', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
   }
 
   /**
@@ -1032,6 +1248,21 @@ export default class Worlds {
         }
       })
     }
+    // First runs after the shared worlds: no bots; a handoff once its tick is
+    // flushed; closed once their player has gone.
+    for (const world of [...this.firstRuns]) {
+      World.run(world, () => {
+        try {
+          world.update(dt)
+          world.multiplayer?.flushAll(this.tick, dtMs)
+        } catch (e) {
+          reportError('tick', e)
+        }
+      })
+      const state = this.firstRunOf.get(world)
+      if (state?.due === true) Multiplayer.guarded(() => { this.handoff(world, state) })
+      else if (Worlds.activePlayers(world) === 0) Multiplayer.guarded(() => { this.close(world) })
+    }
     this.closeIdle()
   }
 
@@ -1056,9 +1287,11 @@ export default class Worlds {
   /**
    * Close `world` and drop every reference this holds to it. Its connections
    * (all between runs: it has no active players) are released and belong to
-   * no world until their next run.
+   * no world until their next run. A world already closed is left alone (a
+   * first run's handoff that redirects closes it from the disconnect too).
    */
   close (world: World): void {
+    if (world.closed) return
     // Stash rows still in it (decision #49, 49-4): dropped on the ground, or
     // carried by a bot or a corpse not yet swept. The world won't come back,
     // so they are gone (`discardGear`). A world closes only with no human in
@@ -1082,6 +1315,9 @@ export default class Worlds {
     this.fills.delete(world)
     const i = this.worlds.indexOf(world)
     if (i >= 0) this.worlds.splice(i, 1)
+    const f = this.firstRuns.indexOf(world)
+    if (f >= 0) this.firstRuns.splice(f, 1)
+    this.firstRunOf.delete(world)
   }
 
   /**
@@ -1133,16 +1369,17 @@ export default class Worlds {
     Worlds.redirect(connection)
   }
 
-  /** Runs in progress across every world. */
+  /** Runs in progress across every world, first runs included (a burst cap must count them). */
   static activeRuns (worlds: Worlds): number {
     let n = 0
     for (const world of worlds.worlds) n += Worlds.activePlayers(world)
+    for (const world of worlds.firstRuns) n += Worlds.activePlayers(world)
     return n
   }
 
-  /** No run in progress in any world: a draining process can stop. */
+  /** No run in progress in any world, first runs included (a drain plays them out): a draining process can stop. */
   get drained (): boolean {
-    return this.worlds.every((world) => Worlds.activePlayers(world) === 0)
+    return this.worlds.every((world) => Worlds.activePlayers(world) === 0) && this.firstRuns.every((world) => Worlds.activePlayers(world) === 0)
   }
 
   /**

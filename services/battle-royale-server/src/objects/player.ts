@@ -241,10 +241,29 @@ export default class Player extends Unit {
 
     // Before the pickup, so a hop picks up on the cell it lands on.
     this.hopPortal()
+    // A first-run world's handoff gate (decision #58): `Worlds` hands the run
+    // off after this tick (`World.handoff`, kept single there).
+    if (World.current.firstRun && this.onHandoffGate()) World.current.handoff?.(this)
     this.applyHeal(dt)
     this.pickUp()
     // No push-out out of mobs (hex-cells P2): players may share a cell with a
     // mob (#31 Q2), and a mob's chase stops a ring short of its target.
+  }
+
+  /**
+   * The player's cell holds a handoff gate (`firstrun/gate.ts`): a portal
+   * to its own layer, flagged `handoff`, which `portalOn` ignores, so it
+   * hops nobody and ends no route.
+   */
+  onHandoffGate (): boolean {
+    if (this.gateFree()) return false
+    const here = this.cell
+    return World.GATES_ON(here.x, here.y, this.tag).some((gate) => (gate as { handoff?: boolean }).handoff === true)
+  }
+
+  /** Floored at 1 in a first-run world (decision #58, accepted in addendum 2): nothing there ends the run. */
+  hpFloor (): number {
+    return World.current.firstRun ? 1 : 0
   }
 
   /** A portal to another layer: routes end on it (`Unit.endAtPortal`). */
@@ -456,7 +475,9 @@ export default class Player extends Unit {
 
   addLoot (value: number): void {
     this.loot += value
-    if (this.firstLootAt === undefined && value > 0 && this.bot === undefined) {
+    // Not in a first-run world: that run sends no analytics of its own but
+    // `first_run_*` (decision #58), and its loot is carried into the next.
+    if (this.firstLootAt === undefined && value > 0 && this.bot === undefined && !World.current.firstRun) {
       this.firstLootAt = Date.now()
       Analytics.send({ playerId: this.playerId, startedAt: this.createdAt, offline: Multiplayer.isOffline(this), portal: this.connection?.visit?.portal }, 'first_loot', {
         seconds: Math.round((this.firstLootAt - this.createdAt) / 100) / 10
@@ -812,7 +833,8 @@ export default class Player extends Unit {
     // Never `void`: see Multiplayer.STATS_LOG. A rejected stats write is an
     // unhandled rejection, and that ends the process. An offline account
     // (decision #48) writes no stats, like a bot.
-    if (this.bot === undefined && !Multiplayer.isOffline(this)) this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
+    // Nor in a first-run world, whose run writes no Redis stats (decision #58).
+    if (this.bot === undefined && !Multiplayer.isOffline(this) && !World.current.firstRun) this.updateKillStats(value).catch(Multiplayer.logStatsFailure)
 
     // A Broodling this player's hit set off: the mobs its blast killed are
     // this player's kills too, a chain's included (`BroodlingFuse`, Brood

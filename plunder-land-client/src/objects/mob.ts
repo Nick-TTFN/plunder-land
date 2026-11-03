@@ -1,4 +1,4 @@
-import { Point } from 'pixi.js'
+import { Point, Sprite, Texture } from 'pixi.js'
 import Unit from './unit'
 import { AnimationStates } from '../animation/animationstates'
 import { lookFor } from './archetypesprites'
@@ -71,6 +71,15 @@ export default class Mob extends Unit {
 
   initAnimation (): void {
     const look = lookFor('mob', this.archetype)
+    if (look.still === 'crate') {
+      // The first run's rock (decision #58, retest-5): the StoneWall crate
+      // stands in for the missing space-rock art (Nick). Drawn as `Obstacle`
+      // draws it, at its baked size on its baked ground point, the cell
+      // centre; no clip, so no shadow copy, and the HP bar sits at the
+      // default head height.
+      this.addChild(new Sprite(Texture.from('map/stone_wall.png')))
+      return
+    }
     const rig = look.npc !== undefined ? NPC_RIGS[look.npc] : undefined
     if (rig !== undefined && NpcSprite.ready(rig)) {
       this.npc = new NpcSprite(this, rig, SETTINGS.value.shadows)

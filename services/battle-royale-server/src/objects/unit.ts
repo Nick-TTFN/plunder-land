@@ -798,6 +798,10 @@ export class Unit extends GameObject {
       this.armorCarry = 0
     }
     this.hp -= damage - absorbed
+    // A floor (a player in a first-run world, decision #58): the hit lands,
+    // and never kills.
+    const floor = this.hpFloor()
+    if (floor > 0 && this.hp < floor) this.hp = floor
 
     if (this.hp <= 0) {
       this.hp = 0
@@ -806,6 +810,14 @@ export class Unit extends GameObject {
     }
 
     return false
+  }
+
+  /**
+   * The least hp a hit leaves this unit with: 0 (a hit can kill) for every
+   * unit but a player in a first-run world (`Player.hpFloor`).
+   */
+  hpFloor (): number {
+    return 0
   }
 
   /** A player is within this unit's contact range (`Mob.touch`). Nothing for most units. */

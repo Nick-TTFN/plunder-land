@@ -42,6 +42,39 @@ export interface Account {
    * (`progress/energy.ts`); the store's is the truth, this is for showing.
    */
   energy: EnergyRecord | null
+  /**
+   * Whether the account has played its safe first run (decision #58,
+   * migration 8): `false` for a persisted account with no `first_runs` row
+   * (and `create`'s new account), `true` once `finishFirstRun` wrote one,
+   * and `true` for an offline account, which can't record completion and
+   * would otherwise replay the first run on every start.
+   *
+   * **Optional on purpose, and only an explicit `false` plays a first run**
+   * (`Worlds`): an `Account` built without it (a spec's literal, a store
+   * wrapper that forgets it) fails closed to a normal run, today's behaviour.
+   */
+  firstRunDone?: boolean
+}
+
+/**
+ * Recording the first run (decision #58, task retest-3). **Not part of
+ * `AccountStore`**, for the reason `GearStore` isn't: spec wrappers implement
+ * `AccountStore`, and ts-node type-checks a spec when it loads it. A store
+ * without it never plays a first run (`firstRunStoreOf`).
+ */
+export interface FirstRunStore {
+  /**
+   * Mark the account's first run done at `nowMs`: one insert, idempotent (a
+   * second call changes nothing, `done_at` stays the first). Throws when the
+   * store fails or knows no such account. Never retried by the caller: a
+   * lost write means the first run once more, which is acceptable.
+   */
+  finishFirstRun: (publicId: string, nowMs: number) => Promise<void>
+}
+
+/** The store's first-run half, when it has one (both shipped stores do). */
+export function firstRunStoreOf (store: AccountStore): (AccountStore & FirstRunStore) | undefined {
+  return typeof (store as Partial<FirstRunStore>).finishFirstRun === 'function' ? store as AccountStore & FirstRunStore : undefined
 }
 
 /** One saved loadout: a robot's key, its loadout index, and 4 skill ids. */
@@ -409,7 +442,7 @@ export function newPublicId (): string {
 
 /** An account for one connection while the store is failing (fail open). */
 export function offlineAccount (): Account {
-  return { publicId: newPublicId(), persisted: false, xp: 0, loadouts: [], energy: null }
+  return { publicId: newPublicId(), persisted: false, xp: 0, loadouts: [], energy: null, firstRunDone: true }
 }
 
 /**
@@ -429,7 +462,7 @@ export function tokenOf (auth: unknown): string | undefined {
  * production (every deploy forgets every account; `openAccountStore` reports
  * that on Railway).
  */
-export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore {
+export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore {
   /** The stash's clock (pg's `now()`); specs pass a fake one to age carries and heartbeats. */
   private readonly clock: () => number
 
@@ -452,6 +485,8 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
   private readonly xp = new Map<string, number>()
   /** Play stocks by public id; none is a new account's (`ENERGY.start`). */
   private readonly energy = new Map<string, EnergyRecord>()
+  /** When each account finished its first run (pg `first_runs`); none is not done. */
+  private readonly firstRuns = new Map<string, number>()
   /** Saved loadouts by public id, then by `robot/index`. */
   private readonly loadouts = new Map<string, Map<string, StoredLoadout>>()
   /** Each account's key in creation order: stands in for pg's `account_id` in the ranking. */
@@ -471,7 +506,13 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
       .map((l) => ({ robot: l.robot, index: l.index, skills: copyOf(l.skills) }))
       .sort((a, b) => a.robot < b.robot ? -1 : a.robot > b.robot ? 1 : a.index - b.index)
     const energy = this.energy.get(publicId)
-    return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy } }
+    return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy }, firstRunDone: this.firstRuns.has(publicId) }
+  }
+
+  async finishFirstRun (publicId: string, nowMs: number): Promise<void> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: first run for an unknown account')
+    // As pg's ON CONFLICT DO NOTHING: the first time stays.
+    if (!this.firstRuns.has(publicId)) this.firstRuns.set(publicId, nowMs)
   }
 
   /**
@@ -669,7 +710,7 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
     this.ids.add(publicId)
     this.keys.set(publicId, this.keys.size + 1)
     this.byHash.set(hashToken(token).toString('hex'), publicId)
-    return { account: { publicId, persisted: true, xp: 0, loadouts: [], energy: null }, token }
+    return { account: { publicId, persisted: true, xp: 0, loadouts: [], energy: null, firstRunDone: false }, token }
   }
 
   async grant (publicId: string, xp: number, credit?: SeasonCredit): Promise<number> {

@@ -29,6 +29,14 @@ import type Redis from 'ioredis'
  *   `gear_kept` (items the run's end sent to the stash: on an extraction or a
  *   drain's cut-off of a persisted account, else 0; sent whether or not the
  *   write then landed).
+ * - The safe first run (decision #58, retest-4; added with it), a private
+ *   world played once per account, which sends none of the three above (no
+ *   `run_start`, no `first_loot`, no `run_end`: its loot and kills are carried
+ *   into the shared run its handoff begins, whose events count them):
+ *   `first_run_start` (`robot`), `first_run_done` (`seconds` from its start to
+ *   the handoff) and `first_run_left` (`seconds`; the player disconnected
+ *   inside it, so its next start replays it). First-run extraction rate is
+ *   `first_run_done` followed by that player's `run_end` with `extracted`.
  * - Every event of a run on an offline account (the account store failed,
  *   decision #48) also carries `offline: 1`; it is absent otherwise. Such a
  *   run's `run_start` has no `run_number` or `days_since_first`: its id is

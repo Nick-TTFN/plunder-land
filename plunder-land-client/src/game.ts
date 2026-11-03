@@ -67,6 +67,7 @@ import { SETTINGS } from './net/settings'
 import { clearFull, onFull } from './net/full'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
+import { Handoff } from './net/handoff'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
 import { SpectateBar } from './ui/popups/spectatebar'
 import { Leaderboard, decodeStanding, type StandingRow } from './ui/components/leaderboard'
@@ -307,9 +308,56 @@ export class Game extends Container {
   }
 
   start (): void {
+    this.runCard = undefined
+    // A run from the lobby continues nothing (net/handoff.ts).
+    Handoff.reset()
+    this.resetRun()
+    // Nothing of the last world's map, or of what it saw, is kept: the next
+    // run may be in another world (worlds-per-process, #39), with other
+    // valleys, portals and stones, and ids that name other objects. BLOCKED
+    // was never cleared before this, so a stone from an earlier run stayed
+    // solid. This also does `Session.reset()`.
+    resetForRun(Game.MAP, Game.FOG)
+
+    Game.socket.off('hello')
+    Game.socket.off('create')
+    Game.socket.off('create_own')
+    Game.socket.off('effect')
+    Game.socket.off('update')
+    Game.socket.off('destroy')
+    Game.socket.off('standings')
+    Game.socket.off('spectate')
+    Game.socket.off('start_refused')
+    Game.socket.off('full')
+    Game.socket.off('handoff')
+    Leaderboard.Instance?.setStandings([], undefined)
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
+  }
+
+  /**
+   * The first run's pad (decision #58, retest-4): the server ends the private
+   * world and begins a shared run on this socket. Its `hello`, join snapshot
+   * and `create_own` follow in order, so the private world goes now, before
+   * any record of the new one is read (ids from two worlds collide): the
+   * per-run part of `start`, without the lobby, without dropping the run's
+   * handlers and without clearing the HUD. The run record goes on
+   * (`Handoff.takeOwnCreate`).
+   */
+  onHandoff (): void {
+    this.resetRun()
+    Handoff.begin(Game.MAP, Game.FOG)
+  }
+
+  /**
+   * What `start` and a handoff both forget of a run's world: its objects,
+   * layers, markers, auto-aim target, the local player and `LOOKUP`. Not the
+   * map and fog (`resetForRun`, `Handoff.begin`), the socket's handlers or
+   * the HUD.
+   */
+  private resetRun (): void {
     this.clear()
     this.endSpectate()
-    this.runCard = undefined
 
     // todo remove static accessors
     Game.OBSTACLES = []
@@ -337,15 +385,10 @@ export class Game extends Container {
     this.pathMarker = new PathMarker()
     this.threatMarker = new ThreatMarker()
     // Auto-aim's target is an id of the last run's world (#39): forgotten.
+    // On a handoff too: the two worlds' ids collide.
     this.aimLine = new AimLine()
     Aim.reset()
 
-    // Nothing of the last run's map, or of what it saw, is kept: the next run
-    // may be in another world (worlds-per-process, #39), with other valleys,
-    // portals and stones, and ids that name other objects. BLOCKED was never
-    // cleared before this, so a stone from an earlier run stayed solid. This
-    // also does `Session.reset()`.
-    resetForRun(Game.MAP, Game.FOG)
     // Stops predicting the last run's route until the new own create resets it.
     Game.LOCAL.stop()
     Game.LOCAL.ready = false
@@ -353,20 +396,6 @@ export class Game extends Container {
     Game.PLAYER = undefined
     Game.PLAYER_ID = undefined
     this.LOOKUP = {}
-
-    Game.socket.off('hello')
-    Game.socket.off('create')
-    Game.socket.off('create_own')
-    Game.socket.off('effect')
-    Game.socket.off('update')
-    Game.socket.off('destroy')
-    Game.socket.off('standings')
-    Game.socket.off('spectate')
-    Game.socket.off('start_refused')
-    Game.socket.off('full')
-    Leaderboard.Instance?.setStandings([], undefined)
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
   }
 
   async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring?: BringPair): Promise<void> {
@@ -379,6 +408,8 @@ export class Game extends Container {
     Game.socket.on('standings', this.onStandings.bind(this))
     Game.socket.on('spectate', this.onSpectate.bind(this))
     Game.socket.on('start_refused', this.onStartRefused.bind(this))
+    // The first run's pad (decision #58): a server from before it never sends it.
+    Game.socket.on('handoff', this.onHandoff.bind(this))
     // Server full (burst-capacity): the transport closes next, socket.io
     // reconnects, and the lobby that comes back retries (net/full.ts).
     Game.socket.on('full', (data: unknown) => { onFull(data, performance.now()) })
@@ -397,9 +428,11 @@ export class Game extends Container {
     // `bring`: stash row ids for keys 3 and 4 (decision #49, 49-4), only when
     // the lobby has some to send; a server from before the stash ignores it,
     // and the server carries only what the account owns and its level allows.
+    // `firstRun`: this client can play the safe first run (decision #58); the
+    // server decides who gets one, and a server from before it drops the key.
     Game.socket.emit('start_requested', bring === undefined
-      ? { id: playerId, name, finish, robot, party, loadout }
-      : { id: playerId, name, finish, robot, party, loadout, bring })
+      ? { id: playerId, name, finish, robot, party, loadout, firstRun: true }
+      : { id: playerId, name, finish, robot, party, loadout, bring, firstRun: true })
 
     Game.hud.setupGameUI()
   }
@@ -714,8 +747,12 @@ export class Game extends Container {
       Game.FOG.reset(archetypeById(data.archetype)?.vision ?? null)
       Game.hud.legend.visible = Game.FOG.radius !== null
 
-      Game.RUN.start(archetypeById(data.archetype)?.key)
-      GameSfx.runStart()
+      // After a first run's handoff the run goes on (one run card for intro
+      // and run, decision #58): its clock, kills and deepest layer continue.
+      if (!Handoff.takeOwnCreate()) {
+        Game.RUN.start(archetypeById(data.archetype)?.key)
+        GameSfx.runStart()
+      }
       Game.RUN.layer(Session.layerNumber(data.tag))
       if (typeof data.kills === 'number') Game.RUN.kills = data.kills
 

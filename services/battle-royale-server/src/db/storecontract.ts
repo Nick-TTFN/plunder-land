@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import {
-  type AccountStore, type AdminStore, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
+  type AccountStore, type AdminStore, firstRunStoreOf, offlineAccount, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
   STALE_CARRY_MS, type StashEdits, type StashItem, TOKEN_SHAPE
 } from './accounts'
 // The merge rule draws through `rollGear` (archetypes), whose import graph
@@ -26,7 +26,8 @@ export async function storeContract (store: AccountStore): Promise<void> {
   const found = await store.resolve(token)
   assert.equal(account.xp, 0, 'a new account has XP')
   assert.deepEqual(account.loadouts, [], 'a new account has loadouts')
-  assert.deepEqual(found, { publicId: account.publicId, persisted: true, xp: 0, loadouts: [], energy: null }, 'create then resolve gave another account')
+  assert.equal(account.firstRunDone, false, 'a new account has played its first run')
+  assert.deepEqual(found, { publicId: account.publicId, persisted: true, xp: 0, loadouts: [], energy: null, firstRunDone: false }, 'create then resolve gave another account')
   assert.equal(await store.resolve(newToken()), null, 'an unknown token resolved')
 
   const other = await store.create()
@@ -39,7 +40,7 @@ export async function storeContract (store: AccountStore): Promise<void> {
   assert.equal(await store.grant(account.publicId, 87), 87)
   assert.equal(await store.grant(account.publicId, 0), 87, 'a grant of 0')
   assert.equal(await store.grant(account.publicId, 5), 92)
-  assert.deepEqual(await store.resolve(token), { publicId: account.publicId, persisted: true, xp: 92, loadouts: [], energy: null })
+  assert.deepEqual(await store.resolve(token), { publicId: account.publicId, persisted: true, xp: 92, loadouts: [], energy: null, firstRunDone: false })
   assert.equal((await store.resolve(other.token))?.xp, 0, 'another account\'s XP moved')
   // Concurrent grants all count (one atomic step each).
   const totals = await Promise.all(Array.from({ length: 10 }, async () => await store.grant(other.account.publicId, 3)))
@@ -72,6 +73,34 @@ export async function storeContract (store: AccountStore): Promise<void> {
 
   await seasonContract(store)
   await energyContract(store)
+  await firstRunContract(store)
+}
+
+/**
+ * The first run (decision #58, migration 8): no row reads as not done, one
+ * `finishFirstRun` makes it done for every later resolve, a second is a
+ * no-op, an unknown account throws, and an offline account reads as done.
+ */
+async function firstRunContract (plain: AccountStore): Promise<void> {
+  const store = firstRunStoreOf(plain)
+  assert.ok(store !== undefined, 'a shipped store has no finishFirstRun')
+  const t = Date.parse('2026-11-03T10:00:00.000Z')
+  const { account, token } = await store.create()
+  const other = await store.create()
+  assert.equal((await store.resolve(token))?.firstRunDone, false, 'no row read as done')
+  await store.finishFirstRun(account.publicId, t)
+  assert.equal((await store.resolve(token))?.firstRunDone, true, 'a finished first run read as not done')
+  assert.equal((await store.resolve(other.token))?.firstRunDone, false, 'another account\'s first run moved')
+  await store.finishFirstRun(account.publicId, t + 1000)
+  assert.equal((await store.resolve(token))?.firstRunDone, true, 'a second finishFirstRun undid the first')
+  // Concurrent calls (a handoff and a retry, two tabs): all succeed, one row.
+  await Promise.all(Array.from({ length: 5 }, async () => { await store.finishFirstRun(other.account.publicId, t) }))
+  assert.equal((await store.resolve(other.token))?.firstRunDone, true)
+  await assert.rejects(store.finishFirstRun('0123456789abcdef', t), 'a first run for an unknown account succeeded')
+  // The rest of the account is untouched.
+  const resolved = await store.resolve(token)
+  assert.deepEqual({ ...resolved, firstRunDone: undefined }, { publicId: account.publicId, persisted: true, xp: 0, loadouts: [], energy: null, firstRunDone: undefined })
+  assert.equal(offlineAccount().firstRunDone, true, 'an offline account would replay the first run every start')
 }
 
 /**
