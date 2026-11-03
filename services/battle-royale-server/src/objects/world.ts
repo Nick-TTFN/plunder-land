@@ -741,15 +741,18 @@ export default class World {
   }
 
   /**
-   * Joins on the top layer (#26), at a cell centre `spawnCell` picks. `name`,
+   * Joins on the top layer (#26), or a bot's `tag`, at a cell centre `spawnCell` picks. `name`,
    * `finish` and `robot` are what the client sent, raw; Player's constructor
    * cleans the first two, `robotFor` the last. `kit` is the run's 4 skill
    * ids, already resolved (`kitFor`, or a bot's); it is not checked here.
-   * Left out, the player gets the start kit (`Player`).
+   * Left out, the player gets the start kit (`Player`). `tag` is the layer
+   * to join on, for a bot only (`BotFill`, #58 addendum 2 Q6); left out, or
+   * not a layer, it is the top one, where every human joins.
    */
-  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[]): Player {
-    const pos = Hex.toPosition(World.spawnCell(World.LAYERS[0].tag).cell)
-    const player = new Player(pos.x, pos.y, World.LAYERS[0].tag, playerId, World.robotFor(robot), name, finish, kit)
+  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], tag?: number): Player {
+    const layer = tag !== undefined && World.TAGS.includes(tag) ? tag : World.LAYERS[0].tag
+    const pos = Hex.toPosition(World.spawnCell(layer).cell)
+    const player = new Player(pos.x, pos.y, layer, playerId, World.robotFor(robot), name, finish, kit)
     World.addUnit(World.PLAYERS as unknown as Unit[], player)
     return player
   }
