@@ -1,6 +1,6 @@
 import { Client, Pool, type PoolClient } from 'pg'
 import {
-  type Account, type AccountStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
+  type Account, type AccountStore, type FirstRunStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
   type Merged, mergeIdsOf, type MergeRule, newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Scrapped,
   type Settled, splitFound, type Spent, STALE_CARRY_MS, type StashEdits, type StashItem, storable, type StoredLoadout
 } from './accounts'
@@ -113,7 +113,7 @@ export interface PgAccountStoreOptions {
  * both 2 s, so a slow database costs a joining player at most a few seconds
  * in the lobby, then an offline run.
  */
-export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore {
+export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore {
   readonly pool: Pool
   ready = false
   private retry: NodeJS.Timeout | undefined
@@ -182,21 +182,39 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits, Admi
   async resolve (token: string): Promise<Account | null> {
     if (!this.ready) throw new NotReadyError()
     // One round trip: the account, its XP (no progress row yet reads as 0),
-    // its saved loadouts (none reads as []) and its energy (none reads as null).
+    // its saved loadouts (none reads as []), its energy (none reads as null)
+    // and its first run (no row reads as not done, migration 8).
     const result = await this.pool.query(
       `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
        SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
+         EXISTS (SELECT 1 FROM first_runs f WHERE f.account_id = a.id) AS first_run_done,
          COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
                    FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
        FROM a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id`,
       [hashToken(token)]
     )
-    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null } | undefined
+    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null, first_run_done: boolean } | undefined
     if (row === undefined) return null
     // Raw as stored: `kitFor` checks every row at the join.
     const loadouts = Array.isArray(row.loadouts) ? row.loadouts.map((l) => ({ robot: l.robot, index: Number(l.index), skills: l.skills })) : []
     const energy = row.stock === null || row.as_of_ms === null ? null : { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
-    return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy }
+    return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy, firstRunDone: row.first_run_done === true }
+  }
+
+  /**
+   * One statement: the `first_runs` row, unless there is one (the first
+   * `done_at` stays). Counts the account, not the insert, so a second call
+   * succeeds and an unknown public id throws. `close` waits for it.
+   */
+  async finishFirstRun (publicId: string, nowMs: number): Promise<void> {
+    this.checkOpen()
+    const result = await this.tracked(this.pool.query(
+      `WITH a AS (SELECT id FROM accounts WHERE public_id = $1),
+       i AS (INSERT INTO first_runs (account_id, done_at) SELECT id, to_timestamp($2::double precision / 1000) FROM a ON CONFLICT (account_id) DO NOTHING)
+       SELECT count(*)::int AS n FROM a`,
+      [publicId, nowMs]
+    ))
+    if ((result.rows[0] as { n: number }).n !== 1) throw new Error('accounts: first run for an unknown account')
   }
 
   async spend (publicId: string, nowMs: number, bring?: Bring): Promise<Spent> {
@@ -607,7 +625,7 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits, Admi
       const publicId = newPublicId()
       try {
         await this.pool.query('INSERT INTO accounts (public_id, token_hash) VALUES ($1, $2)', [publicId, hashToken(token)])
-        return { account: { publicId, persisted: true, xp: 0, loadouts: [], energy: null }, token }
+        return { account: { publicId, persisted: true, xp: 0, loadouts: [], energy: null, firstRunDone: false }, token }
       } catch (e) {
         if ((e as { code?: string }).code !== '23505' || attempt >= 3) throw e
       }

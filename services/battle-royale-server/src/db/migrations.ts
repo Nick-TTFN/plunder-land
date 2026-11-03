@@ -199,5 +199,22 @@ export const MIGRATIONS: readonly Migration[] = [
         DROP CONSTRAINT stash_items_tier_check,
         ADD CONSTRAINT stash_items_tier_check CHECK (tier BETWEEN 1 AND 4)
     `
+  },
+  {
+    version: 8,
+    name: 'first runs',
+    // The safe first run, once per account (decision #58, task retest-3). A
+    // row means the account has played it; **no row means not done**, so
+    // every account that exists when this lands gets the first run once
+    // (Nick, #58 addendum 6: no backfill). Written once by
+    // `finishFirstRun` (`ON CONFLICT DO NOTHING`), never updated or deleted.
+    // A new table only: the previous release never reads it and runs
+    // unchanged on this schema during overlap and drain.
+    sql: `
+      CREATE TABLE first_runs (
+        account_id bigint      PRIMARY KEY REFERENCES accounts(id),
+        done_at    timestamptz NOT NULL
+      )
+    `
   }
 ]

@@ -214,7 +214,7 @@ pgTest('XP: account_progress (migration 2), grants add up atomically, resolve re
   try {
     await again.migrateOnce()
     again.ready = true
-    assert.deepEqual(await again.resolve(token), { publicId, persisted: true, xp: 175, loadouts: [], energy: null })
+    assert.deepEqual(await again.resolve(token), { publicId, persisted: true, xp: 175, loadouts: [], energy: null, firstRunDone: false })
   } finally {
     await again.close()
   }
@@ -248,7 +248,7 @@ pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v
   const after = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
   assert.deepEqual(after, before, 'migration 3 changed an existing row')
   // The rest, so this release's queries find their tables.
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4, 5, 6, 7])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [4, 5, 6, 7, 8])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -259,7 +259,7 @@ pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v
     const granted = await store.pool.query(V2_GRANT, [made[1].publicId, 5])
     assert.equal(Number(granted.rows[0].xp), 25)
     // This release's, on an account from before it: no loadouts yet.
-    assert.deepEqual(await store.resolve(made[2].token), { publicId: made[2].publicId, persisted: true, xp: 30, loadouts: [], energy: null })
+    assert.deepEqual(await store.resolve(made[2].token), { publicId: made[2].publicId, persisted: true, xp: 30, loadouts: [], energy: null, firstRunDone: false })
     await store.saveLoadout(made[2].publicId, 'periscope', 2, [8, 7, 6, 5])
     assert.deepEqual((await store.resolve(made[2].token))?.loadouts, [{ robot: 'periscope', index: 2, skills: [8, 7, 6, 5] }])
 
@@ -341,7 +341,7 @@ pgTest('seasons (migration 4): added to a v3 database it keeps every row, and th
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 4))), [4])
   assert.deepEqual(await snapshot(), before, 'migration 4 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5, 6, 7])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [5, 6, 7, 8])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -350,7 +350,7 @@ pgTest('seasons (migration 4): added to a v3 database it keeps every row, and th
     const granted = await store.pool.query(V2_GRANT, [made[1].publicId, 5])
     assert.equal(Number(granted.rows[0].xp), 25)
     assert.equal(await store.grant(made[1].publicId, 1), 26, 'this release\'s grant without a credit')
-    assert.deepEqual(await store.resolve(made[2].token), { publicId: made[2].publicId, persisted: true, xp: 30, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 2] }], energy: null })
+    assert.deepEqual(await store.resolve(made[2].token), { publicId: made[2].publicId, persisted: true, xp: 30, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 2] }], energy: null, firstRunDone: false })
     assert.equal(Number((await store.pool.query('SELECT count(*) AS n FROM season_entries')).rows[0].n), 0)
     // And a credit on an account from before it.
     const at = Date.parse('2026-10-07T12:00:00.000Z')
@@ -418,7 +418,7 @@ pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 5))), [5])
   assert.deepEqual(await snapshot(), before, 'migration 5 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6, 7])
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [6, 7, 8])
 
   const store = new PgAccountStore({ connectionString: URL as string })
   try {
@@ -574,6 +574,8 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
   assert.equal(before.length, 2)
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 6))), [6])
   assert.deepEqual(await snapshot(), before, 'migration 6 changed an existing row')
+  // The rest, so this release's resolve finds its tables.
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [7, 8])
 
   // Step 7's queries are this release's resolve, grant, saveLoadout, spend
   // and refund unchanged (a spend without `bring` sends exactly step 7's SQL).
@@ -581,7 +583,7 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
   try {
     store.ready = true
     const resolved = await store.resolve(made[0].token)
-    assert.deepEqual(resolved, { publicId: made[0].publicId, persisted: true, xp: 10, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], energy: { stock: 5, asOfMs: at } })
+    assert.deepEqual(resolved, { publicId: made[0].publicId, persisted: true, xp: 10, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], energy: { stock: 5, asOfMs: at }, firstRunDone: false })
     assert.equal(await store.grant(made[0].publicId, 5, { season: seasonStart(at), atMs: at + 1, banked: 0, extracted: false, xp: 5, name: 'OLD' }), 15)
     await store.saveLoadout(made[1].publicId, 'peep', 1, [1, 2, 3, 0])
     assert.deepEqual(await store.spend(made[1].publicId, at), { ok: true, energy: { stock: 4, asOfMs: at } })
@@ -648,7 +650,7 @@ pgTest('legendary tier (migration 7): on a v6 database a T4 merge fails the CHEC
     assert.deepEqual(await rows(), before, 'a refused T4 merge changed rows (the inputs must survive: never a loss, never a dupe)')
     await assert.rejects(store.pool.query('INSERT INTO stash_items (account_id, tier, skill, source) SELECT id, 4, 1, 1 FROM accounts LIMIT 1'), /check/i, 'tier 4 at v6')
 
-    assert.deepEqual(await withClient(async (client) => await migrate(client)), [7])
+    assert.deepEqual(await withClient(async (client) => await migrate(client)), [7, 8])
     assert.deepEqual(await rows(), before, 'migration 7 changed an existing row')
     const wide = await tierChecks()
     assert.equal(wide.length, 1)
@@ -671,6 +673,80 @@ pgTest('legendary tier (migration 7): on a v6 database a T4 merge fails the CHEC
   } finally {
     await store.close()
   }
+})
+
+/** The previous release's resolve (migration 7's), verbatim: it must still run on migration 8's schema. */
+const V7_RESOLVE = `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
+       SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
+         COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
+                   FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
+       FROM a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id`
+
+pgTest('first runs (migration 8): added to a v7 database with rows it keeps every row, the previous resolve still runs, every existing account reads not done, and finishFirstRun is idempotent', async () => {
+  const v7 = MIGRATIONS.filter((m) => m.version <= 7)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, v7)), [1, 2, 3, 4, 5, 6, 7])
+  // Rows in every earlier table, written by store methods the previous
+  // release shares unchanged (none of them reads first_runs).
+  const old = new PgAccountStore({ connectionString: URL as string, migrations: v7 })
+  const at = Date.parse('2026-11-03T12:00:00.000Z')
+  const made: Array<{ token: string, publicId: string }> = []
+  try {
+    old.ready = true
+    for (let i = 0; i < 3; i++) {
+      const { account, token } = await old.create()
+      await old.grant(account.publicId, 10, { season: seasonStart(at), atMs: at, banked: 100, extracted: true, xp: 10, name: 'OLD' })
+      await old.saveLoadout(account.publicId, 'peep', 0, [1, 2, 3, i])
+      assert.equal((await old.spend(account.publicId, at)).ok, true)
+      await old.settleGear(account.publicId, randomUUID(), [], [T1])
+      made.push({ token, publicId: account.publicId })
+    }
+  } finally {
+    await old.close()
+  }
+  const snapshot = async (): Promise<unknown[]> => await withClient(async (client) => (await client.query(
+    `SELECT a.public_id, a.token_hash, p.xp, l.skills, e.banked, en.stock, en.as_of, s.tier, s.skill, s.rolls, s.state
+     FROM accounts a JOIN account_progress p ON p.account_id = a.id JOIN loadouts l ON l.account_id = a.id
+     JOIN season_entries e ON e.account_id = a.id JOIN energy en ON en.account_id = a.id JOIN stash_items s ON s.account_id = a.id ORDER BY a.id`)).rows)
+  const before = await snapshot()
+  assert.equal(before.length, 3)
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [8])
+  assert.deepEqual(await snapshot(), before, 'migration 8 changed an existing row')
+  // No backfill (Nick, #58 addendum 6): every existing account gets the first run.
+  const count = async (): Promise<number> => await withClient(async (client) => Number((await client.query('SELECT count(*) AS n FROM first_runs')).rows[0].n))
+  assert.equal(await count(), 0)
+
+  const store = new PgAccountStore({ connectionString: URL as string })
+  let closed = false
+  try {
+    store.ready = true
+    // The previous release's resolve, as the old server runs it during overlap and drain.
+    const resolved = await store.pool.query(V7_RESOLVE, [hashToken(made[0].token)])
+    assert.deepEqual(resolved.rows.map((r) => [r.public_id, Number(r.xp), Number(r.stock)]), [[made[0].publicId, 10, 5]])
+    // This release's, on accounts from before it: not done.
+    for (const m of made) assert.equal((await store.resolve(m.token))?.firstRunDone, false, 'an existing account read as done')
+    await store.finishFirstRun(made[0].publicId, at)
+    await store.finishFirstRun(made[0].publicId, at + 60_000)
+    assert.equal((await store.resolve(made[0].token))?.firstRunDone, true)
+    assert.equal((await store.resolve(made[1].token))?.firstRunDone, false, 'another account\'s first run moved')
+    const rows = (await store.pool.query('SELECT a.public_id, f.done_at FROM first_runs f JOIN accounts a ON a.id = f.account_id')).rows
+    assert.deepEqual(rows.map((r) => [r.public_id, (r.done_at as Date).getTime()]), [[made[0].publicId, at]], 'a second finishFirstRun wrote again')
+    // The previous release's resolve still runs with a row present.
+    assert.equal((await store.pool.query(V7_RESOLVE, [hashToken(made[0].token)])).rows.length, 1)
+    // The keys back it: one row per account, only real accounts, a time required.
+    const idOf = async (publicId: string): Promise<string> => (await store.pool.query('SELECT id FROM accounts WHERE public_id = $1', [publicId])).rows[0].id
+    await assert.rejects(store.pool.query('INSERT INTO first_runs (account_id, done_at) VALUES ($1, now())', [await idOf(made[0].publicId)]), /duplicate key/i)
+    await assert.rejects(store.pool.query('INSERT INTO first_runs (account_id, done_at) VALUES (999999, now())'), /foreign key/i)
+    await assert.rejects(store.pool.query('INSERT INTO first_runs (account_id) VALUES ($1)', [await idOf(made[1].publicId)]), /null/i)
+    // An unknown account throws and writes nothing; close waits for a write in flight.
+    await assert.rejects(store.finishFirstRun('0123456789abcdef', at))
+    const pending = store.finishFirstRun(made[2].publicId, at)
+    closed = true
+    await store.close()
+    await pending
+  } finally {
+    if (!closed) await store.close()
+  }
+  assert.equal(await count(), 2, 'close cut a first-run write short')
 })
 
 pgTest('the gear stash contract, dupe races 1-11, merge and scrap, against Postgres', async () => {
