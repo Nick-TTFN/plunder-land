@@ -185,17 +185,19 @@ test('a persisted account that has not done it, starting with firstRun, gets a p
     const cell = Hex.toCell(player.position)
     assert.deepEqual([cell.x, cell.y], [FIRST_RUN.start.q, FIRST_RUN.start.r], 'not on the scenario\'s start')
     assert.equal(player.tag, World.TAGS[0])
-    // The scenario and nothing else: no valleys, walls, exits or portals of a shared map.
-    assert.equal(World.VOIDS.size, 0)
+    // The scenario and nothing else: no walls, exits or portals of a shared
+    // map, valleys on the first layer only (the strip's, retest-5).
+    assert.deepEqual([...World.VOIDS.keys()], [World.TAGS[0]])
     assert.equal(World.WALLS.size, 0)
     assert.equal(World.OBSTACLES.length, 1)
   })
   // Its tick tops nothing up.
   for (let i = 0; i < 8; i++) worlds.tickAll(250)
   World.run(world, () => {
-    assert.equal(World.MOBS.length, 0, 'the refill ran in a first-run world')
+    assert.equal(World.MOBS.length, FIRST_RUN.rocks.length + 2, 'the refill ran in a first-run world')
     assert.equal(World.GEAR.length, 0)
-    assert.equal(World.CONSUMABLES.length, 1)
+    assert.equal(World.ITEMS.length, 0)
+    assert.equal(World.CONSUMABLES.length, 0)
   })
   assert.equal(sent.filter((e) => e.name === 'run_start').length, 0, 'a first run sent run_start')
   assert.equal(sent.filter((e) => e.name === 'first_run_start').length, 1)

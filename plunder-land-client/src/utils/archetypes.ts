@@ -23,11 +23,13 @@
  * Mobs 6-8 (grunt, boss, gunner) are retired by the NPC roster (decision #51,
  * L1): their rows stay, ids reserved, but no layer spawns them. An old server
  * during a drain still sends them, and specs use them as plain test mobs. The
- * seven NPCs are 9-15.
+ * seven NPCs are 9-15. 16 is the first run's rock (decision #58, retest-5):
+ * placed only by the first-run scenario, never by a layer, and seen only by a
+ * client that asked for a first run.
  */
 
 export type ArchetypeKey = 'peep' | 'periscope' | 'magnet' | 'hopper' | 'waddle' | 'grunt' | 'boss' | 'gunner' |
-'crawler' | 'kiln' | 'reactor' | 'coil' | 'compactor' | 'brood' | 'broodling'
+'crawler' | 'kiln' | 'reactor' | 'coil' | 'compactor' | 'brood' | 'broodling' | 'rock'
 
 /**
  * A mob's rarity (decision #51, Nick 2026-10-07): the same Common / Rare /
@@ -187,7 +189,11 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
   compactor: Object.freeze({ id: 13, key: 'compactor', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.compactorSlam }),
   // No attack cells of its own: it releases Broodlings (l1-7).
   brood: Object.freeze({ id: 14, key: 'brood', kind: 'mob', unlockLevel: null, rarity: 'legendary', bodyRings: 1, passesObstacles: false, vision: null, rangedCells: null, stats: null }),
-  broodling: Object.freeze({ id: 15, key: 'broodling', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.broodlingBlast })
+  broodling: Object.freeze({ id: 15, key: 'broodling', kind: 'mob', unlockLevel: null, rarity: 'common', bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null, attack: NPC_SHARED.broodlingBlast }),
+  // The first run's breakable rock (decision #58, retest-5): a mob only so
+  // shots and auto-aim pick it; inert. No rarity, so it credits no
+  // per-rarity kill key and rolls no gear. Drawn with the StoneWall crate.
+  rock: Object.freeze({ id: 16, key: 'rock', kind: 'mob', unlockLevel: null, rarity: null, bodyRings: 0, passesObstacles: false, vision: null, rangedCells: null, stats: null })
 })
 
 /** The robots a player may pick at join, by key, in the lobby's order. */

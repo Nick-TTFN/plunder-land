@@ -31,6 +31,12 @@ export interface SpriteLook {
    * sheet is loaded (`NPC_RIGS`, `NpcSprite.ready`); `run` stays the fallback.
    */
   npc?: 'crawler' | 'broodling' | 'reactor' | 'compactor' | 'kiln' | 'coil' | 'brood'
+  /**
+   * Drawn as one still frame instead of `run` (`Mob.initAnimation`): `crate`
+   * is the StoneWall crate, standing in for the first run's rock (decision
+   * #58, retest-5) until it has art. `run` stays the fallback name only.
+   */
+  still?: 'crate'
 }
 
 /** What a player looked like before archetypes: also the fallback for any robot id this build doesn't know. */
@@ -65,7 +71,9 @@ const LOOKS: Readonly<Record<ArchetypeKey, SpriteLook>> = Object.freeze({
   coil: Object.freeze({ ...MOB_DEFAULT, npc: 'coil' as const }),
   compactor: Object.freeze({ ...MOB_DEFAULT, npc: 'compactor' as const }),
   brood: Object.freeze({ ...MOB_DEFAULT, npc: 'brood' as const }),
-  broodling: Object.freeze({ ...MOB_DEFAULT, npc: 'broodling' as const })
+  broodling: Object.freeze({ ...MOB_DEFAULT, npc: 'broodling' as const }),
+  // The first run's rock (decision #58): the crate until there is space-rock art.
+  rock: Object.freeze({ ...MOB_DEFAULT, still: 'crate' as const })
 })
 
 /**

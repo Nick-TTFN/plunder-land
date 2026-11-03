@@ -768,6 +768,31 @@ function npcPopulation (i: number): LayerMobs[] {
   return entries
 }
 
+/**
+ * The first run's space rock (decision #58, task retest-5; Dez's
+ * `ideas/retest-onboarding.md` section 4, accepted in #58 addendum 2 Q9): a
+ * unit, so shots and auto-aim hit and pick it, but inert. 24 HP (two shots),
+ * 25 loot dropped through the normal death path (`World.createLootFrom`,
+ * one pickup at that size). No routine, skill, contact, armor, gear
+ * (`gearRolls` null) or stats key (`killStats` empty; its world writes no
+ * kill stats anyway). Placed only by `firstrun/scenario.ts`.
+ */
+const rock: Archetype = {
+  ...ARCHETYPE_INFO.rock,
+  damageScale: 1,
+  maxHp: 24,
+  armor: NO_ARMOR,
+  speed: 0,
+  body: 30,
+  pickupReach: null,
+  loot: 25,
+  contact: { damage: 0, cooldownMs: 0, rings: 1 },
+  killStats: [],
+  gearRolls: null,
+  skills: [],
+  routines: []
+}
+
 export const ARCHETYPES = Object.freeze({
   peep,
   periscope,
@@ -783,7 +808,8 @@ export const ARCHETYPES = Object.freeze({
   coil,
   compactor,
   brood,
-  broodling
+  broodling,
+  rock
 })
 
 /**

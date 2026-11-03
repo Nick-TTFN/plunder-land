@@ -55,9 +55,10 @@ test('archetype ids are the ones already on the wire (append-only)', () => {
     // robot-select (#42), deliberate: magnet appended at 3.
     // #43, deliberate: periscope at 2. 2026-10-01, deliberate: hopper 4, waddle 5.
     // #51 L1, deliberate: the NPC roster appended at 9-15; 6-8 kept, reserved.
+    // #58 retest-5, deliberate: the first run's rock appended at 16.
     {
       peep: 1, periscope: 2, magnet: 3, hopper: 4, waddle: 5, grunt: 6, boss: 7, gunner: 8,
-      crawler: 9, kiln: 10, reactor: 11, coil: 12, compactor: 13, brood: 14, broodling: 15
+      crawler: 9, kiln: 10, reactor: 11, coil: 12, compactor: 13, brood: 14, broodling: 15, rock: 16
     }
   )
 })
@@ -78,7 +79,7 @@ test('archetypeById finds every entry, and nothing for 0, undefined or an unknow
   for (const key of KEYS) assert.equal(archetypeById(ARCHETYPE_INFO[key].id), ARCHETYPE_INFO[key])
   assert.equal(archetypeById(0), undefined)
   assert.equal(archetypeById(undefined), undefined)
-  assert.equal(archetypeById(16), undefined, 'an unused id resolved')
+  assert.equal(archetypeById(17), undefined, 'an unused id resolved')
   assert.equal(archetypeById(200), undefined)
 })
 
