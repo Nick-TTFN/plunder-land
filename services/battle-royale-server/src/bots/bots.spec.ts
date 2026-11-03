@@ -298,7 +298,7 @@ test('the brain presses by skill: melee, ranged and defend at their slots, the t
     { kit: [2, 3, 4, 6], throws: 6 },
     { kit: [2, 3, 4, 7], throws: 7 },
     { kit: [7, 4, 3, 2], throws: 7 },
-    { kit: [1, 2, 3, 0], throws: undefined } // the start kit: no defend, no throw
+    { kit: [1, 2, 3, 0], throws: undefined } // the start kit before #58: no defend, no throw
   ]
   for (const { kit, throws } of cases) {
     const me = World.createPlayer(`bot-${kit.join('')}`, 'b', undefined, 'peep', kit)

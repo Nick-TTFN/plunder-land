@@ -285,12 +285,13 @@ test('gunner: a player can no longer outrange it, and one that shoots it is shot
   const far = addPlayer(east(7))
   gunner.update(DT)
   assert.equal(gunner.target, undefined, 'noticed a player beyond acquire')
-  far.skills[2].execute(Hex.toCell(gunner.position))
+  // Ranged (id 3) by its slot: the start kit's order changed (#58 Q7).
+  far.skills[far.slotOf(3)].execute(Hex.toCell(gunner.position))
   assert.equal(gunner.hp, 40, 'a player shot a gunner from beyond its notice range')
   World.PLAYERS.length = 0
 
   const player = addPlayer(east(6))
-  assert.equal(player.skills[2].execute(Hex.toCell(gunner.position)), true)
+  assert.equal(player.skills[player.slotOf(3)].execute(Hex.toCell(gunner.position)), true)
   assert.equal(gunner.hp, 40 - World.config.ranged)
   assert.equal(gunner.target, player, 'not provoked')
   assert.equal(gunner.maxVelocity, 80, 'not at chase speed')

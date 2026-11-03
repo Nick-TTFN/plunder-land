@@ -315,16 +315,17 @@ void Multiplayer
 
 // --- the run card's level-up line (unlockedBetween) ------------------------------
 
+// DELIBERATE CHANGE (#58 addendum 2, Q7): Melee opens at 2 and Defend at 3.
 test('client: a level-up names exactly what opened, robots first, from the same rows the locks read', () => {
-  assert.deepEqual(unlockedBetween(1, 2), ['DEFEND', 'OLIVE'])
-  assert.deepEqual(unlockedBetween(2, 3), ['MAGNET', 'CAMO'])
+  assert.deepEqual(unlockedBetween(1, 2), ['MELEE ATTACK', 'OLIVE'])
+  assert.deepEqual(unlockedBetween(2, 3), ['MAGNET', 'DEFEND', 'CAMO'])
   assert.deepEqual(unlockedBetween(4, 5), ['PERISCOPE', 'SKY'])
   assert.deepEqual(unlockedBetween(9, 10), ['LOADOUT 2', 'BONE'])
   assert.deepEqual(unlockedBetween(12, 13), ['ZEBRA'], 'ZEBRA opens after Waddle')
   assert.deepEqual(unlockedBetween(13, 14), [], 'nothing opens at 14')
   assert.deepEqual(unlockedBetween(3, 3), [], 'no level-up')
   // Two levels at once name both levels' unlocks.
-  assert.deepEqual(unlockedBetween(1, 3), ['MAGNET', 'DEFEND', 'OLIVE', 'CAMO'])
+  assert.deepEqual(unlockedBetween(1, 3), ['MAGNET', 'MELEE ATTACK', 'DEFEND', 'OLIVE', 'CAMO'])
   // Level by level adds up to the whole range: nothing named twice or missed.
   const all = unlockedBetween(1, 20)
   assert.equal(new Set(all).size, all.length)
@@ -336,8 +337,8 @@ test('client: a level-up names exactly what opened, robots first, from the same 
 // --- the lobby's journey strip (journeyStop) -----------------------------------
 
 test('client: a journey stop is named after its robot, then a skill or loadout slot, then a paint', () => {
-  assert.deepEqual(journeyStop(3), { level: 3, kind: 'bot', robot: 'magnet', names: ['MAGNET', 'CAMO'] })
-  assert.equal(journeyStop(2).kind, 'skill', 'Defend beats Olive')
+  assert.deepEqual(journeyStop(3), { level: 3, kind: 'bot', robot: 'magnet', names: ['MAGNET', 'DEFEND', 'CAMO'] })
+  assert.equal(journeyStop(2).kind, 'skill', 'Melee beats Olive')
   assert.equal(journeyStop(4).kind, 'skill', 'Throw Fireball beats Ice')
   assert.equal(journeyStop(7).kind, 'reward', 'Coral and Checker only')
   assert.equal(journeyStop(10).kind, 'skill', 'loadout 2 counts as a skill stop')

@@ -89,8 +89,9 @@ test('the client\'s skills/catalog.ts has a case for every id, building the same
 
 test('a player\'s skills are its kit, slot by slot, owned by it; the default kit is the start kit', () => {
   const player = new Player(1000, 2000, 0, 'p1')
-  assert.deepEqual(player.skillIds, [1, 2, 3, 0])
-  assert.deepEqual(player.skills.map((s) => s?.constructor ?? null), [Dash, MeleeAttack, RangedAttack, null])
+  // Melee left the start kit (#58 addendum 2, Q7).
+  assert.deepEqual(player.skillIds, [1, 3, 0, 0])
+  assert.deepEqual(player.skills.map((s) => s?.constructor ?? null), [Dash, RangedAttack, null, null])
   const full = new Player(1000, 2000, 0, 'p2', ARCHETYPES.peep, undefined, undefined, [8, 6, 4, 1])
   assert.deepEqual(full.skills.map((s) => s?.constructor ?? null), [IceBreath, ThrowFireball, Defend, Dash])
   for (const skill of player.skills) if (skill !== null) assert.equal(skill.owner, player)
