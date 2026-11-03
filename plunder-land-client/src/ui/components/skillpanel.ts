@@ -2,6 +2,7 @@ import { Container, Graphics, Sprite, Text } from 'pixi.js'
 import { Panel } from './panel'
 import { THEME } from '../theme'
 import { type Skill } from '../../skills/skill'
+import { CooldownSweep } from './cooldownsweep'
 
 const CARD_W = 104
 const CARD_H = 112
@@ -15,6 +16,8 @@ const CARD_GAP = 8
  */
 export class SkillCard extends Container {
   private _readyAt = 0
+  private _cardCooldownMs = 0
+  private _sweep: CooldownSweep | undefined
   private readonly _status: Text
   private readonly _icon: Sprite | undefined
   private _shown = ''
@@ -80,6 +83,10 @@ export class SkillCard extends Container {
     name.y = 62
     this.addChild(name)
 
+    // Over the icon and name, under the seconds left, which stay readable.
+    this._sweep = new CooldownSweep(CARD_W, CARD_H, 6)
+    this.addChild(this._sweep)
+
     this._status = Panel.text('READY', THEME.smallSize, THEME.ready)
     this._status.anchor.set(0.5, 1)
     this._status.x = CARD_W / 2
@@ -107,18 +114,19 @@ export class SkillCard extends Container {
     const now = performance.now()
     if (now < this._readyAt) return
     this.skill.execute()
-    this._readyAt = now + (this.skill.cooldown ?? 0) * 1000
+    this._cardCooldownMs = (this.skill.cooldown ?? 0) * 1000
+    this._readyAt = now + this._cardCooldownMs
   }
 
   update (now: number): void {
     if (this.skill === null || this._icon === undefined) return
     const left = this._readyAt - now
+    this._sweep?.set(this._cardCooldownMs > 0 ? left / this._cardCooldownMs : 0)
     const text = left > 0 ? `${Math.ceil(left / 1000)} s` : 'READY'
     if (text === this._shown) return
     this._shown = text
     this._status.text = text
-    this._status.style.fill = left > 0 ? THEME.muted : THEME.ready
-    this._icon.alpha = left > 0 ? 0.4 : 1
+    this._status.style.fill = left > 0 ? THEME.text : THEME.ready
   }
 }
 

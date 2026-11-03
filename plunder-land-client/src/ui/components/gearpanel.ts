@@ -1,5 +1,6 @@
 import { Container, Graphics, Sprite, type Text } from 'pixi.js'
 import { Panel } from './panel'
+import { CooldownSweep } from './cooldownsweep'
 import { THEME } from '../theme'
 import { SkillCard } from './skillpanel'
 import { Aim } from '../../skills/aim'
@@ -139,6 +140,7 @@ export class GearSlot extends SkillCard {
   private readonly _frame = new Graphics()
   private readonly _iconHolder = new Container()
   private readonly _cd: Text
+  private readonly _gearSweep: CooldownSweep
   private readonly _tip = new ItemTip()
   private readonly _keyLabel: Text
   private readonly _press: { longPressed: () => boolean }
@@ -166,6 +168,8 @@ export class GearSlot extends SkillCard {
     this._iconHolder.x = S / 2
     this._iconHolder.y = S / 2 + 1
     this.addChild(this._iconHolder)
+    this._gearSweep = new CooldownSweep(S, S, 5)
+    this.addChild(this._gearSweep)
     this._cd = Panel.text('', THEME.smallSize, THEME.text)
     this._cd.anchor.set(0.5, 1)
     this._cd.x = S / 2
@@ -260,14 +264,14 @@ export class GearSlot extends SkillCard {
 
   update (now: number): void {
     const left = this._gearReadyAt - now
+    this._gearSweep.set(this._item !== null && this._cooldownMs > 0 ? left / this._cooldownMs : 0)
     const text = this._item === null
       ? ''
       : this._item.skill === 0 ? '' : left > 0 ? `${Math.ceil(left / 1000)} s` : 'READY'
     if (text === this._gearShown) return
     this._gearShown = text
     this._cd.text = text
-    this._cd.style.fill = left > 0 ? THEME.muted : THEME.ready
-    this._iconHolder.alpha = left > 0 ? 0.4 : 1
+    this._cd.style.fill = left > 0 ? THEME.text : THEME.ready
   }
 }
 
