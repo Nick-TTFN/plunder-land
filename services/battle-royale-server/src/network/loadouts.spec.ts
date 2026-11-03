@@ -580,11 +580,12 @@ test('account carries loadoutsFor for a persisted account, none offline; the cli
 
 // --- PROTOCOL (criterion 9) ----------------------------------------------------------------
 
-test('PROTOCOL is 8, and welcome sends it', async () => {
+test('PROTOCOL is 9, and welcome sends it', async () => {
   // 7 since the L1 release (l1-2, #51): gear tier 4, NPC ids 9-15, telegraph effects 9-19.
   // 8 since pve-2: the Compactor's slam is effect 20, never drawn by an older client.
-  assert.equal(PROTOCOL, 8)
+  // 9 since the re-test build (#58): Melee/Defend unlock levels and the auto-aim client.
+  assert.equal(PROTOCOL, 9)
   const client = new Client('a')
   makeWorlds(new SaveStore()).onConnection(client.socket)
-  assert.deepEqual(client.events('welcome'), [{ protocol: 8 }])
+  assert.deepEqual(client.events('welcome'), [{ protocol: 9 }])
 })
