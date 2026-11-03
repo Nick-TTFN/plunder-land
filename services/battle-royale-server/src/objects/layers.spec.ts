@@ -50,6 +50,8 @@ beforeEach(() => {
 
 // DELIBERATE CHANGE (#51, l1-1): the mobs were grunts 22/18/14, gunners
 // 0/8/14, bosses 0/2/3. Now the NPC roster, PROVISIONAL (l1-0) counts.
+// DELIBERATE CHANGE (#58 addendum 2, Q1): packs 5/5/5 -> 4/6/7 and
+// Compactors 8/7/4 -> 4/9/4; danger moves deeper.
 test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   const row = (i: number): unknown => {
     const l = LAYERS[i]
@@ -64,12 +66,12 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
     }
   }
   assert.equal(LAYERS.length, 3)
-  assert.deepEqual(row(0), { tag: 0, loot: 1, voids: 1 / 3, cap: 150, mobs: ['5 crawler packs, no escort 0', 'compactor 8'] })
+  assert.deepEqual(row(0), { tag: 0, loot: 1, voids: 1 / 3, cap: 150, mobs: ['4 crawler packs, no escort 0', 'compactor 4'] })
   assert.deepEqual(row(1), {
-    tag: -1, loot: 1.75, voids: 1 / 3, cap: 150, mobs: ['5 crawler packs, coil escort 0.6', 'compactor 7', 'kiln 4', 'reactor 2']
+    tag: -1, loot: 1.75, voids: 1 / 3, cap: 150, mobs: ['6 crawler packs, coil escort 0.6', 'compactor 9', 'kiln 4', 'reactor 2']
   })
   assert.deepEqual(row(2), {
-    tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['5 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']
+    tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['7 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']
   })
   assert.deepEqual(World.TAGS, [0, -1, -2])
 })
