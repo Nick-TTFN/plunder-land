@@ -45,5 +45,10 @@
  * client never draws: the slam arrives with no warning and no strike clip,
  * the same silent misbehaviour 7 was bumped for. Its threat marker would also
  * still read the old 3-cell line from an older mirror row.
+ * 9: the re-test build (decision #58). Melee now unlocks at level 2 and
+ * Defend at 3 (retest-2): an older client's lobby offers Melee at level 1 and
+ * Defend at 2, and this server refuses the save without the lobby knowing why.
+ * The bump also moves every open tab onto the auto-aim client (retest-1).
+ * The first run (retest-4) alone needed none: only a client that asks gets it.
  */
-export const PROTOCOL = 8
+export const PROTOCOL = 9
