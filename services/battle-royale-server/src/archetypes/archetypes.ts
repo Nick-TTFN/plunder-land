@@ -303,8 +303,9 @@ function robot (info: ArchetypeInfo): Archetype {
   return {
     ...info,
     maxHp: stats.maxHp,
-    // balance-pass §1 (#16): refilling 12/s after 4 s without damage.
-    armor: Object.freeze({ max: stats.armor, refillPerSec: 12, delayMs: 4000 }),
+    // Refilling 12/s (balance-pass §1, #16) after 2.5 s without damage
+    // (#58 addendum 2, Q2: 4000 -> 2500 ms for every robot).
+    armor: Object.freeze({ max: stats.armor, refillPerSec: 12, delayMs: 2500 }),
     speed: stats.speed,
     damageScale: stats.damageScale,
     // Pinned rather than derived from HP (it was 2 * sqrt(maxHP)). Drawing
@@ -605,11 +606,15 @@ const NPC_NUMBERS = Object.freeze({
     Object.freeze({ count: 3, share: 0.40 }),
     Object.freeze({ count: 4, share: 0.25 })
   ]),
-  /** Per layer, top first: packs, Coil escort share, and the single NPCs. */
+  /**
+   * Per layer, top first: packs, Coil escort share, and the single NPCs.
+   * Danger moves deeper (#58 addendum 2, Q1, accepted 2026-11-03; #58 wins
+   * over #53 on layer 0 only): packs 4/6/7 and Compactors 4/9/4.
+   */
   layers: Object.freeze([
-    { packs: 5, escortShare: 0, compactor: 8, kiln: 0, reactor: 0, brood: 0 },
-    { packs: 5, escortShare: 0.6, compactor: 7, kiln: 4, reactor: 2, brood: 0 },
-    { packs: 5, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 }
+    { packs: 4, escortShare: 0, compactor: 4, kiln: 0, reactor: 0, brood: 0 },
+    { packs: 6, escortShare: 0.6, compactor: 9, kiln: 4, reactor: 2, brood: 0 },
+    { packs: 7, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 }
   ])
 })
 

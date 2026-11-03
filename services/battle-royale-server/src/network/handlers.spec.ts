@@ -181,20 +181,21 @@ test('inputs apply in arrival order, across connections, whatever throws between
     p.setWaypoints = () => { order.push(`${name}:pointer`) }
     p.stop = () => { order.push(`${name}:stop`) }
     p.skills[0].execute = () => { order.push(`${name}:skill0`); return true }
-    p.skills[2].execute = () => { order.push(`${name}:skill2`); throw new Error('mid-sequence') }
+    // Slot 1 (Ranged): the start kit has two skills since #58 Q7.
+    p.skills[1].execute = () => { order.push(`${name}:skill1`); throw new Error('mid-sequence') }
   }
   const cell = Hex.toCell(a.player.position)
 
   a.fire('pointer', pointer(1, cell))
   b.fire('skill', 0)
-  a.fire('skill', 2) // throws
+  a.fire('skill', 1) // throws
   b.fire('pointer', pointer(1, cell))
   a.fire('pointer', pointer(2)) // count 0: stop
-  b.fire('skill', 2) // throws
+  b.fire('skill', 1) // throws
   a.fire('skill', 0)
 
   assert.deepEqual(order, [
-    'a:pointer', 'b:skill0', 'a:skill2', 'b:pointer', 'a:stop', 'b:skill2', 'a:skill0'
+    'a:pointer', 'b:skill0', 'a:skill1', 'b:pointer', 'a:stop', 'b:skill1', 'a:skill0'
   ])
   assert.equal(logged.length, 2)
 })

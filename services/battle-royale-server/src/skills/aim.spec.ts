@@ -211,7 +211,8 @@ test('a ranged shot aimed off the hex axes hits the unit on the aimed cell, not 
   const aimed = mobAt(Hex.toPosition(aim))
   const ahead = mobAt(player.position.add(new Vector(3 * Hex.SIZE, 0)))
 
-  player.tryExecuteSkill(2, aim)
+  // Slot 1 is Ranged in the start kit (#58 Q7).
+  player.tryExecuteSkill(1, aim)
 
   assert.equal(aimed.hp, 100 - World.config.ranged, 'missed the aimed cell')
   assert.equal(ahead.hp, 100, 'fired along facing')
@@ -222,7 +223,7 @@ test('a bare-number press still fires the ranged shot along facing, with an unai
   const player = playerOnCell()
   const ahead = mobAt(player.position.add(new Vector(3 * Hex.SIZE, 0)))
 
-  const press = Multiplayer.parseSkill(2)
+  const press = Multiplayer.parseSkill(1)
   assert.ok(press !== undefined)
   player.tryExecuteSkill(press.slot, press.aimCell)
 

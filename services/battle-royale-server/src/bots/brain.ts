@@ -8,6 +8,7 @@ import { Vector } from '../utils/vector'
 import { SKILL_INFO } from '../utils/skills'
 import { rollGear } from '../archetypes/archetypes'
 import type { GearInstance, GearTier } from '../utils/gear'
+import type { ArchetypeKey } from '../utils/archetypes'
 
 /**
  * A bot's play (decision #47): a Player with no connection, driven through the
@@ -20,14 +21,80 @@ import type { GearInstance, GearTier } from '../utils/gear'
  * exit) once loaded, late, badly hurt or asked to leave; loots what it can see;
  * otherwise wanders, now and then taking a portal down. Beatable and ramping by
  * layer (#47): slower and less accurate on 01, closer to a human on 02-03.
+ * It joins on a layer (`BotFill.layerFor`), as one of that layer's robots, and
+ * never walks into a layer whose `robots` leave its own out (#58 addendum 2).
  */
 
-/** Per layer, top (01) first. Provisional numbers. */
-export const BOT_SKILL = [
-  { reactionMs: 650, aimMiss: 0.45, engageRings: 5, descend: 0.25 },
-  { reactionMs: 450, aimMiss: 0.25, engageRings: 6, descend: 0.15 },
-  { reactionMs: 300, aimMiss: 0.12, engageRings: 6, descend: 0 }
-]
+/** One layer's bots: how they play, and who and what joins there. */
+export interface BotLayer {
+  /** How often it thinks, before a +-20% jitter. */
+  reactionMs: number
+  /** The share of its shots aimed at a neighbour of the target's cell instead. */
+  aimMiss: number
+  /** How far a human may be for it to fight (plus its temperament's `engage`). */
+  engageRings: number
+  /** The chance, on a think with nothing else to do, that it heads for a portal down. */
+  descend: number
+  /**
+   * The robots a bot joining here may be, uniformly, and the robots that may
+   * walk in from another layer (`robotAllowedOn`).
+   */
+  robots: readonly ArchetypeKey[]
+  /** The temperaments a bot joining here may roll (`pickTemperament`). */
+  temperaments: readonly Temperament[]
+  /** The chance a bot joining here carries one item, and its tier (`botCargo`). */
+  cargo: Readonly<{ chance: number, tier: GearTier }>
+}
+
+/**
+ * Per layer, top (01) first. Provisional numbers. Reaction, aim, engage and
+ * descend are #47's ramp, except layer 0's 900 ms and 60% (#58 addendum 4,
+ * from 650 ms and 45%; untested). Robots, temperaments and cargo are Dez's
+ * table (`ideas/retest-onboarding.md`, #58 addendum 2 Q6): no Hopper or
+ * Waddle and no brawler on layer 0, no Peep on layer -2, a richer cargo on -2.
+ * Tunables (TEAM.md).
+ */
+export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
+  Object.freeze({
+    reactionMs: 900,
+    aimMiss: 0.6,
+    engageRings: 5,
+    descend: 0.25,
+    robots: Object.freeze(['peep', 'magnet', 'periscope'] as const),
+    temperaments: Object.freeze(['steady', 'looter', 'diver'] as const),
+    cargo: Object.freeze({ chance: 0.25, tier: 1 as const })
+  }),
+  Object.freeze({
+    reactionMs: 450,
+    aimMiss: 0.25,
+    engageRings: 6,
+    descend: 0.15,
+    robots: Object.freeze(['peep', 'magnet', 'periscope', 'hopper'] as const),
+    temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
+    cargo: Object.freeze({ chance: 0.25, tier: 1 as const })
+  }),
+  Object.freeze({
+    reactionMs: 300,
+    aimMiss: 0.12,
+    engageRings: 6,
+    descend: 0,
+    robots: Object.freeze(['magnet', 'periscope', 'hopper', 'waddle'] as const),
+    temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
+    cargo: Object.freeze({ chance: 0.4, tier: 2 as const })
+  })
+])
+
+/** The row for layer `tag`: the top one for a tag that is no layer. */
+export function botLayer (tag: number): BotLayer {
+  const layer = Math.max(0, World.TAGS.indexOf(tag))
+  return BOT_SKILL[Math.min(layer, BOT_SKILL.length - 1)]
+}
+
+/** Whether a bot that is robot `key` may be on layer `tag`: its row lists it. */
+export function robotAllowedOn (key: string | undefined, tag: number): boolean {
+  if (key === undefined || !World.TAGS.includes(tag)) return false
+  return (botLayer(tag).robots as readonly string[]).includes(key)
+}
 
 /**
  * A bot's skills (decision #48 step 4, Dez's proposal accepted with the rest):
@@ -87,10 +154,24 @@ export const TEMPERAMENTS: Readonly<Record<Temperament, TemperamentSpec>> = Obje
   diver: { engage: 0, scuffle: 2, descend: 2.5, loot: [2000, 2500], deadlineS: [240, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t] }
 })
 
-/** Steady 40%, the other three 20% each. */
-export function pickTemperament (random: () => number): Temperament {
+/** Steady counts twice, the other three once: over all four, 40% and 20% each. */
+const TEMPERAMENT_WEIGHT: Readonly<Record<Temperament, number>> = Object.freeze({ steady: 2, brawler: 1, looter: 1, diver: 1 })
+const ALL_TEMPERAMENTS: readonly Temperament[] = Object.freeze(['steady', 'brawler', 'looter', 'diver'])
+
+/**
+ * One of `allowed` (a layer's `temperaments`; all four by default) by
+ * `TEMPERAMENT_WEIGHT`: steady 40% and the others 20% each over all four;
+ * over layer 0's three, steady 50%, looter and diver 25% each.
+ */
+export function pickTemperament (random: () => number, allowed: readonly Temperament[] = ALL_TEMPERAMENTS): Temperament {
+  const total = allowed.reduce((n, t) => n + TEMPERAMENT_WEIGHT[t], 0)
   const r = random()
-  return r < 0.4 ? 'steady' : r < 0.6 ? 'brawler' : r < 0.8 ? 'looter' : 'diver'
+  let acc = 0
+  for (const t of allowed) {
+    acc += TEMPERAMENT_WEIGHT[t]
+    if (r < acc / total) return t
+  }
+  return allowed[allowed.length - 1]
 }
 
 /** A temperament's kit, with fireball or icicle half the time each. */
@@ -99,21 +180,25 @@ export function kitOf (temperament: Temperament, random: () => number): number[]
 }
 
 /**
- * Cargo (decision #49, spec section 3 and Q13): a quarter of bots join
- * carrying one rowless T1 item in the **bag** (`Player.addGear` bags
- * everything for a bot, so no slot fills and no stat changes), a part 70% of
- * the time and a skill item 30%, rolled by `rollGear`. A bot is a gear source
- * like any player: it drops what it carries on death. The brain never casts
- * it (keys 3-4), and a bot never picks gear up (`Player.gearRoom`). Given by
- * `BotFill.spawn`.
+ * Cargo (decision #49, spec section 3 and Q13): some bots join carrying one
+ * rowless item in the **bag** (`Player.addGear` bags everything for a bot, so
+ * no slot fills and no stat changes), a part 70% of the time and a skill item
+ * 30%, rolled by `rollGear`. How many and which tier is the layer's `cargo`
+ * (`BOT_SKILL`): a quarter at T1 on 01 and 02, 40% at T2 on 03 (#58
+ * addendum 2, Q6). A bot is a gear source like any player: it drops what it
+ * carries on death. The brain never casts it (keys 3-4), and a bot never
+ * picks gear up (`Player.gearRoom`). Given by `BotFill.spawn`.
  * Tunables (TEAM.md, at accept).
  */
-export const BOT_CARGO: Readonly<{ chance: number, skillShare: number, tier: GearTier }> = Object.freeze({ chance: 0.25, skillShare: 0.3, tier: 1 })
+export const BOT_CARGO: Readonly<{ skillShare: number }> = Object.freeze({ skillShare: 0.3 })
 
-/** The cargo a joining bot carries, or undefined (3 in 4). No `rowId`: it comes from no stash. */
-export function botCargo (random: () => number): GearInstance | undefined {
-  if (random() >= BOT_CARGO.chance) return undefined
-  return rollGear(BOT_CARGO.tier, random() < BOT_CARGO.skillShare ? 'skill' : 'part', random)
+/**
+ * The cargo a bot joining with `cargo` (a layer's; the top one's by default)
+ * carries, or undefined. No `rowId`: it comes from no stash.
+ */
+export function botCargo (random: () => number, cargo: BotLayer['cargo'] = BOT_SKILL[0].cargo): GearInstance | undefined {
+  if (random() >= cargo.chance) return undefined
+  return rollGear(cargo.tier, random() < BOT_CARGO.skillShare ? 'skill' : 'part', random)
 }
 
 /** The medkit's inventory slot (utils/items.ts). */
@@ -156,14 +241,16 @@ export default class BotBrain implements IAIRoutine {
     if (now < this.nextThinkAt) return
     const me = this.owner
     if (me.destroyed || me.exited) return
-    const layer = Math.max(0, World.TAGS.indexOf(me.tag))
-    const skill = BOT_SKILL[Math.min(layer, BOT_SKILL.length - 1)]
+    const skill = botLayer(me.tag)
+    // A route re-planned since the last think (a stone dropped on it) may now
+    // end on a portal into a layer this robot is kept out of.
+    if (this.routeLeavesRange()) this.halt()
     // A little jitter, so bots that spawned together don't act in lockstep.
     this.nextThinkAt = now + skill.reactionMs * (0.8 + this.random() * 0.4)
     this.think(now, skill)
   }
 
-  private think (now: number, skill: typeof BOT_SKILL[number]): void {
+  private think (now: number, skill: BotLayer): void {
     const me = this.owner
     const cell = me.cell
     const health = me.maxHp > 0 ? me.hp / me.maxHp : 1
@@ -189,26 +276,25 @@ export default class BotBrain implements IAIRoutine {
     if (out) {
       const exit = this.nearestGate(cell, ObjectType.Exit, () => true)
       // On the exit's cell the channel runs by itself; standing still is all it takes.
-      if (exit !== undefined && !(exit.x === cell.x && exit.y === cell.y)) this.go(exit)
-      else if (exit !== undefined) { me.stop(); this.target = exit }
+      if (exit !== undefined && !(exit.x === cell.x && exit.y === cell.y)) {
+        // Its only route crosses a portal it may not take: wander, and try again.
+        if (!this.go(exit)) this.wander(cell)
+      } else if (exit !== undefined) { me.stop(); this.target = exit }
       return
     }
 
     const loot = this.nearestPickup(cell)
-    if (loot !== undefined) {
-      this.go(loot)
-      return
-    }
+    if (loot !== undefined && this.go(loot)) return
 
     if (me.path.length > 0) return // still walking somewhere
     const layer = World.TAGS.indexOf(me.tag)
-    if (this.random() < skill.descend * this.spec.descend && layer < World.TAGS.length - 1) {
+    // Never down into a layer whose robots leave this one out (#58 addendum 2):
+    // a Peep stays off 03.
+    if (this.random() < skill.descend * this.spec.descend && layer < World.TAGS.length - 1 &&
+      robotAllowedOn(me.archetype?.key, World.TAGS[layer + 1])) {
       const deeper = World.TAGS[layer + 1]
       const portal = this.nearestGate(cell, ObjectType.Portal, (gate) => (gate as { to?: number }).to === deeper)
-      if (portal !== undefined) {
-        this.go(portal)
-        return
-      }
+      if (portal !== undefined && this.go(portal)) return
     }
     this.wander(cell)
   }
@@ -242,7 +328,7 @@ export default class BotBrain implements IAIRoutine {
   }
 
   /** `fleeing`: on its way out, it shoots back but keeps going (Nick: "running away when hp is low felt really cool"). */
-  private fight (enemy: Unit, distance: number, skill: typeof BOT_SKILL[number], health: number, fleeing: boolean): void {
+  private fight (enemy: Unit, distance: number, skill: BotLayer, health: number, fleeing: boolean): void {
     const me = this.owner
     const aim = this.aimAt(enemy.cell, skill.aimMiss)
     if (distance <= 1 && health < 0.5) this.press(SKILL_INFO.defend.id)
@@ -329,11 +415,34 @@ export default class BotBrain implements IAIRoutine {
     }
   }
 
-  /** Route to `cell` as a human's click would, unless that is already the order. */
-  private go (cell: Vector): void {
+  /**
+   * Route to `cell` as a human's click would, unless that is already the
+   * order. False, standing still, when the route would end on a portal into a
+   * layer this robot is kept out of (`routeLeavesRange`): any route that
+   * crosses a portal's cell ends there and takes it (`Unit.endAtPortal`), so
+   * a wander or a walk to loot could otherwise carry a Waddle up to 01.
+   */
+  private go (cell: Vector): boolean {
     const me = this.owner
-    if (this.target !== undefined && this.target.x === cell.x && this.target.y === cell.y && me.path.length > 0) return
+    if (this.target !== undefined && this.target.x === cell.x && this.target.y === cell.y && me.path.length > 0) return true
     this.target = new Vector(cell.x, cell.y)
     me.setWaypoints([this.target])
+    if (!this.routeLeavesRange()) return true
+    this.halt()
+    return false
+  }
+
+  /** True if its route ends on a portal into a layer whose `robots` leave its robot out. */
+  private routeLeavesRange (): boolean {
+    const me = this.owner
+    const last = me.path[me.path.length - 1]
+    if (last === undefined) return false
+    const portal = World.portalOn(last.x, last.y, me.tag)
+    return portal !== undefined && !robotAllowedOn(me.archetype?.key, portal.to)
+  }
+
+  private halt (): void {
+    this.owner.stop()
+    this.target = undefined
   }
 }

@@ -96,9 +96,13 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
 
   const a = human(worlds, 'a')
   await a.start()
+  // A human joins on the top layer, whatever bots do (#58 addendum 2, Q6).
+  assert.equal(a.connection.player?.tag, World.TAGS[0])
   worlds.tickAll(250)
   sturdy(world)
   assert.equal(bots(world), 1, 'the first at once')
+  // Its layer is the only one with a human: the bot joins there.
+  assert.ok(world.PLAYERS.filter((p) => p.bot !== undefined).every((p) => p.tag === World.TAGS[0]))
   for (let i = 0; i < 4; i++) { tick(250); worlds.tickAll(250); sturdy(world) }
   assert.equal(bots(world), 1, 'the next waits 2 s')
   for (let i = 0; i < 40; i++) { tick(250); worlds.tickAll(250); sturdy(world) }
@@ -294,7 +298,7 @@ test('the brain presses by skill: melee, ranged and defend at their slots, the t
     { kit: [2, 3, 4, 6], throws: 6 },
     { kit: [2, 3, 4, 7], throws: 7 },
     { kit: [7, 4, 3, 2], throws: 7 },
-    { kit: [1, 2, 3, 0], throws: undefined } // the start kit: no defend, no throw
+    { kit: [1, 2, 3, 0], throws: undefined } // the start kit before #58: no defend, no throw
   ]
   for (const { kit, throws } of cases) {
     const me = World.createPlayer(`bot-${kit.join('')}`, 'b', undefined, 'peep', kit)
@@ -444,13 +448,19 @@ test('cargo: 1 bot in 4 joins with one rowless T1 item in its bag, about 30% ski
   world.close()
 })
 
-test('cargo: botCargo is BOT_CARGO\'s chance and mix', () => {
-  assert.deepEqual({ ...BOT_CARGO }, { chance: 0.25, skillShare: 0.3, tier: 1 })
+// The chance and tier moved to each layer's row (#58 addendum 2, Q6;
+// botlayers.spec.ts); the default is the top layer's, 25% T1, as before.
+test('cargo: botCargo is the layer\'s chance and tier and BOT_CARGO\'s mix', () => {
+  assert.deepEqual({ ...BOT_CARGO }, { skillShare: 0.3 })
   assert.equal(botCargo(() => 0.25), undefined, 'at the chance: none')
   const part = botCargo(seq([0.24, 0.3]))
   assert.deepEqual(part, { tier: 1, skill: 0, rolls: [] })
   const skill = botCargo(seq([0, 0.29, 0, 0, 0]))
   assert.ok(skill !== undefined && skill.skill !== 0 && skill.tier === 1 && skill.rolls.length === 1)
+  // Layer -2's: 40%, T2.
+  const deep = { chance: 0.4, tier: 2 as const }
+  assert.equal(botCargo(() => 0.4, deep), undefined, 'at the chance: none')
+  assert.deepEqual(botCargo(seq([0.39, 0.3]), deep), { tier: 2, skill: 0, rolls: [] })
 })
 
 function seq (values: number[]): () => number {

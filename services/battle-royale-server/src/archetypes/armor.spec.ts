@@ -14,10 +14,14 @@ import { ARCHETYPES } from './archetypes'
 /**
  * unit-archetypes step 3: the armor pool (design section 3, decision #16,
  * balance-pass §1). A peep has 50 points that take damage before hp, after
- * Defend's reduction. The pool refills at 12/s once 4 s have passed since the
- * last hit that did damage, in whole points, whatever the tick's measured `dt`.
- * Mobs have no pool and send no armor fields.
+ * Defend's reduction. The pool refills at 12/s once 2.5 s have passed since the
+ * last hit that did damage (#58 addendum 2, Q2: 4000 -> 2500 ms), in whole
+ * points, whatever the tick's measured `dt`. Mobs have no pool and send no
+ * armor fields.
  */
+
+/** The refill delay, written out so a changed table fails the timing tests too. */
+const DELAY = 2500
 
 const DT = 0.25
 const X = 1000
@@ -65,8 +69,12 @@ function tick (t: TestContext, unit: Unit, ms: number): void {
 
 // --- the table ------------------------------------------------------------------
 
-test('armor: peep has a pool of 50, 12/s after 4000 ms; mobs have none', () => {
-  assert.deepEqual({ ...ARCHETYPES.peep.armor }, { max: 50, refillPerSec: 12, delayMs: 4000 })
+test('armor: peep has a pool of 50, 12/s after 2500 ms; mobs have none', () => {
+  assert.deepEqual({ ...ARCHETYPES.peep.armor }, { max: 50, refillPerSec: 12, delayMs: DELAY })
+  // Every robot shares the delay and the rate (#58 addendum 2, Q2).
+  for (const key of ['peep', 'periscope', 'magnet', 'hopper', 'waddle'] as const) {
+    assert.deepEqual([ARCHETYPES[key].armor.refillPerSec, ARCHETYPES[key].armor.delayMs], [12, DELAY], key)
+  }
   for (const key of ['grunt', 'boss', 'gunner'] as const) {
     assert.equal(ARCHETYPES[key].armor.max, 0, `${key} has a pool`)
   }
@@ -123,7 +131,7 @@ test('armor: a hit and a refill both mark armor dirty', (t) => {
   player.hit(10)
   assert.ok(player.dirtyFields.has('armor'), 'a hit on the pool was not marked dirty')
 
-  advance(t, 4000)
+  advance(t, DELAY)
   player.dirtyFields.clear()
   player.update(DT)
   assert.equal(player.armor, 43)
@@ -171,20 +179,20 @@ test('armor: Defend halves the hit before the pool takes it', (t) => {
 
 // --- the refill -----------------------------------------------------------------
 
-test('armor: no refill for 4000 ms after a hit, then 12/s', (t) => {
+test('armor: no refill for 2500 ms after a hit, then 12/s', (t) => {
   mockDate(t)
   const player = addPlayer()
   player.hit(30)
   assert.equal(player.armor, 20)
 
-  // 15 ticks of 250 ms: 3750 ms, still inside the delay.
-  for (let i = 0; i < 15; i++) tick(t, player, 250)
-  assert.equal(player.armor, 20, 'refilled inside the 4000 ms delay')
+  // 9 ticks of 250 ms: 2250 ms, still inside the delay.
+  for (let i = 0; i < 9; i++) tick(t, player, 250)
+  assert.equal(player.armor, 20, 'refilled inside the 2500 ms delay')
 
-  tick(t, player, 249) // 3999 ms
-  assert.equal(player.armor, 20, 'refilled at 3999 ms')
+  tick(t, player, 249) // 2499 ms
+  assert.equal(player.armor, 20, 'refilled at 2499 ms')
 
-  tick(t, player, 1) // 4000 ms: refills by this tick's dt, 12 * 0.001, so nothing whole yet
+  tick(t, player, 1) // 2500 ms: refills by this tick's dt, 12 * 0.001, so nothing whole yet
   assert.equal(player.armor, 20)
   tick(t, player, 250) // + 3.012
   assert.equal(player.armor, 23)
@@ -197,7 +205,7 @@ test('armor: refills at exactly 12/s in whole points under a jittered dt, and st
   const player = addPlayer()
   player.hit(50)
   assert.equal(player.armor, 0)
-  advance(t, 4000)
+  advance(t, DELAY)
 
   // A fixed jittered sequence, mean well off 250 ms, so "+3 a tick" drifts.
   const jitter = [262, 297, 231, 318, 276, 244, 305, 289, 253, 311, 268, 239]
@@ -228,12 +236,12 @@ test('armor: a hit that does damage during the delay or the refill restarts the 
   const player = addPlayer()
   player.hit(40)
 
-  advance(t, 3000)
+  advance(t, DELAY - 500)
   player.hit(1) // does damage: the delay restarts from here
   assert.equal(player.armor, 9)
 
-  tick(t, player, 3999 - 250)
-  tick(t, player, 250) // 3999 ms after the second hit
+  tick(t, player, DELAY - 1 - 250)
+  tick(t, player, 250) // DELAY - 1 ms after the second hit
   assert.equal(player.armor, 9, 'the second hit did not restart the delay')
 
   tick(t, player, 251)
@@ -250,13 +258,13 @@ test('armor: a damaging hit drops the refill\'s carried fraction, so each refill
   mockDate(t)
   const player = addPlayer()
   player.hit(10)
-  advance(t, 4000)
+  advance(t, DELAY)
   tick(t, player, 150) // 1.8: one point added, 0.8 carried
   assert.equal(player.armor, 41)
 
   player.hit(1)
   assert.equal(player.armor, 40)
-  advance(t, 4000)
+  advance(t, DELAY)
   tick(t, player, 50) // 0.6 from zero; with the 0.8 kept it would be 1.4
   assert.equal(player.armor, 40, 'the carry from before the hit was kept')
 })
@@ -266,12 +274,12 @@ test('armor: a hit floored to zero does not restart the delay', (t) => {
   const player = addPlayer()
   player.hit(30)
 
-  advance(t, 3900)
+  advance(t, DELAY - 100)
   player.damageReduction = 0.5
   player.hit(1) // floor(0.5) = 0
   assert.deepEqual([player.armor, player.hp], [20, 100])
 
-  // 4000 ms after the hit that did damage: the refill runs, 1.2 then 3.0
+  // DELAY ms after the hit that did damage: the refill runs, 1.2 then 3.0
   // (plus the 0.2 carried), so 20 + 1 + 3.
   tick(t, player, 100)
   tick(t, player, 250)
@@ -282,7 +290,7 @@ test('armor: area damage in the same tick holds the refill off before it runs', 
   mockDate(t)
   const player = addPlayer()
   player.hit(30)
-  advance(t, 4000)
+  advance(t, DELAY)
 
   // A stand-in for a breath: hits everything on the plane for 1 a tick.
   World.AREA_EFFECT.push({

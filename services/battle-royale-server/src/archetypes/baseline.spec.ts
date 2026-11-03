@@ -231,23 +231,25 @@ test('player: stats at construction and after one update', () => {
 
 // Changed on purpose by loadouts (decision #48 step 4): a player no longer has
 // all eight; its 4 slots come from its kit, the start kit by default. The
-// cooldowns of the other five are still pinned, through a kit that holds them.
+// cooldowns of the other six are still pinned, through a kit that holds them.
+// Melee left the start kit on purpose (#58 addendum 2, Q7).
 test('player: the start kit by default, in its slots, with the same cooldowns as before', () => {
   const player = makePlayer(X, Y)
   assert.deepEqual(
     player.skills.map((s) => s === null ? null : [s.constructor, s.cooldown]),
     [
       [Dash, 2000],
-      [MeleeAttack, 1000],
       [RangedAttack, 750],
+      null,
       null
     ]
   )
   for (const skill of player.skills) if (skill !== null) assert.equal(skill.owner, player)
-  const rest = buildKit(player, [4, 5, 6, 7]).concat(buildKit(player, [8, 0, 0, 0]))
+  const rest = buildKit(player, [2, 4, 5, 6]).concat(buildKit(player, [7, 8, 0, 0]))
   assert.deepEqual(
     rest.filter((s) => s !== null).map((s) => [s?.constructor, s?.cooldown]),
     [
+      [MeleeAttack, 1000],
       [Defend, 8000],
       [StoneWall, 6000],
       [ThrowFireball, 4000],

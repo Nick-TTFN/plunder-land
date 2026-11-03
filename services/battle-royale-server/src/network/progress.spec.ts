@@ -462,7 +462,7 @@ test('the account event carries the standing of a known account', async () => {
   const client = new Client('a', { token: known.token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
-  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[1, 2, 3, 0]], periscope: [[1, 2, 3, 0]], magnet: [[1, 2, 3, 0]], hopper: [[1, 2, 3, 0]], waddle: [[1, 2, 3, 0]] }, energy: { stock: 6, cap: 3, nextInMs: null, regenMs: 1_800_000 } }])
+  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[1, 3, 0, 0]], periscope: [[1, 3, 0, 0]], magnet: [[1, 3, 0, 0]], hopper: [[1, 3, 0, 0]], waddle: [[1, 3, 0, 0]] }, energy: { stock: 6, cap: 3, nextInMs: null, regenMs: 1_800_000 } }])
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).

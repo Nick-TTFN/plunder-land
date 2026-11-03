@@ -35,9 +35,9 @@ export interface SkillInfo {
 
 export const SKILL_INFO: Readonly<Record<SkillKey, SkillInfo>> = Object.freeze({
   dash: Object.freeze({ id: 1, key: 'dash', label: 'Dash', unlockLevel: 1 }),
-  melee: Object.freeze({ id: 2, key: 'melee', label: 'Melee Attack', unlockLevel: 1 }),
+  melee: Object.freeze({ id: 2, key: 'melee', label: 'Melee Attack', unlockLevel: 2 }),
   ranged: Object.freeze({ id: 3, key: 'ranged', label: 'Ranged Attack', unlockLevel: 1 }),
-  defend: Object.freeze({ id: 4, key: 'defend', label: 'Defend', unlockLevel: 2 }),
+  defend: Object.freeze({ id: 4, key: 'defend', label: 'Defend', unlockLevel: 3 }),
   stoneWall: Object.freeze({ id: 5, key: 'stoneWall', label: 'Stone Wall', unlockLevel: 6 }),
   fireball: Object.freeze({ id: 6, key: 'fireball', label: 'Throw Fireball', unlockLevel: 4 }),
   icicle: Object.freeze({ id: 7, key: 'icicle', label: 'Throw Icicle', unlockLevel: 9 }),
@@ -54,11 +54,12 @@ export const LOADOUT_SIZE = 4
 
 /**
  * Every account's loadout until it saves one, and whatever a join falls back
- * to: Q Dash, W Melee, E Ranged, R empty. Today's order of the three, so Q, W
- * and E do what they did for everyone who has played; the empty R is Dez's
- * "free 4th slot until Defend at level 2".
+ * to: Q Dash, W Ranged, E and R empty. Melee unlocks at level 2 and Defend at
+ * 3 (#58 addendum 2, Q7: Melee left the start kit so a new player learns
+ * ranged and Dash first). A newly unlocked skill is not slotted for the
+ * player (Q8 rejected); they equip it in the loadout panel.
  */
-export const START_KIT: readonly number[] = Object.freeze([1, 2, 3, 0])
+export const START_KIT: readonly number[] = Object.freeze([1, 3, 0, 0])
 
 /** Loadouts per robot, by account level (Dez section 3). */
 export const LOADOUT_SLOTS: ReadonlyArray<{ readonly level: number, readonly slots: number }> = Object.freeze([

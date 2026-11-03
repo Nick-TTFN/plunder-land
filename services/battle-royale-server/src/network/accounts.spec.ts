@@ -797,7 +797,7 @@ test('client: a token from account is stored, sent in every handshake after, and
   a.start()
   await settle()
   const [message] = a.events('account')
-  assert.deepEqual(onAccount(message, storage), { id: (message as { id: string }).id, offline: false, standing: { xp: 0, level: 1, levelAt: 0, nextAt: 40 }, loadouts: { peep: [[1, 2, 3, 0]], periscope: [[1, 2, 3, 0]], magnet: [[1, 2, 3, 0]], hopper: [[1, 2, 3, 0]], waddle: [[1, 2, 3, 0]] } })
+  assert.deepEqual(onAccount(message, storage), { id: (message as { id: string }).id, offline: false, standing: { xp: 0, level: 1, levelAt: 0, nextAt: 40 }, loadouts: { peep: [[1, 3, 0, 0]], periscope: [[1, 3, 0, 0]], magnet: [[1, 3, 0, 0]], hopper: [[1, 3, 0, 0]], waddle: [[1, 3, 0, 0]] } })
   const token = storage.items.get(TOKEN_KEY) as string
   assert.match(token, TOKEN_SHAPE)
   assert.deepEqual(read(), { token }, 'the next handshake carries it')
