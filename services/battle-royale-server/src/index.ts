@@ -70,7 +70,10 @@ function startGame (): void {
     accountTimeoutMs,
     ledger,
     // Runs this process takes before it sends `full` (burst-capacity); unset, no cap.
-    maxPlayers: parseInt(process.env.MAX_PLAYERS ?? '0') || 0
+    maxPlayers: parseInt(process.env.MAX_PLAYERS ?? '0') || 0,
+    // Private first-run worlds open at once (decision #58); over it a start
+    // plays a normal run. Unset or not a number: FIRST_RUN_CAP_DEFAULT (50).
+    firstRunCap: Number.isInteger(parseInt(process.env.FIRST_RUN_CAP ?? '')) ? Math.max(0, parseInt(process.env.FIRST_RUN_CAP ?? '')) : undefined
   })
 
   // A deploy (decision #46): the host starts the new server, routes new

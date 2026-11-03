@@ -22,6 +22,30 @@ type Outbox = { create: Buffer[], create_own: Buffer[], effect: Buffer[], update
 /** Only `id`: the destroy record for an object that left a client's view. */
 const ID_ONLY: ReadonlySet<string> = new Set(['id'])
 
+/** A `start_requested` as `Multiplayer.parseStart` keeps it: known keys only. */
+export interface Start {
+  id?: string
+  name?: unknown
+  finish?: unknown
+  robot?: unknown
+  loadout?: unknown
+  party?: string
+  bring?: Array<string | null>
+  /** The client can play a first run (decision #58); only ever `true` or absent. */
+  firstRun?: true
+}
+
+/**
+ * How a join differs from a plain one (decision #58, the first run's
+ * handoff): the spawn's mob clearance for this join only (default
+ * `World.SPAWN_CLEARANCE`), and what to put on the new player before the join
+ * snapshot is built (the loot and kill credit the first run carried).
+ */
+export interface Join {
+  clearance?: number
+  prepare?: (player: Player) => void
+}
+
 export class Connection {
   socket: Socket
   player: Player | undefined
@@ -390,7 +414,7 @@ export default class Multiplayer {
    * `onConnect`; the server and every `Worlds` spec run strict, so there a
    * start without an account is ignored (fail closed).
    */
-  startRequested (connection: Connection, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>): void {
+  startRequested (connection: Connection, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>, join?: Join): void {
     if (connection.started) return
     Multiplayer.checkWorld(this, 'Multiplayer.startRequested')
     const start = Multiplayer.parseStart(data)
@@ -412,7 +436,7 @@ export default class Multiplayer {
     // start without `loadout` (a client from before loadouts) is loadout 0; no
     // account (single-world specs) is the start kit.
     const kit = kitFor(connection.account, robot, 'loadout' in start ? start.loadout : 0)
-    this.onStart(connection, playerId, start.name, finish, robot, kit, gear)
+    this.onStart(connection, playerId, start.name, finish, robot, kit, gear, join)
   }
 
   onConnect (socket: Socket): void {
@@ -472,11 +496,14 @@ export default class Multiplayer {
    * has been emitted to the joining client (`hello` goes out just before that
    * flush), and `started` is cleared so it can ask again.
    */
-  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], gear?: ReadonlyArray<GearInstance | undefined>): void {
+  onStart (connection: Connection, playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], gear?: ReadonlyArray<GearInstance | undefined>, join?: Join): void {
     Multiplayer.checkWorld(this, 'Multiplayer.onStart')
     let player: Player | undefined
     try {
-      player = World.createPlayer(playerId, name, finish, robot, kit)
+      player = World.createPlayer(playerId, name, finish, robot, kit, undefined, join?.clearance)
+      // What a handoff carries in (decision #58), before the join snapshot,
+      // so the own create already holds it.
+      join?.prepare?.(player)
       // Gear brought in from the stash (decision #49, 49-4; `Worlds.admit`),
       // each in its requested slot, before the join snapshot so the own
       // create carries it. An item `equipGear` refuses (an id this build doesn't
@@ -499,8 +526,16 @@ export default class Multiplayer {
           if (p !== player && connection.party !== undefined && p.connection?.party === connection.party) party++
         }
       }
-      if (connection.visit !== undefined) connection.visit.runs++
-      Analytics.runStart({ playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player), portal: connection.visit?.portal }, this.redis, player.archetype.key, humans, bots, party)
+      const run = { playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player), portal: connection.visit?.portal }
+      if (World.current.firstRun) {
+        // A private first run (decision #58): its own event, and no
+        // `run_start` or visit run, so the funnel counts the run that the
+        // handoff begins once, as the one run it is.
+        Analytics.send(run, 'first_run_start', { robot: player.archetype.key })
+      } else {
+        if (connection.visit !== undefined) connection.visit.runs++
+        Analytics.runStart(run, this.redis, player.archetype.key, humans, bots, party)
+      }
     } catch (e) {
       connection.started = false
       connection.player = undefined // before destroy, so no stats are written for it
@@ -762,10 +797,15 @@ export default class Multiplayer {
    * again. The bare-string form (the id alone, player-names 2026-09-25) is
    * gone: the id was all it carried.
    */
-  static parseStart (data: unknown): { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string, bring?: Array<string | null> } | undefined {
+  static parseStart (data: unknown): Start | undefined {
     if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined
-    const { id, name, finish, robot, loadout, party, bring } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown, bring?: unknown }
-    const start: { id?: string, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: string, bring?: Array<string | null> } = { name }
+    const { id, name, finish, robot, loadout, party, bring, firstRun } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown, bring?: unknown, firstRun?: unknown }
+    const start: Start = { name }
+    // The client can play a first run (decision #58, retest-4): only a
+    // literal true. The server decides whether it gets one (`Worlds`); a
+    // client from before it never asks, and a server from before it drops
+    // the key.
+    if (firstRun === true) start.firstRun = true
     if (typeof id === 'string' && Multiplayer.ID_SHAPE.test(id)) start.id = id
     if (finish !== undefined) start.finish = finish
     if (robot !== undefined) start.robot = robot

@@ -31,6 +31,22 @@ export function countKill (player: Player, victim: GameObject): void {
   tally.mobKills[key] = (tally.mobKills[key] ?? 0) + 1
 }
 
+/**
+ * A first run's kill credit goes on to the shared run its handoff begins
+ * (decision #58, retest-4): the kills of `from` are added to `to`'s, so the
+ * XP counted at the shared run's end pays them (Dez: "its kills pay normal
+ * XP"). `from`'s run never ends as a run (`Player.runOver`), so nothing
+ * counts them twice. Time alive and depth are not carried.
+ */
+export function carryKills (from: Player, to: Player): void {
+  const carried = tallies.get(from)
+  if (carried === undefined) return
+  const tally = tallies.get(to) ?? { playerKills: 0, mobKills: {} }
+  tally.playerKills += carried.playerKills
+  for (const key in carried.mobKills) tally.mobKills[key] = (tally.mobKills[key] ?? 0) + carried.mobKills[key]
+  tallies.set(to, tally)
+}
+
 /** What the XP formula reads of a finished run, from the same values `run_end` sends. */
 export function runResultOf (player: Player, seconds: number, deepestLayer: number): RunResult {
   const tally = tallies.get(player)

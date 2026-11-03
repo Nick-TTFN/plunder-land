@@ -15,6 +15,7 @@ import { archetypeById } from '../utils/archetypes'
 import { unpackFrame } from '../../../../plunder-land-client/src/net/framedparser'
 import { decodeRecord } from '../../../../plunder-land-client/src/net/records'
 import { RunMap, resetForRun } from '../../../../plunder-land-client/src/net/runmap'
+import { Handoff } from '../../../../plunder-land-client/src/net/handoff'
 import { Session } from '../../../../plunder-land-client/src/net/session'
 import { Fog, SEEN } from '../../../../plunder-land-client/src/objects/fog'
 
@@ -57,7 +58,11 @@ class HeadlessClient {
       id,
       handshake: { query: { frames: '1' } },
       on: (event: string, cb: (data?: unknown) => void) => { this.handlers[event] = cb },
-      emit: (event: string, data: unknown) => { if (event === 'hello') this.onHello(data as Data); return true },
+      emit: (event: string, data: unknown) => {
+        if (event === 'hello') this.onHello(data as Data)
+        if (event === 'handoff') this.onHandoff()
+        return true
+      },
       conn: {
         write: (frame: Buffer) => {
           const events = unpackFrame(new Uint8Array(frame))
@@ -69,12 +74,23 @@ class HeadlessClient {
   }
 
   /** `Game.start`, then `start_requested`, then the wait for the account (decision #48). */
-  async play (name: string): Promise<void> {
+  async play (name: string, extra: Record<string, unknown> = {}): Promise<void> {
+    Handoff.reset()
     resetForRun(this.map, this.fog)
     this.held.clear()
     this.ownId = undefined
-    this.handlers.start_requested({ id: 'abcdef', name })
+    this.handlers.start_requested({ id: 'abcdef', name, ...extra })
     for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  /** Own creates that continued a run across a handoff (`Handoff.takeOwnCreate`). */
+  continued = 0
+
+  /** `Game.onHandoff`: the run's world goes (`resetRun` empties `LOOKUP`), then `Handoff.begin`. */
+  private onHandoff (): void {
+    this.held.clear()
+    this.ownId = undefined
+    Handoff.begin(this.map, this.fog)
   }
 
   private onHello (data: Data): void {
@@ -92,6 +108,7 @@ class HeadlessClient {
         if (event === 'create_own') {
           // `Game.onObjectCreated` for the own create.
           this.ownId = data.id
+          if (Handoff.takeOwnCreate()) this.continued++
           this.fog.reset(archetypeById(data.archetype)?.vision ?? null)
           this.see(data)
         }
@@ -235,4 +252,58 @@ test('a client that plays in world A, dies and plays again in world B keeps noth
     if (Hex.distance(cell, bCell) <= vision) continue
     assert.equal(x.fog.state(cell.x, cell.y, 0), SEEN.UNKNOWN, `A's explored cell ${cell.x},${cell.y} is still known`)
   }
+})
+
+test('a client through a first run, its handoff and the shared run keeps no id, cell or pad of the private world (decision #58)', async () => {
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: okRedis() })
+  const x = connect(worlds, 'x') as Connected
+  await x.play('X', { firstRun: true })
+  const first = x.world as World
+  const xf = x.player as Player
+  assert.equal(first.firstRun, true)
+  for (let i = 0; i < 2; i++) worlds.tickAll(250)
+  // What the client took from the private world: its pad, its map size.
+  assert.equal(Session.mapSize, first.mapSize)
+  const privateIds = new Set(x.held.keys())
+  assert.ok(privateIds.size > 0)
+  const gate = first.OBSTACLES.find((o) => (o as { handoff?: boolean }).handoff === true) as GameObject
+  const gateCell = Hex.toCell(gate.position)
+  assert.equal(x.map.portals.get(xf.tag)?.get(Hex.key(gateCell.x, gateCell.y)), xf.tag, 'the pad never reached the client as a portal to its own layer')
+
+  // Onto the pad: the handoff, then the shared world's hello and join, in order.
+  World.run(first, () => { xf.position = Hex.toPosition(gateCell) })
+  worlds.tickAll(250)
+  const shared = x.world as World
+  assert.ok(shared !== undefined && shared !== first && !shared.firstRun)
+  for (let i = 0; i < 4; i++) worlds.tickAll(250)
+  const xs = x.player as Player
+  assert.equal(x.continued, 1, 'the shared run\'s own create did not continue the run')
+  assert.equal(Session.mapSize, shared.mapSize)
+
+  // Every id held is the shared world's object, of its type.
+  const objects = new Map<number, GameObject>()
+  for (const list of [shared.PLAYERS, shared.MOBS, shared.OBSTACLES, shared.PROJECTILES, shared.CONSUMABLES, shared.ITEMS, shared.GEAR]) {
+    for (const obj of list as GameObject[]) objects.set(obj.id, obj)
+  }
+  for (const [id, data] of x.held) {
+    const obj = objects.get(id)
+    assert.ok(obj !== undefined && obj.type === data.type, `held id ${id} (type ${String(data.type)}) is not the shared world's`)
+  }
+  assert.equal(x.held.get(x.ownId as number)?.id, xs.id)
+  // The private pad is gone from the map; the portals are exactly the shared world's.
+  const portals = new Map<number, number>()
+  for (const obj of shared.OBSTACLES) {
+    if (obj.type !== ObjectType.Portal || obj.tag !== xs.tag) continue
+    const cell = Hex.toCell(obj.position)
+    portals.set(Hex.key(cell.x, cell.y), obj.to)
+  }
+  assert.deepEqual(x.map.portals.get(xs.tag), portals)
+  // Voids: the shared world's.
+  for (const tag of World.TAGS) assert.deepEqual(x.map.voids.get(tag), shared.VOIDS.get(tag), `layer ${tag}'s valleys are not the shared world's`)
+
+  // A later run from the lobby starts a fresh record.
+  World.run(shared, () => { xs.destroy() })
+  worlds.tickAll(250)
+  await x.play('X AGAIN')
+  assert.equal(x.continued, 1)
 })

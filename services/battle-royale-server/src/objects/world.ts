@@ -61,6 +61,13 @@ export interface WorldOptions {
   multiplayer?: Multiplayer
   /** No valleys and no gates: only the default world (`World.current` before any `new World()`). */
   empty?: boolean
+  /**
+   * A private first-run world (decision #58, task retest-4): no valleys,
+   * gates, walls or refill. The constructor builds nothing on it; its map
+   * and objects are the scenario's (`src/firstrun/`), and `World.update`
+   * never tops it up. The layer tags stay `World.TAGS`.
+   */
+  firstRun?: boolean
 }
 
 /**
@@ -193,6 +200,24 @@ export default class World {
    * is written (single-world specs).
    */
   gearExpired: ((item: GearInstance) => void) | undefined
+  /**
+   * A private first-run world (`WorldOptions.firstRun`, decision #58): one
+   * player, a scripted map, no refill, no gear from mobs, HP floored at 1
+   * (`Player.hpFloor`), no Redis kill stats (`Player.onKill`).
+   */
+  firstRun = false
+  /**
+   * The cell every human joins on, instead of a random `spawnCell`: a
+   * first-run world's start (its scenario sets it). Undefined elsewhere.
+   */
+  spawn: Vector | undefined
+  /**
+   * A player stood on a handoff gate this tick (`Player.update`, a first-run
+   * world only): `Worlds` hands its run off into a shared world after the
+   * tick. Called every tick the player stands there; the receiver keeps it
+   * single.
+   */
+  handoff: ((player: Player) => void) | undefined
   PLAYERS: Player[] = []
   MOBS: Unit[] = []
   AREA_EFFECT: Area[] = []
@@ -645,6 +670,11 @@ export default class World {
 
     this.mapSize = size
     if (options.empty === true) return
+    // A first-run world's map is its scenario's (`src/firstrun/`).
+    if (options.firstRun === true) {
+      this.firstRun = true
+      return
+    }
 
     // The valleys first: gates are placed on the ground they leave.
     for (const layer of World.LAYERS) {
@@ -749,9 +779,13 @@ export default class World {
    * to join on, for a bot only (`BotFill`, #58 addendum 2 Q6); left out, or
    * not a layer, it is the top one, where every human joins.
    */
-  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], tag?: number): Player {
+  static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], tag?: number, clearance?: number): Player {
     const layer = tag !== undefined && World.TAGS.includes(tag) ? tag : World.LAYERS[0].tag
-    const pos = Hex.toPosition(World.spawnCell(layer).cell)
+    // A first-run world's fixed start (`World.spawn`, humans only), else a
+    // random cell `clearance` (default `SPAWN_CLEARANCE`) clear of gates and
+    // mobs: the handoff's join asks 6 (decision #58 addendum 2, Q10).
+    const spawn = tag === undefined ? World.current.spawn : undefined
+    const pos = Hex.toPosition(spawn ?? World.spawnCell(layer, clearance).cell)
     const player = new Player(pos.x, pos.y, layer, playerId, World.robotFor(robot), name, finish, kit)
     World.addUnit(World.PLAYERS as unknown as Unit[], player)
     return player
@@ -809,7 +843,7 @@ export default class World {
    * cell only if every cell of the map holds one. In 10,000 spawns into fresh
    * worlds the scan never ran (`spawn.spec.ts`).
    */
-  static spawnCell (tag: number): { cell: Vector, fallback: boolean } {
+  static spawnCell (tag: number, clearance: number = World.SPAWN_CLEARANCE): { cell: Vector, fallback: boolean } {
     const hazards: Vector[] = []
     const mobs: Vector[] = []
     for (const gates of World.GATES.buckets(tag).values()) {
@@ -826,7 +860,7 @@ export default class World {
       for (const other of from) best = Math.min(best, Hex.distance(cell, other))
       return best
     }
-    const n = World.SPAWN_CLEARANCE
+    const n = clearance
 
     for (let attempt = 0; attempt < World.SPAWN_TRIES; attempt++) {
       const cell = Hex.toCell(new Vector(Random.RangeInt(0, World.mapSize), Random.RangeInt(0, World.mapSize)))
@@ -931,7 +965,8 @@ export default class World {
       const mob = World.MOBS[i]
       if (mob.destroyed) {
         this.createLootFrom(mob)
-        this.createGearFrom(mob)
+        // No gear in a first run: what it carries out is loot and kills only.
+        if (!this.firstRun) this.createGearFrom(mob)
         World.removeUnitAt(World.MOBS, i)
         continue
       }
@@ -941,8 +976,11 @@ export default class World {
     World.updateProjectiles(dt)
 
     // Humans per layer, counted once a tick for the caches (`cachesWanted`).
-    const humans = World.humansByLayer()
-    for (const layer of World.LAYERS) this.refillLayer(layer, humans.get(layer.tag) ?? 0)
+    // A first-run world is never topped up: its scenario is all it holds.
+    if (!this.firstRun) {
+      const humans = World.humansByLayer()
+      for (const layer of World.LAYERS) this.refillLayer(layer, humans.get(layer.tag) ?? 0)
+    }
 
     // Pickups never move or change, so nothing else would tell a player who
     // walks up to one that it is there: their create goes only to players in
