@@ -10,6 +10,7 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
 import { NO_GEAR_EFFECT } from '../utils/gear'
 import BotFill, { LEAVE_GRACE_MS } from './fill'
 import BotBrain, { BOT_CARGO, BOT_KIT_BASE, TEMPERAMENTS, botCargo, botKit, kitOf, pickTemperament } from './brain'
@@ -370,8 +371,13 @@ test('a brawler dashes in on a player out of shooting range; a steady bot never 
   const world = new World(4000)
   World.MOBS.length = 0
   World.OBSTACLES.length = 0
+  // A brawler dashes only along a route it got (retest-7 review): no rocks or
+  // valleys, and the map's centre, so the 5 cells east are always walkable.
+  World.BLOCKED.clear()
+  World.VOIDS.clear()
   for (const t of ['brawler', 'steady'] as const) {
     const me = World.createPlayer(`bot-${t}`, 'b', undefined, 'peep', kitOf(t, () => 0))
+    me.position = Hex.toPosition(Hex.toCell(new Vector(2000, 2000)))
     const brain = new BotBrain(me, Date.now(), () => 0, t)
     const pressed: number[] = []
     me.skills.forEach((skill, slot) => { if (skill !== null) skill.execute = () => { pressed.push(me.skillIds[slot]); return true } })

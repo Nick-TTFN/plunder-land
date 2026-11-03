@@ -45,7 +45,11 @@ function seeded (seed: number): () => number {
   }
 }
 
-/** A world with no rocks, gates, mobs or pickups: only what a test puts in it. */
+/**
+ * A world with no rocks, valleys, gates, mobs or pickups: only what a test puts
+ * in it. Valleys too: a Hopper routes over rocks but not valleys
+ * (`Unit.blocks`), and one on the straight line sent it around the portal.
+ */
 function quietWorld (): World {
   World.strict = false
   void new Multiplayer(250, redisStub())
@@ -53,6 +57,7 @@ function quietWorld (): World {
   World.MOBS.length = 0
   World.OBSTACLES.length = 0
   World.BLOCKED.clear()
+  World.VOIDS.clear()
   World.ITEMS.length = 0
   World.CONSUMABLES.length = 0
   World.GEAR.length = 0
