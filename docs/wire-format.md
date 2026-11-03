@@ -197,9 +197,12 @@ player: the predicting client and the server can disagree about the player's cel
 and an offset would then land a cell off. The server takes the offset from its own position.
 A **bare number** (the original JSON form) is still accepted and means the slot with no
 aim; anything else, including a buffer under 5 bytes or a slot that is not a whole number
-in range, is ignored (`Multiplayer.parseSkill`, `Player.tryExecuteSkill`). The client sends
-the cell under the desktop mouse (`src/skills/aim.ts`), or a bare number when the mouse is
-off the map, on the HUD, on the player's own cell, or the input is touch. No aim, or an
+in range, is ignored (`Multiplayer.parseSkill`, `Player.tryExecuteSkill`). Since #58 the client
+sends **its auto-aim cell** (`skills/autoaim.ts`, `skills/aim.ts`; `docs/skills-and-gear.md`,
+"Auto-aim") for an aimed skill or a gear key casting one: the target's cell, else a cell along the
+movement direction, or a bare number when that is off the map or the own cell. Dash, Melee, Defend,
+StoneWall and a non-aiming gear key send the bare number. Same bytes as before #58, so no bump for
+this alone; an older client still sends the mouse cell and works. No aim, or an
 aim at the caster's own cell, fires along `facing`. Fireball and icicle fly the hex line through the aimed cell, like ranged, for 10 cells. Ranged walks a hex line of cells toward the
 aimed cell (see "Every area of effect" under Skills). Breaths snap the aim to one of
 six and **hold** it for their lifetime (`SectorArea.fixedDirection`), while an unaimed breath
@@ -230,7 +233,11 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 8 since pve-2** (#53, live at `502b902`: on 2026-10-12 Railway logged `release 502b902` and a production join got `protocol: 8`): the Compactor's slam is
+tabs left open across a release. **`PROTOCOL` is 9 since the re-test build** (#58, retest-8;
+not yet live as of 2026-11-03): Melee now unlocks at level 2 and Defend at 3, so an older client's
+lobby offers Melee at 1 and Defend at 2 and the server refuses the save without the lobby knowing
+why (a silent misbehaviour); the bump also moves every open tab onto the auto-aim client. The first
+run alone needed none (only a client that asks gets it). 8 was pve-2 (#53, live at `502b902`: on 2026-10-12 Railway logged `release 502b902` and a production join got `protocol: 8`): the Compactor's slam is
 effect 20, which an older client never draws, so the slam would land with no telegraph and no
 strike clip (the silent misbehaviour 7 was bumped for); the Coil's third ring and pve-1's
 numbers ride on the same bump. Between the client and the server deploy a new client (8) on the
@@ -332,6 +339,20 @@ flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hel
 `layers` (a server from before three layers) means `[0, -1]`. **Ship the client first**:
 an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
 
+**`handoff`** (server → client, `{}`; #58, retest-4, `network/worlds.ts` `Worlds.handoff`): the
+player stood on a first run's pad. Emitted **before** the shared world's `hello`, join snapshot and
+`create_own`, in the same socket stream, so the client (`Game.onHandoff`: `resetRun`, then
+`net/handoff.ts` `Handoff.begin`, i.e. `resetForRun` and a pending flag) drops everything of the
+private world before any record of the new one is read: **ids from the two worlds collide** (each
+world has its own id pool). No lobby in between, the run's socket handlers and HUD kept; the own
+create after it doesn't restart `Game.RUN` (`Handoff.takeOwnCreate`), so one run card covers intro
+and run (the HUD clock does restart). Order pinned by `firstrun.spec.ts` (`hello, handoff, hello`)
+and `runmap.spec.ts`, which plays the client half through it; real socket.io ordering is reasoned,
+not observed. Only a client that sent `firstRun` gets it. **The pad is a portal (type 8) with
+`to === tag`** (`firstrun/gate.ts`), drawn and labelled as any portal (LAYER 01); no new type id.
+A first-run world also sends **archetype 16** (`rock`, `docs/npcs.md`), which an older client would
+draw as the old mob sprite, but no older client ever gets one.
+
 **Invites** (decision #47): `start_requested` may carry `party`, a 6-12 character code of
 `[0-9a-z]` (`Multiplayer.PARTY_SHAPE`; anything else is dropped). The server puts that run in the
 world of a human in a run with the same code, if it is under the cap, else fill-first
@@ -345,7 +366,10 @@ robot's key; anything not selectable, or not yet opened by the account's level, 
 `peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
 the default, never a refused join; a client from before finishes sends none; `party`, see
-Invites). The bare-string form is gone (#48). **`id` is ignored**: the player id is the
+Invites) (`firstRun`, #58 retest-4: `true` when the client can play the safe first run; every
+client since PROTOCOL 9 sends it on every start, and the server decides, `docs/accounts.md` "First
+run"; `parseStart` keeps only a literal `true`, so an older server drops it and an older client
+never asks: order-independent; a start that will be a first run ignores `bring`). The bare-string form is gone (#48). **`id` is ignored**: the player id is the
 connection's account's `publicId` (see Accounts). The client still sends its old `genRanHex(6)`
 id for one release, because an older server refuses a start without one, and drops it after
 (`Lobby.loadId`). `Multiplayer.ID_SHAPE` (`/^[0-9a-f]{6,32}$/`) stays the guard on Redis keys:
@@ -377,7 +401,7 @@ and `allFields` before ever re-enabling it. (`impulse` had the same, plus a clie
 case; both went in hex-cells P4 with Dash's decaying velocity boost.)
 
 **`Unit.facing` is the fallback aim and the "behind" reference.**
-Aimed skills use the clicked cell (see `skill` above). Without an aim they use `facing`, and
+Aimed skills use the cell the client sent (its auto-aim cell since #58; see `skill` above). Without an aim they use `facing`, and
 Dash and StoneWall always do. `stop()` zeroes `direction`, so anything reading `direction`
 fired at the caster's own feet once they stood still. `facing` is the last non-zero heading
 (unit length, East until the unit first moves), kept current by `Unit`'s `direction` setter
@@ -391,13 +415,14 @@ Remote sprites at rest face it.
 **`armor` (14) and `maxArmor` (15)** are uint16, like `hp`/`maxHp`, and are sent only by
 units that have an armor pool (players today). The client reads a missing field as 0. Damage
 goes Defend → armor → hp (`Unit.hit`). The pool refills at the archetype's rate once its delay
-has passed since the last hit that did damage (`Unit.refillArmor`). **Don't declare an `armor`
+has passed since the last hit that did damage (`Unit.refillArmor`; every robot 12/s after 2.5 s,
+`robot()` in `archetypes.ts`, since #58 addendum 2 Q2; it was 4 s). **Don't declare an `armor`
 field on `Unit` or any subclass**: it would shadow `GameObject`'s accessor, and armor changes
 would silently never be sent. The server typecheck (TS2610) catches it; swc alone does not.
 
 **`archetype` (16)** is a uint8 id, sent in every unit's create and never as a delta: peep 1,
 periscope 2, magnet 3, hopper 4, waddle 5 (both since 2026-10-01), grunt 6, boss 7, gunner 8 (no longer spawned since L1, kept), crawler 9, kiln 10, reactor
-11, coil 12, compactor 13, brood 14, broodling 15 (#51), with 0 meaning never sent. **Ids are append-only**, like field
+11, coil 12, compactor 13, brood 14, broodling 15 (#51), rock 16 (#58, the first run's only; `docs/npcs.md`), with 0 meaning never sent. **Ids are append-only**, like field
 indices. They live in the byte-mirrored `utils/archetypes.ts`, together with kind, the Hopper
 flag, vision, `rarity` and an NPC's `attack` cell shape (`docs/npcs.md`) and `rangedCells`, the RangedAttack range the client draws a beam at (unknown
 id: players 6, mobs 6; players were 8 before #43). The client picks a sprite by id (`src/objects/archetypesprites.ts`) and

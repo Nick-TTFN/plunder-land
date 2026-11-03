@@ -103,7 +103,7 @@ both sides in the same task (details in `docs/wire-format.md`):
   `gear/stasheditclient.spec.ts`, which runs the client's `mergeCheck` against the server's
   `mergeOutcome`). `run_end`'s `gear_brought`, `gear_found`, `gear_kept` are append-only like every
   GA param. Migration 6 (`stash_items`, `gear_holders`) is additive only, as every migration.
-- `PROTOCOL` (`utils/protocol.ts`, mirrored; 8 since pve-2, live at `502b902` (confirmed 2026-10-12: Railway `release 502b902`, a production join got `protocol: 8`); 7 since L1, l1-2; ice-1's effect 21 needed no bump): bump it with any change an older
+- `PROTOCOL` (`utils/protocol.ts`, mirrored; 9 since the re-test build, #58 retest-8, `307cb56`, not yet live 2026-11-03; 8 since pve-2, live at `502b902` (confirmed 2026-10-12: Railway `release 502b902`, a production join got `protocol: 8`); 7 since L1, l1-2; ice-1's effect 21 needed no bump): bump it with any change an older
   client can't read, or (as in #48) one an older client would silently misbehave against.
 - **The NPC roster (#51, L1):** the mirrored `utils/archetypes.ts` rows 9-15 with `rarity` and
   `attack` (`NPC_SHARED`; the client draws and threat-marks `attackCells`, `effectcells.spec.ts`);
@@ -121,6 +121,21 @@ both sides in the same task (details in `docs/wire-format.md`):
   `commonKills..legendaryKills` (`bossKills` frozen); `bodyRings` on every row of the mirrored
   `utils/archetypes.ts` (#52 ring footprint; not on the wire, read by the server's hit and step
   rules and the client's beam). Docs: `docs/npcs.md`.
+- **The re-test build (#58, retest-1..8):** the server event **`handoff`** `{}` (server
+  `network/worlds.ts` `Worlds.handoff`, emitted before the shared world's `hello`; client `game.ts`
+  `onHandoff`, `net/handoff.ts`; `firstrun.spec.ts`, `runmap.spec.ts`); **`start_requested.firstRun`**
+  (client `game.ts`, always `true`; server `multiplayer.ts` `parseStart`, a literal `true` only;
+  order-independent); the first run's pad is portal type 8 with `to === tag` (`firstrun/gate.ts`;
+  no new type id); **migration 8** `first_runs` (additive like 6/7, no backfill; `db/migrations.ts`,
+  `pgstore.ts` `resolve`/`finishFirstRun`); **archetype 16 `rock`** (mirrored `utils/archetypes.ts`,
+  server row in `archetypes/archetypes.ts`, client `objects/archetypesprites.ts` `LOOKS.rock`;
+  `wire.spec.ts`); the mirrored `utils/skills.ts` unlock levels (Melee 2, Defend 3) and `START_KIT`
+  `[1, 3, 0, 0]`; GA `first_run_start`/`first_run_done`/`first_run_left` (append-only); and
+  **PROTOCOL 9**. Auto-aim changed no byte: the client sends its picked cell in the unchanged
+  `skill`/`use_item` message (`skills/autoaim.ts`, pinned against the server's ranges by
+  `autoaim.spec.ts`), and it must target only what the client draws (`renderable`), a reader of
+  who-is-sent-what below. Docs: `docs/world.md` and `docs/accounts.md` ("First run"),
+  `docs/skills-and-gear.md` ("Auto-aim").
 - **Who is hit against what the client draws** (no byte, but both sides): server
   `World.FIRST_ON_LINE` with `RangedAttack.stopsOn` (a mob's shot passes mobs) and the 7-cell
   bodies (`World.bodyAt`), against client `vfx/cells.ts` `firstOnLine`/`lineIndexOf` and the
@@ -243,7 +258,7 @@ literally: an id pattern given as "for example" would have locked out every real
   server `src/objects/unit.ts`, `World.DROPPED_LOOT_LIFETIME` in `src/objects/world.ts`, level
   handling in server `src/objects/player.ts` (`setLevel`), and `LEVEL_THRESHOLDS` in client
   `src/ui/components/playerstats.ts`, and `PROGRESSION` in server `src/progress/xp.ts` (XP
-  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (chance 0.25, skill share 0.3, tier 1), and for ice (#54): `FREEZE` in `buffs/freeze.ts` (normal and boss chill rules, freeze lengths, lockout, weaker metal x1.5, the ice slow; server only, the client reads a freeze's length from effect 21's lifetime and a slow from `speed` (27)). And for the NPCs (#51, L1; l1-0 accepted, retuned by #53): `NPC_NUMBERS` in
+  formula and level curve, #48), `SEASON` in `src/progress/xp.ts` (season eligibility, credit cap and tiers, server only), `unlockLevel` on the robot rows of the mirrored `utils/archetypes.ts` and the colour and pattern rows of `utils/finishes.ts` (a retune needs both deploys, client first), `unlockLevel` and `LOADOUT_SLOTS` in the mirrored `utils/skills.ts` (a retune needs both deploys, client first), and `botKit` in `bots/brain.ts`, and **`BOT_SKILL`** in `bots/brain.ts` (#58, retest-7: one row per layer, top first: `reactionMs`, `aimMiss`, `engageRings`, `descend`, `robots`, `temperaments`, `cargo {chance, tier}`; 900 ms / 60% on layer 01, #58 addendum 4; server only), and for auto-aim (#58, retest-1): **`AUTO_AIM`** in client `skills/autoaim.ts` (`ACQUIRE_RINGS` 6, `KEEP_RINGS` 7, `REPICK_MARGIN` 2, `BOMB_MIN_CELLS` 3; client only, one deploy; `AIM_RANGE_CELLS` beside it copies server constants and is not a tunable, `autoaim.spec.ts` pins it), and for the first run (#58, retest-4/5): **`FIRST_RUN_CAP`** (env on the server, default `FIRST_RUN_CAP_DEFAULT` 50 per process, provisional; over it a start plays a normal run), `HANDOFF_CLEARANCE` 6 in `network/worlds.ts`, and the strip in `FIRST_RUN` (`firstrun/scenario.ts`: map size, legs, rock, Crawler, Compactor and pad positions; server only), and for gear (#49): the `GEAR_STATS` ranges (a T4 column since L1) and caps and `rollCount` in the mirrored `utils/gear.ts` (both deploys, client first), mob drops by rarity in `MOB_GEAR_CHANCE`/`MOB_GEAR_ROLLS` and the caches and `mobMix` in `LAYERS[].gear`, all in `archetypes/archetypes.ts` (server only), `PART_MERGE_SKILL_CHANCE` in `gear/merge.ts` (four keys since L1, `{1: 0.15, 2: 0.25, 3: 0.35, 4: 1}`; server only; the client copies no odds), and `BOT_CARGO` in `bots/brain.ts` (only `skillShare` 0.3 since #58 retest-7; the cargo chance and tier are per layer in `BOT_SKILL`'s `cargo`: 25% T1, 25% T1, 40% T2), and for ice (#54): `FREEZE` in `buffs/freeze.ts` (normal and boss chill rules, freeze lengths, lockout, weaker metal x1.5, the ice slow; server only, the client reads a freeze's length from effect 21's lifetime and a slow from `speed` (27)). And for the NPCs (#51, L1; l1-0 accepted, retuned by #53): `NPC_NUMBERS` in
   `archetypes/archetypes.ts` (stats, guards, attacks, timings, pack sizes, per-layer populations;
   server only) and `NPC_SHARED` in the mirrored `utils/archetypes.ts` (Crawler range and every
   attack's cells; both deploys, client first); NPC kill XP in `PROGRESSION.kills.mob`. Some

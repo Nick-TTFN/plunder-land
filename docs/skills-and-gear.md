@@ -5,13 +5,19 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
 ## Skills
 
 **Skills unlock by account level; a player equips 4 on Q W E R** (decision #48 step 4, shipped
-2026-10-04). The skill ids, labels, unlock levels (Dez v1: Dash, Melee and Ranged 1, Defend 2,
-Fireball 4, StoneWall 6, Icicle 9, IceBreath 11), `START_KIT` `[1,2,3,0]`, `LOADOUT_SLOTS` (1/2/3/4
+2026-10-04). The skill ids, labels, unlock levels (Dez v1, with #58 addendum 2 Q7: Dash and
+Ranged 1, Melee 2, Defend 3, Fireball 4, StoneWall 6, Icicle 9, IceBreath 11), `START_KIT`
+`[1,3,0,0]` (Dash on Q, Ranged on W, E and R empty; #58 took Melee out of #48's kit so a new
+player learns ranged and Dash first), `LOADOUT_SLOTS` (1/2/3/4
 loadouts per robot at levels 1/10/15/20) and `checkLoadout` are in the mirrored `utils/skills.ts`.
 **Ids are append-only and are not slot indices.** A join plays `kitFor(account, robot,
 start.loadout)` (`progress/loadouts.ts`): the stored row, checked against `levelOf(account.xp)`
 (never `Unit.level`) at every join, because a curve change can lock what was valid when saved;
-otherwise the whole start kit. A join is never refused. The server builds the 4 with `buildKit`
+otherwise the whole start kit. A join is never refused. So a row saved with Melee before #58 plays
+the whole start kit at level 1 and stays stored, playing itself from level 2. **No auto-slot:** a
+skill that unlocks waits in the loadout until the player equips it (#58 Q8 rejected); the level-up
+line on the run card names it, and how a player learns to equip it is open. An empty slot is a
+dimmed EMPTY card on the HUD that takes no tap and binds no key. The server builds the 4 with `buildKit`
 over `SKILL_SPECS` (`archetypes.ts`); robots carry no skills and `Player`'s default kit is the
 start kit, so a path that forgets the kit fails closed. Robot and finish locks (#48 step 5) use `joinLevel` (`progress/unlocks.ts`): `levelOf(xp)`, 1 for an offline account, `Infinity` for no account (only non-strict specs reach it). `loadoutsFor` keeps locked robots and their stored rows: the account is sent only on connect, and a row saved before locks is what the robot plays once it opens. The 4 reach the client in `hello.skills`;
 the client builds only its own player's skills (`Player.equip`, `skills/catalog.ts`). With no
@@ -48,6 +54,58 @@ included; the client's own candidate filter in `RangedAttackEffect` is not cover
 the line at any of its 7 cells for a player's shot (`docs/npcs.md`, "Bodies"). A fixed nudge makes ties
 break the same way on both sides (pinned in `hex.spec.ts`). Aiming at a cell's centre and
 testing distance to the segment missed about 29% of targets 6 cells away.
+
+**Auto-aim picks what every aimed press fires at** (decision #58 and addenda 1-2; task retest-1;
+client `skills/autoaim.ts`, pure and pixi-free so `autoaim.spec.ts` on the server imports it, fed
+each frame by `skills/aim.ts` from `Game.aimViews`). It replaced mouse aim and touch's
+arm-then-tap, and supersedes #21's "aim at the clicked cell" for players. **No wire change:** the
+client picks a cell and sends it in the unchanged `skill`/`use_item` bytes (`Aim.message`), and the
+server aims from its own cell of the caster as before; the line drawn and the cell sent come from
+one pick. Rejected: the server picking the target (the client draws the line, so it would need the
+pick sent back, and line and shot would disagree for a round trip).
+
+- **Targets:** every mob and every other player (bots and friends alike, #47 is free-for-all) that
+  is alive, on the own layer and `renderable` this frame (VISIBLE in the fog, never the margin
+  ring: `seen: obj.renderable`, so the crosshair never lands on what isn't drawn). Never pickups,
+  caches, stones, portals or exits. Distance is `Hex.distance` from the own predicted cell to the
+  drawn cell, to the nearest body cell for a 7-cell body; ties to the lower id.
+- **One shared target for every aimed skill and item** (`AUTO_AIM`): acquired within 6 rings
+  (`ACQUIRE_RINGS`), kept to 7 (`KEEP_RINGS`), dropped beyond, on death or out of sight. Sticky,
+  but **re-picked when another enemy is 2+ rings closer** (`REPICK_MARGIN`). Candidates with a
+  clear line (`clearLine` over `hello.walls`) come first; the nearest walled one only if none is
+  clear; the re-pick never moves from a clear-line target to a walled one, and a target that
+  becomes walled is kept. **Walls don't stop shots** (`docs/world.md`; #44 step 3 deferred), so the
+  preference changes only which enemy is picked, not whether the shot lands. Accepted as built.
+- **Tap or click on an enemy targets it** and doesn't move (`Aim.tapAt` from `index.ts`
+  `onPointerDown`; same target rules, within 7); a tapped target is **exempt from the re-pick** (still
+  dropped on death, fog or beyond 7). A tap on the ground moves. The tap hits the ground cell under
+  the pointer, so a tap on a standing body's upper half lands on the cell behind it and moves: check
+  on the phone.
+- **What a press sends** (`Aim.skillCell(skillId)`, `Aim.bombCell(aimRange)`; every cell passes
+  `Aim.cellAt`'s map and own-cell rule): line skills, gear-cast skills and the Ice Breath cone send
+  the target's cell whatever their own reach (cones still snap to 6 directions on the server). **With
+  no target:** the cell the skill's reach out along the movement direction (the last one when
+  standing; East with none), clamped to the map; off the map, the bare slot. Sending a cell rather
+  than the bare slot makes the shot follow the drawn line instead of the server's `facing`, which lags
+  the predicted client while turning. **Bomb:** at least `BOMB_MIN_CELLS` (3) out along the line
+  (its 2-ring blast hurts the thrower) and at most `aimRange - 1` (the server refuses, not clamps, a
+  bomb past `aimRange` from its cell, and the predicting client can be a cell ahead); near the map
+  edge it is walked back onto the map and may land nearer than 3. **Dash and StoneWall** stay on the
+  movement direction, **Melee and Defend** don't aim: they send the bare slot (none of their server
+  classes reads `aimCell`). An aimed press never changes the server's `facing` (spec'd), which only
+  movement sets.
+- **Reaches** for the no-target cell and the bomb (`AIM_RANGE_CELLS`, `rangeCellsOf`): ranged = the
+  robot's mirrored `rangedCells`, fireball and icicle 10, Ice Breath 3, the bomb's mirrored
+  `aimRange`; pinned against `RangedAttack.RANGE_CELLS`, `Throwable.RANGE_CELLS`, `IceBreath.RINGS`
+  and `ITEMS.bomb.aimRange` by `autoaim.spec.ts`. Not in the mirrored `utils/skills.ts`. An unknown
+  skill id (a server without `hello.skills`) falls back to the ranged reach.
+- **Prediction:** the target's cell is where it is drawn (remote units interpolated behind the
+  server), as mouse aim was, so hit rates against movers are unchanged: a line runs on past the aimed
+  cell, so a target moving along it is still hit, one moving across may be missed. Not built: the
+  target's id appended to the message so the server could snap to its real cell (`parseSkill` reads
+  only 5 bytes, so it would be additive) if the re-test shows misses.
+- The aim line and crosshair: `docs/client-ui.md`, "Aim line". The robot's head and gun follow the
+  target (`docs/robots.md`).
 
 **Projectiles are not solid, and have their own list.** A `Throwable` lives in
 `World.PROJECTILES`, not `OBSTACLES`. When it was solid, every fireball exploded on its
@@ -181,7 +239,8 @@ into the first empty key (3 or 4), else the bag; a part into the bag; with no ro
 stays. **Bots never pick gear up** and never walk to it (`Player.gearRoom`, #57): with few humans
 online they took most of it. Nothing moves between bag and keys mid-run (Nick, #49). Death and
 disconnect drop keys and bag (`takeGear`, `rowId` kept). The HUD's keys 3-4 are gear cards
-(`ui/components/gearpanel.ts`, `GearSlot` extends `SkillCard`, so touch arming works; cooldown from
+(`ui/components/gearpanel.ts`, `GearSlot` extends `SkillCard`; a tap casts at once, at the auto-aim
+target if its skill aims; cooldown from
 the client's skill class times the roll, the kit card's for a duplicate) with roll lines on hover or
 long press, and a four-icon bag. The pickup art is a placeholder (a skill icon in a tier ring, a hex
 for a part).

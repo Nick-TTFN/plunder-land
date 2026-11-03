@@ -32,6 +32,18 @@ the Reactor.
 25 specs use them as test mobs; `Mob`'s default archetype is still grunt; the client keeps
 their looks for an old server during a drain), but **no layer spawns them**.
 
+**Rock, id 16** (#58, retest-5; the first run's only: no `LAYERS` population names it, only
+`firstrun/scenario.ts` places it; `docs/world.md`, "First-run worlds"). A target for auto-aim and
+shots, so it is a unit, not an obstacle (shots and auto-aim only hit and pick units): kind mob,
+rarity null, 24 HP, 25 loot dropped through the normal death path (`createLootFrom`), no armor,
+speed 0, body 30, contact 0 (`Mob.touch` returns early), no routine or skill, `killStats` empty,
+`gearRolls` null (no gear, even in a shared world), `unlockLevel` null (not selectable). It pays
+`PROGRESSION.kills.mob.mobDefault` (2 XP): it has no key of its own. **The client draws it with the
+StoneWall crate** (`SpriteLook.still: 'crate'`, `LOOKS.rock`; `Mob.initAnimation` draws
+`map/stone_wall.png` as a plain sprite, no clip, no shadow copy, HP bar at the default height), a
+stand-in. It has no death animation: it just goes. **Missing art (Nick's boundary):** a space rock
+idle and break, a gem pickup (the loot crystal is used), and Dez's glint at the edge of vision.
+
 **Mob skills are server classes only; never add one to the mirrored `utils/skills.ts`**:
 `rollGear` picks uniformly over `SKILL_LIST`, so it would drop as a player item. A skill that
 needs numbers takes them through a small subclass (`KilnsLob`, `CompactorsShockwave`), because
@@ -39,8 +51,11 @@ a `SkillClass` gets only its owner; `SkillSpec`/`buildSkill` stay as they were.
 
 ## Spawning: packs and singles
 
-`LAYERS[].mobs` is built by `npcPopulation(i)` from `NPC_NUMBERS.layers` (top first): 5 Crawler
-packs a layer; Compactors 8/7/4; Kilns 0/4/6; Reactors 0/2/2; Brood 0/0/1. An entry is a
+`LAYERS[].mobs` is built by `npcPopulation(i)` from `NPC_NUMBERS.layers` (top first): Crawler
+packs 4/6/7; Compactors 4/9/4; Kilns 0/4/6; Reactors 0/2/2; Brood 0/0/1 (danger moved deeper by #58
+addendum 2 Q1, Dez's layer-0 cut: packs were 5 a layer and Compactors 8/7/4; #58 wins over #53 on
+layer 01 only). Net about +8-10 live mobs a world; spread tickbench at 400 +2.9% (1.903 to 1.959 ms,
+noisy machine; accepted by Nick, #58 addendum 6). An entry is a
 `LayerSingle` or a `LayerPack` (`isPackEntry`): `{ pack: crawler, sizes, escort?: coil,
 escortShare }`, sizes 2/3/4 at 35/40/25 %, a Coil escort on a pack with share 0 / 0.6 / 1 by
 layer (none on layer 0, no free Coils).

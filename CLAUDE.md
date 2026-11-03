@@ -23,7 +23,7 @@ backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 
 | Topic (quoted section names in the docs) | File |
 |---|---|
-| World, layers, portals, spawns, valleys, walls ("What this actually is", "Walls inside the islands"), known-unfixed | `docs/world.md` |
+| World, layers, portals, spawns, valleys, walls ("What this actually is", "Walls inside the islands"), first-run worlds, known-unfixed | `docs/world.md` |
 | Server invariants: worlds per process, `World.run`, `Timers`, cell indexes, dead units, spec flakes ("Things that are deliberate") | `docs/server-invariants.md` |
 | Verification detail, builds, Node/swc, Railway IaC, running locally, Sentry, GA4, bundle size, lockfiles | `docs/dev-and-ops.md` |
 | Load harness, tickbench, CPU per player | `docs/load-testing.md` |
@@ -139,6 +139,9 @@ Old clients stay open across releases and other code reads these formats, so:
 - **Reactor and Brood fill 7 cells; `UNITS` holds only the centre.** A cell walk of `UNITS`
   that should hit or hold mobs must also read `World.bodyAt`, or misses their rings silently.
 - **Projectiles are removed only in `World.updateProjectiles`** (walks backwards).
+- **Every reader of `Worlds.worlds` decides about `Worlds.firstRuns`** (private first-run worlds
+  live only there), and **a first run sets `Player.runOver` before anything destroys its player**,
+  or its end grants XP, refunds, writes stats and sends `run_end` (`docs/server-invariants.md`).
 - **`LocalPlayer._step` mirrors the server's `Unit.walkPath`, and `LocalPlayer.knockback`
   mirrors `Player.knockback`** (effect 15, applied with the same flush's `lastInputSeq`):
   change one, change the other (`extract.spec.ts` will tell you). The Compactor's
@@ -160,7 +163,7 @@ Old clients stay open across releases and other code reads these formats, so:
   intent). Do not collapse them.
 - **Do not tune `TICK_MS` as a latency fix**; that was tried and reverted repeatedly.
 - StoneWall goes **behind** the caster. Mobs step greedily and may stall on valleys and walls.
-  Walls don't stop shots. Effects aren't fogged inside the 500 box.
+  Walls don't stop shots (auto-aim still prefers a target with a clear line). Effects aren't fogged inside the 500 box.
 - The server deals ranged damage on the press; the client holds the beam to the eye shot.
 - An energy refund is +1 whatever the stock (can end at cap + 1).
 - XP is fixed at the run's end; a later kill doesn't add XP.

@@ -14,15 +14,37 @@ leave by extracting, or exit where it stands after 90 s. **Bots are not humans a
 counts them** (`Worlds.activePlayers`: world choice and cap, idle closing, draining), write no
 Redis stats and send no analytics (both guarded on `player.bot`); a human's kill on a bot counts.
 They show as players with an AI tag on the leaderboard (standings flags). The brain thinks once
-per its layer's `reactionMs` (`BOT_SKILL`: 650/450/300 ms, aim missing by a cell 45/25/12% of the
-time): heal when hurt, fight the nearest human in reach (but not in the first 10 s of the
+per its layer's `reactionMs` (`BOT_SKILL`: 900/450/300 ms, aim missing by a cell 60/25/12% of the
+time; layer 01 weaker since #58 addendum 4): heal when hurt, fight the nearest human in reach (but not in the first 10 s of the
 human's run, `SPAWN_GRACE_MS`) and another bot or a mob only within 2 cells, head out once loaded or late (`lootGoal` 1500-4000, `deadline` 3-8 min, both
 provisional), loot what it sees, else wander and sometimes descend. Measured 2026-10-02 in
 `bots.spec.ts`'s ten simulated minutes: runs of about 2 min median, most deaths on layers 02-03;
 about 0.013 ms of tick per bot. Natural loot refills every tick, so a bot carried 400-1200 loot
 within 20-100 s: run length is decided by time, not loot.
-**A quarter of bots join carrying cargo** (#49, 49-6; `BOT_CARGO` in `brain.ts`: chance 0.25,
-skill item 30% else a part, tier 1): one rowless item in the bag, given in `BotFill.spawn` after
+**Bots join on a layer, as a robot from that layer's range** (#58 addendum 2 Q6, task retest-7).
+`BOT_SKILL` (`brain.ts`) is one row per layer, top first: reaction, aim miss, engage, descend, plus
+`robots`, `temperaments` and `cargo`. Layer 01: Peep, Magnet, Periscope; steady, looter, diver (no
+brawler: weights steady 50 / looter 25 / diver 25, `pickTemperament` weighs steady 2 and the rest 1
+over the allowed list); cargo 25% T1. Layer 02: those plus Hopper; all four temperaments (40/20/20/20);
+25% T1. Layer 03: Magnet, Periscope, Hopper, Waddle; all four; cargo 40% T2. `BotFill.layerFor`
+picks the layer whose humans have the fewest staying bots per human (ties to the top; a layer with
+no human gets none), and `spawn` draws robot, temperament and cargo from its row and joins it there
+(`World.createPlayer(..., kit, tag)` at `spawnCell(tag)` with the normal clearance; a human join
+passes no tag and lands on the top layer). The fill's target is still per world, and it retires
+bots by least loot, not by layer: when the only human dives, the bots stay where they joined.
+**A bot never walks into a layer whose `robots` leave its robot out** (`robotAllowedOn`): the
+deliberate descend is gated, `go()` refuses any route ending on a portal into such a layer (it
+halts; loot and exit fall back to a wander), each think re-checks the current route, and a brawler
+presses Dash only when `go` returned a non-empty route (a standing dash along `facing` would hop a
+portal cell, `Unit.dashCells`). Any route crossing a portal's cell takes it (`Unit.endAtPortal`,
+`Player.hopPortal`), up or down, which is why the guard is needed. **Known gap:** a re-plan between
+two thinks (only `World.addObstacle` re-plans off-think, a stone dropped on the route) can still
+carry a bot onto such a portal within 300-900 ms; the source fix, if wanted, is a bot-only
+`Player.blocks` override for barred portal cells (retest-7 review).
+
+**A share of bots join carrying cargo** (#49, 49-6; chance and tier per layer in `BOT_SKILL`'s
+`cargo`, above; `BOT_CARGO` in `brain.ts` keeps only the skill share: skill item 30% else a part):
+one rowless item in the bag, given in `BotFill.spawn` after
 `player.bot` is set (before it, `addGear` would equip a skill item and change the bot's stats).
 A bot never picks gear up (`Player.gearRoom`, decision #57), keeps its cargo in the bag and never casts gear; it drops it all on death like a
 player, and its extraction loses found gear and deletes stash rows it carried (`discardGear`).

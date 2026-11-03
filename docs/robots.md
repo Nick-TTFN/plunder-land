@@ -58,7 +58,7 @@ call). Clips: idle/run by movement (run at `RUN_RATE` 2x the drop's speed, Nick 
 by ground speed over `STRIDE_SPEED` 140, clamped 0.5-3x, so a dash runs the legs 2.5x faster again;
 `Player.applyPosition` measures it, for remote players too; backwards while moving against the
 way it faces, e.g. aiming behind, except during a dash, which faces and runs the way it goes: `Game` drops
-your mouse aim while `LocalPlayer.dashLeft` > 0, Nick 2026-10-01; per robot, `RobotRig.runRate` (Waddle 1.5,
+your aim while `LocalPlayer.dashLeft` > 0, Nick 2026-10-01; per robot, `RobotRig.runRate` (Waddle 1.5,
 its 0.9 s stride was too slow) and `RobotRig.loops` (Hopper's idle and run are both its jump clip
 as a bounce: only the landing squash, the push-off and the flight, 1.0-1.07 then 0.17-1.0 s, about
 0.15 s on the ground a 0.9 s loop, Nick: "he should just bounce"; a dash doesn't speed it up, `RobotRig.maxPace` 1; so it bounces everywhere and a shot is the eye's alone, laid over the hop; Nick 2026-10-01)), swing on melee (press and effect, deduped by
@@ -87,9 +87,10 @@ never moves a robot, so it never reaches `runClock`.
 The eye smiles for `Player.LOOT_SMILE_S` (0.5 s, Nick) on a loot gain (not the first loot seen for a
 robot coming into view); as in the drop's preview, a change of expression is a blink with the eye
 swapped 0.06 s in, and auto-blink pauses while smiling (`RobotSprite.smile`).
-Jump is unused (Nick). **Cast shadows fall to the bottom right** (Nick, 2026-10-01; they leaned up-left), all through `objects/shadow.ts` (`layShadow`): mobs, StoneWall stones, loot and items (silhouettes since 2026-10-02; they were contact ellipses), and in game the rigged robots, whose shadow is every part again in black under one `AlphaFilter` (`RobotSprite.cast`, a render pass per robot on screen; not in the lobby). The drop's contact ellipse stays under the feet. What is drawn as an offset instead of a laid silhouette leans the same way through `shadowOffset(height)`: walls, and portal and exit pads (a black copy `PAD_HEIGHT` 6 px down-right under them, Claude's pick). Your own robot's head and eye follow the mouse (`Player.aimAt` from
-`Aim.world`): facing flips to the mouse's side, the rig clamps aim to +-60, so straight up and
-down are accepted dead zones; no mouse over the world gives facing back to movement. Other
+Jump is unused (Nick). **Cast shadows fall to the bottom right** (Nick, 2026-10-01; they leaned up-left), all through `objects/shadow.ts` (`layShadow`): mobs, StoneWall stones, loot and items (silhouettes since 2026-10-02; they were contact ellipses), and in game the rigged robots, whose shadow is every part again in black under one `AlphaFilter` (`RobotSprite.cast`, a render pass per robot on screen; not in the lobby). The drop's contact ellipse stays under the feet. What is drawn as an offset instead of a laid silhouette leans the same way through `shadowOffset(height)`: walls, and portal and exit pads (a black copy `PAD_HEIGHT` 6 px down-right under them, Claude's pick). Your own robot's head and eye follow the auto-aim target (decision #58; `Player.aimAt` from
+`Game.updateAim`, the target's drawn position; mouse aim is gone): facing flips to the target's
+side, the rig clamps aim to +-60, so straight up and down are accepted dead zones; no target gives
+facing back to movement. Other
 players aim only in actions: aim isn't on the wire.
 
 **Magnet is drawn by its own rig** (magnet-rig, #42, v3 since 2026-10-01):

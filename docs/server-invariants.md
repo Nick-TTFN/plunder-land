@@ -34,6 +34,34 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   **The client ships first**: the next run on a socket may be another world, and the client
   resets its map, fog and ids per run (`resetForRun` in `net/runmap.ts`, from `Game.start`);
   an older client keeps `Game.BLOCKED` across runs and would route on the old world's stones.
+- **First-run worlds live in `Worlds.firstRuns`, never in `Worlds.worlds`** (decision #58,
+  retest-4; the world itself: `docs/world.md`, "First-run worlds"). `openFirstRun` builds one per
+  first run with its own `Multiplayer`, and `firstRunOf` keeps its state (connection, start, the
+  player, `due`). **Every reader of `this.worlds` decides what it does with them** (all in
+  `network/worlds.ts`; a spec walks each):
+  - shared worlds only: `choose` (both loops: a party code and the fullest world), the bot fill in
+    `tickAll` (no bot ever joins a first run), `closeIdle` (a first-run world closes as soon as its
+    player leaves, never kept as "the one that stays open");
+  - both lists: `activeRuns` (so `full`, the burst cap) and `drained` (so a drain plays first runs
+    out, and `index.ts`'s drain log and stop), and `close` (a no-op on a closed world; drops the
+    first-run state);
+  - `tickAll` ticks first runs after the shared worlds, then hands off a `due` one or closes one
+    with no active player (this covers a join that threw).
+  Not counted against `WORLD_CAP`; capped per process by **`FIRST_RUN_CAP`** (env, default
+  `FIRST_RUN_CAP_DEFAULT` 50, provisional): over it a start plays a normal run and the account
+  stays not done.
+- **A first run ends with `runOver` set before anything destroys its player.**
+  `Multiplayer.destroy` runs a run's end (gear settle, Redis stats, GA `run_end`, XP grant, the
+  energy refund through `runEnded`) only while `runOver` is false. `Worlds.handoff` (the pad), in
+  order: `runOver = true`; the play (`paid`) taken off the private player; `finishFirstRun`
+  (in memory at once, the store write bounded and not awaited); GA `first_run_done`; emit
+  `handoff`; `connection.started = false`; `begin` with a `Join` (`clearance`
+  `HANDOFF_CLEARANCE` 6, and `prepare` copying loot, `kills` and `carryKills`, `progress/run.ts`,
+  into the new player before the join snapshot); `paid` set on the new player; the private world
+  closed in `finally`. A drain, or a `begin` that throws: refund and `Worlds.redirect`, the
+  account stays done. `leaveFirstRun` (from the disconnect handler, before the release) sets
+  `runOver`, refunds and sends `first_run_left`; the account stays not done. A spec drops each
+  `runOver` and sees XP and `run_end` fire.
 - **The world is not persisted.** It lives entirely in memory. Redis holds cumulative
   `stats-*` hashes (and the `player-<id>` first days); Postgres holds guest accounts only
   (see Accounts). This is why the tick has an error boundary — an uncaught throw would

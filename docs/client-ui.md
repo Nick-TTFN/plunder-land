@@ -228,13 +228,35 @@ a listener on the background sibling. Until 2026-10-04 only a card's empty edges
 
 **Touch** (L9 part, 2026-10-04). `assets/index.html` has a viewport meta (without it a phone laid
 the page out 980 px wide, zoomed out) and `touch-action: none` on the canvas. A tap moves, as a
-click does. **Aiming on touch** (`skills/touchaim.ts`, Claude's design): a tap on an aimed skill's
-card (`Skill.aims`: ranged, fireball, icicle, ice breath) arms it (TAP TARGET, a ring); the next
-world tap casts at that cell instead of moving; the card again casts along facing; it disarms after
-4 s. Other skills cast on the tap. Items (the bomb too) use along facing. **Phone HUD**
+click does. **Aim is automatic on desktop and touch alike** (decision #58; the rule:
+`docs/skills-and-gear.md`, "Auto-aim"): a tap or key on any skill or item casts at once, at the
+auto-aim target or along the movement direction. A tap or click on an enemy targets it instead of
+moving. Mouse aim and touch's arm-then-tap (`skills/touchaim.ts`, TAP TARGET) are deleted, with
+no flag (#58 addendum 5); the pointer no longer aims anything in a run. **Phone HUD**
 (`HUD.phone()`, either side under 520 px): the leaderboard opens and closes from the clock, the fog
 legend isn't drawn. **Lobby under 520 px tall** (a phone held sideways): the desktop grid, tightened; under 760 px
 wide the one-column layout (see "Lobby").
+
+**Aim line** (`vfx/aimline.ts`, #58: "a line from you to the target, with a crosshair or similar at
+the target"; look by Nick's local play, PROVISIONAL until the re-test). A dotted yellow (0xFFE15A)
+line, alpha 0.45, from the own robot to the target, stopping short of both, under the units
+(zIndex -0.5: over the ground, threat cells and route); a crosshair of four arcs and four ticks on
+the target, 0.45 cells in radius plus 1 per body ring, which **pulses (±10% at 1.6 Hz) and turns
+(1.2 rad/s) while locked**. The crosshair is its own Graphics (`AimLine.cross`) with zIndex 1e7, so
+it draws over every unit and prop (which sort by y), re-parented into the line's plane by `show`.
+With no target: a fainter line (0.22) 2 cells along the movement direction to a still, fainter
+crosshair (0.3 cells) at that point. Both are ground-plane (`onGround`) and hide with
+`renderable`. `Game.updateAim` runs after `updateThreatMarker`, draws it, and turns the robot's head
+and gun to the target (`Player.aimAt`, the dash exception kept); it hides and resets with no own
+robot (dead, extracted, spectating, between runs). A new `AimLine` and `Aim.reset()` on every
+`Game.start` and handoff.
+
+**Cooldowns are a radial sweep over the whole button** (`ui/components/cooldownsweep.ts`, Nick's
+play, #58 re-test build): a dark translucent wedge (0x05080D at 0.62) for the time left, from 12
+o'clock shrinking clockwise, clipped to the card's rounded rectangle, over the icon and name and
+under the seconds text, which stays in the normal text colour. It replaced dimming the icon to 0.4.
+Skill cards (`SkillCard`) and gear keys 3-4 (`GearSlot`) both use it; it redraws only when the
+fraction moves by 1/300 of a turn.
 
 **Ranged charges on the press** (2026-10-04): your own robot's eye shot starts on the key press
 (`RangedAttackEffect.pressed`), the server's effect no longer restarts it (the shot overlay dedupes

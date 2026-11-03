@@ -84,7 +84,8 @@ Nick 2026-10-04). **Deleting a player's season data** (privacy requests, by hand
 connect`): find the account by `season_entries.name` (names aren't unique: confirm by id or dates),
 then `DELETE FROM season_payouts WHERE account_id = $1; DELETE FROM season_entries WHERE account_id =
 $1;` (both reference `accounts`, so they go before any account row; so do `energy`, `loadouts`,
-`account_progress` and, since #49, `stash_items`: add `DELETE FROM stash_items WHERE account_id = $1;`).
+`account_progress` and, since #49, `stash_items`: add `DELETE FROM stash_items WHERE account_id = $1;`;
+since #58, `first_runs` too: `DELETE FROM first_runs WHERE account_id = $1;`).
 
 **Energy** (#48 step 7, `progress/energy.ts`; numbers are `ENERGY` in `progress/xp.ts`, Nick's #48:
 1 play per 30 min, cap 3, a new account starts with 6, nothing regenerates above the cap). A run
@@ -105,6 +106,38 @@ than 30 minutes ends at cap + 1 (never higher: above the cap no clock runs). The
 plays under READY (`net/energy.ts` `energyLine`, counted forward on the client) and disables READY
 at 0 until the next play is due; the server decides regardless. Every start now waits one database
 round trip (a transaction of four statements) before its `hello`.
+
+**First run** (decision #58 and addenda 5-6; tasks retest-3/4; the world: `docs/world.md`,
+"First-run worlds"; `Worlds`: `docs/server-invariants.md`). **Once per account.** Migration 8,
+`first_runs (account_id bigint PK REFERENCES accounts(id), done_at timestamptz NOT NULL)`, additive,
+**no backfill: every existing account gets the first run once** (#58 addendum 6, Nick's and
+Jeremy's included). `Account.firstRunDone?`: `resolve` reads it in the same round trip (`EXISTS`),
+so a persisted account with no row reads `false`; `create` gives `false`; **`offlineAccount()` reads
+`true`** (no first run without a store to record it). The field is optional and only an explicit
+`false` plays a first run (`Worlds.firstRunFor`), so an `Account` literal without it (specs) fails
+closed to a normal run; that polarity is not pinned by a spec. `finishFirstRun(publicId, nowMs)` is
+one statement, `ON CONFLICT DO NOTHING` (the first `done_at` stays), throws for an unknown account,
+and `close` waits for it. It is on its own interface, **`FirstRunStore`** (`firstRunStoreOf(store)`),
+not `AccountStore`, for the same reason as `GearStore`/`AdminStore`: spec wrappers implement
+`AccountStore` and a required method would stop them loading. A store without it never plays a first
+run. **Who gets one** at `Worlds.start`: the start asks (`start_requested.firstRun: true`; every
+current client sends it, the server decides), the account is persisted with `firstRunDone === false`,
+the store has `finishFirstRun`, no drain, and fewer than `FIRST_RUN_CAP` first runs open. Otherwise
+today's run, and the account stays not done. **Energy:** intro + the run after it cost **one** play,
+spent at the start as usual; at the handoff the paid play moves to the shared run's player, so that
+run's extraction refunds it and its death doesn't. **Leaving halfway** (disconnect, closed tab)
+refunds the play and leaves the account not done, so the next start replays the first run from its
+beginning (#58 addendum 5, Archie's default). The account is marked done at the handoff (in memory
+at once, the store write not awaited); a handoff that can't join a shared world (drain, `begin`
+threw) refunds and redirects, and the account stays done. **No `bring`:** a start that will be a
+first run equips no stash gear. **XP:** the first run's kills are carried (`carryKills`) and paid at
+the shared run's end with its loot; nothing is granted at the handoff. With the strip's content the
+kill credit is 9 XP (3 rocks at `mobDefault` 2, Crawler 1, Compactor 2; Dez's estimate was ~5, open
+for Dez/Nick: a `rock` key in `PROGRESSION.kills.mob` would change it), and everything carryable
+banked at once is 23 XP, below level 2's 40, so the first run alone doesn't open Melee (spec'd).
+Redis `stats-lootCollected` gets the carried loot at the shared run's end. Two tabs on one account can
+each play a first run (the in-memory flag is per connection); accepted. An invite link opened by a
+new account plays the first run first, then hands off into the friend's world (open for Nick).
 
 **Stash** (#49, 49-3..49-5, live 2026-10-05; see "Gear" for the items themselves). Migration 6:
 `stash_items` (a row is `state` 0 stashed or 1 carried; a carried row names `holder`, the boot id of

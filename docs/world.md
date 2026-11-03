@@ -48,9 +48,57 @@ Brood, and the retired boss), and from other mobs when possible (`World.spawnCel
 are from a unit's centre cell, so a Reactor's or Brood's 7-cell body is 2 rings from the edge
 (`docs/npcs.md`, "Bodies"), and such a body spawns only where all 7 cells are free (`spawnMob`,
 `World.mobFits`). A fully random spawn
-put about 1 join in 250 close enough to an exit to leave within a second. The airborne plane,
+put about 1 join in 250 close enough to an exit to leave within a second. Bots join on any
+layer (`docs/bots-and-spectate.md`); a first run's handoff joins layer 01 with clearance 6 (below).
+The airborne plane,
 its clouds and the half-alpha "ground seen from above" are gone; only the player's own layer
 is drawn.
+
+## First-run worlds
+
+**A new account's first run is a private mini world, ending in one teleport into layer 01 of a
+shared world** (decision #58; built in tasks retest-3/4/5). Who gets one, energy and the account
+flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every reader of `worlds`):
+`docs/server-invariants.md`, "First-run worlds". Wire: `docs/wire-format.md` (`handoff`).
+
+- **A real `World` per first run**, built `World.build(FIRST_RUN.mapSize, { firstRun: true })`:
+  the constructor returns before any carving (no valleys, portals, exits or walls), `World.update`
+  skips `refillLayer` and mobs drop no gear (`createGearFrom` skipped). `World.TAGS` and `LAYERS`
+  are unchanged, so `hello.layers` is the usual three and the player stands on the first; making
+  `LAYERS` per world was rejected (24 readers in 13 files). The map is sent in `hello.map` as for
+  any world, so the client takes the small map as it takes a new world.
+- **The content is `firstrun/scenario.ts` (`FIRST_RUN`, `buildFirstRun`)**, Dez's strip
+  (`ideas/retest-onboarding.md` section 4): a 1200-unit map; a centreline from (3,4), 12 cells
+  east then 11 south-east (24 cells, indices 0-23, bent at 12); everything within 2 rings of it
+  is ground (5 wide) and every other cell of layer 01 is void through `VOIDS`/`VOID_RUNS`, so
+  `hello.voids` carries it and the client routes as on any map. Beats: the start with nothing in
+  reach; three rocks (archetype 16, `docs/npcs.md`, "Rock") at index 7 and two at 8 beside the line,
+  beyond a robot's vision and shot (6); a real Crawler at 12; a real Compactor at 18; the pad at 23.
+  Mobs guard the cell they were placed on; loot is the layer's multiplier as `placeMob` gives it,
+  rocks exactly 25. A Periscope (vision 10) sees the rocks from the start; new accounts can only
+  pick Peep. Dez's "glint" at the edge of vision has no art and is left out.
+- **Fixed start:** `World.spawn` (humans only, read by `createPlayer`).
+- **HP floors at 1** there (`Unit.hpFloor()`, 0, read in `Unit.hit`; `Player.hpFloor()` is 1 in a
+  first-run world), so nobody dies in it. `Player.onKill` writes no Redis kill stats and
+  `addLoot` sends no `first_loot` there.
+- **The pad is a `HandoffGate`** (`firstrun/gate.ts`): a `Portal` (wire type 8) to its own layer
+  (`to === tag`), flagged `handoff`. Every portal rule already treats `to === tag` as leading
+  nowhere (`World.portalOn`, `World.isArrival`, `gateKeepOut`, the client's `_stopsOn`), so it hops
+  nobody, ends no route and is no arrival cell; the client labels it LAYER 01, where it leads.
+  `Player.update` calls `World.handoff` when a first-run player stands on it
+  (`Player.onHandoffGate`); `Worlds` hands off after the tick. An exit pad was rejected: its
+  channel and EXTRACTING cues say the player is leaving.
+- **The handoff's join** lands on layer 01 at a normal random spawn cell with **mob clearance 6**
+  (`HANDOFF_CLEARANCE`, `network/worlds.ts`) for that spawn only: `World.spawnCell(tag, clearance =
+  SPAWN_CLEARANCE)` takes it as a parameter, and every other join keeps 3.
+- **Measured (retest-4, this Mac):** with the strip's 5 mobs, 50 concurrent first runs cost
+  0.232 ms a tick in all, 0.0047 ms per first-run player (a shared-world player is ~0.0083 ms in
+  tickbench), heap ~0.10 MB and RSS ~0.21-0.25 MB per first run. `tools/load/firstrunbench.cjs`.
+  Beck's scripted perfect walker (`tools/load/firstrunwalk.cjs`) reaches the pad in ~14 s against
+  Dez's 45-60 s target (open for Dez).
+- **Known:** an AFK player in a first-run world can't die and nothing idles it out: the world
+  stays open for the tab's life, counts toward `FIRST_RUN_CAP` and holds a drain for the full
+  `DRAIN_MAX_MS`. An idle limit is Nick's call (retest-4 review).
 
 ## Map generation
 

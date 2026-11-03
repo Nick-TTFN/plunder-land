@@ -173,7 +173,11 @@ hit destroys its victim before the attacker's `onKill` runs, so `run_end` goes a
 to carry `killed_by`. `run_end` also carries `xp_gained` (#48 step 3: the formula's XP, 0 offline,
 sent whether or not the grant lands) and, since #49, `gear_brought`, `gear_found` and `gear_kept`
 (`gear_kept` is what the run's end sent to the stash, counted before the write, so it is sent
-whether or not the settle lands). Smoke tests against production send real events, and since #48 the
+whether or not the settle lands). The first run (#58) sends none of `run_start`, `first_loot`,
+`run_end` (its loot and kills ride into the shared run, whose events count them); it sends
+`first_run_start` (`robot`), `first_run_done` (`seconds` to the handoff) and `first_run_left`
+(`seconds`, a disconnect inside it). First-run extraction rate = `first_run_done` followed by that
+player's `run_end` with `extracted`. Smoke tests against production send real events, and since #48 the
 server picks the id, so record the id the `account` event gives the smoke test.
 
 **Visits and portals (#56, for the itch soft launch and the CrazyGames gate).** The client says
