@@ -1362,7 +1362,7 @@ export class Game extends Container {
         kind: obj instanceof Player ? 'player' : obj instanceof Mob ? 'mob' : 'other',
         own: obj === Game.PLAYER,
         alive: !obj.killed && !obj.destroyed && obj.visible,
-        seen: Game.FOG.state(cell.x, cell.y, obj.tag) === SEEN.VISIBLE,
+        seen: obj.renderable, // what applyFog drew this frame, as the threat marker reads it
         tag: obj.tag,
         cell: { x: cell.x, y: cell.y },
         bodyRings: obj.archetype?.bodyRings ?? 0
