@@ -10,6 +10,7 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
+import { Vector } from '../utils/vector'
 import { NO_GEAR_EFFECT } from '../utils/gear'
 import BotFill, { LEAVE_GRACE_MS } from './fill'
 import BotBrain, { BOT_CARGO, BOT_KIT_BASE, TEMPERAMENTS, botCargo, botKit, kitOf, pickTemperament } from './brain'
@@ -206,9 +207,20 @@ test('bots leave a human alone for the first 10 s of the run', async (t) => {
     for (const p of world.PLAYERS) if (p !== me && p !== bot) p.exit()
     bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0))
   })
+  // The lowest hp + armor across each window, not the end state: armor refills
+  // 2.5 s after a hit (#58 addendum 2), so a hit early in a window can be
+  // refilled by its end (1 run in 200 failed "attacked after the grace").
   const full = me.hp + me.armor
-  for (let i = 0; i < 36; i++) { tick(250); worlds.tickAll(250) }
-  assert.equal(me.hp + me.armor, full, 'untouched at 9 s')
+  let lowest = full
+  // Diagnostic: the stricter check failed once in ~700 runs (a hit inside
+  // the grace that the old end-state check would have missed once refilled),
+  // cause not yet caught. A failure names the hit's call stack and the players.
+  const hits: string[] = []
+  const hit = me.hit.bind(me)
+  me.hit = (...args: Parameters<typeof me.hit>) => { hits.push(`${String(args[0])} ${(new Error().stack ?? '').split('\n').slice(2, 7).join(' | ')} / players ${world.PLAYERS.map((p) => `${p.playerId}:${p.tag}:${Hex.distance(p.cell, me.cell)}:${p.exited ? 'x' : ''}${p.destroyed ? 'd' : ''}`).join(',')}`); return hit(...args) }
+  for (let i = 0; i < 36; i++) { tick(250); worlds.tickAll(250); lowest = Math.min(lowest, me.hp + me.armor) }
+  me.hit = hit
+  assert.equal(lowest, full, `touched within 9 s: ${hits.join(' ;; ')}`)
   // On to 10.25 s, past the grace, before putting it back: put back at 9 s,
   // its next think still saw a human in its grace, so it wandered, and on
   // layer 01 a quarter of its wanders head for a portal down. In 400 runs 3
@@ -221,8 +233,12 @@ test('bots leave a human alone for the first 10 s of the run', async (t) => {
     if (bot.tag !== me.tag) bot.changeLayer(me.tag)
     bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0))
   })
-  for (let i = 0; i < 24; i++) { tick(250); worlds.tickAll(250) }
-  assert.ok(me.hp + me.armor < full, 'attacked after the grace')
+  // Up to 20 s, stopping at the first hit. A layer-0 looter carries no melee
+  // and misses 60% of its shots at a 900 ms think (#58 addendum 4): in 300
+  // runs one looter missed through all of a 6 s window (0.6^6 is 5%).
+  lowest = me.hp + me.armor
+  for (let i = 0; i < 80 && lowest >= full; i++) { tick(250); worlds.tickAll(250); lowest = Math.min(lowest, me.hp + me.armor) }
+  assert.ok(lowest < full, `attacked after the grace (a ${bot.bot?.temperament} ${(bot.archetype as { key: string }).key}, ${Hex.distance(bot.cell, me.cell)} rings off, on ${bot.tag})`)
 })
 
 test('ten simulated minutes: bots loot, fight, extract, without one error', async (t) => {
@@ -355,8 +371,13 @@ test('a brawler dashes in on a player out of shooting range; a steady bot never 
   const world = new World(4000)
   World.MOBS.length = 0
   World.OBSTACLES.length = 0
+  // A brawler dashes only along a route it got (retest-7 review): no rocks or
+  // valleys, and the map's centre, so the 5 cells east are always walkable.
+  World.BLOCKED.clear()
+  World.VOIDS.clear()
   for (const t of ['brawler', 'steady'] as const) {
     const me = World.createPlayer(`bot-${t}`, 'b', undefined, 'peep', kitOf(t, () => 0))
+    me.position = Hex.toPosition(Hex.toCell(new Vector(2000, 2000)))
     const brain = new BotBrain(me, Date.now(), () => 0, t)
     const pressed: number[] = []
     me.skills.forEach((skill, slot) => { if (skill !== null) skill.execute = () => { pressed.push(me.skillIds[slot]); return true } })

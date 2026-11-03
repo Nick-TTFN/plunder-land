@@ -101,7 +101,7 @@ export function robotAllowedOn (key: string | undefined, tag: number): boolean {
  * melee, ranged and defend, plus fireball or icicle, picked when it joins
  * (`botKit`). Bots have no account and are not checked against a level; the
  * throw is used only on 02-03 (`fight`), so a bot on 01 is no stronger than
- * a level-2 human. The brain presses by skill id (`press`, `Player.slotOf`),
+ * a level-3 human (Melee opens at 2 and Defend at 3, #58 addendum 2 Q7). The brain presses by skill id (`press`, `Player.slotOf`),
  * never by a fixed slot, and never presses Dash, StoneWall or IceBreath.
  */
 export const BOT_KIT_BASE: readonly number[] = Object.freeze([SKILL_INFO.melee.id, SKILL_INFO.ranged.id, SKILL_INFO.defend.id])
@@ -344,9 +344,12 @@ export default class BotBrain implements IAIRoutine {
     // that kept walking its old route (a wander, a portal) fired a shot or two
     // as it went and was out of range within a second or two.
     if (enemy.type === ObjectType.Player && distance > 4) {
-      this.go(enemy.cell)
-      // A brawler closes the gap with Dash along that route (only its kit has it).
-      if (distance <= 6 && this.random() < 0.5) this.press(SKILL_INFO.dash.id)
+      // A brawler closes the gap with Dash along that route (only its kit has
+      // it). Only along a route: with none (`go` refused one ending on a
+      // portal into a barred layer), Dash would be a standing dash along
+      // facing, which can stop on a portal cell and hop it there anyway.
+      const routed = this.go(enemy.cell) && me.path.length > 0
+      if (routed && distance <= 6 && this.random() < 0.5) this.press(SKILL_INFO.dash.id)
     } else if (me.path.length > 0) {
       me.stop()
       this.target = undefined
