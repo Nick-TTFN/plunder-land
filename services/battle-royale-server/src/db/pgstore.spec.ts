@@ -574,8 +574,11 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
   assert.equal(before.length, 2)
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 6))), [6])
   assert.deepEqual(await snapshot(), before, 'migration 6 changed an existing row')
-  // The rest, so this release's resolve finds its tables.
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [7, 8])
+  // Migration 8 only, so this release's resolve finds `first_runs`; not 7,
+  // whose wider tier CHECK this test pins at its v6 width below. (Out of
+  // order on purpose: only a spec does that; a server serves only after
+  // its own migrations ran, in order.)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version === 8))), [8])
 
   // Step 7's queries are this release's resolve, grant, saveLoadout, spend
   // and refund unchanged (a spend without `bring` sends exactly step 7's SQL).

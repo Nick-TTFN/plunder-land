@@ -155,8 +155,11 @@ test('pg: a merge to Legendary before migration 7 answers store and keeps its in
   }
   assert.ok(isLocalDatabase(URL), 'TEST_DATABASE_URL is not on 127.0.0.1, localhost or ::1: refusing to touch it')
   const url = await ownDatabase()
-  // This build on a v6 schema: the deploy is up, its migration not yet run.
-  const store = new PgAccountStore({ connectionString: url, migrations: MIGRATIONS.filter((m) => m.version <= 6) })
+  // This build on a v6 schema: the deploy is up, its migration 7 not yet
+  // run. Plus migration 8 (out of order, only a spec does that): this
+  // build's resolve reads `first_runs`, and without it the connection plays
+  // offline and gets no stash. 7 stays unapplied, which is what this tests.
+  const store = new PgAccountStore({ connectionString: url, migrations: MIGRATIONS.filter((m) => m.version <= 6 || m.version === 8) })
   await store.migrateOnce()
   store.ready = true
   const ledger = new GearLedger(store, { timeoutMs: 3000 })
