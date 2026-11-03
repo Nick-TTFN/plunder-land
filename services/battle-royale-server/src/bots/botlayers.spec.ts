@@ -255,6 +255,30 @@ test('a route that would end on a portal into a layer that leaves the robot out 
   }
 })
 
+test('a brawler whose route to a player was refused does not Dash: a standing dash could hop the portal', () => {
+  // A Hopper brawler on -1, a player 5 rings east, a portal up to 0 (barred
+  // to a Hopper) on the straight line between them: the only 5-cell route
+  // ends on it, so `go` refuses. A Magnet (allowed on 0) walks it and dashes.
+  for (const [robot, dashes] of [['hopper', false], ['magnet', true]] as const) {
+    const world = quietWorld()
+    World.PLAYERS.length = 0
+    const me = World.createPlayer(`bot-${robot}`, 'b', undefined, robot, kitOf('brawler', () => 0), MIDDLE)
+    me.position = Hex.toPosition(Hex.toCell(new Vector(2000, 2000)))
+    // random 0: the 50% dash always rolls.
+    const brain = new BotBrain(me, Date.now(), () => 0, 'brawler')
+    const portalCell = line(me.cell, 0, 2)
+    const at = Hex.toPosition(portalCell)
+    World.addObstacle(new Portal(at.x, at.y, TOP, MIDDLE))
+    const pressed: number[] = []
+    me.skills.forEach((skill, slot) => { if (skill !== null) skill.execute = () => { pressed.push(me.skillIds[slot]); return true } })
+    const fight = (brain as unknown as { fight: (enemy: unknown, distance: number, skill: unknown, health: number, fleeing: boolean) => void }).fight.bind(brain)
+    fight({ cell: line(me.cell, 0, 5), type: me.type }, 5, botLayer(MIDDLE), 1, false)
+    assert.equal(pressed.includes(SKILL_INFO.dash.id), dashes, `${robot}: pressed ${pressed.join()}`)
+    if (!dashes) assert.deepEqual(me.path, [], 'a Hopper set off towards 0')
+    world.close()
+  }
+})
+
 // --- layer 0 is slower and less accurate (addendum 4) -----------------------------
 
 test('a bot on layer 0 thinks every 900 ms (before jitter), on -1 every 450 ms', (t: TestContext) => {
