@@ -35,6 +35,13 @@ export class Joystick extends Container {
   private _shown = false
   private _baseX = 0
   private _baseY = 0
+  /**
+   * The last deflection drawn, so a re-layout while the stick is held (the
+   * HUD re-lays itself on standings updates, about once a second) keeps the
+   * knob where the thumb is instead of snapping it home.
+   */
+  private _dx = 0
+  private _dy = 0
 
   constructor () {
     super()
@@ -60,7 +67,7 @@ export class Joystick extends Container {
     this._ghostX = ghostX
     this._ghostY = ghostY
     this._shown = shown
-    this._draw()
+    this._draw(this._dx, this._dy)
   }
 
   /** True if (x, y) is inside the zone a press may start the stick in. */
@@ -96,11 +103,13 @@ export class Joystick extends Container {
     if (this.pointerId === undefined) return false
     if (pointerId !== undefined && pointerId !== this.pointerId) return false
     this.pointerId = undefined
-    this._draw()
+    this._draw(0, 0)
     return true
   }
 
-  private _draw (dx = 0, dy = 0): void {
+  private _draw (dx: number, dy: number): void {
+    this._dx = dx
+    this._dy = dy
     this.visible = this._shown
     if (!this._shown) return
     if (this.pointerId === undefined) {

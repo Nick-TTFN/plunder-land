@@ -288,20 +288,27 @@ interface ReleaseRun {
   serverPath: number
   clientPath: number
   packets: Packet[]
-  /** Fraction of the step from the last cell centre at the release, 0..1, along East. */
-  fraction: number
+  /**
+   * Where in the step the release fell: `before` the midpoint (still in the
+   * cell the robot left, heading out of it toward the cut cell), `after` it
+   * (rounded into a cell whose centre it is not walking to, so it is heading
+   * back across it toward the cut cell), or `centre` (on a centre). Measured as
+   * the sign of (position - own cell's centre) . (cut cell's centre - own
+   * cell's centre), so it holds along any sector, not only East.
+   */
+  phase: 'before' | 'after' | 'centre'
   walking: boolean
   cut: Vector | undefined
 }
 
 /**
- * The stick held East from frame 0 and released at `releaseFrame`; the
+ * The stick held along `sector` (East is 0) from frame 0 and released at `releaseFrame`; the
  * client runs `FRAMES` frames a tick (steer, sample, predict, as `frame()`
  * does), each packet reaches the server's own `Multiplayer.onPointer`
  * `delay` ticks after the tick it was sent in, and the client hears the
  * server's position a tick after each server tick (`reconcile`).
  */
-function releaseRun (delay: number, releaseFrame: number, ticks = 30): ReleaseRun {
+function releaseRun (delay: number, releaseFrame: number, sector = 0, ticks = 30): ReleaseRun {
   const at = Hex.toPosition(START)
   const player = new Player(at.x, at.y, TAG, 'bot')
   World.PLAYERS.push(player)
@@ -312,11 +319,11 @@ function releaseRun (delay: number, releaseFrame: number, ticks = 30): ReleaseRu
   const local = localAt(START, blocked)
   local.reset(player.position.x, player.position.y, TAG, player.maxVelocity)
   const stick = new StickSteer()
-  stick.aim(EAST)
+  stick.aim(sectorAngle(sector))
 
   const inFlight: Array<{ due: number, data: Buffer }> = []
   const packets: Packet[] = []
-  let fraction = -1
+  let phase: ReleaseRun['phase'] = 'centre'
   let walking = false
   let cut: Vector | undefined
   const dt = TICK / FRAMES
@@ -328,8 +335,13 @@ function releaseRun (delay: number, releaseFrame: number, ticks = 30): ReleaseRu
       const now = 1000 + frame * dt * 1000
       if (frame === releaseFrame) {
         walking = local.path.length > 0
-        fraction = (((local.x - at.x) / Hex.SIZE) % 1 + 1) % 1
-        if (walking) cut = local.path[local.pathIndex]
+        if (walking) {
+          cut = local.path[local.pathIndex]
+          const own = Hex.toPosition(local.cell)
+          const to = Hex.toPosition(cut)
+          const dot = ((local.x - own.x) * (to.x - own.x) + (local.y - own.y) * (to.y - own.y)) / (Hex.SIZE * Hex.SIZE)
+          phase = dot > 0.02 ? 'before' : dot < -0.02 ? 'after' : 'centre'
+        }
         stick.release()
         local.cutToNextCell()
       }
@@ -347,43 +359,62 @@ function releaseRun (delay: number, releaseFrame: number, ticks = 30): ReleaseRu
   return {
     server: new Vector(player.position.x, player.position.y), client: new Vector(local.x, local.y),
     serverPath: player.path.length, clientPath: local.path.length,
-    packets, fraction, walking, cut
+    packets, phase, walking, cut
   }
+}
+
+/**
+ * The release rule over `frames` release points from the third frame on,
+ * along `sector`: both sides end on the same cell, the cut cell, stopped; no
+ * count-0 packet ever; the release packet is the cut cell alone, unless the
+ * route already ended there. Returns how the releases fell in the step.
+ */
+function assertReleases (delay: number, sector: number, frames: number): { before: number, after: number, sent: number } {
+  let before = 0
+  let after = 0
+  let sent = 0
+  for (let releaseFrame = 3; releaseFrame < 3 + frames; releaseFrame++) {
+    const run = releaseRun(delay, releaseFrame, sector)
+    const label = `sector ${sector}, release at frame ${releaseFrame} (${run.phase} the midpoint)`
+    assert.ok(run.walking, `${label}: not walking`)
+    if (run.phase === 'before') before++
+    if (run.phase === 'after') after++
+    assert.deepEqual(Hex.toCell(run.server), Hex.toCell(run.client), `${label}: server cell vs client cell`)
+    assert.deepEqual(Hex.toCell(run.client), run.cut, `${label}: did not stop on the cut cell`)
+    assert.equal(run.serverPath, 0, `${label}: server still walking`)
+    assert.equal(run.clientPath, 0, `${label}: client still walking`)
+    for (const p of run.packets) assert.ok(p.count >= 1, `${label}: a count-0 packet at frame ${p.frame}`)
+    const release = run.packets.filter((p) => p.frame >= releaseFrame)
+    if (release.length > 0) {
+      sent++
+      assert.equal(release.length, 1, `${label}: ${release.length} packets after the release`)
+      assert.equal(release[0].count, 1)
+      assert.deepEqual(release[0].cells, [run.cut])
+    } else {
+      const last = run.packets[run.packets.length - 1]
+      assert.deepEqual(last.cells, [run.cut], `${label}: nothing sent and the last route was not the cut cell`)
+    }
+  }
+  return { before, after, sent }
 }
 
 for (const delay of [0, 1, 2]) {
   test(`stick release (server ${delay} tick${delay === 1 ? '' : 's'} behind): before and after the step's midpoint both sides end on the same cell, and the release sends one waypoint, never count 0`, () => {
-    let before = 0
-    let after = 0
-    let sent = 0
-    // Releases across about two cells of walking, from the third frame on.
-    for (let releaseFrame = 3; releaseFrame < 3 + 16; releaseFrame++) {
-      const run = releaseRun(delay, releaseFrame)
-      const label = `release at frame ${releaseFrame} (step ${run.fraction.toFixed(2)})`
-      assert.ok(run.walking, `${label}: not walking`)
-      if (run.fraction > 0.02 && run.fraction < 0.5) before++
-      if (run.fraction > 0.5) after++
-      assert.deepEqual(Hex.toCell(run.server), Hex.toCell(run.client), `${label}: server cell vs client cell`)
-      assert.deepEqual(Hex.toCell(run.client), run.cut, `${label}: did not stop on the cut cell`)
-      assert.equal(run.serverPath, 0, `${label}: server still walking`)
-      assert.equal(run.clientPath, 0, `${label}: client still walking`)
-      for (const p of run.packets) assert.ok(p.count >= 1, `${label}: a count-0 packet at frame ${p.frame}`)
-      const release = run.packets.filter((p) => p.frame >= releaseFrame)
-      // The release packet names the cut cell alone, unless the route
-      // already ended there (then nothing new is sent).
-      if (release.length > 0) {
-        sent++
-        assert.equal(release.length, 1, `${label}: ${release.length} packets after the release`)
-        assert.equal(release[0].count, 1)
-        assert.deepEqual(release[0].cells, [run.cut])
-      } else {
-        const last = run.packets[run.packets.length - 1]
-        assert.deepEqual(last.cells, [run.cut], `${label}: nothing sent and the last route was not the cut cell`)
-      }
-    }
+    // Releases across about two cells of walking East.
+    const { before, after, sent } = assertReleases(delay, 0, 16)
     assert.ok(before >= 3 && after >= 3, `releases before the midpoint ${before}, after ${after}`)
     assert.ok(sent >= 8, `only ${sent} of 16 releases sent a cut packet`)
   })
+
+  // Off East: the other hex directions (2, 10) and the bins between them,
+  // whose lines zig-zag (1, 3, 5, 7), on open ground.
+  for (const sector of [1, 2, 3, 5, 7, 10]) {
+    test(`stick release along sector ${sector} (server ${delay} tick${delay === 1 ? '' : 's'} behind): same cell on both sides, one waypoint, never count 0`, () => {
+      const { before, after, sent } = assertReleases(delay, sector, 24)
+      assert.ok(before >= 3 && after >= 3, `releases before the midpoint ${before}, after ${after}`)
+      assert.ok(sent >= 8, `only ${sent} of 24 releases sent a cut packet`)
+    })
+  }
 }
 
 test('stick release while standing sends nothing new', () => {

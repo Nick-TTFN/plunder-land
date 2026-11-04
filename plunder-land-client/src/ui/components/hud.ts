@@ -53,9 +53,12 @@ export class HUD extends Container {
     this.addChild(this.joystick)
     this.addChild(this.legend)
     // Controls follow touch mode (input/inputmode.ts), so a switch re-lays the HUD.
-    INPUT_MODE.listeners.add(() => { this.updateLayout() })
+    // The safe-area insets are re-read only here, on a resize and a mode
+    // change (getComputedStyle; updateLayout also runs on every standings update).
+    INPUT_MODE.listeners.add(() => { refreshSafeArea(); this.updateLayout() })
     window.addEventListener('keydown', this.onKeyDown.bind(this), false)
-    window.addEventListener('resize', this.updateLayout.bind(this))
+    window.addEventListener('resize', () => { refreshSafeArea(); this.updateLayout() })
+    refreshSafeArea()
     this.updateLayout()
   }
 
@@ -225,7 +228,6 @@ export class HUD extends Container {
     // the safe area. Its ghost rests bottom left. A press on a panel in the
     // zone (the skill cards today) hits the panel, never the stage, so it
     // never starts the stick.
-    refreshSafeArea()
     const statusBottom = this.status !== undefined ? m + this.status.panelHeight * s : 0
     const top = Math.max(SAFE_AREA.top, statusBottom)
     const left = SAFE_AREA.left

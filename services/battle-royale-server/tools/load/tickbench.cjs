@@ -18,6 +18,19 @@
 //                Math.random draws as the default input are still made, so
 //                the world's RNG stays in step until the players' moves differ.
 //                Default: the old input, a random route for 5% a tick.
+//                **Its tickMsPerTick is not comparable with the default run**:
+//                stick players walk all the time (about 320 of 400 moving
+//                against about 110), so holders, the pickup pass and bytes
+//                grow with the population, not with the stick. Compare it
+//                with INPUT=walk, and read the stick's own routing cost in
+//                inputMsPerTick.
+//   INPUT=walk   the fair baseline for INPUT=stick: every player keeps
+//                walking by click. A player whose route has ended clicks the
+//                farthest free cell up to 8 out along a random 12-sector
+//                direction (the same line rule, so always reachable), sent
+//                through the 'pointer' handler. Its directions come from
+//                their own RNG, and the default input's Math.random draws are
+//                still made, as for INPUT=stick.
 //   GEAR=<n>     every player equips n (0-2) max-roll T3 skill items before
 //                the first tick (decision #49, 49-2): Fireball with damage and
 //                hp, Icicle with speed and armor, at q 1000, so stats are at
@@ -91,20 +104,26 @@ Multiplayer.prototype.update = function (o) {
 let pass = 0; let tickMs = 0
 const origPass = World.pickupPass
 World.pickupPass = function (dt) { const t = performance.now(); inPass = true; try { return origPass.call(this, dt) } finally { inPass = false; pass += performance.now() - t } }
-const STICK = process.env.INPUT === 'stick'
+const INPUT = process.env.INPUT ?? 'random'
+const STICK = INPUT === 'stick'
+const WALK = INPUT === 'walk'
 const STICK_CELLS = 3
+const WALK_CELLS = 8
+let walkSeed = 777
+const walkRandom = () => { walkSeed = (Math.imul(walkSeed, 1664525) + 1013904223) >>> 0; return walkSeed / 2 ** 32 }
+// Routes sent through the 'pointer' handler a tick (INPUT=stick or walk).
 let stickRoutes = 0
 // The routing cost of the input, outside the tick (a real server pays it on the same thread).
 let inputMs = 0
 let stickSeq = 1
 /** The joystick's target (client input/stick.ts stickTarget), copied: farthest free cell on the line. */
-function stickTarget (p, sector) {
+function stickTarget (p, sector, cells = STICK_CELLS) {
   const from = p.cell
   const at = Hex.toPosition(from)
   const angle = sector * Math.PI / 6
-  const far = Hex.SIZE * 8 * STICK_CELLS
+  const far = Hex.SIZE * 8 * cells
   const toward = Hex.toCell(new Vector(at.x + Math.cos(angle) * far, at.y + Math.sin(angle) * far))
-  const line = Hex.line(from, toward, STICK_CELLS)
+  const line = Hex.line(from, toward, cells)
   let target
   for (let i = 1; i < line.length; i++) {
     if (World.isBlocked(line[i].x, line[i].y, p.tag)) break
@@ -119,14 +138,15 @@ for (let tick = 0; tick < 400; tick++) {
     if (p.destroyed || p.exited) continue
     if (Math.random() < 0.05) {
       const c = p.cell; const tq = c.x + Math.floor(Math.random() * 17) - 8; const tr = c.y + Math.floor(Math.random() * 17) - 8
-      if (!STICK && Hex.onMap(tq, tr, World.mapSize) && !World.isBlocked(tq, tr, p.tag)) {
+      if (!STICK && !WALK && Hex.onMap(tq, tr, World.mapSize) && !World.isBlocked(tq, tr, p.tag)) {
         const t = performance.now()
         p.setWaypoints([new Vector(tq, tr)])
         if (tick >= 100) inputMs += performance.now() - t
       }
     }
-    if (STICK) {
-      const target = stickTarget(p, (tick + i) % 12)
+    if (STICK || WALK) {
+      if (WALK && p.path.length > 0) continue
+      const target = STICK ? stickTarget(p, (tick + i) % 12) : stickTarget(p, Math.floor(walkRandom() * 12), WALK_CELLS)
       if (target === undefined) continue
       const buf = Buffer.alloc(7)
       buf.writeUInt8(1, 0); buf.writeInt16BE(target.x, 1); buf.writeInt16BE(target.y, 3)
@@ -148,4 +168,4 @@ const kbOf = (list) => list.length === 0 ? null : +(list.reduce((a, i) => a + wr
 const all = players.map((_, i) => i)
 const scopes = all.filter((i) => players[i].archetype.key === 'periscope')
 const kb = players.filter((p) => !p.destroyed).map((p) => p.knownBy.size); const moving = players.filter((p) => p.path.length > 0).length
-console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', input: STICK ? 'stick' : 'random', stickRoutesPerTick: +(stickRoutes / 300).toFixed(0), inputMsPerTick: +(inputMs / 300).toFixed(3), gear: GEAR, gearApplied, tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))
+console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', input: INPUT, stickRoutesPerTick: +(stickRoutes / 300).toFixed(0), inputMsPerTick: +(inputMs / 300).toFixed(3), gear: GEAR, gearApplied, tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))
