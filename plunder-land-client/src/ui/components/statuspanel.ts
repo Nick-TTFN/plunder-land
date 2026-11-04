@@ -25,6 +25,8 @@ export class StatusPanel extends Panel {
   private readonly _armorText: Text
   private readonly _armorRow: Sprite
   private readonly _lootIcon = StatusPanel.icon('ui/hud_loot.png')
+  private readonly _inventoryLabel: Text
+  private _inventoryShown = true
   private _shown = { loot: NaN, hp: NaN, maxHp: NaN, armor: NaN, maxArmor: NaN }
 
   constructor () {
@@ -50,7 +52,7 @@ export class StatusPanel extends Panel {
     this._armorText.x = 26 + BAR_W + 14
     this._armorText.y = ROW - 4
 
-    const label = Panel.text('INVENTORY', THEME.bodySize, THEME.muted)
+    const label = this._inventoryLabel = Panel.text('INVENTORY', THEME.bodySize, THEME.muted)
     label.y = ROW * 2 + 14
     this.inventory.y = label.y + 32
 
@@ -61,6 +63,27 @@ export class StatusPanel extends Panel {
     this.fit(360)
     this.layoutHeader()
     this.update()
+  }
+
+  /**
+   * Whether the inventory (items, gear keys 3-4 and the bag) is drawn here.
+   * In touch mode it is not: the radial cluster (`radial.ts`) has those
+   * buttons, and the panel shrinks to the bars. The inventory keeps its state
+   * and its keys either way.
+   */
+  setInventoryShown (shown: boolean): void {
+    if (shown === this._inventoryShown) return
+    this._inventoryShown = shown
+    this._inventoryLabel.visible = this.inventory.visible = shown
+    // Refitted for the widest numbers, as the constructor did, so switching
+    // back gives the same box whatever the bars read now.
+    const hp = this._hpText.text
+    const armor = this._armorText.text
+    this._hpText.text = this._armorText.text = '999 / 999'
+    this.fit(360)
+    this._hpText.text = hp
+    this._armorText.text = armor
+    this.layoutHeader()
   }
 
   private layoutHeader (): void {

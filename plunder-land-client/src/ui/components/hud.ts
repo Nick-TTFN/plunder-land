@@ -9,13 +9,14 @@ import { Leaderboard } from './leaderboard'
 import { Game } from '../../game'
 import { SETTINGS, normaliseKey } from '../../net/settings'
 import { SettingsPanel } from '../settings/settingspanel'
-import { type GearInstance } from '../../utils/gear'
+import { type GearInstance, GEAR_SLOTS } from '../../utils/gear'
 import { Session } from '../../net/session'
 import { Aim } from '../../skills/aim'
 import { RangedAttack } from '../../skills/rangedattack'
-import { Joystick } from './joystick'
+import { Joystick, type Rect } from './joystick'
 import { INPUT_MODE } from '../../input/inputmode'
 import { SAFE_AREA, refreshSafeArea } from '../safearea'
+import { RadialCluster } from './radial'
 
 const MINIMAP = 200
 
@@ -45,6 +46,12 @@ export class HUD extends Container {
   readonly legend = new FogLegend()
   /** The left-thumb joystick (decision #59, mobile-2): shown in touch mode during a run. */
   readonly joystick = new Joystick()
+  /**
+   * The right-thumb skill and item buttons (decision #59, mobile-3): shown in
+   * touch mode during a run, in place of the skill row and the status panel's
+   * inventory, which stay alive (hidden) and do the casting.
+   */
+  readonly radial = new RadialCluster()
 
   constructor () {
     super()
@@ -52,6 +59,7 @@ export class HUD extends Container {
     // First, so every panel draws over it.
     this.addChild(this.joystick)
     this.addChild(this.legend)
+    this.addChild(this.radial)
     // Controls follow touch mode (input/inputmode.ts), so a switch re-lays the HUD.
     // The safe-area insets are re-read only here, on a resize and a mode
     // change (getComputedStyle; updateLayout also runs on every standings update).
@@ -92,7 +100,13 @@ export class HUD extends Container {
       this.addChild(this.layers)
     }
     this.layers.reset()
+    this.bindRadial()
     this.updateLayout()
+  }
+
+  /** The radial's buttons follow this run's cards and inventory. */
+  private bindRadial (): void {
+    this.radial.bind(this.skills?.cards, this.status?.inventory)
   }
 
   /** Kept for game.ts's callers: the status panel reads the player every frame. */
@@ -117,11 +131,15 @@ export class HUD extends Container {
   setupGear (kit: readonly number[]): void {
     this._kit = kit
     this.status?.inventory.updateGear([], kit)
+    this.bindRadial()
+    this.radial.setBag([], kit)
+    this.updateLayout()
   }
 
   /** The own player's `carried` field: the gear slots and the bag. */
   updateGear (carried: ReadonlyArray<GearInstance | null>): void {
     this.status?.inventory.updateGear(carried, this._kit)
+    this.radial.setBag(carried.slice(GEAR_SLOTS), this._kit)
   }
 
   /**
@@ -135,6 +153,7 @@ export class HUD extends Container {
     this.controlsMap.clear()
     for (const card of this.skills.cards) if (card.skill !== null) this.controlsMap.set(card.key, card)
     this.addChild(this.skills)
+    this.bindRadial()
     this.updateLayout()
   }
 
@@ -162,6 +181,11 @@ export class HUD extends Container {
     const W = window.innerWidth
     const H = window.innerHeight
     const phone = HUD.phone()
+    // Touch mode in a run (decision #59): the radial has the skills and the
+    // inventory, so the skill row is hidden and the status panel drops its
+    // inventory (both stay alive: they do the casting and hold the keys).
+    const touchRun = INPUT_MODE.touch && this.status !== undefined
+    this.status?.setInventoryShown(!touchRun)
     this.legend.renderable = !phone
     const place = (c: Container | undefined, x: number, y: number): void => {
       if (c === undefined) return
@@ -202,41 +226,77 @@ export class HUD extends Container {
       this.map.y = Math.round(rightTop)
     }
 
-    // Bottom: skills on the left, layers on the right with the fog legend
-    // above it. When the skills would need more than two rows beside the
-    // layers panel (a phone), the layers panel stacks above the skills instead
-    // and the skills get the full width.
-    const lw = this.layers !== undefined ? this.layers.panelWidth * s : 0
-    let stacked = false
-    if (this.skills !== undefined) {
-      this.skills.wrap(Math.max(200, (W - lw - 3 * m) / s))
-      stacked = this.skills.rows > 2
-      if (stacked) this.skills.wrap((W - 2 * m) / s)
-      place(this.skills, m, H - this.skills.panelHeight * s - m)
-    }
-    if (this.layers !== undefined) {
-      const bottom = stacked && this.skills !== undefined ? this.skills.y - m : H - m
-      place(this.layers, W - lw - m, bottom - this.layers.panelHeight * s)
-      // Local bounds, not `width`: `width` already includes the scale `place`
-      // set last time, so multiplying by `s` again pushed the legend off the
-      // right edge on any screen smaller than 1600 x 900.
-      place(this.legend, W - this.legend.getLocalBounds().width * s - m, this.layers.y - 40 * s)
-    }
-
     // The joystick's zone: the left 45% of the screen, under the top HUD band
     // (the status panel; the clock is centred or in the right corner), inside
-    // the safe area. Its ghost rests bottom left. A press on a panel in the
-    // zone (the skill cards today) hits the panel, never the stage, so it
-    // never starts the stick.
+    // the safe area. Its ghost rests bottom left. Nothing pressable sits in
+    // it in touch mode (the radial keeps out of it); a press on a panel would
+    // hit the panel, never the stage, so it would never start the stick.
     const statusBottom = this.status !== undefined ? m + this.status.panelHeight * s : 0
     const top = Math.max(SAFE_AREA.top, statusBottom)
     const left = SAFE_AREA.left
     const bottom = H - SAFE_AREA.bottom
-    this.joystick.layout(
-      { x: left, y: top, width: Math.max(0, W * 0.45 - left), height: Math.max(0, bottom - top) },
-      left + Joystick.INSET,
-      bottom - Joystick.INSET,
-      INPUT_MODE.touch && this.status !== undefined
+    const zone: Rect = { x: left, y: top, width: Math.max(0, W * 0.45 - left), height: Math.max(0, bottom - top) }
+
+    // Bottom: skills on the left, layers on the right with the fog legend
+    // above it. When the skills would need more than two rows beside the
+    // layers panel (a phone), the layers panel stacks above the skills instead
+    // and the skills get the full width. In touch mode, the radial instead.
+    const lw = this.layers !== undefined ? this.layers.panelWidth * s : 0
+    let stacked = false
+    if (this.skills !== undefined) this.skills.visible = !touchRun
+    if (touchRun) {
+      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? m + this.clock.panelHeight * s : 0, statusRight, zone)
+    } else {
+      this.radial.layout(zone, [], false)
+      if (this.skills !== undefined) {
+        this.skills.wrap(Math.max(200, (W - lw - 3 * m) / s))
+        stacked = this.skills.rows > 2
+        if (stacked) this.skills.wrap((W - 2 * m) / s)
+        place(this.skills, m, H - this.skills.panelHeight * s - m)
+      }
+      if (this.layers !== undefined) {
+        const layersBottom = stacked && this.skills !== undefined ? this.skills.y - m : H - m
+        place(this.layers, W - lw - m, layersBottom - this.layers.panelHeight * s)
+        // Local bounds, not `width`: `width` already includes the scale `place`
+        // set last time, so multiplying by `s` again pushed the legend off the
+        // right edge on any screen smaller than 1600 x 900.
+        place(this.legend, W - this.legend.getLocalBounds().width * s - m, this.layers.y - 40 * s)
+      }
+    }
+
+    this.joystick.layout(zone, left + Joystick.INSET, bottom - Joystick.INSET, touchRun)
+  }
+
+  /**
+   * Touch mode's bottom and centre (mobile-3): the radial cluster bottom right
+   * inside the safe area, and the layers panel (with the fog legend under it)
+   * at the top centre under a centred clock, out of the radial's way (mobile-4
+   * turns it into a badge on a phone). `clockBottom` is a centred clock's
+   * bottom edge, or 0; `zone` the joystick's, which the radial keeps out of.
+   */
+  private layoutTouch (s: number, m: number, W: number, H: number, clockBottom: number, statusRight: number, zone: Rect): void {
+    const place = (c: Container, x: number, y: number): void => {
+      c.scale.set(s, s)
+      c.x = Math.round(x)
+      c.y = Math.round(y)
+    }
+    if (this.layers !== undefined) {
+      const lw = this.layers.panelWidth * s
+      place(this.layers, Math.max(statusRight + m, (W - lw) / 2), Math.max(SAFE_AREA.top, clockBottom) + m)
+      const legendW = this.legend.getLocalBounds().width * s
+      place(this.legend, Math.max(statusRight + m, (W - legendW) / 2), this.layers.y + this.layers.panelHeight * s + 8 * s)
+    }
+    const avoid: Rect[] = [zone]
+    const board = Leaderboard.Instance
+    for (const c of [this.status, this.clock, this.map, this.layers, board?.visible === true ? board : undefined, this.legend.visible && this.legend.renderable ? this.legend : undefined]) {
+      if (c === undefined) continue
+      const b = c.getBounds()
+      avoid.push({ x: b.x, y: b.y, width: b.width, height: b.height })
+    }
+    this.radial.layout(
+      { x: SAFE_AREA.left, y: SAFE_AREA.top, width: W - SAFE_AREA.left - SAFE_AREA.right, height: H - SAFE_AREA.top - SAFE_AREA.bottom },
+      avoid,
+      true
     )
   }
 
@@ -279,6 +339,8 @@ export class HUD extends Container {
     // target (the first rock onwards), so the first press is the right one.
     const hint = Session.firstRun && Aim.target !== undefined
     this.skills?.update(performance.now(), hint ? (skill) => skill instanceof RangedAttack : undefined)
+    // After the cards: the radial draws their cooldowns and hint as they now stand.
+    this.radial.update(performance.now())
     this.layers?.setCurrent(Game.PLAYER?.tag)
   }
 
@@ -292,6 +354,7 @@ export class HUD extends Container {
     this.skills = undefined
     this.layers = undefined
     this.controlsMap.clear()
+    this.bindRadial()
     this.updateLayout()
   }
 }

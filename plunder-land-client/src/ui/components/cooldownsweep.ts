@@ -7,7 +7,8 @@ const SHADE_ALPHA = 0.62
 /**
  * A radial cooldown over a whole button: a dark wedge for the time left,
  * starting at 12 o'clock and shrinking clockwise as the cooldown runs out,
- * clipped to the button's rounded rectangle. `set(1)` is fully covered,
+ * clipped to the button's rounded rectangle, or to its circle for a round
+ * button (`round`, the touch radial's, `radial.ts`). `set(1)` is fully covered,
  * `set(0)` (or less) hides it. Redraws only when the shown fraction changes
  * by a visible step.
  */
@@ -16,10 +17,13 @@ export class CooldownSweep extends Container {
   private readonly _clip: Graphics
   private _shown = -1
 
-  constructor (private readonly _w: number, private readonly _h: number, radius: number) {
+  constructor (private readonly _w: number, private readonly _h: number, radius: number, round = false) {
     super()
     this.eventMode = 'none'
-    this._clip = new Graphics().beginFill(0xFFFFFF, 1).drawRoundedRect(0, 0, _w, _h, radius).endFill()
+    this._clip = new Graphics().beginFill(0xFFFFFF, 1)
+    if (round) this._clip.drawEllipse(_w / 2, _h / 2, _w / 2, _h / 2)
+    else this._clip.drawRoundedRect(0, 0, _w, _h, radius)
+    this._clip.endFill()
     this.addChild(this._clip)
     this.addChild(this._wedge)
     this._wedge.mask = this._clip

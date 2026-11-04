@@ -9,6 +9,14 @@ const CARD_H = 112
 const CARD_GAP = 8
 
 /**
+ * The first run's hint pulse at `now`: about 1.25 pulses a second, never
+ * fully gone. Shared by the cards and the touch radial's buttons (`radial.ts`).
+ */
+export function hintAlpha (now: number): number {
+  return 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(now / 1000 * Math.PI * 2.5))
+}
+
+/**
  * One skill: its key, icon, name, and READY or the seconds left. A tap or its
  * key sends it (`invoke`). The cooldown shown is the client's own estimate from
  * `Skill.cooldown`, as the button timer it replaces was; the server decides,
@@ -20,6 +28,7 @@ export class SkillCard extends Container {
   private _sweep: CooldownSweep | undefined
   /** The tutorial hint's outline (`setHint`), made on first use. */
   private _hint: Graphics | undefined
+  private _hinted = false
   private readonly _status: Text
   private readonly _icon: Sprite | undefined
   private _shown = ''
@@ -121,12 +130,32 @@ export class SkillCard extends Container {
   }
 
   /**
+   * The client's estimate of the cooldown left at `now`, 0..1 (0 ready): what
+   * the sweep draws. The touch radial (`radial.ts`) draws the same card's.
+   */
+  cooldownLeft (now: number): number {
+    if (this._cardCooldownMs <= 0) return 0
+    return Math.max(0, Math.min(1, (this._readyAt - now) / this._cardCooldownMs))
+  }
+
+  /** Milliseconds until a press will fire again; 0 when ready. */
+  msLeft (now: number): number {
+    return Math.max(0, this._readyAt - now)
+  }
+
+  /** Whether the last `setHint` showed the hint: the radial's button pulses with its card. */
+  get hinted (): boolean {
+    return this._hinted
+  }
+
+  /**
    * The first run's tutorial hint (decision #58): a pulsing outline around
    * the card while `on` and the skill is ready; hidden during its cooldown so
    * it blinks only when a press will fire.
    */
   setHint (on: boolean, now: number): void {
     const show = on && this.skill !== null && now >= this._readyAt
+    this._hinted = show
     if (!show) {
       if (this._hint !== undefined) this._hint.visible = false
       return
@@ -138,8 +167,7 @@ export class SkillCard extends Container {
       this.addChild(this._hint)
     }
     this._hint.visible = true
-    // About 1.25 pulses a second, never fully gone.
-    this._hint.alpha = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(now / 1000 * Math.PI * 2.5))
+    this._hint.alpha = hintAlpha(now)
   }
 
   update (now: number): void {

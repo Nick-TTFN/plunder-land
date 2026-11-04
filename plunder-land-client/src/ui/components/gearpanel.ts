@@ -113,6 +113,17 @@ function bindTip (target: Container, tip: ItemTip, width: number, lines: () => s
 }
 
 /**
+ * An item tip on another control (the touch radial's gear buttons,
+ * `radial.ts`): added as `target`'s last child, `target` drawn from (0, 0) and
+ * `width` wide. Hover or a long press shows `lines()`; undefined shows none.
+ */
+export function addItemTip (target: Container, width: number, lines: () => string[] | undefined): { longPressed: () => boolean } {
+  const tip = new ItemTip()
+  target.addChild(tip)
+  return bindTip(target, tip, width, lines)
+}
+
+/**
  * A gear slot, key 3 or 4 (decision #49, 49-2): the equipped item's skill
  * icon in a frame tinted by tier, its cooldown, and its lines on hover or a
  * long press. Its key or a tap sends `use_item` with the slot (2 or 3) and
@@ -184,11 +195,16 @@ export class GearSlot extends SkillCard {
       if (this._press.longPressed()) return
       this.tap()
     })
-    this._press = bindTip(this, this._tip, S, () => this._item !== null ? itemLines(this._item, this._duplicate) : undefined)
+    this._press = bindTip(this, this._tip, S, () => this.lines())
   }
 
   get item (): GearInstance | null {
     return this._item
+  }
+
+  /** The item's lines for a tip, or undefined for an empty slot. */
+  lines (): string[] | undefined {
+    return this._item !== null ? itemLines(this._item, this._duplicate) : undefined
   }
 
   /**
@@ -260,6 +276,16 @@ export class GearSlot extends SkillCard {
     const cell = this._gearSkill.aims ? Aim.skillCell(this._item.skill) : undefined
     Game.socket.emit('use_item', Aim.message(this.slot, cell))
     this._gearReadyAt = now + this._cooldownMs
+  }
+
+  /** As `SkillCard.cooldownLeft`, from this slot's own timer. */
+  cooldownLeft (now: number): number {
+    if (this._item === null || this._cooldownMs <= 0) return 0
+    return Math.max(0, Math.min(1, (this._gearReadyAt - now) / this._cooldownMs))
+  }
+
+  msLeft (now: number): number {
+    return this._item === null ? 0 : Math.max(0, this._gearReadyAt - now)
   }
 
   update (now: number): void {

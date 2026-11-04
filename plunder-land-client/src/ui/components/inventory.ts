@@ -125,6 +125,11 @@ export class Inventory extends Container {
     for (const slot of this.gear) slot.update(now)
   }
 
+  /** The count in `slot` as last sent (the touch radial's item buttons read it). */
+  count (slot: number): number {
+    return this._counts[slot] ?? 0
+  }
+
   /** The `inventory` field, as the server sent it: a count per slot. */
   update (counts: number[]): void {
     this._counts = counts.slice(0, INVENTORY_SLOTS)
