@@ -82,6 +82,38 @@ export class LayersPanel extends Panel {
 }
 
 /**
+ * The layers panel collapsed for a phone (decision #59, mobile-4): one line,
+ * "LAYER 0N", the number being the current layer's place in `hello.layers`
+ * (`Session.layers`, top first), as the panel numbers its badges; never a
+ * hardcoded tag. "LAYER --" between runs or on a tag the server didn't list.
+ */
+export class LayerBadge extends Panel {
+  private readonly _text: Text
+  private _current: number | undefined = NaN
+
+  constructor () {
+    super()
+    this._text = Panel.text('LAYER --', THEME.bodySize, THEME.accent)
+    this.body.addChild(this._text)
+    this.fit()
+    this.setCurrent(undefined)
+  }
+
+  /** The label for `tag`: its place in `Session.layers`, or "--". */
+  static label (tag: number | undefined): string {
+    const i = tag === undefined ? -1 : Session.layers.indexOf(tag)
+    return i < 0 ? 'LAYER --' : `LAYER ${two(i + 1)}`
+  }
+
+  /** The layer the player is on now, undefined between runs. */
+  setCurrent (tag: number | undefined): void {
+    if (tag === this._current) return
+    this._current = tag
+    this._text.text = LayerBadge.label(tag)
+  }
+}
+
+/**
  * The mockup's fog legend: VISIBLE, EXPLORED, UNKNOWN swatches. Hidden until
  * `fog-of-war` lands and turns it on; the swatch colours are the fog's
  * placeholder tints, so change them together.

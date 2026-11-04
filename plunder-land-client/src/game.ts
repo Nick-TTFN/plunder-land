@@ -23,7 +23,7 @@ import TWEEN from '@tweenjs/tween.js'
 import { HexTerrain } from './objects/hexterrain'
 import { Walls } from './objects/walls'
 import { Fog, SEEN, LAYER_TINT } from './objects/fog'
-import { TILT, TiltedContainer, onGround } from './objects/tilt'
+import { ROW_SCREEN, TILT, TiltedContainer, onGround } from './objects/tilt'
 import Mob from './objects/mob'
 import Player from './objects/player'
 import Lobby from './ui/lobby/lobby'
@@ -34,7 +34,7 @@ import { FireBreathEffect } from './vfx/firebreath.effect'
 import { IceBreathEffect } from './vfx/icebreath.effect'
 import { MeleeAttackEffect } from './vfx/meleeattack.effect'
 import { Aim } from './skills/aim'
-import { type TargetView } from './skills/autoaim'
+import { AUTO_AIM, type TargetView } from './skills/autoaim'
 import { AimLine } from './vfx/aimline'
 import { RangedAttackEffect } from './vfx/rangedattack.effect'
 import { DefendEffect } from './vfx/defend.effect'
@@ -55,7 +55,7 @@ import { finishFromBytes } from './utils/finishes'
 import { type GearInstance } from './utils/gear'
 import Unit from './objects/unit'
 import { type GameObject } from './objects/gameobject'
-import { type HUD } from './ui/components/hud'
+import { HUD } from './ui/components/hud'
 import { type Socket } from 'socket.io-client'
 import { type PopupManager } from './ui/popups/popupmanager'
 import { Exit } from './objects/exit'
@@ -236,6 +236,53 @@ export class Game extends Container {
 
   static unblock (q: number, r: number, tag: number): void {
     Game.MAP.unblock(q, r, tag)
+  }
+
+  /**
+   * Tilted rows a phone keeps in view above and below the robot, at the
+   * screen's shorter side (decision #59, mobile-4, Nick 2026-11-04: "phones
+   * zoom out"): one past auto-aim's keep range, so a kept target is never off
+   * screen. Not a tunable of its own: it follows `AUTO_AIM.KEEP_RINGS`.
+   */
+  static readonly ZOOM_ROWS = AUTO_AIM.KEEP_RINGS + 1
+
+  /** The world's zoom this frame (`placeCamera`): 1 off a phone. */
+  static ZOOM = 1
+
+  /**
+   * The world's zoom for a screen: 1 unless `phone` (`HUD.phone()`), else the
+   * scale at which `ZOOM_ROWS` rows (`ROW_SCREEN` each) fit in half the
+   * shorter side, never above 1. The HUD is not zoomed; only `CONTAINER` is.
+   *
+   * The view it gives is wider than the server's interest (`INTEREST_RADIUS`
+   * 500 is only the no-vision fallback since #48; robots are sent their
+   * `vision` + 1 rings): the margin is the client's own fog, drawn as it is
+   * past the same rings on a desktop screen, so nothing appears there that a
+   * desktop would show. Decided, not missed (mobile-4).
+   */
+  static zoomFor (width: number, height: number, phone: boolean): number {
+    if (!phone) return 1
+    const fit = Math.min(width, height) / 2 / (Game.ZOOM_ROWS * ROW_SCREEN)
+    return Math.max(0.1, Math.min(1, fit))
+  }
+
+  /**
+   * Put the camera on `focus`: the zoom (`zoomFor`) as a uniform scale on
+   * `CONTAINER` over its tilt, and its position snapped to device pixels, so
+   * the ground (laid out on whole device pixels, see HexTerrain) stays on
+   * them as the camera moves. Every screen-to-world conversion goes through
+   * `CONTAINER` (`toLocal`/`toGlobal`), so it follows the zoom. Returns the
+   * view in world units (the screen over the zoom), for the ground's cull.
+   */
+  static placeCamera (focus: { x: number, y: number }): { width: number, height: number } {
+    const screen = Game.RENDERER.screen
+    const res = Game.RENDERER.resolution
+    const z = Game.zoomFor(screen.width, screen.height, HUD.phone())
+    if (Game.CONTAINER.scale.x !== z || Game.ZOOM !== z) Game.CONTAINER.scale.set(z, z * TILT)
+    Game.ZOOM = z
+    Game.CONTAINER.x = -Math.round(focus.x * z * res) / res
+    Game.CONTAINER.y = -Math.round(focus.y * TILT * z * res) / res
+    return { width: screen.width / z, height: screen.height / z }
   }
 
   /** The locally simulated player. Never fed through onObjectUpdated. */
@@ -1507,13 +1554,7 @@ export class Game extends Container {
 
     const focus = Game.PLAYER ?? watched
     if (focus != null && layers != null) {
-      // Snapped to device pixels, so the ground (laid out on whole device
-      // pixels, see HexTerrain) stays on them as the camera moves.
-      const res = Game.RENDERER.resolution
-      Game.CONTAINER.x = -Math.round(focus.x * res) / res
-      Game.CONTAINER.y = -Math.round(focus.y * TILT * res) / res
-
-      const screen = Game.RENDERER.screen
+      const view = Game.placeCamera(focus)
 
       for (let i = 0; i < layers.length; i++) {
         const layer = layers[i]
@@ -1532,7 +1573,8 @@ export class Game extends Container {
         // Every layer is drawn at scale 1 now. The parallax offset and the
         // screen-over-scale slice here existed for the half-size ground seen
         // from the airborne plane, which is gone.
-        this.terrains[i]?.update(focus.x, focus.y, screen.width, screen.height)
+        // The view in world units: the screen over the zoom (`placeCamera`).
+        this.terrains[i]?.update(focus.x, focus.y, view.width, view.height)
         if (fogMoved) this.terrains[i]?.retint()
         // Every frame, not only when the fog moves: the fog's radius arrives
         // with the own create, after the hello that placed the walls, and a

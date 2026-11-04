@@ -1,4 +1,4 @@
-import { Sprite, Texture, type Text } from 'pixi.js'
+import { Graphics, Sprite, Texture, type Text } from 'pixi.js'
 import { Panel, Bar } from './panel'
 import { Inventory } from './inventory'
 import { THEME } from '../theme'
@@ -10,7 +10,8 @@ const ROW = 30
 
 /**
  * The mockup's top-left panel: the mode title and carried loot, the HP and
- * armor bars with their numbers, and the inventory slots. Reads the local
+ * armor bars with their numbers, and the inventory slots. On a phone
+ * (`setCompact`, mobile-4) only the bars and their numbers. Reads the local
  * player every frame (`update`) and redraws only what changed, so no update
  * path has to remember to call it; `Game.hud.updateStats` and the inventory
  * update still arrive as before.
@@ -27,10 +28,21 @@ export class StatusPanel extends Panel {
   private readonly _lootIcon = StatusPanel.icon('ui/hud_loot.png')
   private readonly _inventoryLabel: Text
   private _inventoryShown = true
+  /**
+   * The title is this panel's own, not `Panel`'s, so a phone can drop it
+   * (`setCompact`); drawn where `Panel` draws one, with the same rule.
+   */
+  private readonly _heading: Text
+  private readonly _rule = new Graphics()
+  private _compact = false
   private _shown = { loot: NaN, hp: NaN, maxHp: NaN, armor: NaN, maxArmor: NaN }
 
   constructor () {
-    super('EXTRACTION')
+    super()
+    this._heading = Panel.text('EXTRACTION', THEME.titleSize, THEME.text)
+    this._heading.x = THEME.pad
+    this._heading.y = THEME.pad - 2
+    this.addChild(this._rule, this._heading)
 
     this._lootLabel = Panel.text('LOOT', THEME.smallSize, THEME.muted)
     this._loot = Panel.text('0', THEME.titleSize, THEME.loot)
@@ -60,9 +72,27 @@ export class StatusPanel extends Panel {
     // Sized for the widest numbers it will show, so a 3-digit pool doesn't
     // run past the edge (update fills the real values straight after).
     this._hpText.text = this._armorText.text = '999 / 999'
-    this.fit(360)
-    this.layoutHeader()
+    this.refit()
     this.update()
+  }
+
+  /** `Panel`'s header height with a title, and without one on a phone (`setCompact`). */
+  get headerHeight (): number {
+    // Read from Panel's constructor before this class's fields exist: titled then.
+    return this._compact === true ? THEME.pad : THEME.pad + THEME.titleSize + 16
+  }
+
+  /**
+   * On a phone (`HUD.phone()`, mobile-4): only the HP and armor bars with
+   * their numbers. The title and the carried loot go; the inventory follows
+   * `setInventoryShown` either way.
+   */
+  setCompact (compact: boolean): void {
+    if (compact === this._compact) return
+    this._compact = compact
+    this._heading.visible = this._loot.visible = this._lootLabel.visible = this._lootIcon.visible = !compact
+    this.body.y = this.headerHeight
+    this.refit()
   }
 
   /**
@@ -75,14 +105,26 @@ export class StatusPanel extends Panel {
     if (shown === this._inventoryShown) return
     this._inventoryShown = shown
     this._inventoryLabel.visible = this.inventory.visible = shown
-    // Refitted for the widest numbers, as the constructor did, so switching
-    // back gives the same box whatever the bars read now.
+    this.refit()
+  }
+
+  /**
+   * Refitted for the widest numbers, as the constructor did, so switching
+   * back gives the same box whatever the bars read now; then the rule under
+   * the title, as `Panel.resize` draws it.
+   */
+  private refit (): void {
     const hp = this._hpText.text
     const armor = this._armorText.text
     this._hpText.text = this._armorText.text = '999 / 999'
-    this.fit(360)
+    this.fit(this._compact ? 0 : 360)
     this._hpText.text = hp
     this._armorText.text = armor
+    this._rule.clear()
+    if (!this._compact) {
+      const y = this.headerHeight - 8
+      this._rule.lineStyle(1, THEME.rule, 1).moveTo(THEME.pad, y).lineTo(this.panelWidth - THEME.pad, y)
+    }
     this.layoutHeader()
   }
 

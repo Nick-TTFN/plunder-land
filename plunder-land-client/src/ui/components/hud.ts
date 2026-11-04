@@ -1,10 +1,10 @@
-import { Container } from 'pixi.js'
+import { Circle, Container, Graphics } from 'pixi.js'
 import { MiniMap } from './minimap'
 import { type Skill } from '../../skills/skill'
 import { StatusPanel } from './statuspanel'
 import { RunClock } from './runclock'
 import { SkillPanel, type SkillCard } from './skillpanel'
-import { LayersPanel, FogLegend } from './layerspanel'
+import { LayersPanel, LayerBadge, FogLegend } from './layerspanel'
 import { Leaderboard } from './leaderboard'
 import { Game } from '../../game'
 import { SETTINGS, normaliseKey } from '../../net/settings'
@@ -16,9 +16,76 @@ import { RangedAttack } from '../../skills/rangedattack'
 import { Joystick, type Rect } from './joystick'
 import { INPUT_MODE } from '../../input/inputmode'
 import { SAFE_AREA, refreshSafeArea } from '../safearea'
-import { RadialCluster } from './radial'
+import { RadialCluster, RADIAL } from './radial'
+import { THEME } from '../theme'
+import { installRotatePrompt } from '../rotateprompt'
 
 const MINIMAP = 200
+
+/** The minimap's side on a phone, CSS px (mobile-4; about 80, Claude's default in #59). */
+const MINIMAP_PHONE = 80
+
+/** The settings button's side, CSS px, never `HUD.scale`d (mobile-4). */
+const GEAR = 40
+
+/**
+ * The on-screen settings button (decision #59, mobile-4): a cog, top right,
+ * in a run, on touch and desktop alike (Nick, 2026-11-04). A tap opens or
+ * closes `SettingsPanel` as Escape does; Escape still works. A press on it
+ * is never the stage's, so it never moves the robot or starts the stick.
+ * Drawn, not a sprite: no sheet has a cog.
+ */
+export class SettingsButton extends Container {
+  constructor () {
+    super()
+    const r = GEAR / 2
+    const frame = new Graphics()
+      .beginFill(0x101A28, 0.85)
+      .lineStyle(1, THEME.panelBorder, 1)
+      .drawCircle(r, r, r)
+      .endFill()
+    // Eight teeth round a ring, a hole in the middle.
+    const points: number[] = []
+    for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4
+      for (const [da, radius] of [[-0.39, 9.5], [-0.22, 13], [0.22, 13], [0.39, 9.5]]) {
+        points.push(r + Math.cos(a + da) * radius, r + Math.sin(a + da) * radius)
+      }
+    }
+    const cog = new Graphics()
+      .beginFill(THEME.text, 1).drawPolygon(points).endFill()
+      .beginFill(0x101A28, 1).drawCircle(r, r, 4.5).endFill()
+    this.addChild(frame, cog)
+    this.eventMode = 'static'
+    this.cursor = 'pointer'
+    this.hitArea = new Circle(r, r, r)
+    this.on('pointertap', () => {
+      // A touch's tap is followed by a synthetic click on whatever is under
+      // the finger by then, which is the panel's backdrop, and a click on the
+      // backdrop closes it: so the tap's own click is swallowed (measured in
+      // headless Chrome with real touch events: the panel opened and closed
+      // on one tap). A mouse's click lands on the canvas; swallowing it costs
+      // nothing.
+      swallowNextClick()
+      SettingsPanel.toggle()
+    })
+  }
+}
+
+/** Eat the next `click` on the page within 500 ms, before anything sees it. */
+function swallowNextClick (): void {
+  const eat = (e: Event): void => {
+    e.stopImmediatePropagation()
+    e.preventDefault()
+    done()
+  }
+  const done = (): void => {
+    window.removeEventListener('click', eat, true)
+    clearTimeout(timer)
+  }
+  window.addEventListener('click', eat, true)
+  const timer = setTimeout(done, 500)
+}
 
 /**
  * The HUD, laid out as the mockup (hud-rebuild, M2): the status panel top
@@ -43,6 +110,10 @@ export class HUD extends Container {
   clock: RunClock | undefined
   skills: SkillPanel | undefined
   layers: LayersPanel | undefined
+  /** The layers panel collapsed to one line, on a phone in a run (mobile-4). */
+  badge: LayerBadge | undefined
+  /** Top right in a run, touch and desktop (mobile-4). */
+  readonly settings = new SettingsButton()
   readonly legend = new FogLegend()
   /** The left-thumb joystick (decision #59, mobile-2): shown in touch mode during a run. */
   readonly joystick = new Joystick()
@@ -60,6 +131,10 @@ export class HUD extends Container {
     this.addChild(this.joystick)
     this.addChild(this.legend)
     this.addChild(this.radial)
+    this.settings.visible = false
+    this.addChild(this.settings)
+    // Portrait on a touch screen, lobby and run alike (mobile-4).
+    installRotatePrompt()
     // Controls follow touch mode (input/inputmode.ts), so a switch re-lays the HUD.
     // The safe-area insets are re-read only here, on a resize and a mode
     // change (getComputedStyle; updateLayout also runs on every standings update).
@@ -100,6 +175,11 @@ export class HUD extends Container {
       this.addChild(this.layers)
     }
     this.layers.reset()
+    if (this.badge === undefined) {
+      this.badge = new LayerBadge()
+      this.addChild(this.badge)
+    }
+    this.badge.setCurrent(undefined)
     this.bindRadial()
     this.updateLayout()
   }
@@ -181,11 +261,17 @@ export class HUD extends Container {
     const W = window.innerWidth
     const H = window.innerHeight
     const phone = HUD.phone()
+    const inRun = this.status !== undefined
     // Touch mode in a run (decision #59): the radial has the skills and the
     // inventory, so the skill row is hidden and the status panel drops its
     // inventory (both stay alive: they do the casting and hold the keys).
-    const touchRun = INPUT_MODE.touch && this.status !== undefined
+    const touchRun = INPUT_MODE.touch && inRun
+    // A phone (mobile-4): the status panel is the bars only, and the layers
+    // panel is the one-line badge.
+    this.status?.setCompact(phone)
     this.status?.setInventoryShown(!touchRun)
+    if (this.layers !== undefined) this.layers.visible = !phone
+    if (this.badge !== undefined) this.badge.visible = phone
     this.legend.renderable = !phone
     const place = (c: Container | undefined, x: number, y: number): void => {
       if (c === undefined) return
@@ -193,37 +279,82 @@ export class HUD extends Container {
       c.x = Math.round(x)
       c.y = Math.round(y)
     }
+    // The screen's edges inside the safe area, less the margin. With no
+    // insets (a desktop) these are the margins the HUD always used.
+    const T = SAFE_AREA.top + m
+    const L = SAFE_AREA.left + m
+    const R = W - SAFE_AREA.right - m
 
-    place(this.status, m, m)
+    place(this.status, L, T)
     // Top centre, unless that runs into the status panel (a phone): then the
-    // top right corner, and the board goes under the status panel below.
-    const statusRight = this.status !== undefined ? m + this.status.panelWidth * s : 0
+    // top right corner, left of the settings button in a run, and the board
+    // goes under the status panel below.
+    const statusRight = this.status !== undefined ? L + this.status.panelWidth * s : 0
     let clockBottom = 0
     if (this.clock !== undefined) {
       const cw = this.clock.panelWidth * s
       const centred = (W - cw) / 2
-      place(this.clock, centred >= statusRight + m ? centred : W - cw - m, m)
-      clockBottom = centred >= statusRight + m ? 0 : m + this.clock.panelHeight * s
+      // Cornered, it keeps left of the settings button (and a phone's minimap).
+      const reserve = inRun ? GEAR + m + (phone && this.map !== undefined ? MINIMAP_PHONE + RADIAL.GAP : 0) : 0
+      place(this.clock, centred >= statusRight + m ? centred : R - cw - reserve, T)
+      clockBottom = centred >= statusRight + m ? 0 : T + this.clock.panelHeight * s
     }
 
     // Top right: the leaderboard, and the minimap under it. On a screen too
     // narrow for the status panel and the board side by side, the board goes
-    // under the status panel instead.
+    // under the status panel instead. The settings button sits left of a
+    // board beside the clock, else in the corner.
     const board = Leaderboard.Instance
-    let rightTop = Math.max(m, clockBottom + m)
+    let rightTop = Math.max(T, clockBottom + m)
+    let gearX = R - GEAR
     if (board !== undefined) board.visible = !phone || this.boardOpen
-    if (board !== undefined && board.visible) {
-      const boardW = board.panelWidth * s
-      const beside = W - boardW - m >= statusRight + m && clockBottom === 0
-      board.scale.set(s, s)
-      board.x = Math.round(beside ? W - boardW - m : m)
-      board.y = Math.round(beside ? m : (this.status !== undefined ? m + this.status.panelHeight * s + m : m))
-      rightTop = beside ? board.y + board.panelHeight * s + m : rightTop
+    if (phone) {
+      // The corner is the 80 px minimap's, with the settings button left of
+      // it: both clear of the radial's BAG below (mobile-3's carry-over), and
+      // the open bag row then finds room left of the minimap under the
+      // button (the other way round, at 667 x 375 with insets, it had none).
+      // A board opened from the clock hangs under them, right-aligned.
+      if (this.map !== undefined) {
+        const k = MINIMAP_PHONE / MINIMAP
+        this.map.scale.set(k, k)
+        this.map.x = Math.round(R - MINIMAP_PHONE)
+        this.map.y = Math.round(T)
+        gearX = this.map.x - RADIAL.GAP - GEAR
+      }
+      if (board !== undefined && board.visible) {
+        board.scale.set(s, s)
+        board.x = Math.round(R - board.panelWidth * s)
+        board.y = Math.round(T + Math.max(GEAR, this.map !== undefined ? MINIMAP_PHONE : 0) + m)
+      }
+    } else {
+      if (board !== undefined && board.visible) {
+        const boardW = board.panelWidth * s
+        const beside = R - boardW >= statusRight + m && clockBottom === 0
+        board.scale.set(s, s)
+        board.x = Math.round(beside ? R - boardW : L)
+        board.y = Math.round(beside ? T : (this.status !== undefined ? T + this.status.panelHeight * s + m : T))
+        rightTop = beside ? board.y + board.panelHeight * s + m : rightTop
+        if (beside) gearX = board.x - m - GEAR
+      }
+      if (this.map !== undefined) {
+        this.map.scale.set(s, s)
+        this.map.x = Math.round(R - MINIMAP * s)
+        this.map.y = Math.round(rightTop)
+      }
     }
-    if (this.map !== undefined) {
-      this.map.scale.set(s, s)
-      this.map.x = Math.round(W - MINIMAP * s - m)
-      this.map.y = Math.round(rightTop)
+    this.settings.visible = inRun
+    this.settings.x = Math.round(gearX)
+    this.settings.y = Math.round(T)
+
+    // The phone's layer badge: beside a centred clock on its right, if that
+    // is clear of the settings button and the minimap; else under the clock.
+    if (phone && this.badge !== undefined) {
+      const bw = this.badge.panelWidth * s
+      const clockRight = this.clock !== undefined ? this.clock.x + this.clock.panelWidth * s : W / 2
+      const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * s : T
+      const limit = Math.min(gearX, this.map !== undefined ? this.map.x : gearX)
+      if (clockBottom === 0 && clockRight + 8 + bw <= limit - 8) place(this.badge, clockRight + 8, T)
+      else place(this.badge, Math.max(statusRight + m, clockRight - bw), clockBelow + 8)
     }
 
     // The joystick's zone: the left 45% of the screen, under the top HUD band
@@ -231,7 +362,7 @@ export class HUD extends Container {
     // the safe area. Its ghost rests bottom left. Nothing pressable sits in
     // it in touch mode (the radial keeps out of it); a press on a panel would
     // hit the panel, never the stage, so it would never start the stick.
-    const statusBottom = this.status !== undefined ? m + this.status.panelHeight * s : 0
+    const statusBottom = this.status !== undefined ? T + this.status.panelHeight * s : 0
     const top = Math.max(SAFE_AREA.top, statusBottom)
     const left = SAFE_AREA.left
     const bottom = H - SAFE_AREA.bottom
@@ -241,11 +372,12 @@ export class HUD extends Container {
     // above it. When the skills would need more than two rows beside the
     // layers panel (a phone), the layers panel stacks above the skills instead
     // and the skills get the full width. In touch mode, the radial instead.
-    const lw = this.layers !== undefined ? this.layers.panelWidth * s : 0
+    const layers = this.layers !== undefined && this.layers.visible ? this.layers : undefined
+    const lw = layers !== undefined ? layers.panelWidth * s : 0
     let stacked = false
     if (this.skills !== undefined) this.skills.visible = !touchRun
     if (touchRun) {
-      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? m + this.clock.panelHeight * s : 0, statusRight, zone)
+      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? T + this.clock.panelHeight * s : 0, statusRight, zone)
     } else {
       this.radial.layout(zone, [], false)
       if (this.skills !== undefined) {
@@ -254,13 +386,13 @@ export class HUD extends Container {
         if (stacked) this.skills.wrap((W - 2 * m) / s)
         place(this.skills, m, H - this.skills.panelHeight * s - m)
       }
-      if (this.layers !== undefined) {
+      if (layers !== undefined) {
         const layersBottom = stacked && this.skills !== undefined ? this.skills.y - m : H - m
-        place(this.layers, W - lw - m, layersBottom - this.layers.panelHeight * s)
+        place(layers, W - lw - m, layersBottom - layers.panelHeight * s)
         // Local bounds, not `width`: `width` already includes the scale `place`
         // set last time, so multiplying by `s` again pushed the legend off the
         // right edge on any screen smaller than 1600 x 900.
-        place(this.legend, W - this.legend.getLocalBounds().width * s - m, this.layers.y - 40 * s)
+        place(this.legend, W - this.legend.getLocalBounds().width * s - m, layers.y - 40 * s)
       }
     }
 
@@ -269,10 +401,11 @@ export class HUD extends Container {
 
   /**
    * Touch mode's bottom and centre (mobile-3): the radial cluster bottom right
-   * inside the safe area, and the layers panel (with the fog legend under it)
-   * at the top centre under a centred clock, out of the radial's way (mobile-4
-   * turns it into a badge on a phone). `clockBottom` is a centred clock's
-   * bottom edge, or 0; `zone` the joystick's, which the radial keeps out of.
+   * inside the safe area. Off a phone (a tablet) the layers panel, with the
+   * fog legend under it, sits at the top centre under a centred clock, out of
+   * the radial's way; on a phone the badge has its place (`updateLayout`).
+   * `clockBottom` is a centred clock's bottom edge, or 0; `zone` the
+   * joystick's, which the radial keeps out of.
    */
   private layoutTouch (s: number, m: number, W: number, H: number, clockBottom: number, statusRight: number, zone: Rect): void {
     const place = (c: Container, x: number, y: number): void => {
@@ -280,15 +413,17 @@ export class HUD extends Container {
       c.x = Math.round(x)
       c.y = Math.round(y)
     }
-    if (this.layers !== undefined) {
-      const lw = this.layers.panelWidth * s
-      place(this.layers, Math.max(statusRight + m, (W - lw) / 2), Math.max(SAFE_AREA.top, clockBottom) + m)
+    const layers = this.layers?.visible === true ? this.layers : undefined
+    if (layers !== undefined) {
+      const lw = layers.panelWidth * s
+      place(layers, Math.max(statusRight + m, (W - lw) / 2), Math.max(SAFE_AREA.top, clockBottom) + m)
       const legendW = this.legend.getLocalBounds().width * s
-      place(this.legend, Math.max(statusRight + m, (W - legendW) / 2), this.layers.y + this.layers.panelHeight * s + 8 * s)
+      place(this.legend, Math.max(statusRight + m, (W - legendW) / 2), layers.y + layers.panelHeight * s + 8 * s)
     }
     const avoid: Rect[] = [zone]
     const board = Leaderboard.Instance
-    for (const c of [this.status, this.clock, this.map, this.layers, board?.visible === true ? board : undefined, this.legend.visible && this.legend.renderable ? this.legend : undefined]) {
+    const badge = this.badge?.visible === true ? this.badge : undefined
+    for (const c of [this.status, this.clock, this.map, layers, badge, this.settings, board?.visible === true ? board : undefined, this.legend.visible && this.legend.renderable ? this.legend : undefined]) {
       if (c === undefined) continue
       const b = c.getBounds()
       avoid.push({ x: b.x, y: b.y, width: b.width, height: b.height })
@@ -342,12 +477,14 @@ export class HUD extends Container {
     // After the cards: the radial draws their cooldowns and hint as they now stand.
     this.radial.update(performance.now())
     this.layers?.setCurrent(Game.PLAYER?.tag)
+    this.badge?.setCurrent(Game.PLAYER?.tag)
   }
 
   clearGameUI (): void {
-    for (const c of [this.map, this.status, this.clock, this.skills, this.layers]) {
+    for (const c of [this.map, this.status, this.clock, this.skills, this.layers, this.badge]) {
       if (c !== undefined) this.removeChild(c)
     }
+    this.badge = undefined
     this.map = undefined
     this.status = undefined
     this.clock = undefined
