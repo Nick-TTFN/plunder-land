@@ -135,28 +135,6 @@ test('auto-aim: released on death, on leaving the fog, and when gone from the li
   assert.equal(aim.targetId, undefined)
 })
 
-test('auto-aim: a tap on an enemy targets it (no move); on the ground it moves', () => {
-  const aim = new AutoAim()
-  const views = [unit(1, 2), unit(2, { x: 0, y: 6 }), unit(3, { x: -5, y: 0 }, { bodyRings: 1 })]
-  assert.equal(pick(aim, views), 1)
-  assert.equal(aim.tap({ x: 3, y: 3 }, OWN, TAG, views), false, 'ground: a move')
-  assert.equal(aim.targetId, 1)
-  assert.equal(aim.tap({ x: 0, y: 6 }, OWN, TAG, views), true)
-  assert.equal(pick(aim, views), 2)
-  // A tapped target holds against a nearer one (a friend soaking the aim).
-  assert.equal(pick(aim, [unit(1, 1), unit(2, { x: 0, y: 6 })]), 2)
-  // A 7-cell body is hit on any of its cells.
-  assert.equal(aim.tap({ x: -4, y: 0 }, OWN, TAG, views), true)
-  assert.equal(aim.targetId, 3)
-  // Same rules as the pick: not on what can't be a target.
-  for (const over of [{ seen: false }, { alive: false }, { kind: 'pickup' as const }, { own: true }]) {
-    assert.equal(new AutoAim().tap({ x: 2, y: 0 }, OWN, TAG, [unit(5, 2, over)]), false, JSON.stringify(over))
-  }
-  // A tapped target is still dropped like any other, and the re-pick comes back.
-  assert.equal(pick(aim, [unit(1, 1), unit(3, { x: -5, y: 0 }, { bodyRings: 1, alive: false })]), 1)
-  assert.equal(aim.tapped, false)
-})
-
 /** A cell well inside the map, for the tests that send a cell. */
 const MID: Cell = { x: 20, y: 40 }
 /** The cell (dq, dr) from MID. */

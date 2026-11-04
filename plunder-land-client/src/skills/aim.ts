@@ -10,7 +10,9 @@ import { AutoAim, bombCell, type Cell, rangeCellsOf, skillCell, type TargetView 
 /**
  * Where a press aims (decision #58): the shared auto-aim target
  * (`skills/autoaim.ts`), else the movement direction. Mouse and touch aim are
- * gone; a tap or a key casts at once. `Game.updateAim` feeds this each frame
+ * gone; a tap or a key casts at once. A press on the world never picks the
+ * target, enemy or ground: it is a move order (#59 reverses #58 addendum 2's
+ * tap-to-target; do not put it back). `Game.updateAim` feeds this each frame
  * with what the client holds; the press paths (`Skill.execute`,
  * `GearSlot.invoke`, `Inventory.use`) ask it for the cell to send.
  */
@@ -48,18 +50,6 @@ export class Aim {
   /** The current target, as last picked by `update`. */
   static get target (): TargetView | undefined {
     return Aim._target
-  }
-
-  /**
-   * A tap or click on the world at `world`: true if it landed on a target,
-   * which it now aims at instead of moving there (#58 addendum 2).
-   */
-  static tapAt (world: IPointData, views: readonly TargetView[]): boolean {
-    if (Game.PLAYER === undefined) return false
-    const cell = Hex.toCell(new Vector(world.x, world.y))
-    if (!Aim.auto.tap(cell, Aim.own(), Game.LOCAL.tag, views)) return false
-    Aim._target = views.find((v) => v.id === Aim.auto.targetId)
-    return true
   }
 
   /**

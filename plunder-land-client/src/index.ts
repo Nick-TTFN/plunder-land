@@ -11,7 +11,6 @@ import { Application, Assets, Point, Rectangle, type Renderer, SCALE_MODES, sett
 import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { PORTAL, SERVER_URL } from './config'
-import { Aim } from './skills/aim'
 import { decideWelcome, KEY, readPending } from './net/protocol'
 import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
@@ -304,10 +303,9 @@ function onPointerDown (event: { shiftKey?: boolean, target?: unknown, data: { b
   // interactive was hit, which is exactly the world.
   if (event.target !== undefined && event.target !== app.stage) return
 
-  // A tap or click on an enemy makes it the auto-aim target instead of
-  // walking there (#58 addendum 2); on the ground it is a move as before.
-  if (Game.PLAYER !== undefined && Game.CONTAINER !== undefined &&
-    Aim.tapAt(Game.CONTAINER.toLocal(new Point(event.data.global.x, event.data.global.y)), Game.Instance.aimViews())) return
+  // A press on an enemy is a move order like any other: auto-aim picks the
+  // target, a tap never does. Deliberate: #59 reverses #58 addendum 2's
+  // tap-to-target, desktop click included; do not put it back.
 
   // Shift-click appends a leg instead of replacing the route, so a way round
   // something can be built up click by click. Only on the press: dragging with

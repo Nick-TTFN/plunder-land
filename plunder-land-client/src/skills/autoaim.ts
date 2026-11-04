@@ -135,20 +135,18 @@ function best (list: Ranked[]): Ranked | undefined {
  * clear current one). Among new candidates a clear line wins over a nearer
  * walled one; the nearest walled one is taken only if none is clear.
  *
- * A tapped target (`tap`) is exempt from the re-pick, so a tap on the far
- * enemy holds while a nearer one (a friend soaking the aim, #47) stays near;
- * it is still dropped like any other. Claude's reading of Dez's item 3.
+ * The re-pick applies to every target. There is no tap-to-target and so no
+ * exemption from it: a press on an enemy is a move order, desktop click
+ * included. Deliberate: #59 reverses #58 addendum 2's tap-to-target; do not
+ * put it back.
  */
 export class AutoAim {
   /** The current target's object id, or undefined for none. */
   targetId: number | undefined
-  /** The current target was tapped (`tap`): no re-pick by distance. */
-  tapped = false
 
   /** A new run: no target (ids name other objects in the next world). */
   reset (): void {
     this.targetId = undefined
-    this.tapped = false
   }
 
   /**
@@ -169,40 +167,19 @@ export class AutoAim {
     }
 
     if (current === undefined) {
-      this.tapped = false
       const pick = best(candidates)
       this.targetId = pick?.view.id
       return pick?.view
     }
 
-    if (!this.tapped) {
-      const cur = current
-      const closer = best(candidates.filter((c) =>
-        c.reach <= cur.reach - AUTO_AIM.REPICK_MARGIN && (c.clear || !cur.clear)))
-      if (closer !== undefined) {
-        this.targetId = closer.view.id
-        return closer.view
-      }
+    const cur = current
+    const closer = best(candidates.filter((c) =>
+      c.reach <= cur.reach - AUTO_AIM.REPICK_MARGIN && (c.clear || !cur.clear)))
+    if (closer !== undefined) {
+      this.targetId = closer.view.id
+      return closer.view
     }
     return current.view
-  }
-
-  /**
-   * A tap (or click) on cell `cell`: if it lands on a target's body within
-   * `KEEP_RINGS`, that unit becomes the target and true is returned (the tap
-   * does not move). Otherwise false: the tap is a move order.
-   */
-  tap (cell: Cell, own: Cell, tag: number | undefined, views: readonly TargetView[]): boolean {
-    let hit: TargetView | undefined
-    for (const view of views) {
-      if (!isTarget(view, tag) || distance(cell, view.cell) > view.bodyRings) continue
-      if (reach(own, view) > AUTO_AIM.KEEP_RINGS) continue
-      if (hit === undefined || view.id < hit.id) hit = view
-    }
-    if (hit === undefined) return false
-    this.targetId = hit.id
-    this.tapped = true
-    return true
   }
 }
 
