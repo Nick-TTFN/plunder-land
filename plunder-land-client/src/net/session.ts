@@ -36,14 +36,21 @@ export class Session {
    */
   static skills: number[] | undefined = undefined
   static known: boolean = false
+  /**
+   * This world is a private first run (`hello.firstRun`, decision #58): the
+   * tutorial hints show. Set on every `hello`, so the shared world's after a
+   * handoff clears it; a server from before the key never sets it.
+   */
+  static firstRun: boolean = false
 
   /** Rolling window of observed gaps between update packets, in ms. */
   private static readonly _gaps: number[] = []
   private static _lastArrival: number = 0
   private static _p95: number = 250
 
-  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown, skills?: unknown }): void {
+  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown, skills?: unknown, firstRun?: unknown }): void {
     Session.skills = helloSkills(data?.skills)
+    Session.firstRun = data?.firstRun === true
     if (typeof data?.tick === 'number' && data.tick > 0) Session.tickMs = data.tick
     if (typeof data?.map === 'number' && data.map > 0) Session.mapSize = data.map
     if (typeof data?.interest === 'number' && data.interest > 0) Session.interestRadius = data.interest

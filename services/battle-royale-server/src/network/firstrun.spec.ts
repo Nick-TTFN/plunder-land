@@ -357,6 +357,10 @@ test('the handoff: a shared world on layer 0 at a spawn 6+ cells from every mob,
   // `handoff`, then the new world's hello, in that order, and no lobby.
   const order = client.emitted.map(([e]) => e).filter((e) => e === 'handoff' || e === 'hello')
   assert.deepEqual(order, ['hello', 'handoff', 'hello'])
+  // The tutorial hints' flag: on the private world's hello only.
+  const hellos = client.events('hello') as Array<{ firstRun?: boolean }>
+  assert.equal(hellos[0].firstRun, true)
+  assert.equal('firstRun' in hellos[1], false)
   World.run(shared, () => {
     assert.equal(next.tag, World.TAGS[0], 'not on layer 0')
     const cell = Hex.toCell(next.position)

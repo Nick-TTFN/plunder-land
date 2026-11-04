@@ -10,6 +10,9 @@ import { Game } from '../../game'
 import { SETTINGS, normaliseKey } from '../../net/settings'
 import { SettingsPanel } from '../settings/settingspanel'
 import { type GearInstance } from '../../utils/gear'
+import { Session } from '../../net/session'
+import { Aim } from '../../skills/aim'
+import { RangedAttack } from '../../skills/rangedattack'
 
 const MINIMAP = 200
 
@@ -244,7 +247,10 @@ export class HUD extends Container {
     this.status?.update()
     this.status?.inventory.tick(performance.now())
     this.clock?.update()
-    this.skills?.update(performance.now())
+    // First-run tutorial hint: the ranged card pulses while auto-aim has a
+    // target (the first rock onwards), so the first press is the right one.
+    const hint = Session.firstRun && Aim.target !== undefined
+    this.skills?.update(performance.now(), hint ? (skill) => skill instanceof RangedAttack : undefined)
     this.layers?.setCurrent(Game.PLAYER?.tag)
   }
 

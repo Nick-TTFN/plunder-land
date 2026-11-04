@@ -18,6 +18,8 @@ export class SkillCard extends Container {
   private _readyAt = 0
   private _cardCooldownMs = 0
   private _sweep: CooldownSweep | undefined
+  /** The tutorial hint's outline (`setHint`), made on first use. */
+  private _hint: Graphics | undefined
   private readonly _status: Text
   private readonly _icon: Sprite | undefined
   private _shown = ''
@@ -118,6 +120,28 @@ export class SkillCard extends Container {
     this._readyAt = now + this._cardCooldownMs
   }
 
+  /**
+   * The first run's tutorial hint (decision #58): a pulsing outline around
+   * the card while `on` and the skill is ready; hidden during its cooldown so
+   * it blinks only when a press will fire.
+   */
+  setHint (on: boolean, now: number): void {
+    const show = on && this.skill !== null && now >= this._readyAt
+    if (!show) {
+      if (this._hint !== undefined) this._hint.visible = false
+      return
+    }
+    if (this._hint === undefined) {
+      this._hint = new Graphics()
+        .lineStyle(3, THEME.accent, 1)
+        .drawRoundedRect(-3, -3, CARD_W + 6, CARD_H + 6, 8)
+      this.addChild(this._hint)
+    }
+    this._hint.visible = true
+    // About 1.25 pulses a second, never fully gone.
+    this._hint.alpha = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(now / 1000 * Math.PI * 2.5))
+  }
+
   update (now: number): void {
     if (this.skill === null || this._icon === undefined) return
     const left = this._readyAt - now
@@ -164,7 +188,11 @@ export class SkillPanel extends Panel {
     this.fit()
   }
 
-  update (now: number): void {
-    for (const card of this.cards) card.update(now)
+  /** `hint` picks the skills whose cards pulse (the first run's tutorial); undefined, none. */
+  update (now: number, hint?: (skill: Skill) => boolean): void {
+    for (const card of this.cards) {
+      card.update(now)
+      card.setHint(hint !== undefined && card.skill !== null && hint(card.skill), now)
+    }
   }
 }

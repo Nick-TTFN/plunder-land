@@ -593,6 +593,10 @@ export default class Multiplayer {
       // asked for. Slot i of it is what a `skill` press of i runs. A client
       // that finds no key here plays the legacy eight (a server before this).
       skills: [...player.skillIds],
+      // A private first run (decision #58): the client shows its tutorial
+      // hints (the ranged card pulses at a target). Additive and only when
+      // true; the shared world's hello after a handoff has no key.
+      ...(World.current.firstRun ? { firstRun: true } : {}),
       // Only to a client that asked: it now gets one frame per tick. Sent in
       // the same engine.io stream as that frame, so it always arrives first.
       ...(connection.framed ? { frames: Multiplayer.FRAME_VERSION } : {})

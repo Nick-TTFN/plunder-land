@@ -96,6 +96,9 @@ flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every re
   tickbench), heap ~0.10 MB and RSS ~0.21-0.25 MB per first run. `tools/load/firstrunbench.cjs`.
   Beck's scripted perfect walker (`tools/load/firstrunwalk.cjs`) reaches the pad in ~14 s against
   Dez's 45-60 s target (open for Dez).
+- **Tutorial hint:** while `Session.firstRun` (`hello.firstRun`) and auto-aim has a target (the
+  first rock onwards), the ranged skill card pulses an accent outline, only while it's ready
+  (`HUD.update`, `SkillCard.setHint`). Gone after the handoff.
 - **Known:** an AFK player in a first-run world can't die and nothing idles it out: the world
   stays open for the tab's life, counts toward `FIRST_RUN_CAP` and holds a drain for the full
   `DRAIN_MAX_MS`. An idle limit is Nick's call (retest-4 review).
