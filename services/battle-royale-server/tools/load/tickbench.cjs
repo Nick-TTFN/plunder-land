@@ -10,6 +10,14 @@
 //   ROBOT=<key>  every player joins as that robot (peep, periscope, magnet,
 //                hopper, waddle); ROBOT=mix cycles through all five. Default:
 //                none sent, so Peep, as before the option existed.
+//   INPUT=stick  every player steers like the joystick at its worst rate
+//                (decision #59, mobile-2): a new 12-sector bin every tick,
+//                so one route to the farthest free cell up to 3 out along it
+//                (the client's input/stick.ts rule, copied) sent through the
+//                real 'pointer' handler, every player, every tick. The same
+//                Math.random draws as the default input are still made, so
+//                the world's RNG stays in step until the players' moves differ.
+//                Default: the old input, a random route for 5% a tick.
 //   GEAR=<n>     every player equips n (0-2) max-roll T3 skill items before
 //                the first tick (decision #49, 49-2): Fireball with damage and
 //                hp, Icicle with speed and armor, at q 1000, so stats are at
@@ -18,7 +26,9 @@
 // kbPerClientTick is the mean framed bytes written per player per tick over
 // the same last 300 ticks (uncompressed: the fake socket has no deflate), and
 // periscopeKbPerTick the same for the Periscopes alone (null without any).
-// tickMsPerTick is world update + flush; pickupPassMsPerTick is World.pickupPass
+// inputMsPerTick is the input's routing (setWaypoints, or the 'pointer'
+// handler for INPUT=stick) over the same last 300 ticks, which is outside
+// tickMsPerTick. tickMsPerTick is world update + flush; pickupPassMsPerTick is World.pickupPass
 // inclusive, pickupPassSelfMsPerTick the same less its Multiplayer.update
 // calls (pickupPassCallsPerTick of them), all over the same last 300 ticks.
 //
@@ -43,6 +53,7 @@ const N = Number(process.env.N ?? 400)
 const ROBOTS = ['peep', 'periscope', 'magnet', 'hopper', 'waddle']
 const robotOf = (i) => process.env.ROBOT === 'mix' ? ROBOTS[i % ROBOTS.length] : process.env.ROBOT
 const players = []
+const handlers = []
 const written = new Array(N).fill(0)
 let counting = false
 for (let i = 0; i < N; i++) {
@@ -50,6 +61,7 @@ for (let i = 0; i < N; i++) {
   const write = (data) => { if (counting) written[i] += data.length ?? data.byteLength ?? 0 }
   const socket = { id: 's' + i, handshake: { query: { frames: '1' } }, on: (e, cb) => { h[e] = cb }, emit: () => true, conn: { write } }
   mp.onConnect(socket)
+  handlers.push(h)
   const start = { id: (0xabc000 + i).toString(16), name: 'b' + i }
   if (robotOf(i) !== undefined) start.robot = robotOf(i)
   h.start_requested(start)
@@ -79,13 +91,51 @@ Multiplayer.prototype.update = function (o) {
 let pass = 0; let tickMs = 0
 const origPass = World.pickupPass
 World.pickupPass = function (dt) { const t = performance.now(); inPass = true; try { return origPass.call(this, dt) } finally { inPass = false; pass += performance.now() - t } }
+const STICK = process.env.INPUT === 'stick'
+const STICK_CELLS = 3
+let stickRoutes = 0
+// The routing cost of the input, outside the tick (a real server pays it on the same thread).
+let inputMs = 0
+let stickSeq = 1
+/** The joystick's target (client input/stick.ts stickTarget), copied: farthest free cell on the line. */
+function stickTarget (p, sector) {
+  const from = p.cell
+  const at = Hex.toPosition(from)
+  const angle = sector * Math.PI / 6
+  const far = Hex.SIZE * 8 * STICK_CELLS
+  const toward = Hex.toCell(new Vector(at.x + Math.cos(angle) * far, at.y + Math.sin(angle) * far))
+  const line = Hex.line(from, toward, STICK_CELLS)
+  let target
+  for (let i = 1; i < line.length; i++) {
+    if (World.isBlocked(line[i].x, line[i].y, p.tag)) break
+    target = line[i]
+  }
+  return target
+}
 const t0 = performance.now()
 for (let tick = 0; tick < 400; tick++) {
-  for (const p of players) {
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i]
     if (p.destroyed || p.exited) continue
     if (Math.random() < 0.05) {
       const c = p.cell; const tq = c.x + Math.floor(Math.random() * 17) - 8; const tr = c.y + Math.floor(Math.random() * 17) - 8
-      if (Hex.onMap(tq, tr, World.mapSize) && !World.isBlocked(tq, tr, p.tag)) p.setWaypoints([new Vector(tq, tr)])
+      if (!STICK && Hex.onMap(tq, tr, World.mapSize) && !World.isBlocked(tq, tr, p.tag)) {
+        const t = performance.now()
+        p.setWaypoints([new Vector(tq, tr)])
+        if (tick >= 100) inputMs += performance.now() - t
+      }
+    }
+    if (STICK) {
+      const target = stickTarget(p, (tick + i) % 12)
+      if (target === undefined) continue
+      const buf = Buffer.alloc(7)
+      buf.writeUInt8(1, 0); buf.writeInt16BE(target.x, 1); buf.writeInt16BE(target.y, 3)
+      stickSeq = (stickSeq + 1) & 0xffff || 1
+      buf.writeUInt16BE(stickSeq, 5)
+      const t = performance.now()
+      handlers[i].pointer(buf)
+      if (tick >= 100) inputMs += performance.now() - t
+      if (tick >= 100) stickRoutes++
     }
   }
   if (tick === 100) { upd = 0; calls = 0; pass = 0; passUpd = 0; passCalls = 0; tickMs = 0; counting = true }
@@ -98,4 +148,4 @@ const kbOf = (list) => list.length === 0 ? null : +(list.reduce((a, i) => a + wr
 const all = players.map((_, i) => i)
 const scopes = all.filter((i) => players[i].archetype.key === 'periscope')
 const kb = players.filter((p) => !p.destroyed).map((p) => p.knownBy.size); const moving = players.filter((p) => p.path.length > 0).length
-console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', gear: GEAR, gearApplied, tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))
+console.log(JSON.stringify({ avgHolders: +(kb.reduce((a, b) => a + b, 0) / kb.length).toFixed(1), moving, players: World.PLAYERS.length, bcastMsPerTick: +(upd / 300).toFixed(3), callsPerTick: +(calls / 300).toFixed(0), wallMsPerTick: +((performance.now() - t0) / 400).toFixed(2), robot: process.env.ROBOT ?? 'peep', input: STICK ? 'stick' : 'random', stickRoutesPerTick: +(stickRoutes / 300).toFixed(0), inputMsPerTick: +(inputMs / 300).toFixed(3), gear: GEAR, gearApplied, tickMsPerTick: +(tickMs / 300).toFixed(3), pickupPassMsPerTick: +(pass / 300).toFixed(3), pickupPassSelfMsPerTick: +((pass - passUpd) / 300).toFixed(3), pickupPassCallsPerTick: +(passCalls / 300).toFixed(0), kbPerClientTick: kbOf(all), periscopeKbPerTick: kbOf(scopes) }))

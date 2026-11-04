@@ -278,6 +278,33 @@ export class LocalPlayer {
   }
 
   /**
+   * Stop at the next cell: the joystick's release (decision #59, mobile-2).
+   * The route becomes the one cell we are walking into, `path[pathIndex]`,
+   * and that cell is the one waypoint the next packet sends. Standing (no
+   * path): nothing changes, so nothing new is sent.
+   *
+   * **Never a bare stop (count 0).** The server is behind the prediction, and
+   * once the client has rounded into that cell a `repath` here would find an
+   * empty path, clear the waypoints and send count 0, which stops the server a
+   * cell short. So the path and the waypoint are set directly, with no search:
+   * `_step` walks the last stretch to the centre, and the server routes to the
+   * same cell from wherever it is (`Unit.repath`; already in it, it stops
+   * there), so both end on the same cell.
+   *
+   * Leaves `_step`, `repath` and `knockback` alone (CLAUDE.md, the mirror
+   * traps). A dash in progress keeps its `dashLeft`, as the server's re-route
+   * keeps its own.
+   */
+  cutToNextCell (): void {
+    if (this.path.length === 0 || this.pathIndex >= this.path.length) return
+    const next = this.path[this.pathIndex]
+    this.path = [next]
+    this.pathIndex = 0
+    this.waypoints = [new Vector(next.x, next.y)]
+    this._held = undefined
+  }
+
+  /**
    * Rebuild the route through the waypoints, one leg at a time.
    *
    * Mirrors `Unit.repath`, including stopping at the first leg that cannot be

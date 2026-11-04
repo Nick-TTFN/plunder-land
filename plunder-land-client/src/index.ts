@@ -21,8 +21,12 @@ import { SETTINGS, densityFor, loadSettings } from './net/settings'
 import { Session } from './net/session'
 import { Sfx } from './audio/sfx'
 import { INTERVAL_MS, TIMEOUT_MS } from './net/latency'
+import { INPUT_MODE, installInputMode } from './input/inputmode'
+import { STICK_DEAD_ZONE, StickSteer, steer } from './input/stick'
 
 initErrorReporting()
+// Touch mode (decision #59): from the pointer type, then from every press.
+installInputMode()
 // Before anything reads them: the renderer's density, the HUD's keys.
 loadSettings(localTokenStorage())
 // Audio starts on the first press (browsers' rule); the menus click by delegation.
@@ -275,6 +279,14 @@ function onConnect (): void {
     // it. A click is a route.
     app.stage.on('pointerdown', onPointerDown)
     app.stage.on('pointerup', onPointerUp)
+    // The joystick (touch mode, decision #59): its moves from every pointer
+    // move, wherever it is; its release from the window, so a thumb lifted
+    // off the canvas or a cancelled touch still releases it.
+    app.stage.on('globalpointermove', onStickMove)
+    window.addEventListener('pointerup', onStickUp, true)
+    window.addEventListener('pointercancel', onStickUp, true)
+    // A switch of mode mid-drag drops the stick and stops, as a release.
+    INPUT_MODE.listeners.add(() => { releaseStick(true) })
 
     window.addEventListener('resize', onResize)
 
@@ -295,13 +307,23 @@ function onConnect (): void {
   onResize()
 }
 
-function onPointerDown (event: { shiftKey?: boolean, target?: unknown, data: { buttons: number, global: { x: number, y: number } } }): void {
+function onPointerDown (event: { shiftKey?: boolean, target?: unknown, pointerId?: number, data: { buttons: number, global: { x: number, y: number } } }): void {
   // Only a press that landed on the world is a move order. pixi dispatches to
   // whatever is under the pointer and then bubbles up to the stage, so a press
   // on a skill button arrived here too and walked the player in under the HUD -
   // one tap, two unrelated things. The stage is the target only when nothing
   // interactive was hit, which is exactly the world.
   if (event.target !== undefined && event.target !== app.stage) return
+
+  // Touch mode (decision #59): the joystick is the only way to move. A press
+  // in its zone puts the stick under the thumb; any other press on the world
+  // does nothing (no tap-to-move). The mode was already set from this press
+  // (input/inputmode.ts, capture phase).
+  if (INPUT_MODE.touch) {
+    if (Game.PLAYER === undefined || event.pointerId === undefined) return
+    if (Game.hud.joystick.tryStart(event.pointerId, event.data.global.x, event.data.global.y)) _stick.release()
+    return
+  }
 
   // A press on an enemy is a move order like any other: auto-aim picks the
   // target, a tap never does. Deliberate: #59 reverses #58 addendum 2's
@@ -334,10 +356,51 @@ function updatePointer (event: { data: { buttons: number, global: { x: number, y
 }
 
 function onPointerUp (): void {
-  // Nothing to do. Releasing does not stop you - a destination is a commitment
-  // rather than a key being held down, which is the whole difference between
-  // click-to-move and the joystick it replaced. Kept as a handler so the stage
-  // still consumes the event.
+  // Nothing to do for click-to-move. Releasing does not stop you - a
+  // destination is a commitment rather than a key being held down. Kept as a
+  // handler so the stage still consumes the event. The joystick's release is
+  // `onStickUp`.
+}
+
+/** The joystick's steering: its bin and its once-a-tick re-target cap (input/stick.ts). */
+const _stick = new StickSteer()
+
+/**
+ * A move of any pointer: if it is the stick's, its deflection becomes a world
+ * angle (through the camera, so the tilt is undone as for a click), or none
+ * inside the dead zone, which stops at the next cell as a release does.
+ * Routing happens in `frame`, at most once a tick.
+ */
+function onStickMove (event: { pointerId: number, global: { x: number, y: number } }): void {
+  const stick = Game.hud?.joystick
+  if (stick === undefined || stick.pointerId !== event.pointerId) return
+  const d = stick.move(event.pointerId, event.global.x, event.global.y)
+  if (d === undefined || Game.PLAYER === undefined) return
+  if (Math.sqrt(d.dx * d.dx + d.dy * d.dy) < STICK_DEAD_ZONE) {
+    if (_stick.aim(undefined)) Game.LOCAL.cutToNextCell()
+    return
+  }
+  const origin = Game.CONTAINER.toLocal(new Point(0, 0))
+  const toward = Game.CONTAINER.toLocal(new Point(d.dx, d.dy))
+  _stick.aim(Math.atan2(toward.y - origin.y, toward.x - origin.x))
+}
+
+/** A pointer is up or cancelled: if it is the stick's, stop at the next cell. */
+function onStickUp (event: PointerEvent): void {
+  if (Game.hud?.joystick.pointerId !== event.pointerId) return
+  releaseStick(true)
+}
+
+/**
+ * Let go of the stick. `stop` cuts the route to the next cell
+ * (`LocalPlayer.cutToNextCell`): the release rule, **never a bare stop**.
+ * Without it (no run any more) the stick is only put down.
+ */
+function releaseStick (stop: boolean): void {
+  const held = Game.hud?.joystick.end() ?? false
+  const steering = _stick.sector !== undefined
+  _stick.release()
+  if (stop && (held || steering) && Game.PLAYER !== undefined) Game.LOCAL.cutToNextCell()
 }
 
 let _prevTime = 0
@@ -352,8 +415,15 @@ function frame (): void {
   // One input per server tick, four bytes, instead of one JSON object per
   // pointermove against a reader that samples once a tick.
   if (Game.PLAYER !== undefined) {
-    const input = Game.LOCAL.sample(performance.now())
+    const at = performance.now()
+    // A held stick re-targets here, not only on a move, so it keeps walking
+    // and resumes after a knockback or a hop; at most once a tick (`steer`).
+    if (Game.hud.joystick.pointerId !== undefined) steer(Game.LOCAL, _stick, at, Session.tickMs, (q, r) => Game.blocksLocal(q, r))
+    const input = Game.LOCAL.sample(at)
     if (input !== null) Game.socket.emit('pointer', input)
+  } else if (Game.hud?.joystick.pointerId !== undefined) {
+    // The run is over under the thumb: put the stick down, nothing to stop.
+    releaseStick(false)
   }
 
   if (_prevTime !== 0) {

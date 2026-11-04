@@ -13,6 +13,9 @@ import { type GearInstance } from '../../utils/gear'
 import { Session } from '../../net/session'
 import { Aim } from '../../skills/aim'
 import { RangedAttack } from '../../skills/rangedattack'
+import { Joystick } from './joystick'
+import { INPUT_MODE } from '../../input/inputmode'
+import { SAFE_AREA, refreshSafeArea } from '../safearea'
 
 const MINIMAP = 200
 
@@ -40,11 +43,17 @@ export class HUD extends Container {
   skills: SkillPanel | undefined
   layers: LayersPanel | undefined
   readonly legend = new FogLegend()
+  /** The left-thumb joystick (decision #59, mobile-2): shown in touch mode during a run. */
+  readonly joystick = new Joystick()
 
   constructor () {
     super()
     HUD.Instance = this
+    // First, so every panel draws over it.
+    this.addChild(this.joystick)
     this.addChild(this.legend)
+    // Controls follow touch mode (input/inputmode.ts), so a switch re-lays the HUD.
+    INPUT_MODE.listeners.add(() => { this.updateLayout() })
     window.addEventListener('keydown', this.onKeyDown.bind(this), false)
     window.addEventListener('resize', this.updateLayout.bind(this))
     this.updateLayout()
@@ -210,6 +219,23 @@ export class HUD extends Container {
       // right edge on any screen smaller than 1600 x 900.
       place(this.legend, W - this.legend.getLocalBounds().width * s - m, this.layers.y - 40 * s)
     }
+
+    // The joystick's zone: the left 45% of the screen, under the top HUD band
+    // (the status panel; the clock is centred or in the right corner), inside
+    // the safe area. Its ghost rests bottom left. A press on a panel in the
+    // zone (the skill cards today) hits the panel, never the stage, so it
+    // never starts the stick.
+    refreshSafeArea()
+    const statusBottom = this.status !== undefined ? m + this.status.panelHeight * s : 0
+    const top = Math.max(SAFE_AREA.top, statusBottom)
+    const left = SAFE_AREA.left
+    const bottom = H - SAFE_AREA.bottom
+    this.joystick.layout(
+      { x: left, y: top, width: Math.max(0, W * 0.45 - left), height: Math.max(0, bottom - top) },
+      left + Joystick.INSET,
+      bottom - Joystick.INSET,
+      INPUT_MODE.touch && this.status !== undefined
+    )
   }
 
   onKeyDown (e: { key: string }): void {
@@ -264,5 +290,6 @@ export class HUD extends Container {
     this.skills = undefined
     this.layers = undefined
     this.controlsMap.clear()
+    this.updateLayout()
   }
 }
