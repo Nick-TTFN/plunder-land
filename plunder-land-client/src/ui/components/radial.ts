@@ -164,14 +164,21 @@ class ItemButton extends RoundButton {
 /** Gear key 3 or 4: drives its `GearSlot` (cooldown, cast), the long press shows the item's lines. */
 class GearButton extends RoundButton {
   private _item: GearInstance | null | undefined
+  private readonly _tip: { cancel: () => void }
 
   constructor (readonly gear: GearSlot, size: number) {
     super(size, () => { gear.tap() })
-    addItemTip(this, size, () => gear.lines())
+    this._tip = addItemTip(this, size, () => gear.lines())
     // On top of its neighbours while pressed or hovered, so its tip is too.
     const raise = (): void => { this.parent?.setChildIndex(this, this.parent.children.length - 1) }
     this.on('pointerdown', raise)
     this.on('pointerover', raise)
+  }
+
+  /** A thumb may still be on it (a rebind at a run's end or start): stop its long press first. */
+  destroy (options?: Parameters<Container['destroy']>[0]): void {
+    this._tip.cancel()
+    super.destroy(options)
   }
 
   update (now: number): void {

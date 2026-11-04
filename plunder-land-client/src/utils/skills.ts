@@ -54,12 +54,14 @@ export const LOADOUT_SIZE = 4
 
 /**
  * Every account's loadout until it saves one, and whatever a join falls back
- * to: Q Dash, W Ranged, E and R empty. Melee unlocks at level 2 and Defend at
- * 3 (#58 addendum 2, Q7: Melee left the start kit so a new player learns
- * ranged and Dash first). A newly unlocked skill is not slotted for the
- * player (Q8 rejected); they equip it in the loadout panel.
+ * to: Q Ranged, W Dash, E and R empty. Ranged is slot 1 so it is the touch
+ * radial's large primary at the start (#59, Nick 2026-11-05; Q Dash, W Ranged
+ * before). Only a default: a saved loadout is never rewritten. Melee unlocks
+ * at level 2 and Defend at 3 (#58 addendum 2, Q7: Melee left the start kit so
+ * a new player learns ranged and Dash first). A newly unlocked skill is not
+ * slotted for the player (Q8 rejected); they equip it in the loadout panel.
  */
-export const START_KIT: readonly number[] = Object.freeze([1, 3, 0, 0])
+export const START_KIT: readonly number[] = Object.freeze([3, 1, 0, 0])
 
 /** Loadouts per robot, by account level (Dez section 3). */
 export const LOADOUT_SLOTS: ReadonlyArray<{ readonly level: number, readonly slots: number }> = Object.freeze([

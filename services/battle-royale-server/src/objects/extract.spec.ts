@@ -674,9 +674,10 @@ test('a held click is dropped by a stop, so it never survives into the next run'
 // apart while one has dashed and the other has not, and identical again once
 // both are past it.
 
-/** The server's Dash skill, pressed as a socket handler would (slot 0). */
+/** The server's Dash skill, pressed as a socket handler would (slot 1 of the start kit). */
 function serverDash (player: Player): boolean {
-  return player.skills[0].execute() as unknown as boolean
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged (slot 0)
+  return player.skills[1].execute() as unknown as boolean
 }
 
 for (const late of [1, 2]) {

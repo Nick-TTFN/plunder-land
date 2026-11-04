@@ -312,9 +312,10 @@ test('a Ranged hit from a damage-capped player deals 12 x 1.12, floored, through
   const target = new Unit(ObjectType.Mob, HOME.x + 2 * Hex.SIZE, HOME.y, 10, 0)
   target.hp = 1000
   World.MOBS.push(target)
-  // Kit slot 1 is Ranged (START_KIT, #58 Q7); no aim fires along facing, east.
-  assert.equal(shooter.skillIds[1], RANGED)
-  shooter.tryExecuteSkill(1)
+  // Kit slot 0 is Ranged (START_KIT); no aim fires along facing, east.
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged (slot 1)
+  assert.equal(shooter.skillIds[0], RANGED)
+  shooter.tryExecuteSkill(0)
   assert.equal(1000 - target.hp, Math.floor(12 * 1.12))
   assert.equal(1000 - target.hp, 13)
 })

@@ -50,8 +50,9 @@ test('SKILL_INFO: ids, keys and unlock levels are Dez\'s section 3, Melee at 2 a
 })
 
 // DELIBERATE CHANGE (#58 addendum 2, Q7): was Q Dash, W Melee, E Ranged.
-test('START_KIT is Q Dash, W Ranged, E and R empty; 4 slots; loadouts 1/2/3/4 at levels 1/10/15/20', () => {
-  assert.deepEqual([...START_KIT], [1, 3, 0, 0])
+// DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+test('START_KIT is Q Ranged, W Dash, E and R empty; 4 slots; loadouts 1/2/3/4 at levels 1/10/15/20', () => {
+  assert.deepEqual([...START_KIT], [3, 1, 0, 0])
   assert.ok(Object.isFrozen(START_KIT))
   assert.equal(LOADOUT_SIZE, 4)
   assert.deepEqual(LOADOUT_SLOTS.map((r) => [r.level, r.slots]), [[1, 1], [10, 2], [15, 3], [20, 4]])
@@ -60,7 +61,8 @@ test('START_KIT is Q Dash, W Ranged, E and R empty; 4 slots; loadouts 1/2/3/4 at
   for (const [level, slots] of expected) assert.equal(loadoutSlotsAt(level), slots, `level ${level}`)
   assert.deepEqual([0, 1, 2, 3, 4].map(loadoutLevel), [1, 10, 15, 20, undefined])
   // The start kit is valid at level 1: everyone can play it.
-  assert.deepEqual(checkLoadout(START_KIT, 1), [1, 3, 0, 0])
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(checkLoadout(START_KIT, 1), [3, 1, 0, 0])
 })
 
 // --- checkLoadout -----------------------------------------------------------------
@@ -99,7 +101,8 @@ test('checkLoadout: the one rule, and it returns a fresh copy', () => {
 
 test('kitFor: the stored row checked at the account\'s level now, else the whole start kit', () => {
   const row = (robot: string, index: number, skills: unknown): Account['loadouts'][number] => ({ robot, index, skills: skills as number[] })
-  const KIT = [1, 3, 0, 0]
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  const KIT = [3, 1, 0, 0]
   assert.deepEqual(kitFor(undefined, 'peep', 0), KIT, 'no account')
   assert.deepEqual(kitFor({ ...account(at(20), [row('peep', 0, [4, 1, 2, 3])]), persisted: false }, 'peep', 0), KIT, 'offline')
   assert.deepEqual(kitFor(account(at(3), [row('peep', 0, [4, 1, 2, 3])]), 'peep', 0), [4, 1, 2, 3])
@@ -164,9 +167,10 @@ test('loadoutsFor: every selectable robot, as many loadouts as the level has, ea
   const out = loadoutsFor(saved)
   assert.deepEqual(Object.keys(out), [...SELECTABLE_ROBOTS])
   for (const robot of SELECTABLE_ROBOTS) assert.equal(out[robot].length, 2)
-  assert.deepEqual(out.peep, [[1, 3, 0, 0], [4, 6, 0, 1]])
-  assert.deepEqual(out.magnet, [[1, 3, 0, 0], [1, 3, 0, 0]])
-  assert.deepEqual(loadoutsFor(account(0)).hopper, [[1, 3, 0, 0]])
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(out.peep, [[3, 1, 0, 0], [4, 6, 0, 1]])
+  assert.deepEqual(out.magnet, [[3, 1, 0, 0], [3, 1, 0, 0]])
+  assert.deepEqual(loadoutsFor(account(0)).hopper, [[3, 1, 0, 0]])
   // Locked robots stay, with their stored rows (#48 step 5): at level 1 all
   // five, and a Waddle row saved before locks is what Waddle will play once
   // it opens, not the start kit.
@@ -236,17 +240,18 @@ test('client tabs and the remembered index: locked tabs say the level, and a loc
 
 test('client account.loadouts and loadout_saved: parse, read, merge; busy changes nothing', () => {
   const loadouts = parseLoadouts({ peep: [[4, 1, 2, 3], 'bad'], magnet: 'bad' })
-  assert.deepEqual(loadouts, { peep: [[4, 1, 2, 3], [1, 3, 0, 0]] })
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged (every start-kit literal in this test)
+  assert.deepEqual(loadouts, { peep: [[4, 1, 2, 3], [3, 1, 0, 0]] })
   assert.equal(parseLoadouts(undefined), undefined)
   assert.equal(parseLoadouts([]), undefined)
   assert.deepEqual(loadoutOf(loadouts, 'peep', 0), [4, 1, 2, 3])
-  assert.deepEqual(loadoutOf(loadouts, 'peep', 3), [1, 3, 0, 0], 'a missing loadout is the start kit')
-  assert.deepEqual(loadoutOf(loadouts, 'hopper', 0), [1, 3, 0, 0], 'a missing robot is the start kit')
-  assert.deepEqual(withLoadout(undefined, 'hopper', 2, [3, 0, 0, 0]), { hopper: [[1, 3, 0, 0], [1, 3, 0, 0], [3, 0, 0, 0]] })
+  assert.deepEqual(loadoutOf(loadouts, 'peep', 3), [3, 1, 0, 0], 'a missing loadout is the start kit')
+  assert.deepEqual(loadoutOf(loadouts, 'hopper', 0), [3, 1, 0, 0], 'a missing robot is the start kit')
+  assert.deepEqual(withLoadout(undefined, 'hopper', 2, [3, 0, 0, 0]), { hopper: [[3, 1, 0, 0], [3, 1, 0, 0], [3, 0, 0, 0]] })
 
   const answer = parseSaved({ robot: 'peep', index: 0, ok: false, skills: [1, 2, 3, 0] })
   assert.deepEqual(answer, { robot: 'peep', index: 0, ok: false, busy: false, skills: [1, 2, 3, 0] })
-  assert.deepEqual(mergeSaved(loadouts, answer as NonNullable<typeof answer>).peep, [[1, 2, 3, 0], [1, 3, 0, 0]], 'a refusal snaps back')
+  assert.deepEqual(mergeSaved(loadouts, answer as NonNullable<typeof answer>).peep, [[1, 2, 3, 0], [3, 1, 0, 0]], 'a refusal snaps back')
   const busy = parseSaved({ robot: 'peep', index: 0, ok: false, busy: true, skills: [1, 2, 3, 0] })
   assert.deepEqual(mergeSaved(loadouts, busy as NonNullable<typeof busy>), loadouts, 'busy moved a loadout')
   for (const bad of [null, {}, { robot: 'peep', index: 0, ok: true }, { robot: 'peep', index: -1, ok: true, skills: [1, 2, 3, 0] }]) {

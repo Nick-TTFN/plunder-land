@@ -258,13 +258,15 @@ test('the account\'s level decides, never Unit.level: level 3 plays Defend, leve
   expectKit(b.client, b.player, START_KIT, 'level 2')
 })
 
-test('a level-1 account joins with Dash and Ranged; a stored row holding Melee plays the start kit until level 2, then itself (#58 Q7)', async () => {
+test('a level-1 account joins with Ranged and Dash; a stored row holding Melee plays the start kit until level 2, then itself (#58 Q7)', async () => {
   const store = new SaveStore()
   const worlds = makeWorlds(store)
   const fresh = await accountAt(store, 1)
   const a = await join(worlds, fresh.token, { robot: 'peep', loadout: 0 })
-  expectKit(a.client, a.player, [1, 3, 0, 0], 'a new account')
-  assert.deepEqual(a.player.skills.map((skill) => skill?.constructor.name ?? null), ['Dash', 'RangedAttack', null, null])
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  expectKit(a.client, a.player, [3, 1, 0, 0], 'a new account')
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(a.player.skills.map((skill) => skill?.constructor.name ?? null), ['RangedAttack', 'Dash', null, null])
 
   // A row saved when Melee was a level-1 skill: refused whole at level 1,
   // never deleted, and played as stored from level 2 (48-4).
@@ -282,7 +284,8 @@ test('a level-1 account joins with Dash and Ranged; a stored row holding Melee p
   await settle()
   saver.handlers.save_loadout({ robot: 'peep', index: 0, skills: [2, 3, 1, 0] })
   await settle()
-  assert.deepEqual(saver.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [1, 3, 0, 0] })
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(saver.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [3, 1, 0, 0] })
   const two = new Client('two', { token: later.token })
   two.connection = worlds.onConnection(two.socket)
   await settle()
@@ -434,7 +437,8 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
   none.connection = worlds.onConnection(none.socket)
   await settle()
   none.handlers.save_loadout({ robot: 'peep', index: 0, skills: [1, 2, 3, 0] })
-  assert.deepEqual(none.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [1, 3, 0, 0] })
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(none.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [3, 1, 0, 0] })
 
   // Offline.
   const down = new SaveStore()
@@ -445,7 +449,8 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
   await settle()
   assert.equal(off.connection.account?.persisted, false)
   off.handlers.save_loadout({ robot: 'peep', index: 0, skills: [1, 2, 3, 0] })
-  assert.deepEqual(off.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [1, 3, 0, 0] })
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(off.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [3, 1, 0, 0] })
   assert.deepEqual(down.saves, [])
 
   const { token } = await accountAt(store, 9, [['peep', 0, [2, 3, 0, 0]]])
@@ -453,9 +458,12 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
   client.connection = worlds.onConnection(client.socket)
   await settle()
   const refusals: Array<[string, unknown, unknown]> = [
-    ['an unknown robot', { robot: 'grunt', index: 0, skills: [1, 2, 3, 0] }, [1, 3, 0, 0]],
-    ['a non-string robot', { robot: 7, index: 0, skills: [1, 2, 3, 0] }, [1, 3, 0, 0]],
-    ['index 1 at level 9', { robot: 'peep', index: 1, skills: [1, 2, 3, 0] }, [1, 3, 0, 0]],
+    // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+    ['an unknown robot', { robot: 'grunt', index: 0, skills: [1, 2, 3, 0] }, [3, 1, 0, 0]],
+    // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+    ['a non-string robot', { robot: 7, index: 0, skills: [1, 2, 3, 0] }, [3, 1, 0, 0]],
+    // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+    ['index 1 at level 9', { robot: 'peep', index: 1, skills: [1, 2, 3, 0] }, [3, 1, 0, 0]],
     ['a locked skill', { robot: 'peep', index: 0, skills: [8, 1, 2, 3] }, [2, 3, 0, 0]],
     ['a duplicate', { robot: 'peep', index: 0, skills: [1, 1, 2, 3] }, [2, 3, 0, 0]],
     ['an unknown id', { robot: 'peep', index: 0, skills: [9, 1, 2, 3] }, [2, 3, 0, 0]],
@@ -465,7 +473,8 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
     ['a string id', { robot: 'peep', index: 0, skills: ['1', 2, 3, 0] }, [2, 3, 0, 0]],
     ['a negative', { robot: 'peep', index: 0, skills: [-1, 2, 3, 0] }, [2, 3, 0, 0]],
     ['all empty', { robot: 'peep', index: 0, skills: [0, 0, 0, 0] }, [2, 3, 0, 0]],
-    ['not an object', 'peep', [1, 3, 0, 0]]
+    // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+    ['not an object', 'peep', [3, 1, 0, 0]]
   ]
   for (const [why, data, skills] of refusals) {
     client.handlers.save_loadout(data)
@@ -488,7 +497,8 @@ test('save_loadout: a save for a locked robot is refused; a valid save is stored
   await settle()
   early.handlers.save_loadout({ robot: 'hopper', index: 0, skills: [5, 4, 0, 1] })
   await settle()
-  assert.deepEqual(early.last('loadout_saved'), { robot: 'hopper', index: 0, ok: false, skills: [1, 3, 0, 0] })
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(early.last('loadout_saved'), { robot: 'hopper', index: 0, ok: false, skills: [3, 1, 0, 0] })
   assert.deepEqual(store.saves, [], 'a save for a locked robot reached the store')
   assert.deepEqual((await store.inner.resolve(seven.token))?.loadouts, [])
 
@@ -517,7 +527,8 @@ test('save_loadout: one write in flight per connection; a second meanwhile is bu
   store.gate = new Promise((resolve) => { open = resolve })
   client.handlers.save_loadout({ robot: 'peep', index: 0, skills: [5, 0, 0, 0] })
   client.handlers.save_loadout({ robot: 'peep', index: 0, skills: [4, 0, 0, 0] })
-  assert.deepEqual(client.events('loadout_saved'), [{ robot: 'peep', index: 0, ok: false, busy: true, skills: [1, 3, 0, 0] }])
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(client.events('loadout_saved'), [{ robot: 'peep', index: 0, ok: false, busy: true, skills: [3, 1, 0, 0] }])
   assert.equal(store.saves.length, 1, 'the busy save reached the store')
   open()
   await settle()
@@ -559,7 +570,8 @@ test('account carries loadoutsFor for a persisted account, none offline; the cli
   const message = client.last('account') as { loadouts: Record<string, number[][]> }
   assert.deepEqual(Object.keys(message.loadouts), [...SELECTABLE_ROBOTS])
   for (const robot of SELECTABLE_ROBOTS) assert.equal(message.loadouts[robot].length, 3, robot)
-  assert.deepEqual(message.loadouts.magnet, [[1, 3, 0, 0], [1, 3, 0, 0], [6, 0, 0, 0]])
+  // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
+  assert.deepEqual(message.loadouts.magnet, [[3, 1, 0, 0], [3, 1, 0, 0], [6, 0, 0, 0]])
 
   const down = new SaveStore()
   down.inner.resolve = async () => { throw new Error('down') }

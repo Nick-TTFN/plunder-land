@@ -68,6 +68,9 @@ class ItemTip extends Container {
   }
 
   show (lines: string[], width: number): void {
+    // A long press's timer can outlive its control (a radial rebind); a
+    // destroyed tip has no geometry to draw into.
+    if (this.destroyed) return
     this._text.text = lines.join('\n')
     this._bg.clear()
       .beginFill(0x07101A, 0.95)
@@ -80,12 +83,16 @@ class ItemTip extends Container {
   }
 
   hide (): void {
+    if (this.destroyed) return
     this.visible = false
   }
 }
 
+/** What `bindTip` hands back: whether the last press was a long one, and `cancel` (stop a pending long press, hide the tip) for a control about to be destroyed. */
+interface TipBinding { longPressed: () => boolean, cancel: () => void }
+
 /** Hover and long-press show `tip` with `lines()`; true from a long press until the next tap, to stop that tap. */
-function bindTip (target: Container, tip: ItemTip, width: number, lines: () => string[] | undefined): { longPressed: () => boolean } {
+function bindTip (target: Container, tip: ItemTip, width: number, lines: () => string[] | undefined): TipBinding {
   let timer: ReturnType<typeof setTimeout> | undefined
   let longPressed = false
   const show = (): void => {
@@ -109,15 +116,22 @@ function bindTip (target: Container, tip: ItemTip, width: number, lines: () => s
   }
   target.on('pointerup', release)
   target.on('pointerupoutside', release)
-  return { longPressed: () => longPressed }
+  const cancel = (): void => {
+    clearTimeout(timer)
+    timer = undefined
+    tip.hide()
+  }
+  return { longPressed: () => longPressed, cancel }
 }
 
 /**
  * An item tip on another control (the touch radial's gear buttons,
  * `radial.ts`): added as `target`'s last child, `target` drawn from (0, 0) and
  * `width` wide. Hover or a long press shows `lines()`; undefined shows none.
+ * The owner calls `cancel()` before destroying `target`: a destroyed control
+ * gets no `pointerup`, so nothing else would clear a pending long press.
  */
-export function addItemTip (target: Container, width: number, lines: () => string[] | undefined): { longPressed: () => boolean } {
+export function addItemTip (target: Container, width: number, lines: () => string[] | undefined): TipBinding {
   const tip = new ItemTip()
   target.addChild(tip)
   return bindTip(target, tip, width, lines)

@@ -237,9 +237,10 @@ test('player: the start kit by default, in its slots, with the same cooldowns as
   const player = makePlayer(X, Y)
   assert.deepEqual(
     player.skills.map((s) => s === null ? null : [s.constructor, s.cooldown]),
+    // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
     [
-      [Dash, 2000],
       [RangedAttack, 750],
+      [Dash, 2000],
       null,
       null
     ]
