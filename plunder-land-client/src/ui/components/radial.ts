@@ -4,14 +4,14 @@ import { THEME } from '../theme'
 import { CooldownSweep } from './cooldownsweep'
 import { type SkillCard, hintAlpha } from './skillpanel'
 import { type Inventory } from './inventory'
-import { GearBag, type GearSlot, addItemTip } from './gearpanel'
+import { type GearSlot, addItemTip } from './gearpanel'
 import { type Rect } from './joystick'
 import { ItemPickup } from '../../objects/itempickup'
 import { skillFor } from '../../skills/catalog'
 import { type GameObject } from '../../objects/gameobject'
 import { tierTint } from '../../objects/gearpickup'
 import { itemInSlot } from '../../utils/items'
-import { type GearInstance, GEAR_BAG, GEAR_FIRST_SLOT, GEAR_SLOTS } from '../../utils/gear'
+import { type GearInstance, GEAR_FIRST_SLOT, GEAR_SLOTS } from '../../utils/gear'
 
 /**
  * The radial's sizes and angles, in CSS pixels (never `HUD.scale`d: the 0.5
@@ -24,8 +24,10 @@ export const RADIAL = {
   PRIMARY: 92,
   /** Slots 2-4's. */
   SKILL: 60,
-  /** Medkit, bomb, gear keys 3-4 and BAG. */
+  /** The items' hot slot and its fan (medkit, bomb, gear keys 3-4). */
   ITEM: 48,
+  /** The hot slot's open/close toggle. */
+  TOGGLE: 34,
   /** The primary's distance in from the safe area's right and bottom edges. */
   EDGE: 24,
   /** Primary centre to a skill button's centre. */
@@ -34,8 +36,12 @@ export const RADIAL = {
   ITEM_RING: 154,
   /** Slots 2, 3, 4, from the thumb's sweep along the bottom up to straight above. */
   SKILL_ANGLES: [180, 225, 270],
-  /** Medkit, bomb, gear key 3, gear key 4, BAG. */
-  ITEM_ANGLES: [180, 202.5, 225, 247.5, 270],
+  /** The open fan: medkit, bomb, gear key 3, gear key 4. */
+  ITEM_ANGLES: [180, 202.5, 225, 247.5],
+  /** The collapsed hot slot. */
+  HOT_ANGLE: 225,
+  /** The toggle that opens the fan. */
+  TOGGLE_ANGLE: 270,
   /** Space kept between the cluster, the bag row and anything they avoid. */
   GAP: 8
 }
@@ -138,18 +144,41 @@ class SkillButton extends RoundButton {
   }
 }
 
-/** Medkit or bomb: `Inventory.use` on its slot, with the count. */
-class ItemButton extends RoundButton {
+/** One of the hot slot's items: what it shows, whether a press can use it, and the use. */
+interface HotItem extends RoundButton {
+  available: () => boolean
+  use: () => void
+  update: (now: number) => void
+  setCurrent: (current: boolean) => void
+}
+
+/** Medkit or bomb: `Inventory.use` on its slot, with the count. The cluster decides what a press does. */
+class ItemButton extends RoundButton implements HotItem {
   private readonly _count: Text
   private _countShown = -1
+  private _current = false
 
-  constructor (private readonly _inventory: Inventory, readonly slot: number, size: number) {
-    super(size, () => { _inventory.use(slot) })
+  constructor (private readonly _inventory: Inventory, readonly slot: number, size: number, press: () => void) {
+    super(size, press)
     this.setIcon(ItemPickup.icon(itemInSlot(slot)), size * 0.62)
     this._count = Panel.text('', THEME.smallSize, THEME.text)
     this._count.anchor.set(0.5, 0)
     this._count.position.set(size / 2, size - 14)
     this.addChild(this._count)
+  }
+
+  available (): boolean {
+    return this._inventory.count(this.slot) > 0
+  }
+
+  use (): void {
+    this._inventory.use(this.slot)
+  }
+
+  setCurrent (current: boolean): void {
+    if (current === this._current) return
+    this._current = current
+    this.drawFrame(current ? THEME.accent : THEME.panelBorder, current ? 2 : 1)
   }
 
   update (): void {
@@ -162,12 +191,13 @@ class ItemButton extends RoundButton {
 }
 
 /** Gear key 3 or 4: drives its `GearSlot` (cooldown, cast), the long press shows the item's lines. */
-class GearButton extends RoundButton {
+class GearButton extends RoundButton implements HotItem {
   private _item: GearInstance | null | undefined
   private readonly _tip: { cancel: () => void }
+  private _current = false
 
-  constructor (readonly gear: GearSlot, size: number) {
-    super(size, () => { gear.tap() })
+  constructor (readonly gear: GearSlot, size: number, press: () => void) {
+    super(size, press)
     this._tip = addItemTip(this, size, () => gear.lines())
     // On top of its neighbours while pressed or hovered, so its tip is too.
     const raise = (): void => { this.parent?.setChildIndex(this, this.parent.children.length - 1) }
@@ -181,11 +211,27 @@ class GearButton extends RoundButton {
     super.destroy(options)
   }
 
+  available (): boolean {
+    return this.gear.item !== null
+  }
+
+  use (): void {
+    this.gear.tap()
+  }
+
+  setCurrent (current: boolean): void {
+    if (current === this._current) return
+    this._current = current
+    this._item = undefined // redraw the frame on the next update
+  }
+
   update (now: number): void {
     const item = this.gear.item
     if (item !== this._item) {
       this._item = item
-      this.drawFrame(item !== null ? tierTint(item.tier) : THEME.panelBorder, item !== null ? 2 : 1)
+      if (this._current) this.drawFrame(THEME.accent, 2)
+      else this.drawFrame(item !== null ? tierTint(item.tier) : THEME.panelBorder, item !== null ? 2 : 1)
+      this.icon.alpha = item !== null ? 1 : 0.3
       const texture = item !== null && item.skill !== 0 ? skillFor(item.skill, undefined as unknown as GameObject)?.uiTexture : undefined
       this.setIcon(texture, this.size * 0.58)
       if (item !== null && item.skill === 0) this.icon.addChild(new Graphics().beginFill(tierTint(item.tier), 1).drawCircle(0, 0, 6).endFill())
@@ -195,60 +241,35 @@ class GearButton extends RoundButton {
 }
 
 /**
- * The BAG button (decision #59: "OK for now, to be rethought"; Nick's idea is
- * a hot slot in the radial, `ideas/mobile-radial-hot-slot.md`). Self-contained
- * so it can be swapped out: it owns its own bag row (the desktop `GearBag`,
- * the same drawing and tips), fed by `set`, and a press opens the row or
- * closes it again. The cluster only places it and the row (`placeRow`).
+ * The hot slot's toggle (Nick, 2026-11-05, replacing the BAG button and its
+ * bag row): opens the items' fan round the cluster, and closes it again.
  */
-export class BagButton extends RoundButton {
-  readonly row = new GearBag(GEAR_BAG)
-  private readonly _count: Text
+class HotToggle extends RoundButton {
+  private readonly _label: Text
 
-  constructor (size: number) {
-    super(size, () => { this.toggle() })
-    const label = Panel.text('BAG', THEME.smallSize, THEME.text)
-    label.anchor.set(0.5, 0.5)
-    label.position.set(size / 2, size / 2 - 5)
-    this.addChild(label)
-    this._count = Panel.text('', THEME.smallSize, THEME.muted)
-    this._count.anchor.set(0.5, 0.5)
-    this._count.position.set(size / 2, size / 2 + 10)
-    this.addChild(this._count)
-    this.row.visible = false
+  constructor (size: number, press: () => void) {
+    super(size, press)
+    this._label = Panel.text('+', THEME.titleSize, THEME.text)
+    this._label.anchor.set(0.5, 0.5)
+    this._label.position.set(size / 2, size / 2)
+    this.addChild(this._label)
   }
 
-  get open (): boolean {
-    return this.row.visible
+  setOpen (open: boolean): void {
+    this._label.text = open ? '×' : '+'
+    this.drawFrame(open ? THEME.accent : THEME.panelBorder, open ? 2 : 1)
   }
-
-  toggle (): void {
-    this.row.visible = !this.row.visible
-    this.drawFrame(this.row.visible ? THEME.accent : THEME.panelBorder, this.row.visible ? 2 : 1)
-  }
-
-  close (): void {
-    if (this.row.visible) this.toggle()
-  }
-
-  /** The bag's entries (the `carried` field past the gear slots) and the kit's skill ids. */
-  set (items: ReadonlyArray<GearInstance | null>, kit: readonly number[]): void {
-    this.row.set(items, kit)
-    const n = items.filter((item) => item !== null && item !== undefined).length
-    this._count.text = `${n}/${GEAR_BAG}`
-  }
-}
-
-function overlaps (a: Rect, b: Rect): boolean {
-  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
 /**
  * The right-thumb cluster in touch mode (decision #59, mobile-3): **loadout
  * slot 1 is always the large primary** bottom right (so it changes only by
  * reordering the loadout), slots 2-4 on an arc round it toward the screen's
- * centre and up, and outside that the medkit, the bomb, gear keys 3-4 and the
- * BAG button. An empty skill slot draws nothing.
+ * centre and up, and outside that **one hot slot** for the items (Nick,
+ * 2026-11-05): it shows the last item used (medkit, bomb, gear key 3 or 4)
+ * and a press uses it, or switches to the next one left if it has none; a
+ * toggle opens all of them on the outer ring. The gear bag (carried parts)
+ * is not shown in touch mode. An empty skill slot draws nothing.
  *
  * Every button drives the object the desktop HUD presses (`SkillCard`,
  * `Inventory.use`, `GearSlot`), which stay alive, hidden, in touch mode: so
@@ -259,9 +280,13 @@ function overlaps (a: Rect, b: Rect): boolean {
  */
 export class RadialCluster extends Container {
   private _skills: SkillButton[] = []
-  private _items: Array<ItemButton | GearButton> = []
-  private readonly _bag = new BagButton(RADIAL.ITEM)
+  private _items: HotItem[] = []
+  /** The item the collapsed hot slot shows: the last one used. */
+  private _current = 0
+  private _open = false
+  private readonly _toggle = new HotToggle(RADIAL.TOGGLE, () => { this.setOpen(!this._open) })
   private _cards: readonly SkillCard[] = []
+  private _laid: (() => void) | undefined
 
   constructor () {
     super()
@@ -278,7 +303,8 @@ export class RadialCluster extends Container {
     this._skills = []
     this._items = []
     this.removeChildren()
-    this._bag.close()
+    this._open = false
+    this._toggle.setOpen(false)
 
     this._cards.forEach((card, slot) => {
       if (card.skill === null) return
@@ -290,35 +316,78 @@ export class RadialCluster extends Container {
       // Medkit (slot 0, key 1) and bomb (slot 1, key 2); then the gear keys.
       for (let slot = 0; slot < GEAR_FIRST_SLOT; slot++) {
         if (itemInSlot(slot) === undefined) continue
-        this._items.push(new ItemButton(inventory, slot, RADIAL.ITEM))
+        const i = this._items.length
+        this._items.push(new ItemButton(inventory, slot, RADIAL.ITEM, () => { this.press(i) }))
       }
-      for (const gear of inventory.gear.slice(0, GEAR_SLOTS)) this._items.push(new GearButton(gear, RADIAL.ITEM))
+      for (const gear of inventory.gear.slice(0, GEAR_SLOTS)) {
+        const i = this._items.length
+        this._items.push(new GearButton(gear, RADIAL.ITEM, () => { this.press(i) }))
+      }
       for (const button of this._items) this.addChild(button)
-      this.addChild(this._bag)
-      this.addChild(this._bag.row)
+      if (this._items.length > 0) this.addChild(this._toggle)
+      this._current = Math.min(this._current, Math.max(0, this._items.length - 1))
+      this.showCurrent()
     }
   }
 
-  /** The bag's entries, from `HUD.updateGear` (the same data the desktop bag gets). */
-  setBag (items: ReadonlyArray<GearInstance | null>, kit: readonly number[]): void {
-    this._bag.set(items, kit)
+  /**
+   * A press on item `i`. Collapsed (only the hot slot shows): use it if it
+   * has any left (a count above 0, or gear in the key), else switch to the
+   * next item that has, without using it (Nick, 2026-11-05). Open: use the
+   * pressed item if it can be used, make it the hot slot's and close the fan.
+   */
+  private press (i: number): void {
+    const item = this._items[i]
+    if (item === undefined) return
+    if (!this._open) {
+      if (item.available()) item.use()
+      else this.advance()
+      return
+    }
+    if (item.available()) item.use()
+    this._current = i
+    this.setOpen(false)
   }
 
-  get bag (): BagButton {
-    return this._bag
+  /** The next item after the current one that can be used; stays put if none can. */
+  private advance (): void {
+    const n = this._items.length
+    for (let k = 1; k < n; k++) {
+      const j = (this._current + k) % n
+      if (this._items[j].available()) {
+        this._current = j
+        this.showCurrent()
+        return
+      }
+    }
+  }
+
+  private setOpen (open: boolean): void {
+    this._open = open
+    this._toggle.setOpen(open)
+    this.showCurrent()
+  }
+
+  /** Collapsed: only the current item, at the hot slot. Open: all of them on the fan, the current one outlined. */
+  private showCurrent (): void {
+    this._items.forEach((item, i) => {
+      item.visible = this._open || i === this._current
+      item.setCurrent(this._open && i === this._current)
+    })
+    this._laid?.()
   }
 
   /**
    * Place the cluster: the primary `RADIAL.EDGE` in from the safe area's
-   * bottom right corner (`safe` is the screen inside the insets). The bag
-   * row opens above the cluster where that is clear of `avoid` (the
-   * joystick's zone, the minimap, the top panels), else to the cluster's
-   * left along the bottom. `shown` is touch mode in a run.
+   * bottom right corner (`safe` is the screen inside the insets). The items
+   * stay on the outer ring, open or not, so `_avoid` (the joystick's zone,
+   * the top panels) is not needed any more; kept for `HUD`'s call. `shown`
+   * is touch mode in a run.
    */
-  layout (safe: Rect, avoid: readonly Rect[], shown: boolean): void {
+  layout (safe: Rect, _avoid: readonly Rect[], shown: boolean): void {
     this.visible = shown
     if (!shown) {
-      this._bag.close()
+      if (this._open) this.setOpen(false)
       return
     }
     const cx = safe.x + safe.width - RADIAL.EDGE - RADIAL.PRIMARY / 2
@@ -333,25 +402,17 @@ export class RadialCluster extends Container {
       if (slot === 0) at(button, 0, 0)
       else at(button, RADIAL.SKILL_RING, RADIAL.SKILL_ANGLES[slot - 1] ?? 270)
     }
-    const outer = [...this._items, this._bag]
-    outer.forEach((button, i) => { at(button, RADIAL.ITEM_RING, RADIAL.ITEM_ANGLES[i] ?? 270) })
-
-    // The bag row: just above the cluster, as far right as it is clear of
-    // everything in `avoid`; else to the cluster's left along the bottom;
-    // else (nothing is clear) above, right-aligned, whatever it covers.
-    const row = this._bag.row.getLocalBounds()
-    const top = cy - RADIAL.ITEM_RING - RADIAL.ITEM / 2
-    const left = cx - RADIAL.ITEM_RING - RADIAL.ITEM / 2
-    const box = (x: number, y: number): Rect => ({ x, y, width: row.width, height: row.height })
-    const aboveY = top - RADIAL.GAP - row.height
-    const xs = [safe.x + safe.width - RADIAL.GAP - row.width, ...avoid.map((r) => r.x - RADIAL.GAP - row.width)].sort((a, b) => b - a)
-    const candidates = [...xs.map((x) => box(x, aboveY)), box(left - RADIAL.GAP - row.width, safe.y + safe.height - RADIAL.GAP - row.height)]
-    const clear = (r: Rect): boolean =>
-      r.x >= safe.x && r.y >= safe.y && r.x + r.width <= safe.x + safe.width && r.y + r.height <= safe.y + safe.height &&
-      !avoid.some((a) => overlaps(a, r))
-    const place = candidates.find(clear) ?? candidates[0]
-    this._bag.row.x = Math.round(place.x - row.x)
-    this._bag.row.y = Math.round(place.y - row.y)
+    // The items: collapsed, the current one at the hot slot; open, every
+    // one on the fan. The toggle sits at the top of the ring either way.
+    const placeItems = (): void => {
+      this._items.forEach((item, i) => {
+        if (this._open) at(item, RADIAL.ITEM_RING, RADIAL.ITEM_ANGLES[i] ?? 270)
+        else at(item, RADIAL.ITEM_RING, RADIAL.HOT_ANGLE)
+      })
+      at(this._toggle, RADIAL.ITEM_RING, RADIAL.TOGGLE_ANGLE)
+    }
+    this._laid = placeItems
+    placeItems()
   }
 
   update (now: number): void {

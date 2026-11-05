@@ -1,4 +1,4 @@
-import { Container, Graphics, type Text } from 'pixi.js'
+import { Container, Graphics, Text } from 'pixi.js'
 import { Panel } from './panel'
 import { THEME, two } from '../theme'
 import { Session } from '../../net/session'
@@ -88,28 +88,25 @@ export class LayersPanel extends Panel {
  * hardcoded tag. "LAYER --" between runs or on a tag the server didn't list.
  */
 export class LayerBadge extends Container {
-  private readonly _bg = new Graphics()
   private readonly _text: Text
   private _current: number | undefined = NaN
 
-  /** A pill (Nick, 2026-11-05): small text, fully rounded ends, drawn at CSS size. */
+  /** Plain text (Nick, 2026-11-05), at CSS size, with a dark outline so it reads over the minimap. */
   static readonly FONT = 10
-  static readonly PAD_X = 6
-  static readonly PAD_Y = 2
 
   constructor () {
     super()
-    this._text = Panel.text('LAYER --', LayerBadge.FONT, THEME.accent)
-    this.addChild(this._bg, this._text)
+    this._text = new Text('LAYER --', { fontFamily: THEME.font, fontSize: LayerBadge.FONT, fill: THEME.accent, stroke: 0x04070D, strokeThickness: 3 })
+    this.addChild(this._text)
     this.setCurrent(undefined)
   }
 
   get panelWidth (): number {
-    return Math.ceil(this._text.width) + 2 * LayerBadge.PAD_X
+    return Math.ceil(this._text.width)
   }
 
   get panelHeight (): number {
-    return Math.ceil(this._text.height) + 2 * LayerBadge.PAD_Y
+    return Math.ceil(this._text.height)
   }
 
   /** The label for `tag`: its place in `Session.layers`, or "--". */
@@ -123,15 +120,6 @@ export class LayerBadge extends Container {
     if (tag === this._current) return
     this._current = tag
     this._text.text = LayerBadge.label(tag)
-    this._text.x = LayerBadge.PAD_X
-    this._text.y = LayerBadge.PAD_Y
-    const w = this.panelWidth
-    const h = this.panelHeight
-    this._bg.clear()
-      .beginFill(THEME.panelFill, 0.9)
-      .lineStyle(1, THEME.panelBorder, 1)
-      .drawRoundedRect(0, 0, w, h, h / 2)
-      .endFill()
   }
 }
 

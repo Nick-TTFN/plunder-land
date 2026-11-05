@@ -19,7 +19,8 @@ export class MiniMap extends Graphics {
 
     this.updateRate = updateRate
 
-    this.alpha = 0.5
+    // Opaque, so the border reads; the ground and the dots carry their own alpha.
+    this.alpha = 1
     this.redraw()
   }
 
@@ -34,15 +35,18 @@ export class MiniMap extends Graphics {
     this._timeSinceRedraw = 0
     this
       .clear()
-      // Neutral dark ground, the HUD panels' fill (Nick, 2026-11-05: no yellow tint).
-      .beginFill(0x0B1220, 0.6)
-      .drawRect(0, 0, this.mapWidth, this.mapHeight)
+      // Neutral dark ground, the HUD panels' fill and border, rounded corners
+      // (Nick, 2026-11-05: no yellow tint; a rounded border).
+      .beginFill(0x0B1220, 0.35)
+      .lineStyle(3, 0x3a6e7e, 1)
+      .drawRoundedRect(0, 0, this.mapWidth, this.mapHeight, 14)
       .endFill()
+      .lineStyle(0)
 
     const ownPlayer = Game.PLAYER
     if (ownPlayer == null) { return }
 
-    this.beginFill(0xFF6666)
+    this.beginFill(0xFF6666, 0.7)
     for (const mob of Game.MOBS) {
       if (mob.tag === ownPlayer.tag && !mob.killed && mob.renderable) {
         this.drawCircle(mob.x * this.mapWidth / 4000, mob.y * this.mapHeight / 4000, mob.maxHP > 100 ? 3 : 1)
@@ -50,7 +54,7 @@ export class MiniMap extends Graphics {
     }
     this.endFill()
 
-    this.beginFill(0xFFFF66)
+    this.beginFill(0xFFFF66, 0.7)
     for (const consumable of Game.CONSUMABLES) {
       if (consumable.tag === ownPlayer.tag && !consumable.killed && consumable.renderable) {
         this.drawCircle(consumable.x * this.mapWidth / 4000, consumable.y * this.mapHeight / 4000, 1)
@@ -60,7 +64,7 @@ export class MiniMap extends Graphics {
 
     for (const player of Game.PLAYERS) {
       if (player.tag === ownPlayer.tag && !player.killed && player.renderable) {
-        this.beginFill(player === ownPlayer ? 0x33FF99 : 0xFF00FF)
+        this.beginFill(player === ownPlayer ? 0x33FF99 : 0xFF00FF, 0.8)
         this.drawCircle(player.x * this.mapWidth / 4000, player.y * this.mapHeight / 4000, 3)
         this.endFill()
       }

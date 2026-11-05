@@ -9,7 +9,7 @@ import { Leaderboard } from './leaderboard'
 import { Game } from '../../game'
 import { SETTINGS, normaliseKey } from '../../net/settings'
 import { SettingsPanel } from '../settings/settingspanel'
-import { type GearInstance, GEAR_SLOTS } from '../../utils/gear'
+import { type GearInstance } from '../../utils/gear'
 import { Session } from '../../net/session'
 import { Aim } from '../../skills/aim'
 import { RangedAttack } from '../../skills/rangedattack'
@@ -212,14 +212,12 @@ export class HUD extends Container {
     this._kit = kit
     this.status?.inventory.updateGear([], kit)
     this.bindRadial()
-    this.radial.setBag([], kit)
     this.updateLayout()
   }
 
   /** The own player's `carried` field: the gear slots and the bag. */
   updateGear (carried: ReadonlyArray<GearInstance | null>): void {
     this.status?.inventory.updateGear(carried, this._kit)
-    this.radial.setBag(carried.slice(GEAR_SLOTS), this._kit)
   }
 
   /**
@@ -352,8 +350,8 @@ export class HUD extends Container {
     if (phone && this.badge !== undefined) {
       this.badge.scale.set(1, 1)
       if (this.map !== undefined) {
-        this.badge.x = Math.round(this.map.x + MINIMAP_PHONE - this.badge.panelWidth - 3)
-        this.badge.y = Math.round(this.map.y + MINIMAP_PHONE - this.badge.panelHeight - 3)
+        this.badge.x = Math.round(this.map.x + MINIMAP_PHONE - this.badge.panelWidth - 5)
+        this.badge.y = Math.round(this.map.y + MINIMAP_PHONE - this.badge.panelHeight - 4)
       } else {
         const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * s : T
         this.badge.x = Math.round((W - this.badge.panelWidth) / 2)
