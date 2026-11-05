@@ -6,8 +6,8 @@
  * takes it back.
  *
  * Desktop: two columns (Nick, 2026-11-05): on the left the callsign, the hero
- * (canvas robot, name, CHANGE SCAVENGER), the season row and READY; on the
- * right progression, journey and the three action rows. Under 760 px in portrait the grid is one column (a
+ * (canvas robot, name, CHANGE SCAVENGER) and READY; on the right progression,
+ * journey, the three action rows and the season row. Under 760 px in portrait the grid is one column (a
  * phone on its side keeps the two columns, zoomed to fit; Nick, 2026-11-05)
  * (progression, journey, hero, rows), READY sticks to the bottom of the
  * scroll, and INVITE / settings / PRIVACY fold into the header's menu. The
