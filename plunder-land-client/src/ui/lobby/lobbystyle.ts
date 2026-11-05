@@ -325,6 +325,10 @@ export const LOBBY_CSS = `
   .lb-progress { padding-bottom: 12px; }
   .lb-act { min-height: 48px; padding-top: 6px; padding-bottom: 6px; }
   .lb-ready { min-height: 48px; font-size: 20px; }
+  /* A short landscape window (a phone on its side) scrolls past the zoom floor:
+     keep Start run pinned to the bottom, as the portrait phone layout does. */
+  .lb-action { position: sticky; bottom: 0; z-index: 1; padding: 12px 0 max(10px, env(safe-area-inset-bottom));
+    background: linear-gradient(rgba(4,8,14,0), rgba(4,8,14,.92) 28%); }
   .lb-custom { top: 60px; bottom: 8px; max-height: none; }
 }
 `
