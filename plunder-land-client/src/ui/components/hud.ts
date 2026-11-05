@@ -19,6 +19,7 @@ import { SAFE_AREA, refreshSafeArea } from '../safearea'
 import { RadialCluster, RADIAL } from './radial'
 import { THEME } from '../theme'
 import { installRotatePrompt } from '../rotateprompt'
+import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen'
 
 const MINIMAP = 200
 
@@ -72,6 +73,50 @@ export class SettingsButton extends Container {
   }
 }
 
+/**
+ * The fullscreen button (Nick, 2026-11-05): beside the settings cog, in a run,
+ * in touch mode, where the browser can do it (`ui/fullscreen.ts`; never on an
+ * iPhone, whose Safari can't). Corners pointing out to enter, in to leave.
+ */
+export class FullscreenButton extends Container {
+  private readonly _icon = new Graphics()
+
+  constructor () {
+    super()
+    const r = GEAR / 2
+    this.addChild(new Graphics()
+      .beginFill(0x101A28, 0.85)
+      .lineStyle(1, THEME.panelBorder, 1)
+      .drawCircle(r, r, r)
+      .endFill(), this._icon)
+    this.eventMode = 'static'
+    this.cursor = 'pointer'
+    this.hitArea = new Circle(r, r, r)
+    // pointerup is a user gesture, which requestFullscreen needs.
+    this.on('pointertap', () => { toggleFullscreen() })
+    onFullscreenChange(() => { this.draw() })
+    this.draw()
+  }
+
+  private draw (): void {
+    const r = GEAR / 2
+    const a = 7 // half the square the corners sit on
+    const l = 5 // each corner's arm
+    const out = !isFullscreen()
+    const g = this._icon.clear().lineStyle(2, THEME.text, 1)
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const cx = r + sx * a
+      const cy = r + sy * a
+      // Out: the corner's tip at (cx, cy), arms pointing back in. In: the tip pulled inward.
+      const dx = out ? -sx * l : sx * l
+      const dy = out ? -sy * l : sy * l
+      const tx = out ? cx : cx - sx * l
+      const ty = out ? cy : cy - sy * l
+      g.moveTo(tx + dx, ty).lineTo(tx, ty).lineTo(tx, ty + dy)
+    }
+  }
+}
+
 /** Eat the next `click` on the page within 500 ms, before anything sees it. */
 function swallowNextClick (): void {
   const eat = (e: Event): void => {
@@ -114,6 +159,7 @@ export class HUD extends Container {
   badge: LayerBadge | undefined
   /** Top right in a run, touch and desktop (mobile-4). */
   readonly settings = new SettingsButton()
+  readonly fullscreen = new FullscreenButton()
   readonly legend = new FogLegend()
   /** The left-thumb joystick (decision #59, mobile-2): shown in touch mode during a run. */
   readonly joystick = new Joystick()
@@ -133,6 +179,8 @@ export class HUD extends Container {
     this.addChild(this.radial)
     this.settings.visible = false
     this.addChild(this.settings)
+    this.fullscreen.visible = false
+    this.addChild(this.fullscreen)
     // Portrait on a touch screen, lobby and run alike (mobile-4).
     installRotatePrompt()
     // Controls follow touch mode (input/inputmode.ts), so a switch re-lays the HUD.
@@ -343,6 +391,9 @@ export class HUD extends Container {
     this.settings.visible = inRun
     this.settings.x = Math.round(gearX)
     this.settings.y = Math.round(T)
+    this.fullscreen.visible = inRun && INPUT_MODE.touch && fullscreenSupported()
+    this.fullscreen.x = Math.round(gearX - RADIAL.GAP - GEAR)
+    this.fullscreen.y = Math.round(T)
 
     // The phone's layer badge: a small pill in the minimap's bottom-right
     // corner, at CSS size (Nick, 2026-11-05). Under the clock if there is no
@@ -425,7 +476,7 @@ export class HUD extends Container {
     const avoid: Rect[] = [zone]
     const board = Leaderboard.Instance
     const badge = this.badge?.visible === true ? this.badge : undefined
-    for (const c of [this.status, this.clock, this.map, layers, badge, this.settings, board?.visible === true ? board : undefined, this.legend.visible && this.legend.renderable ? this.legend : undefined]) {
+    for (const c of [this.status, this.clock, this.map, layers, badge, this.settings, this.fullscreen.visible ? this.fullscreen : undefined, board?.visible === true ? board : undefined, this.legend.visible && this.legend.renderable ? this.legend : undefined]) {
       if (c === undefined) continue
       const b = c.getBounds()
       avoid.push({ x: b.x, y: b.y, width: b.width, height: b.height })

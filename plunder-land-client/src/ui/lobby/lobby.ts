@@ -1,3 +1,5 @@
+import { fullscreenSupported, toggleFullscreen } from '../fullscreen'
+import { INPUT_MODE } from '../../input/inputmode'
 import { Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { inviteUrl, type Invite, JOIN_KEY, makeCode, parseStoredInvite, PARTY_KEY, readInvite, withoutInvite } from './party'
 import { RobotSprite } from '../../robots/robotsprite'
@@ -105,6 +107,7 @@ const svg = (body: string): string =>
 const ICON = {
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
   menu: svg('<path d="M4 6h16M4 12h16M4 18h16"/>'),
+  expand: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
   down: svg('<path d="m6 9 6 6 6-6"/>'),
   right: svg('<path d="m9 6 6 6-6 6"/>'),
   bolt: svg('<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>'),
@@ -337,7 +340,15 @@ export default class Lobby extends Container {
     // Portals ask for it, and it is what the game collects (decision #46).
     const privacy = (className: string): HTMLAnchorElement =>
       Object.assign(el('a', className), { href: privacyUrl(PORTAL), target: '_blank', rel: 'noopener', textContent: 'Privacy' })
-    topActions.append(this.inviteButton, settings, privacy('lb-privacy lb-menu-only'))
+    // Fullscreen (Nick, 2026-11-05), on a touch screen whose browser can
+    // (`ui/fullscreen.ts`: not iPhone Safari). The same toggle as the run's.
+    const full = el('button', 'lb-invite lb-settings')
+    full.innerHTML = `${ICON.expand}<span class="lb-menu-label">Fullscreen</span>`
+    full.title = 'Fullscreen'
+    full.setAttribute('aria-label', 'Fullscreen')
+    full.onclick = () => { this.closeMenu(); toggleFullscreen() }
+    if (!fullscreenSupported() || !INPUT_MODE.touch) full.style.display = 'none'
+    topActions.append(this.inviteButton, full, settings, privacy('lb-privacy lb-menu-only'))
     const menu = el('button', 'lb-menu')
     menu.innerHTML = ICON.menu
     menu.setAttribute('aria-label', 'Menu')
