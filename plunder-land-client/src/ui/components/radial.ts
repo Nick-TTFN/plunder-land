@@ -26,8 +26,10 @@ export const RADIAL = {
   SKILL: 60,
   /** The items' hot slot and its fan (medkit, bomb, gear keys 3-4), as large as a skill. */
   ITEM: 60,
-  /** The small button right of the hot slot that opens the fan. */
+  /** The small button left of the hot slot (the way the fan opens) that opens the fan. */
   TOGGLE: 30,
+  /** The fan's slide out from the hot slot and back, in ms. */
+  FAN_MS: 160,
   /** The primary's distance in from the safe area's right and bottom edges. */
   EDGE: 24,
   /** Primary centre to a skill button's centre. */
@@ -239,8 +241,8 @@ class GearButton extends RoundButton implements HotItem {
 }
 
 /**
- * The small button right of the hot slot that opens the items' fan (Nick,
- * 2026-11-05). Shown only while the fan is closed: an open fan has no close
+ * The small button left of the hot slot, the way the fan opens, that opens
+ * the items' fan (Nick, 2026-11-05). Shown only while the fan is closed: an open fan has no close
  * button, any tap closes it (`RadialCluster`'s catcher).
  */
 class HotToggle extends RoundButton {
@@ -260,7 +262,7 @@ class HotToggle extends RoundButton {
  * centre and up, and outside that **one hot slot** for the items (Nick,
  * 2026-11-05): it shows the last item used (medkit, bomb, gear key 3 or 4)
  * and a press uses it, or switches to the next one left if it has none; a
- * small + to its right opens all of them on the outer ring, where a tap on
+ * small + to its left opens all of them (sliding out from the hot slot) on the outer ring, where a tap on
  * one makes it the hot slot's and closes the fan, and a tap anywhere else
  * just closes it (no close button). The gear bag (carried parts)
  * is not shown in touch mode. An empty skill slot draws nothing.
@@ -286,6 +288,10 @@ export class RadialCluster extends Container {
   private readonly _catcher = new Graphics()
   private _cards: readonly SkillCard[] = []
   private _laid: (() => void) | undefined
+  /** The primary's centre, which the items' ring goes round, from `layout`. */
+  private _centre = { x: 0, y: 0 }
+  /** When the fan last started opening or closing (`performance.now`), for the slide. */
+  private _fanSince = -Infinity
 
   constructor () {
     super()
@@ -370,17 +376,39 @@ export class RadialCluster extends Container {
     if (open === this._open) return
     this._open = open
     this._catcher.visible = open
+    // Mid-slide, start from where the items are now, not from the end.
+    const now = performance.now()
+    const done = Math.min(1, (now - this._fanSince) / RADIAL.FAN_MS)
+    this._fanSince = now - (1 - done) * RADIAL.FAN_MS
     this.showCurrent()
   }
 
   /** Collapsed: only the current item, at the hot slot. Open: all of them on the fan, the current one outlined. */
   private showCurrent (): void {
-    this._items.forEach((item, i) => {
-      item.visible = this._open || i === this._current
-      item.setCurrent(this._open && i === this._current)
-    })
+    this._items.forEach((item, i) => { item.setCurrent(this._open && i === this._current) })
     this._toggle.visible = !this._open
     this._laid?.()
+    this.placeItems(performance.now())
+  }
+
+  /**
+   * The items between the hot slot (0) and their fan places (1), eased,
+   * along the ring's arc (Nick, 2026-11-05): out on open, back on close; the others than the current one
+   * fade with the slide and are hidden once it is closed.
+   */
+  private placeItems (now: number): void {
+    const p = Math.min(1, Math.max(0, (now - this._fanSince) / RADIAL.FAN_MS))
+    const eased = 1 - (1 - p) * (1 - p) * (1 - p)
+    const t = this._open ? eased : 1 - eased
+    this._items.forEach((item, i) => {
+      const fan = RADIAL.ITEM_ANGLES[i] ?? RADIAL.HOT_ANGLE
+      const a = (RADIAL.HOT_ANGLE + (fan - RADIAL.HOT_ANGLE) * t) * Math.PI / 180
+      item.x = Math.round(this._centre.x + RADIAL.ITEM_RING * Math.cos(a) - RADIAL.ITEM / 2)
+      item.y = Math.round(this._centre.y + RADIAL.ITEM_RING * Math.sin(a) - RADIAL.ITEM / 2)
+      const current = i === this._current
+      item.visible = current || t > 0
+      item.alpha = current ? 1 : t
+    })
   }
 
   /**
@@ -408,26 +436,26 @@ export class RadialCluster extends Container {
       if (slot === 0) at(button, 0, 0)
       else at(button, RADIAL.SKILL_RING, RADIAL.SKILL_ANGLES[slot - 1] ?? 270)
     }
-    // The items: collapsed, the current one at the hot slot; open, every
-    // one on the fan. The toggle sits right of the hot slot, level with it.
-    const placeItems = (): void => {
-      this._items.forEach((item, i) => {
-        if (this._open) at(item, RADIAL.ITEM_RING, RADIAL.ITEM_ANGLES[i] ?? 270)
-        else at(item, RADIAL.ITEM_RING, RADIAL.HOT_ANGLE)
-      })
+    // The items go round the ring between the hot slot and their fan
+    // places (`placeItems`). The toggle sits left of the hot slot, level
+    // with it: the fan opens that way.
+    const laid = (): void => {
+      this._centre = { x: cx, y: cy }
       const a = RADIAL.HOT_ANGLE * Math.PI / 180
       const hx = cx + RADIAL.ITEM_RING * Math.cos(a)
       const hy = cy + RADIAL.ITEM_RING * Math.sin(a)
-      this._toggle.x = Math.round(hx + RADIAL.ITEM / 2 + RADIAL.GAP / 2)
+      this._toggle.x = Math.round(hx - RADIAL.ITEM / 2 - RADIAL.GAP / 2 - RADIAL.TOGGLE)
       this._toggle.y = Math.round(hy - RADIAL.TOGGLE / 2)
     }
-    this._laid = placeItems
-    placeItems()
+    this._laid = laid
+    laid()
+    this.placeItems(performance.now())
   }
 
   update (now: number): void {
     if (!this.visible) return
     for (const button of this._skills) button.update(now)
     for (const button of this._items) button.update(now)
+    if (now - this._fanSince <= RADIAL.FAN_MS + 50) this.placeItems(now)
   }
 }
