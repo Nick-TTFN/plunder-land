@@ -7,7 +7,8 @@
  *
  * Desktop: one grid, the hero (canvas robot, name, CHANGE SCAVENGER) spanning
  * the left column, progression, journey, the three action rows, the season
- * row and READY on the right. Under 760 px the grid is one column
+ * row and READY on the right. Under 760 px in portrait the grid is one column (a
+ * phone on its side keeps the two columns, zoomed to fit; Nick, 2026-11-05)
  * (progression, journey, hero, rows), READY sticks to the bottom of the
  * scroll, and INVITE / settings / PRIVACY fold into the header's menu. The
  * panels (STATS & PAINT, SCAVENGERS, LOADOUT, STASH) keep the mono look and
@@ -263,7 +264,7 @@ export const LOBBY_CSS = `
   .lb-main { column-gap: 40px; padding: 24px 28px; grid-template-columns: minmax(0, 1fr) minmax(340px, 480px); }
   .lb-hero { padding-right: 40px; margin-right: -20px; }
 }
-@media (max-width: 760px) {
+@media (max-width: 760px) and (orientation: portrait) {
   .lb-top { min-height: 60px; padding: 0 max(12px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
   .lb-wordmark { height: 30px; }
   .lb-desk-only { display: none !important; }
@@ -316,7 +317,7 @@ export const LOBBY_CSS = `
   .lb-wordmark { height: 24px; }
   .lb-actverb { display: none; }
 }
-@media (max-height: 520px) and (min-width: 761px) {
+@media (max-height: 520px) and (orientation: landscape) {
   .lb-top { min-height: 52px; }
   .lb-wordmark { height: 28px; }
   .lb-main { padding-top: 14px; padding-bottom: 14px; row-gap: 10px; }

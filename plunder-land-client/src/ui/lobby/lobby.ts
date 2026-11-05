@@ -82,8 +82,14 @@ export type LobbyStart = (playerId: string, name: string, finish: number[], robo
 const PHONE_MAX = 760
 /** The desktop grid's comfortable width: narrower windows zoom it rather than squeeze it. */
 const FIT_WIDTH = 1100
-/** The smallest zoom `fit` applies; a shorter window scrolls from there. */
-const FIT_MIN = { desktop: 0.6, phone: 0.75 } as const
+/**
+ * The smallest zoom `fit` applies; a shorter window scrolls from there. A
+ * phone on its side (landscape, 520 px tall or less) keeps the two-column
+ * layout and zooms further to fit (Nick, 2026-11-05).
+ */
+const FIT_MIN = { desktop: 0.6, phone: 0.75, landscape: 0.45 } as const
+/** At this height or under, a landscape window is a phone on its side (`lobbystyle.ts`'s 520 px query). */
+const SHORT_MAX = 520
 
 /** How many levels the journey strip shows at once. */
 const JOURNEY_SHOWN = 5
@@ -958,7 +964,9 @@ export default class Lobby extends Container {
     if (this.tornDown || this.main === undefined) return
     const w = window.innerWidth
     const h = window.innerHeight
-    const phone = w <= PHONE_MAX
+    // The one-column phone layout is portrait only (`lobbystyle.ts`).
+    const phone = w <= PHONE_MAX && h >= w
+    const short = !phone && w > h && h <= SHORT_MAX
     const style = this.root.style
     style.removeProperty('zoom')
     style.removeProperty('width')
@@ -968,7 +976,7 @@ export default class Lobby extends Container {
     this.root.classList.remove('lb-measure')
     // A few px of slack: zoomed sizes round, and a 3 px scroll is still a scroll.
     let zoom = Math.min(1, need > 0 ? h / (need + 8) : 1, phone ? 1 : w / FIT_WIDTH)
-    zoom = Math.max(phone ? FIT_MIN.phone : FIT_MIN.desktop, zoom)
+    zoom = Math.max(phone ? FIT_MIN.phone : short ? FIT_MIN.landscape : FIT_MIN.desktop, zoom)
     this.zoom = zoom < 0.995 ? zoom : 1
     if (this.zoom === 1) return
     style.setProperty('zoom', String(this.zoom))
