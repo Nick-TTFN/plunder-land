@@ -1,4 +1,4 @@
-import { Circle, Container, Graphics, Sprite, type Text, type Texture } from 'pixi.js'
+import { Circle, Container, Rectangle, Graphics, Sprite, type Text, type Texture } from 'pixi.js'
 import { Panel } from './panel'
 import { THEME } from '../theme'
 import { CooldownSweep } from './cooldownsweep'
@@ -24,24 +24,22 @@ export const RADIAL = {
   PRIMARY: 92,
   /** Slots 2-4's. */
   SKILL: 60,
-  /** The items' hot slot and its fan (medkit, bomb, gear keys 3-4). */
-  ITEM: 48,
-  /** The hot slot's open/close toggle. */
-  TOGGLE: 34,
+  /** The items' hot slot and its fan (medkit, bomb, gear keys 3-4), as large as a skill. */
+  ITEM: 60,
+  /** The small button right of the hot slot that opens the fan. */
+  TOGGLE: 30,
   /** The primary's distance in from the safe area's right and bottom edges. */
   EDGE: 24,
   /** Primary centre to a skill button's centre. */
   SKILL_RING: 88,
   /** Primary centre to an item button's centre. */
-  ITEM_RING: 154,
+  ITEM_RING: 164,
   /** Slots 2, 3, 4, from the thumb's sweep along the bottom up to straight above. */
   SKILL_ANGLES: [180, 225, 270],
-  /** The open fan: medkit, bomb, gear key 3, gear key 4. */
-  ITEM_ANGLES: [180, 202.5, 225, 247.5],
-  /** The collapsed hot slot. */
-  HOT_ANGLE: 225,
-  /** The toggle that opens the fan. */
-  TOGGLE_ANGLE: 270,
+  /** The open fan: medkit, bomb, gear key 3, gear key 4 (the last at the hot slot's place). */
+  ITEM_ANGLES: [180, 210, 240, 270],
+  /** The collapsed hot slot: straight above the primary, past slot 4. */
+  HOT_ANGLE: 270,
   /** Space kept between the cluster, the bag row and anything they avoid. */
   GAP: 8
 }
@@ -129,10 +127,10 @@ class RoundButton extends Container {
   }
 }
 
-/** A kit skill: drives its `SkillCard` (the same cooldown, key and cast as the card's). */
+/** A kit skill: drives its `SkillCard` (the same cooldown, key and cast as the card's). `pressed` runs after the cast (closes the items' fan). */
 class SkillButton extends RoundButton {
-  constructor (readonly card: SkillCard, size: number) {
-    super(size, () => { card.tap() })
+  constructor (readonly card: SkillCard, size: number, pressed: () => void) {
+    super(size, () => { card.tap(); pressed() })
     this.setIcon(card.skill?.uiTexture, size * 0.55)
     if (size >= RADIAL.PRIMARY) this.drawFrame(THEME.accent, 2)
   }
@@ -241,23 +239,17 @@ class GearButton extends RoundButton implements HotItem {
 }
 
 /**
- * The hot slot's toggle (Nick, 2026-11-05, replacing the BAG button and its
- * bag row): opens the items' fan round the cluster, and closes it again.
+ * The small button right of the hot slot that opens the items' fan (Nick,
+ * 2026-11-05). Shown only while the fan is closed: an open fan has no close
+ * button, any tap closes it (`RadialCluster`'s catcher).
  */
 class HotToggle extends RoundButton {
-  private readonly _label: Text
-
   constructor (size: number, press: () => void) {
     super(size, press)
-    this._label = Panel.text('+', THEME.titleSize, THEME.text)
-    this._label.anchor.set(0.5, 0.5)
-    this._label.position.set(size / 2, size / 2)
-    this.addChild(this._label)
-  }
-
-  setOpen (open: boolean): void {
-    this._label.text = open ? '×' : '+'
-    this.drawFrame(open ? THEME.accent : THEME.panelBorder, open ? 2 : 1)
+    const label = Panel.text('+', THEME.titleSize, THEME.text)
+    label.anchor.set(0.5, 0.5)
+    label.position.set(size / 2, size / 2)
+    this.addChild(label)
   }
 }
 
@@ -268,7 +260,9 @@ class HotToggle extends RoundButton {
  * centre and up, and outside that **one hot slot** for the items (Nick,
  * 2026-11-05): it shows the last item used (medkit, bomb, gear key 3 or 4)
  * and a press uses it, or switches to the next one left if it has none; a
- * toggle opens all of them on the outer ring. The gear bag (carried parts)
+ * small + to its right opens all of them on the outer ring, where a tap on
+ * one makes it the hot slot's and closes the fan, and a tap anywhere else
+ * just closes it (no close button). The gear bag (carried parts)
  * is not shown in touch mode. An empty skill slot draws nothing.
  *
  * Every button drives the object the desktop HUD presses (`SkillCard`,
@@ -284,13 +278,22 @@ export class RadialCluster extends Container {
   /** The item the collapsed hot slot shows: the last one used. */
   private _current = 0
   private _open = false
-  private readonly _toggle = new HotToggle(RADIAL.TOGGLE, () => { this.setOpen(!this._open) })
+  private readonly _toggle = new HotToggle(RADIAL.TOGGLE, () => { this.setOpen(true) })
+  /**
+   * Behind the buttons while the fan is open: a press anywhere else on the
+   * screen closes it and goes no further (not to the joystick or the world).
+   */
+  private readonly _catcher = new Graphics()
   private _cards: readonly SkillCard[] = []
   private _laid: (() => void) | undefined
 
   constructor () {
     super()
     this.visible = false
+    this._catcher.hitArea = new Rectangle(-1e5, -1e5, 2e5, 2e5)
+    this._catcher.eventMode = 'static'
+    this._catcher.visible = false
+    this._catcher.on('pointerdown', () => { this.setOpen(false) })
   }
 
   /**
@@ -304,11 +307,12 @@ export class RadialCluster extends Container {
     this._items = []
     this.removeChildren()
     this._open = false
-    this._toggle.setOpen(false)
+    this._catcher.visible = false
+    this.addChild(this._catcher)
 
     this._cards.forEach((card, slot) => {
       if (card.skill === null) return
-      const button = new SkillButton(card, slot === 0 ? RADIAL.PRIMARY : RADIAL.SKILL)
+      const button = new SkillButton(card, slot === 0 ? RADIAL.PRIMARY : RADIAL.SKILL, () => { this.setOpen(false) })
       this._skills.push(button)
       this.addChild(button)
     })
@@ -333,8 +337,9 @@ export class RadialCluster extends Container {
   /**
    * A press on item `i`. Collapsed (only the hot slot shows): use it if it
    * has any left (a count above 0, or gear in the key), else switch to the
-   * next item that has, without using it (Nick, 2026-11-05). Open: use the
-   * pressed item if it can be used, make it the hot slot's and close the fan.
+   * next item that has, without using it (Nick, 2026-11-05). Open: make the
+   * pressed item the hot slot's and close the fan, without using it (Nick,
+   * 2026-11-05: the fan picks; the hot slot uses).
    */
   private press (i: number): void {
     const item = this._items[i]
@@ -344,7 +349,6 @@ export class RadialCluster extends Container {
       else this.advance()
       return
     }
-    if (item.available()) item.use()
     this._current = i
     this.setOpen(false)
   }
@@ -363,8 +367,9 @@ export class RadialCluster extends Container {
   }
 
   private setOpen (open: boolean): void {
+    if (open === this._open) return
     this._open = open
-    this._toggle.setOpen(open)
+    this._catcher.visible = open
     this.showCurrent()
   }
 
@@ -374,6 +379,7 @@ export class RadialCluster extends Container {
       item.visible = this._open || i === this._current
       item.setCurrent(this._open && i === this._current)
     })
+    this._toggle.visible = !this._open
     this._laid?.()
   }
 
@@ -403,13 +409,17 @@ export class RadialCluster extends Container {
       else at(button, RADIAL.SKILL_RING, RADIAL.SKILL_ANGLES[slot - 1] ?? 270)
     }
     // The items: collapsed, the current one at the hot slot; open, every
-    // one on the fan. The toggle sits at the top of the ring either way.
+    // one on the fan. The toggle sits right of the hot slot, level with it.
     const placeItems = (): void => {
       this._items.forEach((item, i) => {
         if (this._open) at(item, RADIAL.ITEM_RING, RADIAL.ITEM_ANGLES[i] ?? 270)
         else at(item, RADIAL.ITEM_RING, RADIAL.HOT_ANGLE)
       })
-      at(this._toggle, RADIAL.ITEM_RING, RADIAL.TOGGLE_ANGLE)
+      const a = RADIAL.HOT_ANGLE * Math.PI / 180
+      const hx = cx + RADIAL.ITEM_RING * Math.cos(a)
+      const hy = cy + RADIAL.ITEM_RING * Math.sin(a)
+      this._toggle.x = Math.round(hx + RADIAL.ITEM / 2 + RADIAL.GAP / 2)
+      this._toggle.y = Math.round(hy - RADIAL.TOGGLE / 2)
     }
     this._laid = placeItems
     placeItems()
