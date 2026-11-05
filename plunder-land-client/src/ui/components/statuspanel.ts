@@ -79,18 +79,20 @@ export class StatusPanel extends Panel {
   /** `Panel`'s header height with a title, and without one on a phone (`setCompact`). */
   get headerHeight (): number {
     // Read from Panel's constructor before this class's fields exist: titled then.
-    return this._compact === true ? THEME.pad : THEME.pad + THEME.titleSize + 16
+    // On a phone the header is just the carried loot (Nick, 2026-11-05: phones must show loot).
+    return this._compact === true ? THEME.pad + THEME.titleSize + 6 : THEME.pad + THEME.titleSize + 16
   }
 
   /**
-   * On a phone (`HUD.phone()`, mobile-4): only the HP and armor bars with
-   * their numbers. The title and the carried loot go; the inventory follows
-   * `setInventoryShown` either way.
+   * On a phone (`HUD.phone()`, mobile-4): the carried loot (icon and number,
+   * no title or LOOT label) above the HP and armor bars with their numbers.
+   * Loot stays: it is what an extraction run has at stake (Nick, 2026-11-05).
+   * The inventory follows `setInventoryShown` either way.
    */
   setCompact (compact: boolean): void {
     if (compact === this._compact) return
     this._compact = compact
-    this._heading.visible = this._loot.visible = this._lootLabel.visible = this._lootIcon.visible = !compact
+    this._heading.visible = this._lootLabel.visible = !compact
     this.body.y = this.headerHeight
     this.refit()
   }
@@ -129,6 +131,16 @@ export class StatusPanel extends Panel {
   }
 
   private layoutHeader (): void {
+    if (this._compact) {
+      // Left-aligned in the compact header: icon, then the number.
+      this._loot.anchor.set(0, 0)
+      this._loot.x = THEME.pad + 22
+      this._loot.y = THEME.pad - 2
+      this._lootIcon.x = THEME.pad + 9
+      this._lootIcon.y = this._loot.y + this._loot.height / 2
+      return
+    }
+    this._loot.anchor.set(1, 0)
     this._loot.x = this.panelWidth - THEME.pad
     this._loot.y = THEME.pad - 2
     this._lootLabel.x = this._loot.x - this._loot.width - 8 - this._lootLabel.width

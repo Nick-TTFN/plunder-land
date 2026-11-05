@@ -2,6 +2,7 @@ import {
   type Density, DEFAULT_SETTINGS, SETTINGS, type Settings, bindKey, bindable, keyLabel, setSettings
 } from '../../net/settings'
 import { localTokenStorage } from '../../net/account'
+import { INPUT_MODE } from '../../input/inputmode'
 import { Sfx, type SoundLevel } from '../../audio/sfx'
 
 /**
@@ -19,9 +20,10 @@ import { Sfx, type SoundLevel } from '../../audio/sfx'
 const STYLE = `
 .st { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
   background: rgba(4,7,13,.55); color: #E6EEF5; font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; user-select: none; }
-.st-panel { width: min(460px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow-y: auto; padding: 18px 20px; border-radius: 10px;
+.st-panel { width: min(460px, calc(100% - 32px)); max-height: calc(100% - 32px); display: flex; flex-direction: column; padding: 18px 20px; border-radius: 10px;
   background: rgba(11,18,32,.96); border: 1px solid #3a6e7e; box-shadow: 0 0 24px rgba(51,219,211,.18); }
-.st-head { display: flex; justify-content: space-between; align-items: center; font-size: 22px; letter-spacing: .18em;
+.st-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.st-head { flex: none; display: flex; justify-content: space-between; align-items: center; font-size: 22px; letter-spacing: .18em;
   padding-bottom: 12px; border-bottom: 1px solid #1E3344; }
 .st-close { background: none; border: 0; color: #E6EEF5; font-size: 28px; cursor: pointer; }
 .st-section { padding: 12px 0 4px; font-size: 13px; letter-spacing: .16em; color: #7f95a8; }
@@ -36,7 +38,7 @@ const STYLE = `
 .st-opt { padding: 5px 10px; font: inherit; font-size: 13px; color: #a9bccd; background: transparent; border: 1px solid #3a5266; border-radius: 5px; cursor: pointer; }
 .st-opt.st-on { color: #0B1220; background: #33DBD3; border-color: #33DBD3; }
 .st-hint { font-size: 11px; color: #7f95a8; letter-spacing: .06em; padding: 4px 0 8px; }
-.st-foot { display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #1E3344; margin-top: 10px; }
+.st-foot { flex: none; display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #1E3344; margin-top: 10px; }
 .st-reset { padding: 8px 14px; font: inherit; font-size: 13px; letter-spacing: .12em; color: #a9bccd; background: none; border: 1px solid #3a5266; border-radius: 6px; cursor: pointer; }
 .st-done { padding: 10px 36px; font: inherit; font-size: 17px; letter-spacing: .14em; font-weight: 700; color: #0B1220; background: #33DBD3; border: 0; border-radius: 6px; cursor: pointer; }
 `
@@ -87,7 +89,9 @@ export class SettingsPanel {
     const close = el('button', 'st-close', '×')
     close.onclick = () => { this.close() }
     head.append(el('span', undefined, 'SETTINGS'), close)
-    this.body = el('div')
+    // Only the body scrolls: the header's close and the footer's DONE stay in
+    // view on a short (landscape phone) screen.
+    this.body = el('div', 'st-body')
     const foot = el('div', 'st-foot')
     const reset = el('button', 'st-reset', 'RESET')
     reset.onclick = () => { this.change({ ...DEFAULT_SETTINGS, skillKeys: [...DEFAULT_SETTINGS.skillKeys], itemKeys: [...DEFAULT_SETTINGS.itemKeys] }) }
@@ -135,7 +139,9 @@ export class SettingsPanel {
     this.body.append(el('div', 'st-section', 'CONTROLS'))
     this.body.append(this.keyRow('SKILLS', 'skillKeys', SKILL_SLOT_NAMES))
     this.body.append(this.keyRow('ITEMS', 'itemKeys', ITEM_SLOT_NAMES))
-    this.body.append(el('div', 'st-hint', 'Click a key, then press the new one. A key already in use swaps places. Movement is click to move.'))
+    this.body.append(el('div', 'st-hint', INPUT_MODE.touch
+      ? 'Keys are for a keyboard. On touch, move with the left-thumb stick and use skills from the right-hand buttons.'
+      : 'Click a key, then press the new one. A key already in use swaps places. Movement is click to move.'))
 
     this.body.append(el('div', 'st-section', 'GRAPHICS'))
     const density = el('div', 'st-row')
