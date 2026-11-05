@@ -34,7 +34,8 @@ export class MiniMap extends Graphics {
     this._timeSinceRedraw = 0
     this
       .clear()
-      .beginFill(0xA39171, 0.4)
+      // Neutral dark ground, the HUD panels' fill (Nick, 2026-11-05: no yellow tint).
+      .beginFill(0x0B1220, 0.6)
       .drawRect(0, 0, this.mapWidth, this.mapHeight)
       .endFill()
 

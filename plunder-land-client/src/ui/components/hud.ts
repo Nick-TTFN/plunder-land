@@ -346,15 +346,19 @@ export class HUD extends Container {
     this.settings.x = Math.round(gearX)
     this.settings.y = Math.round(T)
 
-    // The phone's layer badge: beside a centred clock on its right, if that
-    // is clear of the settings button and the minimap; else under the clock.
+    // The phone's layer badge: a small pill in the minimap's bottom-right
+    // corner, at CSS size (Nick, 2026-11-05). Under the clock if there is no
+    // minimap.
     if (phone && this.badge !== undefined) {
-      const bw = this.badge.panelWidth * s
-      const clockRight = this.clock !== undefined ? this.clock.x + this.clock.panelWidth * s : W / 2
-      const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * s : T
-      const limit = Math.min(gearX, this.map !== undefined ? this.map.x : gearX)
-      if (clockBottom === 0 && clockRight + 8 + bw <= limit - 8) place(this.badge, clockRight + 8, T)
-      else place(this.badge, Math.max(statusRight + m, clockRight - bw), clockBelow + 8)
+      this.badge.scale.set(1, 1)
+      if (this.map !== undefined) {
+        this.badge.x = Math.round(this.map.x + MINIMAP_PHONE - this.badge.panelWidth - 3)
+        this.badge.y = Math.round(this.map.y + MINIMAP_PHONE - this.badge.panelHeight - 3)
+      } else {
+        const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * s : T
+        this.badge.x = Math.round((W - this.badge.panelWidth) / 2)
+        this.badge.y = Math.round(clockBelow + 8)
+      }
     }
 
     // The joystick's zone: the left 45% of the screen, under the top HUD band
