@@ -5,9 +5,9 @@
  * pointer so the canvas under it (the robot) shows through, and each control
  * takes it back.
  *
- * Desktop: one grid, the hero (canvas robot, name, CHANGE SCAVENGER) spanning
- * the left column, progression, journey, the three action rows, the season
- * row and READY on the right. Under 760 px in portrait the grid is one column (a
+ * Desktop: two columns (Nick, 2026-11-05): on the left the callsign, the hero
+ * (canvas robot, name, CHANGE SCAVENGER), the season row and READY; on the
+ * right progression, journey and the three action rows. Under 760 px in portrait the grid is one column (a
  * phone on its side keeps the two columns, zoomed to fit; Nick, 2026-11-05)
  * (progression, journey, hero, rows), READY sticks to the bottom of the
  * scroll, and INVITE / settings / PRIVACY fold into the header's menu. The
@@ -49,10 +49,12 @@ export const LOBBY_CSS = `
 .lb-content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 .lb-main { width: 100%; max-width: 1280px; min-height: 100%; margin: 0 auto; padding: 28px 40px 28px;
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(380px, 560px); column-gap: 56px; row-gap: 18px;
-  grid-template-areas: "hero name" "hero prog" "hero journey" "hero acts" "hero season" "hero action";
-  grid-template-rows: auto auto auto auto auto 1fr; }
-.lb-hero { grid-area: hero; display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0;
+  grid-template-areas: "left right"; }
+/* The two columns; a portrait phone flattens them (display: contents) into the grid's one column. */
+.lb-left { grid-area: left; display: flex; flex-direction: column; gap: 18px; min-width: 0; min-height: 0;
   padding-right: 56px; margin-right: -28px; border-right: 1px solid rgba(51,219,211,.12); }
+.lb-right { grid-area: right; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.lb-hero { grid-area: hero; flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; }
 .lb-preview { position: relative; width: 100%; flex: 1; min-height: 280px; }
 .lb-plate { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 12px; text-align: center; }
 .lb-robot { font-size: clamp(30px, 3vw, 40px); font-weight: 700; }
@@ -62,7 +64,7 @@ export const LOBBY_CSS = `
 .lb-change:hover { border-color: #33DBD3; }
 .lb-change svg { width: 18px; height: 18px; }
 
-.lb-callsign { grid-area: name; justify-self: start; display: flex; align-items: center; gap: 10px; max-width: 100%;
+.lb-callsign { grid-area: name; justify-self: center; align-self: center; display: flex; align-items: center; gap: 10px; max-width: 100%;
   padding: 6px 14px; border-radius: 20px; background: rgba(11,18,32,.6); border: 1px solid #1f3646; cursor: text; }
 .lb-dot { width: 10px; height: 10px; border-radius: 50%; background: #39E08A; box-shadow: 0 0 8px #39E08A; flex-shrink: 0; }
 .lb-name { width: 170px; min-width: 0; background: transparent; border: 0; outline: none; color: #fff; font-size: 14px;
@@ -126,7 +128,7 @@ export const LOBBY_CSS = `
 .lb-season-line { font-size: 11px; line-height: 1.5; letter-spacing: .06em; color: #8FA3B5; overflow-wrap: anywhere; }
 .lb-season-notice { align-self: flex-start; padding: 3px 10px; border-radius: 6px; font-size: 11px; color: #0b1622; background: #33DBD3; }
 
-.lb-action { grid-area: action; align-self: end; display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding-top: 8px; }
+.lb-action { grid-area: action; width: 100%; max-width: 480px; align-self: center; display: flex; flex-direction: column; align-items: stretch; gap: 10px; padding-top: 8px; }
 .lb-ready { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 64px; padding: 0 32px;
   font-size: 26px; font-weight: 700; color: #1a1206; background: linear-gradient(#ffc45e, #f2a12e); border: 2px solid #ffd58a; border-radius: 10px;
   box-shadow: 0 0 26px rgba(252,187,76,.45); white-space: nowrap; }
@@ -262,7 +264,7 @@ export const LOBBY_CSS = `
 
 @media (max-width: 1100px) {
   .lb-main { column-gap: 40px; padding: 24px 28px; grid-template-columns: minmax(0, 1fr) minmax(340px, 480px); }
-  .lb-hero { padding-right: 40px; margin-right: -20px; }
+  .lb-left { padding-right: 40px; margin-right: -20px; }
 }
 @media (max-width: 760px) and (orientation: portrait) {
   .lb-top { min-height: 60px; padding: 0 max(12px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
@@ -279,6 +281,7 @@ export const LOBBY_CSS = `
   .lb-menu-label { display: inline; font-size: 15px; }
   .lb-main { grid-template-columns: minmax(0, 1fr); column-gap: 0; row-gap: 14px; padding: 16px 16px 0;
     grid-template-areas: "prog" "journey" "hero" "name" "acts" "season" "action"; grid-template-rows: none; }
+  .lb-left, .lb-right { display: contents; }
   .lb-hero { padding: 0; margin: 0; border: 0; }
   .lb-preview { flex: none; height: 170px; min-height: 0; }
   .lb-plate { padding: 0; gap: 4px; }
@@ -305,7 +308,7 @@ export const LOBBY_CSS = `
   .lb-actstatus { font-size: 11px; }
   .lb-actverb { min-width: 72px; padding: 6px 10px; font-size: 13px; }
   .lb-season { padding: 10px 4px 0 14px; }
-  .lb-action { position: sticky; bottom: 0; z-index: 1; margin: 0 -16px; padding: 14px 16px max(12px, env(safe-area-inset-bottom));
+  .lb-action { position: sticky; bottom: 0; z-index: 1; width: auto; max-width: none; margin: 0 -16px; padding: 14px 16px max(12px, env(safe-area-inset-bottom));
     background: linear-gradient(rgba(4,8,14,0), rgba(4,8,14,.92) 28%); }
   .lb-ready { min-height: 52px; font-size: 21px; }
   .lb-ready-sub { font-size: 12px; }

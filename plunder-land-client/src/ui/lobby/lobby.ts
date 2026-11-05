@@ -536,7 +536,13 @@ export default class Lobby extends Container {
     // stacks (progression, journey, hero, rows) and READY sticks to the bottom.
     this.content = el('div', 'lb-content')
     const main = this.main = el('main', 'lb-main')
-    main.append(hero, callsign, progress, journey, rows, this.season, action)
+    // Left: who plays (name, robot, season) and Start run; right: progression and
+    // inventory (Nick, 2026-11-05). Portrait phones flatten both into one column.
+    const left = el('div', 'lb-left')
+    left.append(callsign, hero, this.season, action)
+    const right = el('div', 'lb-right')
+    right.append(progress, journey, rows)
+    main.append(left, right)
     this.content.append(main)
     this.root.append(top, this.content, this.customize, this.picker, this.loadout.root, this.stash.root)
     this.content.addEventListener('scroll', this.onScroll)
