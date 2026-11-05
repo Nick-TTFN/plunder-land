@@ -350,6 +350,8 @@ export class RadialCluster extends Container {
   private press (i: number): void {
     const item = this._items[i]
     if (item === undefined) return
+    // Still sliding back in after a close: a press on a passing item does nothing.
+    if (!this._open && performance.now() - this._fanSince < RADIAL.FAN_MS) return
     if (!this._open) {
       if (item.available()) item.use()
       else this.advance()
