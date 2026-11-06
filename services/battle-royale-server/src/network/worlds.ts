@@ -5,6 +5,7 @@ import World from '../objects/world'
 import { PROTOCOL } from '../utils/protocol'
 import { captureError, reportError } from '../errors'
 import BotFill from '../bots/fill'
+import { humanOn } from '../bots/brain'
 import { type Account, type AccountStore, type FirstRunStore, firstRunStoreOf, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
 import Analytics, { type RunInfo } from '../analytics'
 import { buildFirstRun, FIRST_RUN } from '../firstrun/scenario'
@@ -1469,7 +1470,10 @@ export default class Worlds {
     for (const world of [...this.privates]) {
       World.run(world, () => {
         try {
-          if (this.privateBots > 0) this.fillOf(world, this.privateBots).update(this.draining ? 0 : Worlds.activePlayers(world))
+          if (this.privateBots > 0) {
+            this.fillOf(world, this.privateBots).update(this.draining ? 0 : Worlds.activePlayers(world))
+            Worlds.exitLeaving()
+          }
           world.update(dt)
           world.multiplayer?.flushAll(this.tick, dtMs)
         } catch (e) {
@@ -1576,6 +1580,20 @@ export default class Worlds {
   /** Open connections, in a world or not. */
   get connectionCount (): number {
     return this.connections.size
+  }
+
+  /**
+   * A private world's bots that its fill sent out (`BotBrain.leaving`) and
+   * that stand on a layer with no human exit at once, in the current world
+   * (Archie's private-4 review): nobody sees them go, and walking out would
+   * keep the old layer's bots up to `LEAVE_GRACE_MS` beside the new layer's
+   * after a descent (about 6 bots, not 3). One on its human's layer (a
+   * drain's, or over the target) still walks to an exit, as everywhere.
+   */
+  private static exitLeaving (): void {
+    for (const player of World.PLAYERS) {
+      if (player.bot?.leaving === true && !player.destroyed && !player.exited && !humanOn(player.tag)) player.exit()
+    }
   }
 
   /** `world`'s bot fill, made at `target` on first use: `botTarget` for a shared world, `privateBots` for a private one. */
