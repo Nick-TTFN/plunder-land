@@ -355,11 +355,13 @@ test('a client through two handoffs, first run to a private world to a shared on
   stepOn(worlds, first, xf, isPad)
   const priv = x.world as World
   assert.ok(priv !== undefined && worlds.privates.includes(priv), 'the first handoff did not land in a private world')
-  for (let i = 0; i < 4; i++) worlds.tickAll(250)
   const xp = x.player as Player
+  // Read before any tick: the new world's loot under its feet would add to it.
+  assert.equal(xp.loot, xf.loot, 'the first run\'s loot did not reach the private world')
+  assert.ok(xf.loot >= 3)
+  for (let i = 0; i < 4; i++) worlds.tickAll(250)
   assert.equal(x.continued, 1)
   assert.equal(xp.tag, World.TAGS[0])
-  assert.equal(xp.loot, 3, 'the first run\'s loot did not reach the private world')
   for (const [id, data] of x.held) {
     const obj = objectsOf(priv).get(id)
     assert.ok(obj !== undefined && obj.type === data.type, `held id ${id} is not the private world's`)
@@ -405,11 +407,13 @@ test('a client through two handoffs, first run to a private world to a shared on
   assert.ok(shared !== undefined && worlds.worlds.includes(shared), 'the second handoff did not land in a shared world')
   assert.equal(priv.closed, true)
   assert.equal(worlds.privates.length, 0)
-  for (let i = 0; i < 4; i++) worlds.tickAll(250)
   const xs = x.player as Player
   assert.ok(xs !== xp)
+  // As it stood on the pad, read before any tick.
+  assert.equal(xs.loot, xp.loot, 'the private world\'s loot did not reach the shared world')
+  assert.ok(xp.loot >= 5)
+  for (let i = 0; i < 4; i++) worlds.tickAll(250)
   assert.equal(xs.tag, SHARED_TOP, 'the shared run did not start on the shared world\'s top layer')
-  assert.equal(xs.loot, 5, 'the private world\'s loot did not reach the shared world')
 
   // One run record across both handoffs (#58 addendum 5).
   assert.equal(x.continued, 2, 'an own create after a handoff restarted the run')
