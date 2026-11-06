@@ -109,6 +109,13 @@ test('two private worlds on one map hold the same void and wall Sets and run arr
   assert.equal(World.run(a, () => World.isBlocked(free.x, free.y, TOP)), true)
   assert.equal(World.run(b, () => World.isBlocked(free.x, free.y, TOP)), false, 'a block in one private world reached another')
   assert.equal(map.template?.terrain.get(TOP)?.has(Hex.key(free.x, free.y)), false, 'a block reached the template')
+  // The same from a world that took the template (the generating world `a` always
+  // keeps its own BLOCKED, so only a later world can share the template's by mistake).
+  const c = build(map).world
+  World.run(b, () => World.block(free.x, free.y, TOP, null))
+  assert.equal(World.run(b, () => World.isBlocked(free.x, free.y, TOP)), true)
+  assert.equal(World.run(c, () => World.isBlocked(free.x, free.y, TOP)), false, 'a block in a later private world reached another')
+  assert.equal(map.template?.terrain.get(TOP)?.has(Hex.key(free.x, free.y)), false, 'a block in a later private world reached the template')
 })
 
 test('the shared map is read-only: writing its Sets or run arrays throws, in every world', () => {
