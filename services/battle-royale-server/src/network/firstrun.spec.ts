@@ -373,9 +373,22 @@ test('the handoff: a private world of its own on its top layer at a spawn 6+ cel
   const ref = new WeakRef(firstWorld)
   assert.equal(worlds.privates.length, 0, 'a first run opened a private world before its pad')
 
-  stepOnGate(worlds, firstWorld, first)
+  // The join's clearance, as asked (a random spawn is usually 6 clear anyway,
+  // so the distances below alone rarely catch a missing clearance).
+  const asked: Array<number | undefined> = []
+  const spawnCell = World.spawnCell
+  World.spawnCell = (tag, clearance) => {
+    asked.push(clearance)
+    return spawnCell.call(World, tag, clearance)
+  }
+  try {
+    stepOnGate(worlds, firstWorld, first)
+  } finally {
+    World.spawnCell = spawnCell
+  }
   await settle()
   firstWorld = undefined
+  assert.deepEqual(asked, [HANDOFF_CLEARANCE], 'the handoff\'s join did not ask for HANDOFF_CLEARANCE')
   const priv = worlds.worldFor(client.connection) as World
   const next = client.connection.player as Player
   assert.ok(priv !== undefined && next !== undefined && next !== first)

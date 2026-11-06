@@ -350,7 +350,21 @@ test('the pad: a shared world\'s top layer, loot, kills and kill credit carried,
   redis.writes.length = 0
   const ref = new WeakRef(priv)
 
-  takePad(worlds, priv, first)
+  // The shared world's join asks no clearance of its own (`SPAWN_CLEARANCE`):
+  // the 6 was for a newcomer's first NPC.
+  descend(worlds, priv, first)
+  const asked: Array<number | undefined> = []
+  const spawnCell = World.spawnCell
+  World.spawnCell = (tag, clearance) => {
+    asked.push(clearance)
+    return spawnCell.call(World, tag, clearance)
+  }
+  try {
+    stepOn(worlds, priv, first, (gate) => gate.handoff === true)
+  } finally {
+    World.spawnCell = spawnCell
+  }
+  assert.deepEqual(asked, [undefined])
   await settle()
   assert.equal(ref.deref()?.closed, true, 'the private world is still open')
   priv = undefined
