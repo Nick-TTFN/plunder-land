@@ -1,15 +1,17 @@
 import World from '../objects/world'
 import type Player from '../objects/player'
 import { FINISH_GROUPS, FINISH_PRESETS, type Finish, PALETTE, PATTERNS, finishToBytes } from '../utils/finishes'
-import BotBrain, { botCargo, botLayer, kitOf, pickTemperament } from './brain'
+import BotBrain, { botCargo, botLayer, humanOn, kitOf, pickTemperament } from './brain'
 
 /**
  * Keeps one world's humans + bots at `target` (decision #47), and only while
- * it has a human: an empty world's bots head out. At most one bot joins per
- * `spawnEveryMs`. A human over the target displaces a bot, which **leaves by
- * extracting** (`BotBrain.leaving`); one that hasn't made it out after
- * `LEAVE_GRACE_MS` exits where it stands, so the count can't stay over for
- * long. `BOT_TARGET` in the environment (0 turns bots off).
+ * it has a human: an empty world's bots head out, and so does a bot on a
+ * layer with no human (#60, Q8), so the fill tops up where the humans are.
+ * At most one bot joins per `spawnEveryMs`. A human over the target
+ * displaces a bot, which **leaves by extracting** (`BotBrain.leaving`); one
+ * that hasn't made it out after `LEAVE_GRACE_MS` exits where it stands, so
+ * the count can't stay over for long. `BOT_TARGET` in the environment (0
+ * turns bots off).
  */
 export const LEAVE_GRACE_MS = 90_000
 
@@ -43,11 +45,24 @@ export default class BotFill {
       else if (now - since >= LEAVE_GRACE_MS) bot.exit()
     }
 
-    const staying = BotFill.staying()
+    let staying = BotFill.staying()
     if (humans === 0) {
       for (const bot of staying) this.leave(bot, now)
       return
     }
+    // Bots follow the humans (decision #60, Q8): one on a layer with no human
+    // in play (its human moved on) heads out, and the fill tops up where the
+    // humans are (`layerFor`). Every world: a layer nobody plays keeps no
+    // bots. A bot doesn't head down to such a layer itself (`humanOn` in
+    // `BotBrain.think`): without that, 3 bots in 4 did and were sent out (the
+    // ten-minute spec in bots.spec.ts, task private-4).
+    let strayed = false
+    for (const bot of staying) {
+      if (humanOn(bot.tag)) continue
+      this.leave(bot, now)
+      strayed = true
+    }
+    if (strayed) staying = BotFill.staying()
     if (humans + staying.length > this.target && staying.length > 0) {
       // The one with least to lose.
       this.leave(staying.reduce((a, b) => (a.loot <= b.loot ? a : b)), now)
@@ -94,6 +109,29 @@ export default class BotFill {
   }
 
   /**
+   * The handicap of the layer `bot` joins on (decision #60, Q7; `BOT_SKILL`'s
+   * `hpScale` and `damageScale`): its robot's max HP and max armor scaled,
+   * rounded, at least 1, and full; its damage through `Player.botDamage`.
+   * Once, at the join: a bot that changes layer keeps it. It holds because a
+   * bot never equips gear (`Player.addGear`), and `applyGear`, which rebuilds
+   * max HP and armor from the archetype, runs only on an equip. Read by the
+   * layer the bot is on, which `createPlayer` may have moved to the top held
+   * layer.
+   */
+  static handicap (bot: Player): void {
+    const row = botLayer(bot.tag)
+    if (row.hpScale !== 1) {
+      bot.maxHp = Math.max(1, Math.round(bot.maxHp * row.hpScale))
+      bot.hp = bot.maxHp
+      if (bot.maxArmor > 0) {
+        bot.maxArmor = Math.max(1, Math.round(bot.maxArmor * row.hpScale))
+        bot.armor = bot.maxArmor
+      }
+    }
+    bot.botDamage = row.damageScale
+  }
+
+  /**
    * A bot on layer `tag` (by default `layerFor`'s, else the top one the
    * world holds, `World.topLayer`), as one of that layer's robots and
    * temperaments, with its cargo (`BOT_SKILL`).
@@ -114,6 +152,7 @@ export default class BotFill {
     const player = World.createPlayer(id, name, finishToBytes(finish), pick(row.robots), kitOf(temperament, this.random), tag)
     player.bot = new BotBrain(player, now, this.random, temperament)
     player.addAIRoutine(player.bot)
+    BotFill.handicap(player)
     // Some carry one item, by the layer (49-6, #58). After `bot` is set, so it goes in the bag.
     const cargo = botCargo(this.random, row.cargo)
     if (cargo !== undefined) player.addGear(cargo)

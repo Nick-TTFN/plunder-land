@@ -71,6 +71,14 @@ export default class Player extends Unit {
    * world counts its humans (`Worlds.activePlayers`).
    */
   bot: BotBrain | undefined
+  /**
+   * A bot's damage handicap (decision #60, Q7): `BOT_SKILL`'s `damageScale`
+   * for the layer it joined on, set by `BotFill.spawn`; 1 for a human. Folded
+   * into the `damageScale` getter. Under its own name, never `damageScale`:
+   * a field of that name would shadow `Unit`'s getter (the `armor` trap).
+   * Never set from a constructor, so a plain initialiser is safe.
+   */
+  botDamage = 1
   /** Connections spectating this player (decision #47), made on first use. */
   spectators: Set<Connection> | undefined
 
@@ -695,9 +703,12 @@ export default class Player extends Unit {
     return out
   }
 
-  /** The archetype's `damageScale` plus the gear's, through `Skill.dealt` (#49). */
+  /**
+   * The archetype's `damageScale` plus the gear's, through `Skill.dealt`
+   * (#49), times a bot's handicap (`botDamage`, #60).
+   */
   get damageScale (): number {
-    return super.damageScale + this._gearEffect.damageScale
+    return (super.damageScale + this._gearEffect.damageScale) * this.botDamage
   }
 
   /**

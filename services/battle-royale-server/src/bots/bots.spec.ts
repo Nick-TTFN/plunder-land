@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io'
 import Multiplayer, { type Connection } from '../network/multiplayer'
 import Worlds from '../network/worlds'
 import World from '../objects/world'
+import Portal from '../objects/portal'
 import type Player from '../objects/player'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
@@ -83,6 +84,19 @@ function sturdy (world: World): void {
   }
 }
 
+/**
+ * Take a real world's portals away, for the tests that count bots: since bots
+ * follow the humans (#60, Q8), a bot whose wander or walk to loot ends on a
+ * portal lands on a layer with no human and is sent out at once. In 4 of 20
+ * runs of the drain test one had, within its first 10 s, and the count came
+ * up short. A bot's hop is play, not what these tests are about.
+ */
+function noPortals (world: World): void {
+  World.run(world, () => {
+    for (const o of [...World.OBSTACLES]) if (o instanceof Portal) World.removeObstacle(o)
+  })
+}
+
 function clock (t: TestContext): (ms: number) => void {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   return (ms) => { t.mock.timers.tick(ms) }
@@ -92,6 +106,7 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now() })
   const world = worlds.worlds[0]
+  noPortals(world)
   for (let i = 0; i < 20; i++) { worlds.tickAll(250); tick(250) }
   assert.equal(bots(world), 0, 'no human, no bots')
 
@@ -116,6 +131,7 @@ test('a human over the target displaces a bot, which heads out and is gone withi
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now() })
   const world = worlds.worlds[0]
+  noPortals(world)
   await human(worlds, 'a').start()
   for (let i = 0; i < 40; i++) { worlds.tickAll(250); sturdy(world); tick(250) }
   assert.equal(bots(world), 2)
@@ -134,6 +150,7 @@ test('a human over the target displaces a bot, which heads out and is gone withi
 test('bots never count as humans: world choice, idle and drain ignore them', async (t) => {
   const tick = clock(t)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now() })
+  noPortals(worlds.worlds[0])
   const a = human(worlds, 'a')
   await a.start()
   for (let i = 0; i < 40; i++) { worlds.tickAll(250); sturdy(worlds.worlds[0]); tick(250) }
@@ -280,7 +297,11 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
     console.log(`bots ${list.length}: ${extracted.length} extracted (loot ${extracted.map((p) => p.loot).join(' ')}), ${died.length} died; ${looted} looted, ${kills} kills, ${deeper} went deeper`)
     assert.deepEqual(errors, [], 'no tick error')
     assert.ok(extracted.length > 0, 'some bot found an exit and extracted')
-    assert.ok(looted > list.length / 2, 'most bots pick up loot')
+    // A third, not a half, since bots follow the humans (#60, Q8): they stay
+    // on layer 01 with its 10 pickups, where they used to wander down to
+    // richer layers. Over 30 runs each (task private-4): before, 66-89% of
+    // bots looted (median 79%); after, 43-90% (median 71%).
+    assert.ok(looted > list.length / 3, `bots pick up loot: ${looted} of ${list.length}`)
     // Every bot's kit is its temperament's (#48 step 4, temperaments 2026-10-04), and both throws turn up.
     for (const p of list) {
       const t = (p.bot as BotBrain).temperament

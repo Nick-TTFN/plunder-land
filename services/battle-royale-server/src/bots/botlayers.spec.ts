@@ -214,10 +214,12 @@ function line (from: Vector, direction: number, n: number): Vector {
   return at
 }
 
-test('a bot never takes a portal down into a layer that leaves its robot out; one it may enter, it takes', () => {
-  for (const [robot, takes] of [['peep', false], ['magnet', true]] as const) {
+test('a bot never takes a portal down into a layer that leaves its robot out; one it may enter, it takes, if a human is there', () => {
+  // A bot follows the humans (#60 Q8): with no human on -2, a Magnet stays too.
+  for (const [robot, human, takes] of [['peep', true, false], ['magnet', true, true], ['magnet', false, false]] as const) {
     const world = quietWorld()
     World.PLAYERS.length = 0
+    if (human) World.createPlayer('d00001', 'h', undefined, 'peep', undefined, BOTTOM)
     // random 0: descend always rolls (0 < 0.15), and a wander goes 4 cells in direction 0.
     const { me, brain } = botOn(MIDDLE, robot)
     const portalCell = line(me.cell, 3, 2)
@@ -232,9 +234,9 @@ test('a bot never takes a portal down into a layer that leaves its robot out; on
     const end = me.path[me.path.length - 1]
     assert.ok(end !== undefined, `${robot}: stood still`)
     const onPortal = end.x === portalCell.x && end.y === portalCell.y
-    assert.equal(onPortal, takes, `${robot} on -1: ${takes ? 'did not head' : 'headed'} for the portal down to -2`)
+    assert.equal(onPortal, takes, `${robot} on -1 (human on -2: ${human}): ${takes ? 'did not head' : 'headed'} for the portal down to -2`)
     const askedPortal = asked.some((c) => c.x === portalCell.x && c.y === portalCell.y)
-    assert.equal(askedPortal, takes, `${robot}: asked for a route to the portal`)
+    assert.equal(askedPortal, takes, `${robot} (human on -2: ${human}): asked for a route to the portal`)
     world.close()
   }
 })

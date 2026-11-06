@@ -44,6 +44,18 @@ export interface BotLayer {
   temperaments: readonly Temperament[]
   /** The chance a bot joining here carries one item, and its tier (`botCargo`). */
   cargo: Readonly<{ chance: number, tier: GearTier }>
+  /**
+   * The handicap (decision #60, Q7): a bot joining here has this share of its
+   * robot's max HP and max armor (`BotFill.spawn`). Kept for the run: a bot
+   * that changes layer keeps its join handicap.
+   */
+  hpScale: number
+  /**
+   * The handicap's damage half (#60, Q7): every hit a bot joining here deals
+   * through `Skill.dealt` is times this (`Player.botDamage`). Speed, reaction
+   * and aim are not part of it.
+   */
+  damageScale: number
 }
 
 /**
@@ -52,6 +64,8 @@ export interface BotLayer {
  * from 650 ms and 45%; untested). Robots, temperaments and cargo are Dez's
  * table (`ideas/retest-onboarding.md`, #58 addendum 2 Q6): no Hopper or
  * Waddle and no brawler on layer 0, no Peep on layer -2, a richer cargo on -2.
+ * The handicap (`hpScale`, `damageScale`) is Nick's (#60, Q7): x0.5 on layer
+ * 01, x0.75 on 02, full strength from 03; a row added below -2 takes 1.
  * Tunables (TEAM.md).
  */
 export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
@@ -62,7 +76,9 @@ export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
     descend: 0.25,
     robots: Object.freeze(['peep', 'magnet', 'periscope'] as const),
     temperaments: Object.freeze(['steady', 'looter', 'diver'] as const),
-    cargo: Object.freeze({ chance: 0.25, tier: 1 as const })
+    cargo: Object.freeze({ chance: 0.25, tier: 1 as const }),
+    hpScale: 0.5,
+    damageScale: 0.5
   }),
   Object.freeze({
     reactionMs: 450,
@@ -71,7 +87,9 @@ export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
     descend: 0.15,
     robots: Object.freeze(['peep', 'magnet', 'periscope', 'hopper'] as const),
     temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
-    cargo: Object.freeze({ chance: 0.25, tier: 1 as const })
+    cargo: Object.freeze({ chance: 0.25, tier: 1 as const }),
+    hpScale: 0.75,
+    damageScale: 0.75
   }),
   Object.freeze({
     reactionMs: 300,
@@ -80,7 +98,9 @@ export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
     descend: 0,
     robots: Object.freeze(['magnet', 'periscope', 'hopper', 'waddle'] as const),
     temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
-    cargo: Object.freeze({ chance: 0.4, tier: 2 as const })
+    cargo: Object.freeze({ chance: 0.4, tier: 2 as const }),
+    hpScale: 1,
+    damageScale: 1
   })
 ])
 
@@ -98,6 +118,22 @@ export function botLayer (tag: number): BotLayer {
 export function robotAllowedOn (key: string | undefined, tag: number): boolean {
   if (key === undefined || !World.TAGS.includes(tag) || !World.current.holds(tag)) return false
   return (botLayer(tag).robots as readonly string[]).includes(key)
+}
+
+/**
+ * Whether a human is in play on layer `tag` of the current world: not dead,
+ * not out (as `BotFill.layerFor` counts). Bots follow the humans (decision
+ * #60, Q8): `BotFill` sends out a bot on a layer without one, and a bot never
+ * heads down to such a layer of its own accord (`think`'s descent). A route
+ * that only happens to end on a portal (a wander, a walk to loot) is not
+ * refused for it: refusing re-plans, which cost 8 bots about 0.035 ms a tick
+ * (scratch bench, task private-4), for a hop the fill then retires.
+ */
+export function humanOn (tag: number): boolean {
+  for (const p of World.PLAYERS) {
+    if (p.tag === tag && p.bot === undefined && !p.destroyed && !p.exited) return true
+  }
+  return false
 }
 
 /**
@@ -293,9 +329,10 @@ export default class BotBrain implements IAIRoutine {
     if (me.path.length > 0) return // still walking somewhere
     const layer = World.TAGS.indexOf(me.tag)
     // Never down into a layer whose robots leave this one out (#58 addendum 2):
-    // a Peep stays off 03.
+    // a Peep stays off 03. Nor into one with no human (#60 Q8): bots follow
+    // the humans, so a descent follows one down.
     if (this.random() < skill.descend * this.spec.descend && layer < World.TAGS.length - 1 &&
-      robotAllowedOn(me.archetype?.key, World.TAGS[layer + 1])) {
+      robotAllowedOn(me.archetype?.key, World.TAGS[layer + 1]) && humanOn(World.TAGS[layer + 1])) {
       const deeper = World.TAGS[layer + 1]
       const portal = this.nearestGate(cell, ObjectType.Portal, (gate) => (gate as { to?: number }).to === deeper)
       if (portal !== undefined && this.go(portal)) return
