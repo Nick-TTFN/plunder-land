@@ -44,6 +44,12 @@ export interface Start {
 export interface Join {
   clearance?: number
   prepare?: (player: Player) => void
+  /**
+   * The run goes on from another world (decision #60: a private world's pad
+   * into a shared one): the run already sent its `run_start` and counted in
+   * its visit there, so this join sends no `run_start` and counts no run.
+   */
+  continues?: boolean
 }
 
 export class Connection {
@@ -532,7 +538,7 @@ export default class Multiplayer {
         // `run_start` or visit run, so the funnel counts the run that the
         // handoff begins once, as the one run it is.
         Analytics.send(run, 'first_run_start', { robot: player.archetype.key })
-      } else {
+      } else if (join?.continues !== true) {
         if (connection.visit !== undefined) connection.visit.runs++
         Analytics.runStart(run, this.redis, player.archetype.key, humans, bots, party)
       }

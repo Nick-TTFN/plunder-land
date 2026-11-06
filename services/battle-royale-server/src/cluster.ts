@@ -6,7 +6,7 @@ import cluster, { type Worker } from 'node:cluster'
  * Redis client and account pool) on the one shared port, and does nothing
  * else. Node hands each new TCP connection to a worker; the client is
  * websocket-only, so a connection never needs to come back to the same one
- * (no sticky sessions). `WORLD_CAP`, `MAX_PLAYERS` and `/stats`' cache are per
+ * (no sticky sessions). `WORLD_CAP`, `MAX_PLAYERS`, `FIRST_RUN_CAP`, `PRIVATE_CAP` and `/stats`' cache are per
  * worker; `/season` and the season payer work from any (the store pays each
  * season once however many check).
  *

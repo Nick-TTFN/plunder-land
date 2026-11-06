@@ -985,6 +985,14 @@ export interface LayerSpec {
   items: LayerItems[]
   /** Gear caches and drops (decision #49). */
   gear: GearDrops
+  /**
+   * A private layer (decision #60): every run starts in its own world holding
+   * the layers flagged here (one human, NPCs and bots), and a pad on the
+   * deepest of them hands it off into a shared world holding the rest, where
+   * humans meet (`network/worlds.ts`). Absent: shared. No tag is named in
+   * code; which layers are private is this flag alone.
+   */
+  owned?: boolean
 }
 
 /**
@@ -1014,6 +1022,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   // old x1, 02 x0.175 of the old x1.75; 03 is unchanged.
   {
     tag: 0,
+    owned: true,
     lootMultiplier: 0.1,
     voidShare: 1 / 3,
     wallShare: 0.06,
@@ -1038,6 +1047,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   },
   {
     tag: -1,
+    owned: true,
     lootMultiplier: 0.175,
     voidShare: 1 / 3,
     wallShare: 0.06,

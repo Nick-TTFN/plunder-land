@@ -22,6 +22,7 @@ import type { GearStore, Spent, StashEdits, StashItem } from '../db/accounts'
 import { mergedItem, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from '../gear/merge'
 import { BRING_LEVEL, type GearInstance } from '../utils/gear'
 import { Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
+import { PRIVATE_MAP } from '../objects/privatemap'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -62,6 +63,17 @@ export interface WorldsOptions {
    * account stays not done. Absent: `FIRST_RUN_CAP_DEFAULT`.
    */
   firstRunCap?: number
+  /**
+   * Private worlds this process keeps open at once (`PRIVATE_CAP`, decision
+   * #60 Q11, provisional): a start over it is sent `full`. Absent:
+   * `PRIVATE_CAP_DEFAULT`; 0 or less: no cap.
+   */
+  privateCap?: number
+  /**
+   * Humans + bots each private world is topped up to (`PRIVATE_BOT_TARGET`,
+   * decision #60, Dez's 9: 1 human + 3 bots). 0 or absent: no bots, as `bots`.
+   */
+  privateBots?: number
 }
 
 /** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
@@ -77,10 +89,33 @@ export const FIRST_RUN_CAP_DEFAULT = 50
  */
 export const HANDOFF_CLEARANCE = 6
 
-/** A first-run world's one run (`Worlds.firstRunOf`). */
-interface FirstRunState {
+/** `PRIVATE_CAP` when unset (decision #60 Q11; provisional). */
+export const PRIVATE_CAP_DEFAULT = 500
+
+/** `PRIVATE_BOT_TARGET` when unset (decision #60, Dez's 9). */
+export const PRIVATE_BOT_TARGET_DEFAULT = 4
+
+/** Every private world's map size: the one private map's (`PRIVATE_MAP`, private-5). */
+export const PRIVATE_MAP_SIZE = 2000
+
+/**
+ * How many dt-0 updates a new private world gets before its human joins, at
+ * most (`Worlds.prefill`): the refill places at most one mob, pack and pickup
+ * of each kind a tick, so a fresh world is empty, and its spawn clearance
+ * would measure nothing. Enough for today's largest count (10 natural loot).
+ */
+export const PREFILL_TICKS = 32
+
+/**
+ * A first-run or private world's one run (`Worlds.firstRunOf`,
+ * `Worlds.privateOf`): one human each.
+ */
+interface OwnRun {
   readonly connection: Connection
-  /** The start that asked for it: the handoff begins the shared run with it. */
+  /**
+   * The start that began the run: each handoff begins the next world's run
+   * with it (robot, loadout, party).
+   */
   readonly start: Start
   readonly data: unknown
   /** Its player, once joined. */
@@ -93,8 +128,16 @@ interface FirstRunState {
  * Every world in this process (worlds-per-process, decision #39), and the one
  * socket.io server's connections to them.
  *
- * **A world is picked per run, not per connection** (Nick, 2026-09-28): on
- * every `start_requested`, the fullest world with fewer than `cap` active
+ * **Every run starts private** (decision #60): in a world of its own holding
+ * the private layers (`LayerSpec.owned`: 01-02), with NPCs and bots and no
+ * other human (`privates`, `openPrivate`). A pad on its deepest layer hands
+ * the run off into a shared world (`padHandoff`), which holds the other
+ * layers (03 down) and is picked as below; there humans meet. Three lists,
+ * then: `worlds` (shared), `privates` and `firstRuns`, and every reader of
+ * one decides about the other two.
+ *
+ * **A shared world is picked per run, not per connection** (Nick, 2026-09-28): on
+ * every pad's handoff (before #60, every `start_requested`), the fullest world with fewer than `cap` active
  * players, ties to the oldest, or a new world when every open one is full.
  * Fill-first keeps worlds lively at low player counts. A connection between
  * runs (on its run card) belongs to no world for assignment; it stays in its
@@ -194,8 +237,26 @@ export default class Worlds {
    */
   readonly firstRuns: World[] = []
   /** Each open first-run world's run. */
-  private readonly firstRunOf = new Map<World, FirstRunState>()
+  private readonly firstRunOf = new Map<World, OwnRun>()
   private readonly firstRunCap: number
+  /**
+   * Private worlds (decision #60), one human each with its bots, holding the
+   * private layers (`LayerSpec.owned`) on the one private map. **Apart from
+   * `worlds`, like `firstRuns`**: `choose` and `closeIdle` read `worlds`
+   * only; `activeRuns`, `drained` (and so `full` and a drain) count these
+   * too. Ticked after the shared worlds, each with its own bot fill; each
+   * closes once its human has gone (a death, an extraction, a disconnect) or
+   * has taken the pad into a shared world (`padHandoff`).
+   */
+  readonly privates: World[] = []
+  /** Each open private world's run. */
+  private readonly privateOf = new Map<World, OwnRun>()
+  private readonly privateCap: number
+  private readonly privateBots: number
+  /** The layers a private world holds (`LayerSpec.owned`), top first. */
+  private readonly privateTags: readonly number[]
+  /** The layers a shared world holds: every other one. */
+  private readonly sharedTags: readonly number[]
   /** The store's first-run half (`firstRunStoreOf`); undefined: no first runs at all. */
   private readonly firstRunStore: (AccountStore & FirstRunStore) | undefined
 
@@ -234,8 +295,22 @@ export default class Worlds {
     this.edits = this.gear !== undefined ? stashEditsOf(this.accounts) : undefined
     this.firstRunCap = options.firstRunCap ?? FIRST_RUN_CAP_DEFAULT
     this.firstRunStore = firstRunStoreOf(this.accounts)
+    this.privateCap = options.privateCap ?? PRIVATE_CAP_DEFAULT
+    this.privateBots = options.privateBots ?? 0
+    // Read here, not at import: a bench may cut `World.LAYERS` first.
+    this.privateTags = World.LAYERS.filter((layer) => layer.owned === true).map((layer) => layer.tag)
+    this.sharedTags = World.TAGS.filter((tag) => !this.privateTags.includes(tag))
     World.strict = true
     this.open()
+  }
+
+  /**
+   * Runs start private (decision #60): some layers are private and some
+   * shared. Otherwise (no row flagged, or every one) every run plays in a
+   * shared world holding every layer, as before #60.
+   */
+  get privateRuns (): boolean {
+    return this.privateTags.length > 0 && this.sharedTags.length > 0
   }
 
   /**
@@ -253,12 +328,54 @@ export default class Worlds {
     return multiplayer
   }
 
-  /** A new world with its own Multiplayer, not left current. */
+  /**
+   * A new shared world with its own Multiplayer, not left current. With
+   * private runs it holds only the shared layers: its top one (layer 03) has
+   * no pads back up (#60 Q3, `WorldOptions.padsUp` off).
+   */
   open (): World {
-    const world = World.build(this.mapSize, { multiplayer: this.multiplayer() })
+    const world = World.build(this.mapSize, { multiplayer: this.multiplayer(), ...(this.privateRuns ? { layers: this.sharedTags } : {}) })
     world.gearExpired = (item) => { this.discard([item]) }
     this.worlds.push(world)
     return world
+  }
+
+  /**
+   * A new private world (decision #60) for `run`, in `privates`, never in
+   * `worlds`: the private layers on the one private map (private-5; never
+   * with `firstRun` or `empty`, which would ignore the map), filled before
+   * anyone joins (`prefill`). Its pads (layer 02's down count) mark its run
+   * due for `padHandoff`.
+   */
+  private openPrivate (run: OwnRun): World {
+    const world = World.build(PRIVATE_MAP_SIZE, { multiplayer: this.multiplayer(), layers: this.privateTags, map: PRIVATE_MAP })
+    world.gearExpired = (item) => { this.discard([item]) }
+    world.handoff = (player) => {
+      const state = this.privateOf.get(world)
+      if (state !== undefined && state.player === player) state.due = true
+    }
+    this.privates.push(world)
+    this.privateOf.set(world, run)
+    Worlds.prefill(world)
+    return world
+  }
+
+  /**
+   * Top a world up before its first join: dt-0 updates until a pass adds no
+   * object (at most `PREFILL_TICKS`), so its mobs and pickups are where the
+   * refill puts them and the join's spawn clearance means something. Nothing
+   * moves and nothing is sent (no connection yet).
+   */
+  static prefill (world: World): void {
+    World.run(world, () => {
+      let count = -1
+      for (let i = 0; i < PREFILL_TICKS; i++) {
+        world.update(0)
+        const now = world.MOBS.length + world.CONSUMABLES.length + world.ITEMS.length + world.GEAR.length
+        if (now === count) break
+        count = now
+      }
+    })
   }
 
   /**
@@ -365,13 +482,14 @@ export default class Worlds {
       visitEnd(visit, connection.account, connection.started ? 'run' : this.draining ? 'drain' : 'lobby')
       connection.closed = true
       // Inside a first run: it ends free and not done (before the release
-      // below destroys the player, which would end it as a run).
+      // below destroys the player, which would end it as a run). Inside a
+      // private world it ends as any run left halfway does (the release).
       const world = this.worldOf.get(connection)
       Multiplayer.guarded(() => { this.leaveFirstRun(connection) })
       this.inWorld(connection, (mp) => { mp.release(connection) })
       this.worldOf.delete(connection)
       this.connections.delete(connection)
-      if (world !== undefined && this.firstRunOf.has(world)) Multiplayer.guarded(() => { this.close(world) })
+      if (world !== undefined && (this.firstRunOf.has(world) || this.privateOf.has(world))) Multiplayer.guarded(() => { this.close(world) })
     })
     return connection
   }
@@ -819,7 +937,7 @@ export default class Worlds {
       Worlds.redirect(connection)
       return
     }
-    if (this.full) {
+    if (this.full || this.privateFull) {
       Worlds.refuseFull(connection)
       return
     }
@@ -1016,17 +1134,40 @@ export default class Worlds {
   /**
    * The run itself: `start` once the connection has its account and, if it
    * pays, its play (`admit`). A start that gets a first run (`firstRunFor`,
-   * and no gear) goes to a new private world; a handoff's (`join`) never does.
+   * and no gear) goes to a new first-run world; any other, with private runs
+   * (#60), to a new private world of its own, whatever its party code (Q5:
+   * the private layers are solo; the code is kept on the connection for the
+   * pad); without them, to `choose()`'s shared world.
    */
-  private begin (connection: Connection, start: Start, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>, join?: Join): void {
+  private begin (connection: Connection, start: Start, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>): void {
     connection.party = start.party
-    if (join === undefined && gear === undefined && this.firstRunFor(connection, start)) {
+    if (gear === undefined && this.firstRunFor(connection, start)) {
       this.beginFirstRun(connection, start, data)
       return
     }
-    const target = this.choose(start.party)
+    if (this.privateRuns) {
+      this.beginPrivate(connection, start, data, gear)
+      return
+    }
+    this.joinIn(connection, this.choose(start.party), data, gear)
+  }
+
+  /** The run joins `target` (`startRequested`), the connection leaving its old world first. */
+  private joinIn (connection: Connection, target: World, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>, join?: Join): void {
     this.moveTo(connection, target)
     World.run(target, () => { target.multiplayer?.startRequested(connection, data, gear, join) })
+  }
+
+  /**
+   * A new private world (#60), and the run in it: a start's, or a first
+   * run's handoff's (`join`, at `HANDOFF_CLEARANCE`, Q15). A join that throws
+   * leaves the world with no human, and the next tick closes it.
+   */
+  private beginPrivate (connection: Connection, start: Start, data: unknown, gear?: ReadonlyArray<GearInstance | undefined>, join?: Join): void {
+    const state: OwnRun = { connection, start, data, player: undefined, due: false }
+    const world = this.openPrivate(state)
+    this.joinIn(connection, world, data, gear, join)
+    if (connection.started) state.player = connection.player
   }
 
   /** `connection` leaves its world, if it is in another, for `target`. */
@@ -1041,7 +1182,7 @@ export default class Worlds {
   /** The first run (decision #58): a new private world, and the run in it. */
   private beginFirstRun (connection: Connection, start: Start, data: unknown): void {
     const world = this.openFirstRun()
-    const state: FirstRunState = { connection, start, data, player: undefined, due: false }
+    const state: OwnRun = { connection, start, data, player: undefined, due: false }
     this.firstRunOf.set(world, state)
     this.moveTo(connection, world)
     // A join that throws leaves the world empty, and the next tick closes it.
@@ -1049,9 +1190,9 @@ export default class Worlds {
     if (connection.started) state.player = connection.player
   }
 
-  /** What a first run's analytics events need: its player's run. */
-  private static firstRunInfo (player: Player, connection: Connection): RunInfo {
-    return { playerId: player.playerId, startedAt: player.createdAt, portal: connection.visit?.portal }
+  /** What a first run's or a private world's analytics events need: its player's run. */
+  private static runInfo (player: Player, connection: Connection): RunInfo {
+    return { playerId: player.playerId, startedAt: player.createdAt, offline: Multiplayer.isOffline(player), portal: connection.visit?.portal }
   }
 
   /**
@@ -1079,19 +1220,20 @@ export default class Worlds {
    * 3. `handoff` to the client, before the new world's `hello`: socket.io
    *    keeps one socket's events in order, so the client resets its world
    *    before any record of the new one arrives (ids from two worlds collide).
-   * 4. The shared run begins as any start does (`begin`: `choose`, release,
-   *    adopt, `startRequested` with the start's robot, loadout and party), on
-   *    layer 0 at a spawn `HANDOFF_CLEARANCE` from every mob, and carrying the
-   *    first run's loot, kills and kill credit (so its XP is paid at the
-   *    shared run's end). HP, armor, time alive and items start fresh.
+   * 4. The run begins in a new private world (decision #60 Q15,
+   *    `beginPrivate`; with no private runs, `choose()`'s shared world),
+   *    with the start's robot and loadout, on its top layer (01) at a spawn
+   *    `HANDOFF_CLEARANCE` from every mob, and carrying the first run's loot,
+   *    kills and kill credit (so its XP is paid at the run's end). HP, armor,
+   *    time alive and items start fresh. Its `run_start` is this run's one.
    * 5. The play spent at the start moves to the new player (`paid`), so the
-   *    shared run's extraction refunds it as any run's would.
+   *    run's extraction refunds it as any run's would.
    *
    * Draining, or a `begin` that fails: the client is redirected as a drain
    * does, the account stays done and the play is refunded. Either way the
    * private world closes.
    */
-  private handoff (world: World, state: FirstRunState): void {
+  private handoff (world: World, state: OwnRun): void {
     const { connection, start, data } = state
     const player = state.player
     state.due = false
@@ -1102,7 +1244,7 @@ export default class Worlds {
       this.paid.delete(player)
       const account = connection.account
       if (account !== undefined) this.finishFirstRun(account)
-      Analytics.send(Worlds.firstRunInfo(player, connection), 'first_run_done', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
+      Analytics.send(Worlds.runInfo(player, connection), 'first_run_done', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
       connection.socket.emit('handoff', {})
       connection.started = false
 
@@ -1117,11 +1259,77 @@ export default class Worlds {
           }
         }
         try {
-          this.begin(connection, start, data, undefined, join)
+          if (this.privateRuns) this.beginPrivate(connection, start, data, undefined, join)
+          else this.joinIn(connection, this.choose(start.party), data, undefined, join)
           if (connection.started && connection.player !== player) next = connection.player
         } catch (e) {
           reportError('handoff', e)
         }
+      }
+      if (next === undefined) {
+        if (paid !== undefined) this.refund(paid, connection)
+        if (!connection.closed) Worlds.redirect(connection)
+        return
+      }
+      if (paid !== undefined) this.paid.set(next, paid)
+    } finally {
+      this.close(world)
+    }
+  }
+
+  /**
+   * A private world's pad (decision #60): its player stood on a pad out of
+   * the world, into the shared layers. The run goes on in a shared world, in
+   * the first run's order (`handoff`) but with none of its side effects (no
+   * `finishFirstRun`, no `first_run_done`):
+   *
+   * 1. `runOver` first, so the release below (which destroys the player)
+   *    grants no XP, refunds nothing, writes no Redis stats, sends no
+   *    `run_end` and settles no gear: the run hasn't ended.
+   * 2. `private_done { seconds }` to GA (Q16).
+   * 3. `handoff` to the client, before the shared world's `hello`.
+   * 4. The run joins `choose(start.party)`'s shared world (Q5: a friend's
+   *    under the cap, else the fullest), on its top layer (03) at the usual
+   *    `SPAWN_CLEARANCE`, carrying loot, kills and kill credit; no
+   *    `run_start` (`Join.continues`: it is the same run). The rest of the
+   *    run (gear, items, HP, the clock) is private-7's.
+   * 5. The play moves to the new player (`paid`).
+   *
+   * **Always hands off, a drain included** (Q10: the run is live, and a
+   * drain plays live runs out), and over `maxPlayers`, `PRIVATE_CAP` and
+   * `cap` alike (`choose` opens a world): a refused handoff would leave the
+   * player on the pad, where the client ignores every click until its layer
+   * changes (`LocalPlayer.awaitingHop`). Only a join that throws redirects
+   * the client (and refunds the play), as the first run's does. The private
+   * world closes either way.
+   */
+  private padHandoff (world: World, state: OwnRun): void {
+    const { connection, start, data } = state
+    const player = state.player
+    state.due = false
+    try {
+      if (player === undefined || player.runOver || player.destroyed || player.exited || connection.closed || connection.player !== player) return
+      player.runOver = true
+      const paid = this.paid.get(player)
+      this.paid.delete(player)
+      Analytics.send(Worlds.runInfo(player, connection), 'private_done', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
+      connection.socket.emit('handoff', {})
+      connection.started = false
+
+      let next: Player | undefined
+      const join: Join = {
+        continues: true,
+        prepare: (into) => {
+          into.loot = player.loot
+          into.kills = player.kills
+          carryKills(player, into)
+        }
+      }
+      try {
+        this.joinIn(connection, this.choose(start.party), data, undefined, join)
+        if (connection.started && connection.player !== player) next = connection.player
+      } catch (e) {
+        reportError('handoff', e)
       }
       if (next === undefined) {
         if (paid !== undefined) this.refund(paid, connection)
@@ -1148,7 +1356,7 @@ export default class Worlds {
     const paid = this.paid.get(player)
     this.paid.delete(player)
     if (paid !== undefined) this.refund(paid, connection)
-    Analytics.send(Worlds.firstRunInfo(player, connection), 'first_run_left', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
+    Analytics.send(Worlds.runInfo(player, connection), 'first_run_left', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
   }
 
   /**
@@ -1240,7 +1448,7 @@ export default class Worlds {
     for (const world of this.worlds) {
       World.run(world, () => {
         try {
-          if (this.botTarget > 0) this.fillOf(world).update(this.draining ? 0 : Worlds.activePlayers(world))
+          if (this.botTarget > 0) this.fillOf(world, this.botTarget).update(this.draining ? 0 : Worlds.activePlayers(world))
           world.update(dt)
           world.multiplayer?.flushAll(this.tick, dtMs)
         } catch (e) {
@@ -1248,8 +1456,25 @@ export default class Worlds {
         }
       })
     }
-    // First runs after the shared worlds: no bots; a handoff once its tick is
-    // flushed; closed once their player has gone.
+    // Private worlds after the shared ones: their own bot target; the pad's
+    // handoff once the tick is flushed; closed once their human has gone (so
+    // a death watches nobody, #60 Q9: `close` ends the spectate at once).
+    for (const world of [...this.privates]) {
+      World.run(world, () => {
+        try {
+          if (this.privateBots > 0) this.fillOf(world, this.privateBots).update(this.draining ? 0 : Worlds.activePlayers(world))
+          world.update(dt)
+          world.multiplayer?.flushAll(this.tick, dtMs)
+        } catch (e) {
+          reportError('tick', e)
+        }
+      })
+      const state = this.privateOf.get(world)
+      if (state?.due === true) Multiplayer.guarded(() => { this.padHandoff(world, state) })
+      else if (Worlds.activePlayers(world) === 0) Multiplayer.guarded(() => { this.close(world) })
+    }
+    // First runs after those: no bots; a handoff once its tick is flushed;
+    // closed once their player has gone.
     for (const world of [...this.firstRuns]) {
       World.run(world, () => {
         try {
@@ -1307,6 +1532,10 @@ export default class Worlds {
     })
     for (const [connection, of] of this.worldOf) {
       if (of !== world) continue
+      // One watching someone here (a death in a private world, #60 Q9, or an
+      // idle shared world's bot) is told there is nobody left to watch,
+      // before the release forgets it, which sends nothing.
+      if (connection.spectating !== undefined && !connection.closed) connection.socket.emit('spectate', { id: null })
       World.run(world, () => { world.multiplayer?.release(connection) })
       this.worldOf.delete(connection)
     }
@@ -1318,6 +1547,9 @@ export default class Worlds {
     const f = this.firstRuns.indexOf(world)
     if (f >= 0) this.firstRuns.splice(f, 1)
     this.firstRunOf.delete(world)
+    const p = this.privates.indexOf(world)
+    if (p >= 0) this.privates.splice(p, 1)
+    this.privateOf.delete(world)
   }
 
   /**
@@ -1339,10 +1571,11 @@ export default class Worlds {
     return this.connections.size
   }
 
-  private fillOf (world: World): BotFill {
+  /** `world`'s bot fill, made at `target` on first use: `botTarget` for a shared world, `privateBots` for a private one. */
+  private fillOf (world: World, target: number): BotFill {
     let fill = this.fills.get(world)
     if (fill === undefined) {
-      fill = new BotFill(this.botTarget)
+      fill = new BotFill(target)
       this.fills.set(world, fill)
     }
     return fill
@@ -1358,6 +1591,17 @@ export default class Worlds {
   }
 
   /**
+   * `privateCap` private worlds are open (decision #60 Q11): a start is sent
+   * `full` (`refuseFull`), nothing spent, rather than put on a shared world's
+   * layer 03. Soft like `full`, by the starts already waiting on the account
+   * or their play; never checked at a handoff (a first run's pad opens one
+   * over it), so nobody is left on a pad.
+   */
+  get privateFull (): boolean {
+    return this.privateRuns && this.privateCap > 0 && this.privates.length >= this.privateCap
+  }
+
+  /**
    * `full { retryMs }`, then the transport closed as `redirect` does: the
    * client reconnects (a new connection is the only way to reach another
    * worker or replica) and asks again after `retryMs` plus its own backoff
@@ -1369,17 +1613,19 @@ export default class Worlds {
     Worlds.redirect(connection)
   }
 
-  /** Runs in progress across every world, first runs included (a burst cap must count them). */
+  /** Runs in progress across every world, first runs and private worlds included (a burst cap must count them). */
   static activeRuns (worlds: Worlds): number {
     let n = 0
     for (const world of worlds.worlds) n += Worlds.activePlayers(world)
     for (const world of worlds.firstRuns) n += Worlds.activePlayers(world)
+    for (const world of worlds.privates) n += Worlds.activePlayers(world)
     return n
   }
 
-  /** No run in progress in any world, first runs included (a drain plays them out): a draining process can stop. */
+  /** No run in progress in any world, first runs and private worlds included (a drain plays them out): a draining process can stop. */
   get drained (): boolean {
-    return this.worlds.every((world) => Worlds.activePlayers(world) === 0) && this.firstRuns.every((world) => Worlds.activePlayers(world) === 0)
+    const idle = (world: World): boolean => Worlds.activePlayers(world) === 0
+    return this.worlds.every(idle) && this.firstRuns.every(idle) && this.privates.every(idle)
   }
 
   /**

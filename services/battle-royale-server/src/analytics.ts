@@ -37,6 +37,13 @@ import type Redis from 'ioredis'
  *   the handoff) and `first_run_left` (`seconds`; the player disconnected
  *   inside it, so its next start replays it). First-run extraction rate is
  *   `first_run_done` followed by that player's `run_end` with `extracted`.
+ * - The private layers (decision #60 Q16; added with them): every run starts
+ *   in a private world holding layers 01-02, and its `run_start` is sent
+ *   there. `private_done` (`seconds` from the private world's join to its
+ *   pad) when it takes the pad into a shared world; the run goes on there
+ *   with no second `run_start`, and its one `run_end` is sent wherever it
+ *   ends (`deepest_layer` stays the global layer number). A run that ends on
+ *   layers 01-02 sends no `private_done`.
  * - Every event of a run on an offline account (the account store failed,
  *   decision #48) also carries `offline: 1`; it is absent otherwise. Such a
  *   run's `run_start` has no `run_number` or `days_since_first`: its id is

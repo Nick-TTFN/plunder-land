@@ -260,9 +260,11 @@ export default class Player extends Unit {
   }
 
   /**
-   * The player's cell holds a handoff gate (`firstrun/gate.ts`): a portal
-   * to its own layer, flagged `handoff`, which `portalOn` ignores, so it
-   * hops nobody and ends no route.
+   * The player's cell holds a handoff gate (`firstrun/gate.ts`), a portal
+   * flagged `handoff` that hops nobody (`portalOn` skips it): a first run's
+   * pad, which leads to its own layer and ends no route, or a partial
+   * world's pad out of it (decision #60), which names a layer the world does
+   * not hold and ends a route (`World.padOn`, `stopsOn`).
    */
   onHandoffGate (): boolean {
     if (this.gateFree()) return false

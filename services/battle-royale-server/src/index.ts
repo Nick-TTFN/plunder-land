@@ -2,7 +2,7 @@ import { flushErrors, initErrorReporting, reportError } from './errors'
 import { Server } from 'socket.io'
 import http from 'http'
 import Multiplayer from './network/multiplayer'
-import Worlds from './network/worlds'
+import Worlds, { PRIVATE_BOT_TARGET_DEFAULT } from './network/worlds'
 import { openAccountStore } from './db/open'
 import { NotReadyError } from './db/pgstore'
 import { BOARD_SIZE, type SeasonBoard, SeasonPayer } from './progress/seasons'
@@ -73,7 +73,13 @@ function startGame (): void {
     maxPlayers: parseInt(process.env.MAX_PLAYERS ?? '0') || 0,
     // Private first-run worlds open at once (decision #58); over it a start
     // plays a normal run. Unset or not a number: FIRST_RUN_CAP_DEFAULT (50).
-    firstRunCap: Number.isInteger(parseInt(process.env.FIRST_RUN_CAP ?? '')) ? Math.max(0, parseInt(process.env.FIRST_RUN_CAP ?? '')) : undefined
+    firstRunCap: Number.isInteger(parseInt(process.env.FIRST_RUN_CAP ?? '')) ? Math.max(0, parseInt(process.env.FIRST_RUN_CAP ?? '')) : undefined,
+    // Every run starts in a private world of its own (decision #60); over
+    // this many open at once a start is sent `full`. Unset or not a number:
+    // PRIVATE_CAP_DEFAULT (500); 0: no cap.
+    privateCap: Number.isInteger(parseInt(process.env.PRIVATE_CAP ?? '')) ? Math.max(0, parseInt(process.env.PRIVATE_CAP ?? '')) : undefined,
+    // Bots top each private world up to this many players (#60, Dez's 9: 1 human + 3 bots).
+    privateBots: Number.isInteger(parseInt(process.env.PRIVATE_BOT_TARGET ?? '')) ? Math.max(0, parseInt(process.env.PRIVATE_BOT_TARGET ?? '')) : PRIVATE_BOT_TARGET_DEFAULT
   })
 
   // A deploy (decision #46): the host starts the new server, routes new
