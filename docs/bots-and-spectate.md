@@ -30,8 +30,7 @@ over the allowed list); cargo 25% T1. Layer 02: those plus Hopper; all four temp
 picks the layer whose humans have the fewest staying bots per human (ties to the top; a layer with
 no human gets none), and `spawn` draws robot, temperament and cargo from its row and joins it there
 (`World.createPlayer(..., kit, tag)` at `spawnCell(tag)` with the normal clearance; a human join
-passes no tag and lands on the top layer). The fill's target is still per world, and it retires
-bots by least loot, not by layer: when the only human dives, the bots stay where they joined.
+passes no tag and lands on the top layer). The fill's target is still per world, and an over-target bot is retired by least loot. **Bots follow the humans** (#60 Q8): a staying bot on a layer with no human in play heads out (extract, then exit at `LEAVE_GRACE_MS`), and the fill tops up on the human's layer (`layerFor`); a bot's deliberate descend also requires a human on the layer below (`humanOn`, `brain.ts`), or most divers were sent out on landing. A route that only happens to end on a portal (a wander, a walk to loot) is not refused, and the hop is retired. **Handicap** (#60 Q7): `BOT_SKILL`'s `hpScale` and `damageScale` (0.5 / 0.75 / 1, top first; 1 for any deeper row) apply once at the join (`BotFill.handicap`, by `bot.tag`): max HP and max armor rounded, at least 1, filled; damage through `Player.botDamage`, multiplied into the `damageScale` getter and so into `Skill.dealt`. Kept across layer changes. Armor refill per second and the medkit amount are not scaled. It holds only because a bot never equips gear: `applyGear` rebuilds max HP and armor from the archetype.
 **A bot never walks into a layer whose `robots` leave its robot out** (`robotAllowedOn`): the
 deliberate descend is gated, `go()` refuses any route ending on a portal into such a layer (it
 halts; loot and exit fall back to a wander), each think re-checks the current route, and a brawler
