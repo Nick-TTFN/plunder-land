@@ -337,7 +337,10 @@ may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, 
 the client builds one plane per entry when `hello` lands (it precedes the join's first
 flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hello` without
 `layers` (a server from before three layers) means `[0, -1]`. **Ship the client first**:
-an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2.
+an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2. `voids` and `walls`
+are per layer in `layers` order, run-length over `Hex.mapCells(map)` (`docs/world.md`, "Map
+generation"); a layer the world does not hold (`docs/world.md`, "Partial worlds") gets
+`voids[i] = [0, cells]`, one all-void run, and `walls[i] = []`. Only a partial world sends that.
 
 **`handoff`** (server → client, `{}`; #58, retest-4, `network/worlds.ts` `Worlds.handoff`): the
 player stood on a first run's pad. Emitted **before** the shared world's `hello`, join snapshot and

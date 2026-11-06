@@ -90,8 +90,9 @@ flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every re
   (`to === tag`), flagged `handoff`. Every portal rule already treats `to === tag` as leading
   nowhere (`World.portalOn`, `World.isArrival`, `gateKeepOut`, the client's `_stopsOn`), so it hops
   nobody, ends no route and is no arrival cell; the client labels it LAYER 01, where it leads.
-  `Player.update` calls `World.handoff` when a first-run player stands on it
-  (`Player.onHandoffGate`); `Worlds` hands off after the tick. An exit pad was rejected: its
+  `Player.update` calls `World.handoff` when a human stands on a handoff gate in a world that has
+  a `handoff` set (`Player.onHandoffGate`; only first-run worlds set one today; never for a bot);
+  `Worlds` hands off after the tick. An exit pad was rejected: its
   channel and EXTRACTING cues say the player is leaving.
 - **The handoff's join** lands on layer 01 at a normal random spawn cell with **mob clearance 6**
   (`HANDOFF_CLEARANCE`, `network/worlds.ts`) for that spawn only: `World.spawnCell(tag, clearance =
@@ -107,6 +108,38 @@ flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every re
 - **Known:** an AFK player in a first-run world can't die and nothing idles it out: the world
   stays open for the tab's life, counts toward `FIRST_RUN_CAP` and holds a drain for the full
   `DRAIN_MAX_MS`. An idle limit is Nick's call (retest-4 review).
+
+## Partial worlds
+
+**A world can hold only some of the layers** (decision #60, task private-1, 2026-11-06;
+mechanism only: no world is built this way until private-6). `World.build(size, { layers })`
+takes the tags it holds (`WorldOptions.layers`; an empty list or an unknown tag throws); left
+out, it holds every layer, and such a world is unchanged (a seeded comparison of hello bytes,
+gates and mob counts against the commit before was identical).
+
+- **`World.TAGS` and `LAYERS` stay global.** A layer's position in `World.TAGS` is read by
+  `botLayer` (the `BOT_SKILL` row), `deepest_layer` and the XP depth term, and by the client's
+  layer numbers, labels and tints from `hello.layers`; with the global list a shared world
+  starting at tag -2 still calls it layer 03 everywhere. `hello.layers` is every tag in every world.
+- **An unheld layer is built empty:** no valleys, walls, gates, mobs, loot, items or caches
+  (`World.update` refills only held layers, through `World.holds`, because specs tick an
+  `Object.create(World.prototype)` world that never ran the constructor). Humans join, and a
+  bot with no layer or an unheld one lands, on `World.topLayer`, the first held layer.
+- **Pads out of the world.** A held layer's portal count into an unheld layer places
+  `HandoffGate`s with the real `to` (`World.placeGate`, same spacing and clearance; the unheld
+  side is trivially clear): down counts always, up counts only with `padsUp` (default off).
+  On the wire a pad is a portal, labelled with the layer it names. **`World.portalOn` skips a
+  pad** (or `Player.hopPortal` would drop the player onto an empty layer) and **`World.padOn`
+  finds one** (always undefined in a world holding every layer). Routes end on a pad on both
+  sides: `Player.stopsOn` is `portalOn || padOn`, matching the client's `_stopsOn` (any portal
+  to another tag). A human standing on one calls `World.handoff`.
+- **Bots never take a pad:** `robotAllowedOn` requires a held layer, and `routeLeavesRange`
+  checks `padOn` too, so a route that would end on a pad halts.
+- **`hello.voids` for an unheld layer is one all-void run** `[0, cells]`
+  (`World.unheldRuns`), so a client routes nowhere there; `walls` is `[]` for it. A held
+  layer's runs are as before.
+- **Open (private-6):** the client ignores input on a pad until its tag changes
+  (`LocalPlayer.awaitingHop`), so a refused or delayed handoff would leave the player stuck on it.
 
 ## Map generation
 
