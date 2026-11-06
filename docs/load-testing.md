@@ -63,3 +63,11 @@ still per tick of the loop, and its counts are summed over the open worlds (`wor
 number open). It reads each world's own lists: with `World.strict` on, a static `World.X`
 outside `World.run` throws, which is the point, so anything added to the probe must do the
 same.
+
+## Private worlds (decision #60)
+
+`tools/load/privatebench.cjs` (`node --expose-gc`, `MODE=private|shared`, `N`, `BOTS`, `MAP`):
+N one-human worlds through the real `Worlds` (cap 1, bots topping up) against the same humans
+in one shared world, with a simulated clock so bots and NPC timers run. Prints ms per tick per
+human, heap/RSS per human after a GC and `World.build`'s time. No sockets. Every world is a full
+3-layer build, so it overstates a two-layer copy.

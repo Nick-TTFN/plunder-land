@@ -1,0 +1,185 @@
+// What private upper-layer worlds would cost (decision #60: each human gets a
+// private copy of layers 1-2, bots top it up, humans meet from layer 3), in
+// process, through the real `Worlds`. No sockets: sending isn't in it.
+//   node --expose-gc tools/load/privatebench.cjs [dist dir]
+//   MODE=private  (default) cap 1: every human opens its own world, topped up
+//                 with bots to BOTS (default 8, production's BOT_TARGET).
+//   MODE=shared   the same humans in one world (cap 10000), same BOTS target,
+//                 so the bots barely matter: the per-human cost of today.
+//   N=1,10,50     human counts, one process run each (comma list).
+//   MAP=4000      the world's map size (production's default).
+//   LAYERS=2      build only the top LAYERS layers (World.LAYERS/TAGS cut
+//                 before anything is built). Default: all of today's.
+//   MOBSCALE=1    every layer's mob counts times this (rounded, at least 1).
+//   SNAPSHOT=dir  write before/after heap snapshots there (for heap breakdowns).
+//   LOOTSCALE=1   natural loot, item and gear-cache counts times this (rounded, at least 1).
+//   SHARE=1       with TEMPLATES: hand every world the same cached Set, not a
+//                 copy (an identical, shared map; safe only while nothing
+//                 writes VOIDS/WALLS after the build).
+//   TEMPLATES=0   >0: every world reuses one of this many pre-made maps
+//                 (carveValleys and placeWalls cached per call position and
+//                 handed out round robin, copied), which is what a pool of
+//                 prebuilt maps would cost at a join. 0: generated per world.
+// Every world is a full `World.build` with all of today's layers refilled,
+// so a private world here also carries layer -2's mobs it wouldn't have:
+// an upper bound for a two-layer copy. Humans join on layer 0 and walk random
+// routes; they are healed every tick so no run ends, and `Date.now` is
+// advanced 250 ms a tick so bots spawn, think and shoot, and `Timers` fire.
+// Prints per N: ms per tick for the whole `tickAll` (mean of the last 300 of
+// 400 ticks), that per human, the heap and RSS per human after a GC against
+// the process before anyone joined, the mean ms of one `World.build`, and the
+// counts (worlds, bots, mobs, humans still in a run).
+const path = require('path')
+const dist = process.argv[2] ?? path.join(__dirname, '../../dist')
+const req = (p) => require(path.join(dist, p))
+const TEMPLATES = Number(process.env.TEMPLATES ?? 0)
+if (TEMPLATES > 0) {
+  // Before world.js loads: it reads these through the module object, so a
+  // replaced exports object is what its calls reach.
+  for (const [file, fn] of [['objects/valleys.js', 'carveValleys'], ['objects/walls.js', 'placeWalls']]) {
+    const resolved = require.resolve(path.join(dist, file))
+    const original = require(resolved)
+    const cache = new Map()
+    let calls = 0
+    const cached = (...args) => {
+      // One cache per (template, call position in a build): layers carve in order.
+      const per = Number(process.env.LAYERS ?? 3)
+      const key = `${Math.floor(calls / per) % TEMPLATES}:${calls % per}:${args[0]}`
+      calls++
+      if (!cache.has(key)) cache.set(key, original[fn](...args))
+      return process.env.SHARE === '1' ? cache.get(key) : new Set(cache.get(key))
+    }
+    require.cache[resolved].exports = { ...original, [fn]: cached }
+  }
+}
+require(path.join(dist, 'network/multiplayer.js'))
+const Worlds = req('network/worlds.js').default
+const World = req('objects/world.js').default
+const { MemoryAccountStore } = req('db/accounts.js')
+const { Hex } = req('utils/hex.js')
+const { Vector } = req('utils/vector.js')
+
+let seed = 12345
+Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 }
+let clock = Date.now()
+Date.now = () => clock
+const redis = { on () { return this }, hincrby: async () => 1, hsetnx: async () => 1, hget: async () => null, hset: async () => 1 }
+const gc = global.gc ?? (() => {})
+const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
+const MODE = process.env.MODE ?? 'private'
+const BOTS = Number(process.env.BOTS ?? 8)
+const MAP = Number(process.env.MAP ?? 4000)
+const LAYER_COUNT = Number(process.env.LAYERS ?? World.LAYERS.length)
+const MOBSCALE = Number(process.env.MOBSCALE ?? 1)
+const LOOTSCALE = Number(process.env.LOOTSCALE ?? 1)
+const scaled = (count, by) => Math.max(1, Math.round(count * by))
+World.LAYERS = World.LAYERS.slice(0, LAYER_COUNT).map((layer, i) => ({
+  ...layer,
+  // The last kept layer leads nowhere down (the design's handoff pad, not measured).
+  portalsDown: i === LAYER_COUNT - 1 ? 0 : layer.portalsDown,
+  mobs: layer.mobs.map((m) => ({ ...m, count: scaled(m.count, MOBSCALE) })),
+  naturalLoot: scaled(layer.naturalLoot, LOOTSCALE),
+  items: layer.items.map((it) => ({ ...it, count: scaled(it.count, LOOTSCALE) })),
+  gear: { ...layer.gear, caches: scaled(layer.gear.caches, LOOTSCALE) }
+}))
+World.TAGS = World.LAYERS.map((layer) => layer.tag)
+// World.build's own time, every world this run opens (the join's spike).
+let buildMs = 0; let builds = 0
+const originalBuild = World.build
+World.build = function (...args) { const at = performance.now(); try { return originalBuild.apply(this, args) } finally { buildMs += performance.now() - at; builds++ } }
+
+function mem () {
+  gc(); gc()
+  const m = process.memoryUsage()
+  return { heapMB: m.heapUsed / 2 ** 20, rssMB: m.rss / 2 ** 20 }
+}
+
+async function run (n) {
+  const store = new MemoryAccountStore()
+  const worlds = new Worlds({ tickLengthMs: 250, cap: MODE === 'private' ? 1 : 10000, idleMs: 3_600_000, redis, accounts: store, bots: BOTS, mapSize: MAP })
+  const tick = () => { clock += 250; worlds.tickAll(250) }
+  const before = mem()
+  // SNAPSHOT=<dir>: heap snapshots before anyone joins and after the ticks (ids are stable between them).
+  const snap = (name) => { if (process.env.SNAPSHOT) { gc(); gc(); require('v8').writeHeapSnapshot(path.join(process.env.SNAPSHOT, `${name}-${n}.heapsnapshot`)) } }
+  snap('before')
+  const clients = []
+  buildMs = 0; builds = 0
+  for (let i = 0; i < n; i++) {
+    const { token } = await store.create()
+    const h = {}
+    const socket = { id: 's' + i, handshake: { query: { frames: '1' }, auth: { token } }, on: (e, cb) => { h[e] = cb }, emit: () => true, conn: { write: () => {}, close: () => {} } }
+    const connection = worlds.onConnection(socket)
+    await settle()
+    h.start_requested({ name: 'p' + i })
+    await settle()
+    if (connection.player === undefined) throw new Error(`client ${i} got no player`)
+    clients.push(connection)
+  }
+  const open = [...worlds.worlds]
+  const heal = () => {
+    for (const connection of clients) {
+      const player = connection.player
+      if (player === undefined || player.destroyed || player.exited) continue
+      player.hp = player.maxHp
+    }
+  }
+  const walk = () => {
+    for (const connection of clients) {
+      const player = connection.player
+      if (player === undefined || player.destroyed || player.exited || Math.random() >= 0.05) continue
+      const world = worlds.worldFor(connection)
+      World.run(world, () => {
+        const c = player.cell
+        const q = c.x + Math.floor(Math.random() * 17) - 8
+        const r = c.y + Math.floor(Math.random() * 17) - 8
+        if (Hex.onMap(q, r, World.mapSize) && !World.isBlocked(q, r, player.tag)) player.setWaypoints([new Vector(q, r)])
+      })
+    }
+  }
+  let total = 0
+  for (let t = 0; t < 400; t++) {
+    walk()
+    for (const w of open) World.run(w, heal)
+    const at = performance.now()
+    tick()
+    if (t >= 100) total += performance.now() - at
+  }
+  const after = mem()
+  snap('after')
+  let bots = 0; let mobs = 0; let inRun = 0
+  for (const w of worlds.worlds) {
+    World.run(w, () => {
+      bots += World.PLAYERS.filter((p) => p.bot !== undefined && !p.destroyed && !p.exited).length
+      mobs += World.MOBS.filter((m) => !m.destroyed).length
+    })
+  }
+  for (const c of clients) if (c.player !== undefined && !c.player.destroyed && !c.player.exited) inRun++
+  const ms = total / 300
+  return {
+    mode: MODE,
+    map: MAP,
+    layers: LAYER_COUNT,
+    mobScale: MOBSCALE,
+    lootScale: LOOTSCALE,
+    share: process.env.SHARE === '1',
+    templates: TEMPLATES,
+    botTarget: BOTS,
+    n,
+    worlds: worlds.worlds.length,
+    tickMs: +ms.toFixed(3),
+    msPerHuman: +(ms / n).toFixed(4),
+    heapMBPerHuman: +((after.heapMB - before.heapMB) / n).toFixed(3),
+    rssMBPerHuman: +((after.rssMB - before.rssMB) / n).toFixed(3),
+    rssMB: +after.rssMB.toFixed(1),
+    buildMsPerWorld: +(buildMs / Math.max(1, builds)).toFixed(2),
+    bots,
+    mobs,
+    humansInRun: inRun
+  }
+}
+
+;(async () => {
+  const sizes = (process.env.N ?? '1,10,50').split(',').map(Number)
+  for (const n of sizes) console.log(JSON.stringify(await run(n)))
+  process.exit(0)
+})()
