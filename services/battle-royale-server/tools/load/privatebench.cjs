@@ -6,6 +6,17 @@
 //                 with bots to BOTS (default 8, production's BOT_TARGET).
 //   MODE=shared   the same humans in one world (cap 10000), same BOTS target,
 //                 so the bots barely matter: the per-human cost of today.
+//                 These two run with `privateRuns: false` (no world is the
+//                 private-6 code's private world; PRIVATE=1 stands one in).
+//   MODE=real     the code itself (private-6): every start in a private world
+//                 of its own (`Worlds.privates`), topped up to PRIVATE_BOTS
+//                 (default 4, `PRIVATE_BOT_TARGET`); shared worlds keep BOTS
+//                 (cap 10000), unused unless DESCEND takes the pad. Use
+//                 without PRIVATE and LAYERS (the `owned` rows decide).
+//   DESCEND=1     (MODE=real) at tick 100 every human takes a real portal
+//                 down to the private world's deepest layer: its old layer's
+//                 bots leave and new ones join beside it (Archie's private-4
+//                 review); bots are counted per tick from then on (`maxBots`).
 //   N=1,10,50     human counts, one process run each (comma list).
 //   MAP=4000      the world's map size (production's default).
 //   LAYERS=2      build only the top LAYERS layers (World.LAYERS/TAGS cut
@@ -49,6 +60,8 @@ const gc = global.gc ?? (() => {})
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
 const MODE = process.env.MODE ?? 'private'
 const BOTS = Number(process.env.BOTS ?? 8)
+const PRIVATE_BOTS = Number(process.env.PRIVATE_BOTS ?? 4)
+const DESCEND = process.env.DESCEND === '1'
 const MAP = Number(process.env.MAP ?? 4000)
 const LAYER_COUNT = Number(process.env.LAYERS ?? World.LAYERS.length)
 const MOBSCALE = Number(process.env.MOBSCALE ?? 1)
@@ -91,7 +104,18 @@ function mem () {
 
 async function run (n) {
   const store = new MemoryAccountStore()
-  const worlds = new Worlds({ tickLengthMs: 250, cap: MODE === 'private' ? 1 : 10000, idleMs: 3_600_000, redis, accounts: store, bots: BOTS, mapSize: MAP })
+  const worlds = new Worlds({
+    tickLengthMs: 250,
+    cap: MODE === 'private' ? 1 : 10000,
+    idleMs: 3_600_000,
+    redis,
+    accounts: store,
+    bots: BOTS,
+    mapSize: MAP,
+    ...(MODE === 'real' ? { privateBots: PRIVATE_BOTS, privateCap: 0 } : { privateRuns: false })
+  })
+  // Every world a run is in: shared, and (MODE=real) private.
+  const all = () => [...worlds.worlds, ...worlds.privates]
   const tick = () => { clock += 250; worlds.tickAll(250) }
   const before = mem()
   // SNAPSHOT=<dir>: heap snapshots before anyone joins and after the ticks (ids are stable between them).
@@ -110,7 +134,7 @@ async function run (n) {
     if (connection.player === undefined) throw new Error(`client ${i} got no player`)
     clients.push(connection)
   }
-  const open = [...worlds.worlds]
+  if (MODE === 'real' && worlds.privates.length !== n) throw new Error(`${worlds.privates.length} private worlds for ${n} clients`)
   const heal = () => {
     for (const connection of clients) {
       const player = connection.player
@@ -131,18 +155,39 @@ async function run (n) {
       })
     }
   }
+  // A real portal down to the private world's deepest layer, for every human still on a higher one.
+  const descend = () => {
+    for (const connection of clients) {
+      const player = connection.player
+      const world = worlds.worldFor(connection)
+      if (player === undefined || player.destroyed || player.exited || world === undefined || !worlds.privates.includes(world)) continue
+      const portal = world.OBSTACLES.find((o) => o.type === 8 && o.tag === player.tag && o.handoff !== true && o.to < player.tag)
+      if (portal === undefined) continue
+      World.run(world, () => {
+        player.stop()
+        player.position = Hex.toPosition(Hex.toCell(portal.position))
+      })
+    }
+  }
   let total = 0
+  let maxBots = 0
   for (let t = 0; t < 400; t++) {
+    if (DESCEND && t === 100) descend()
     walk()
-    for (const w of open) World.run(w, heal)
+    for (const w of all()) World.run(w, heal)
     const at = performance.now()
     tick()
     if (t >= 100) total += performance.now() - at
+    if (DESCEND && t >= 100) {
+      let bots = 0
+      for (const w of worlds.privates) bots += w.PLAYERS.filter((p) => p.bot !== undefined && !p.destroyed && !p.exited).length
+      maxBots = Math.max(maxBots, bots)
+    }
   }
   const after = mem()
   snap('after')
   let bots = 0; let mobs = 0; let inRun = 0
-  for (const w of worlds.worlds) {
+  for (const w of all()) {
     World.run(w, () => {
       bots += World.PLAYERS.filter((p) => p.bot !== undefined && !p.destroyed && !p.exited).length
       mobs += World.MOBS.filter((m) => !m.destroyed).length
@@ -160,6 +205,8 @@ async function run (n) {
     botTarget: BOTS,
     n,
     worlds: worlds.worlds.length,
+    privates: worlds.privates.length,
+    ...(DESCEND ? { descended: clients.filter((c) => c.player !== undefined && c.player.tag !== World.TAGS[0]).length, maxBots } : {}),
     tickMs: +ms.toFixed(3),
     msPerHuman: +(ms / n).toFixed(4),
     heapMBPerHuman: +((after.heapMB - before.heapMB) / n).toFixed(3),
