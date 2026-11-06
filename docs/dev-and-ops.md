@@ -11,8 +11,21 @@ types without checking them, so `tsc` errors never fail a client build.
 ```
 cd plunder-land-client        && npm run typecheck   # 22 errors — see baseline below
 cd services/battle-royale-server && npm run typecheck # must stay at 0
-cd services/battle-royale-server && npm test          # node --test via ts-node
+cd services/battle-royale-server && npm test          # node --test via ts-node, under tools/test-guard.cjs
 ```
+
+**`npm test` has a memory ceiling** (`tools/test-guard.cjs`). It runs `node --test` in its own
+process group and samples every process in it with `ps` every 500 ms. One spec process over
+`TEST_MAX_MB` (default 2048), or the group over `TEST_TOTAL_MB` (default 12288), kills the whole
+group, prints the largest processes with their spec file, and exits 1. Every run ends with a
+`test-guard: peak ...` line. Spec files can be passed as arguments:
+`node tools/test-guard.cjs src/network/runmap.spec.ts`. The reason: on 2026-11-06, private-6 work
+in progress made four specs (worlds, runmap, stash, firstrun) grow by about 1.5 GB/s each. Run in
+parallel, they swapped a 36 GB Mac until it needed a hard reset, twice. The growth is outside the
+V8 heap: with `--max-old-space-size=1024`, a spec still reached 4.2 GB in 2 s. So only an RSS
+check from outside stops it. **Do not run a bare `node --test` over the whole glob.** One spec
+file run alone peaks at 0.6–0.95 GB (`spawn.spec.ts` is the largest). The whole suite on 14 cores
+peaked at 6.8 GB in total and 826 MB for one process (main `5412b9a`, 2026-11-06).
 
 The server's `tsconfig` excludes `*.spec.ts`, so **specs run but are never typechecked**. A
 type error in a spec only shows up if ts-node trips over it at run time.

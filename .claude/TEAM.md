@@ -157,7 +157,7 @@ both sides in the same task (details in `docs/wire-format.md`):
 ```
 cd plunder-land-client           && npm run typecheck   # baseline 22 errors (2026-10-02), see CLAUDE.md
 cd services/battle-royale-server && npm run typecheck   # must stay at 0
-cd services/battle-royale-server && npm test            # node --test over src/**/*.spec.ts
+cd services/battle-royale-server && npm test            # node --test over src/**/*.spec.ts, memory-guarded (never bypass)
 ```
 
 The client has no tests, and its build does not run the typechecker, so a client build

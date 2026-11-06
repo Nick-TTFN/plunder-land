@@ -47,6 +47,9 @@ cd services/battle-royale-server && npm test            # node --test via ts-nod
 
 - Only the **server's** typecheck is enforced by a build. The client builds through Babel,
   which strips types, so client type errors never fail a build.
+- **`npm test` runs under a memory guard** (`tools/test-guard.cjs`: it kills the suite when one spec passes 2 GB
+  or the suite passes 12 GB). Never bypass it with a bare `node --test` over the glob: a runaway spec grows
+  off-heap, so `--max-old-space-size` doesn't stop it, and it swaps the Mac to a hard reset.
 - The server's `tsconfig` excludes `*.spec.ts`: **specs run but are never typechecked**.
 - `pgstore.spec.ts` and `stashpg.spec.ts` need `TEST_DATABASE_URL` (otherwise 23 skips) and
   refuse any non-local host. Throwaway container, removed by name afterwards:
