@@ -13,16 +13,16 @@
 //   MOBSCALE=1    every layer's mob counts times this (rounded, at least 1).
 //   SNAPSHOT=dir  write before/after heap snapshots there (for heap breakdowns).
 //   LOOTSCALE=1   natural loot, item and gear-cache counts times this (rounded, at least 1).
-//   SHARE=1       with TEMPLATES: hand every world the same cached Set, not a
-//                 copy (an identical, shared map; safe only while nothing
-//                 writes VOIDS/WALLS after the build).
-//   TEMPLATES=0   >0: every world reuses one of this many pre-made maps
-//                 (carveValleys and placeWalls cached per call position and
-//                 handed out round robin, copied), which is what a pool of
-//                 prebuilt maps would cost at a join. 0: generated per world.
-// Every world is a full `World.build` with all of today's layers refilled,
-// so a private world here also carries layer -2's mobs it wouldn't have:
-// an upper bound for a two-layer copy. Humans join on layer 0 and walk random
+//   PRIVATE=1     every world is built as a private world (decision #60):
+//                 the top two layers held (`WorldOptions.layers`, so layer
+//                 02's down count is pads out of the world) on the one shared
+//                 private map (`WorldOptions.map`, `PRIVATE_MAP`, private-5):
+//                 the first world generates it, every later one takes the
+//                 template. Use without LAYERS. (Replaces the SHARE and
+//                 TEMPLATES stand-ins of 2026-11-06.)
+// Without PRIVATE or LAYERS every world is a full `World.build` with all of
+// today's layers refilled, so a private world here also carries layer -2's
+// mobs it wouldn't have: an upper bound. Humans join on layer 0 and walk random
 // routes; they are healed every tick so no run ends, and `Date.now` is
 // advanced 250 ms a tick so bots spawn, think and shoot, and `Timers` fire.
 // Prints per N: ms per tick for the whole `tickAll` (mean of the last 300 of
@@ -32,30 +32,11 @@
 const path = require('path')
 const dist = process.argv[2] ?? path.join(__dirname, '../../dist')
 const req = (p) => require(path.join(dist, p))
-const TEMPLATES = Number(process.env.TEMPLATES ?? 0)
-if (TEMPLATES > 0) {
-  // Before world.js loads: it reads these through the module object, so a
-  // replaced exports object is what its calls reach.
-  for (const [file, fn] of [['objects/valleys.js', 'carveValleys'], ['objects/walls.js', 'placeWalls']]) {
-    const resolved = require.resolve(path.join(dist, file))
-    const original = require(resolved)
-    const cache = new Map()
-    let calls = 0
-    const cached = (...args) => {
-      // One cache per (template, call position in a build): layers carve in order.
-      const per = Number(process.env.LAYERS ?? 3)
-      const key = `${Math.floor(calls / per) % TEMPLATES}:${calls % per}:${args[0]}`
-      calls++
-      if (!cache.has(key)) cache.set(key, original[fn](...args))
-      return process.env.SHARE === '1' ? cache.get(key) : new Set(cache.get(key))
-    }
-    require.cache[resolved].exports = { ...original, [fn]: cached }
-  }
-}
 require(path.join(dist, 'network/multiplayer.js'))
 const Worlds = req('network/worlds.js').default
 const World = req('objects/world.js').default
 const { MemoryAccountStore } = req('db/accounts.js')
+const { PRIVATE_MAP } = req('objects/privatemap.js')
 const { Hex } = req('utils/hex.js')
 const { Vector } = req('utils/vector.js')
 
@@ -86,7 +67,21 @@ World.TAGS = World.LAYERS.map((layer) => layer.tag)
 // World.build's own time, every world this run opens (the join's spike).
 let buildMs = 0; let builds = 0
 const originalBuild = World.build
-World.build = function (...args) { const at = performance.now(); try { return originalBuild.apply(this, args) } finally { buildMs += performance.now() - at; builds++ } }
+const PRIVATE = process.env.PRIVATE === '1'
+const PRIVATE_TAGS = World.TAGS.slice(0, 2)
+// The first build on the private map generates it (seeded); the rest take it. Timed apart.
+let firstBuildMs
+World.build = function (size, options = {}) {
+  const at = performance.now()
+  const generating = PRIVATE && PRIVATE_MAP.template === undefined
+  try {
+    return originalBuild.call(this, size, PRIVATE ? { ...options, layers: PRIVATE_TAGS, map: PRIVATE_MAP } : options)
+  } finally {
+    const ms = performance.now() - at
+    if (generating) firstBuildMs = ms
+    else { buildMs += ms; builds++ }
+  }
+}
 
 function mem () {
   gc(); gc()
@@ -161,8 +156,7 @@ async function run (n) {
     layers: LAYER_COUNT,
     mobScale: MOBSCALE,
     lootScale: LOOTSCALE,
-    share: process.env.SHARE === '1',
-    templates: TEMPLATES,
+    private: PRIVATE,
     botTarget: BOTS,
     n,
     worlds: worlds.worlds.length,
@@ -172,6 +166,8 @@ async function run (n) {
     rssMBPerHuman: +((after.rssMB - before.rssMB) / n).toFixed(3),
     rssMB: +after.rssMB.toFixed(1),
     buildMsPerWorld: +(buildMs / Math.max(1, builds)).toFixed(2),
+    // PRIVATE: the one build that generated the private map (first N of the process only).
+    firstBuildMs: firstBuildMs === undefined ? undefined : +firstBuildMs.toFixed(2),
     bots,
     mobs,
     humansInRun: inRun

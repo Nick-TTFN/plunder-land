@@ -23,6 +23,7 @@ import type Throwable from './throwable'
 import { CellIndex } from '../utils/cellindex'
 import { carveValleys, encodeRuns } from './valleys'
 import { placeWalls } from './walls'
+import { FrozenSet, type MapGate, type MapTemplate, PrivateMap } from './privatemap'
 // Read inside functions only (the interest bucket size): multiplayer imports
 // this module, so its default export is not defined yet while this one loads.
 import Multiplayer from '../network/multiplayer'
@@ -87,6 +88,18 @@ export interface WorldOptions {
    * back up from layer 3; private-6 decides).
    */
   padsUp?: boolean
+  /**
+   * Build on this shared map (decision #60, task private-5; `privatemap.ts`):
+   * the first world given it generates its terrain and gate sites from the
+   * map's seed (not `Math.random`) and leaves them on it as a template;
+   * every later one takes the template. Its `VOIDS`, `WALLS`, `VOID_RUNS`
+   * and `WALL_RUNS` entries are then the template's own objects, read-only
+   * (`FrozenSet`, frozen arrays); `BLOCKED` is copied per world, and the
+   * portal, exit and pad objects are made per world at the template's
+   * cells. Mobs, loot, items and caches are as in any world. Default: none,
+   * a new random map.
+   */
+  map?: PrivateMap
 }
 
 /**
@@ -700,7 +713,8 @@ export default class World {
 
   /**
    * A new world, made current and left current (the server's `Worlds`
-   * restores the previous one itself). Every world is a new random map.
+   * restores the previous one itself). Every world is a new random map,
+   * except one built on a shared map (`WorldOptions.map`).
    */
   constructor (size: number, options: WorldOptions = {}) {
     const previous = World._current
@@ -732,11 +746,29 @@ export default class World {
       return
     }
 
+    // A shared map (`WorldOptions.map`, private-5): taken from its template
+    // if there is one, else generated below from its seed and left on it.
+    const padsUp = options.padsUp === true
+    const map = options.map
+    const mapKey = map === undefined ? '' : PrivateMap.key(size, World.TAGS.filter((tag) => this.holds(tag)), padsUp)
+    if (map !== undefined) {
+      map.check(mapKey)
+      if (map.template !== undefined) {
+        this.takeMap(map.template)
+        return
+      }
+    }
+    // The map's draws: a shared map's own seeded generator, so they neither
+    // depend on nor shift the world's other draws. Undefined is Math.random,
+    // through the same calls as before (`carveValleys`', `placeWalls`'
+    // defaults, `Random` in `getUnobstructedPosition`).
+    const random = map?.random()
+
     // The valleys first: gates are placed on the ground they leave. Only on
     // the layers this world holds, here and below.
     const built = World.LAYERS.filter((layer) => this.holds(layer.tag))
     for (const layer of built) {
-      const voids = carveValleys(size, layer.voidShare)
+      const voids = carveValleys(size, layer.voidShare, random)
       for (const cell of Hex.mapCells(size)) {
         if (voids.has(Hex.key(cell.x, cell.y))) World.block(cell.x, cell.y, layer.tag, null)
       }
@@ -750,7 +782,6 @@ export default class World {
     // nowhere. In a partial world (`WorldOptions.layers`) an unheld layer
     // places nothing, and a count into one places pads out of the world
     // (`placeGate`): down counts always, up counts only with `padsUp`.
-    const padsUp = options.padsUp === true
     World.LAYERS.forEach((layer, i) => {
       if (!this.holds(layer.tag)) return
       const above = World.LAYERS[i - 1]
@@ -758,26 +789,86 @@ export default class World {
       if (layer.portalsUp > 0) {
         if (above === undefined) throw new Error(`layer ${layer.tag} has up portals but nothing above it`)
         if (padsUp || this.holds(above.tag)) {
-          for (let n = 0; n < layer.portalsUp; n++) this.placeGate(layer.tag, above.tag)
+          for (let n = 0; n < layer.portalsUp; n++) this.placeGate(layer.tag, above.tag, random)
         }
       }
       if (layer.portalsDown > 0) {
         if (below === undefined) throw new Error(`layer ${layer.tag} has down portals but nothing below it`)
-        for (let n = 0; n < layer.portalsDown; n++) this.placeGate(layer.tag, below.tag)
+        for (let n = 0; n < layer.portalsDown; n++) this.placeGate(layer.tag, below.tag, random)
       }
-      for (let n = 0; n < layer.exits; n++) this.placeGate(layer.tag, undefined)
+      for (let n = 0; n < layer.exits; n++) this.placeGate(layer.tag, undefined, random)
     })
 
     // The walls last, on the ground the valleys left, clear of every gate's
     // disc (and so of every arrival cell).
     for (const layer of built) {
       const voids = World.VOIDS.get(layer.tag) ?? new Set<number>()
-      const walls = placeWalls(size, voids, World.gateKeepOut(layer.tag), layer.wallShare)
+      const walls = placeWalls(size, voids, World.gateKeepOut(layer.tag), layer.wallShare, random)
       for (const cell of Hex.mapCells(size)) {
         if (walls.has(Hex.key(cell.x, cell.y))) World.block(cell.x, cell.y, layer.tag, null)
       }
       World.WALLS.set(layer.tag, walls)
       World.WALL_RUNS.set(layer.tag, encodeRuns(walls, size))
+    }
+
+    if (map !== undefined) {
+      map.template = this.makeTemplate(mapKey)
+      this.takeMap(map.template, false)
+    }
+  }
+
+  /**
+   * The template of the map this world just generated (`WorldOptions.map`):
+   * read-only copies of its valleys and walls (`FrozenSet`) and run
+   * encodings (frozen), its static blocked cells (all of `BLOCKED` so far:
+   * nothing but void and walls is blocked during the build), and its gates in
+   * the order they were placed.
+   */
+  private makeTemplate (key: string): MapTemplate {
+    const voids = new Map<number, FrozenSet<number>>()
+    const walls = new Map<number, FrozenSet<number>>()
+    const voidRuns = new Map<number, readonly number[]>()
+    const wallRuns = new Map<number, readonly number[]>()
+    const terrain = new Map<number, ReadonlyMap<number, null>>()
+    for (const [tag, set] of this.VOIDS) voids.set(tag, new FrozenSet(set))
+    for (const [tag, set] of this.WALLS) walls.set(tag, new FrozenSet(set))
+    for (const [tag, runs] of this.VOID_RUNS) voidRuns.set(tag, Object.freeze([...runs]))
+    for (const [tag, runs] of this.WALL_RUNS) wallRuns.set(tag, Object.freeze([...runs]))
+    for (const [tag, cells] of this.BLOCKED) {
+      const own = new Map<number, null>()
+      for (const [key, by] of cells) {
+        if (by !== null) throw new Error(`a shared map's layer ${tag} has an obstacle in BLOCKED at build: only void and walls may be`)
+        own.set(key, null)
+      }
+      terrain.set(tag, own)
+    }
+    const gates: MapGate[] = []
+    for (const gate of this.OBSTACLES) {
+      if (gate instanceof Exit) gates.push({ tag: gate.tag, to: undefined, pad: false, x: gate.position.x, y: gate.position.y })
+      else if (gate instanceof Portal) gates.push({ tag: gate.tag, to: gate.to, pad: gate instanceof HandoffGate, x: gate.position.x, y: gate.position.y })
+    }
+    return { key, voids, walls, voidRuns, wallRuns, terrain, gates }
+  }
+
+  /**
+   * Put a shared map's template on this world: its very valley and wall
+   * Sets and run arrays (read-only, shared by every world on the map), a
+   * copy of its static `BLOCKED` cells (this world's rocks, stones and
+   * bodies go on top), and, unless `gates` is false (the world that
+   * generated the map already has them), a new portal, exit or pad at each
+   * of its gate sites.
+   */
+  private takeMap (template: MapTemplate, gates = true): void {
+    for (const [tag, set] of template.voids) this.VOIDS.set(tag, set)
+    for (const [tag, set] of template.walls) this.WALLS.set(tag, set)
+    for (const [tag, runs] of template.voidRuns) this.VOID_RUNS.set(tag, runs as number[])
+    for (const [tag, runs] of template.wallRuns) this.WALL_RUNS.set(tag, runs as number[])
+    if (!gates) return
+    for (const [tag, cells] of template.terrain) this.BLOCKED.set(tag, new Map(cells))
+    for (const gate of template.gates) {
+      World.addObstacle(gate.to === undefined
+        ? new Exit(gate.x, gate.y, gate.tag)
+        : gate.pad ? new HandoffGate(gate.x, gate.y, gate.tag, gate.to) : new Portal(gate.x, gate.y, gate.to, gate.tag))
     }
   }
 
@@ -802,15 +893,18 @@ export default class World {
    * every neighbour of it: a pad is always reachable from every side and a
    * player never lands on the edge of a valley. 60 tries, not the 20 it had
    * with scattered rocks, because a third of every layer is void.
+   *
+   * `random` is a shared map's generator (`WorldOptions.map`); undefined,
+   * the sites are drawn through `Random` as always.
    */
-  private placeGate (tag: number, to: number | undefined): void {
+  private placeGate (tag: number, to: number | undefined, random?: () => number): void {
     // A portal to a layer this world does not hold is a pad out of the world
     // (`HandoffGate` with that `to`), placed by the same rules: the unheld
     // layer is empty, so its clearance and arrival checks pass trivially.
     const reach = to === undefined ? [tag] : [tag, to]
 
     for (let attempt = 0; attempt < 60; attempt++) {
-      const pos = this.getUnobstructedPosition(tag)
+      const pos = this.getUnobstructedPosition(tag, random)
       if (pos === undefined) continue
       const cell = Hex.toCell(pos)
       if (!World.isClear(cell.x, cell.y, tag, World.GATE_ROCK_RINGS)) continue
@@ -1573,7 +1667,8 @@ export default class World {
 
   /**
    * A free cell centre, `CLEAR_RINGS` clear of blocked cells, or undefined if
-   * 40 tries found nothing.
+   * 40 tries found nothing. Drawn through `Random` (Math.random), or through
+   * `random` when given: a shared map's gate sites (`placeGate`, private-5).
    *
    * The clearance was a distance in world units tested against a scan of
    * every obstacle; it is a ring count tested with a Set lookup, so this is
@@ -1586,14 +1681,13 @@ export default class World {
    * now skip a tick instead; at roughly 2% occupancy the cap is never reached in
    * practice anyway.
    */
-  getUnobstructedPosition (tag: number): Vector | undefined {
+  getUnobstructedPosition (tag: number, random?: () => number): Vector | undefined {
     const rings = World.CLEAR_RINGS
 
     for (let attempts = 0; attempts < 40; attempts++) {
-      const cell = Hex.toCell(new Vector(
-        Random.RangeInt(0, World.mapSize),
-        Random.RangeInt(0, World.mapSize)
-      ))
+      const cell = Hex.toCell(random === undefined
+        ? new Vector(Random.RangeInt(0, World.mapSize), Random.RangeInt(0, World.mapSize))
+        : new Vector(Math.floor(random() * World.mapSize), Math.floor(random() * World.mapSize)))
 
       if (World.isClear(cell.x, cell.y, tag, rings)) return Hex.toPosition(cell)
     }
