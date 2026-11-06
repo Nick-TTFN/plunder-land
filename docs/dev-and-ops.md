@@ -21,9 +21,12 @@ group, prints the largest processes with their spec file, and exits 1. Every run
 `test-guard: peak ...` line. Spec files can be passed as arguments:
 `node tools/test-guard.cjs src/network/runmap.spec.ts`. The reason: on 2026-11-06, private-6 work
 in progress made four specs (worlds, runmap, stash, firstrun) grow by about 1.5 GB/s each. Run in
-parallel, they swapped a 36 GB Mac until it needed a hard reset, twice. The growth is outside the
-V8 heap: with `--max-old-space-size=1024`, a spec still reached 4.2 GB in 2 s. So only an RSS
-check from outside stops it. **Do not run a bare `node --test` over the whole glob.** One spec
+parallel, they swapped a 36 GB Mac until it needed a hard reset, twice. **The cause was a failing
+`assert.equal(worldA, worldB)`.** Node 24's `assert` builds a diff of both values on failure
+(`util.inspect` to depth 1000, then a Myers diff), **even when the assert has its own message**.
+Two `World`s print as millions of lines. A `--max-old-space-size=1024` cap didn't stop it (4.2 GB
+in 2 s), so only an RSS check from outside does. In a spec, compare worlds (or anything that holds
+one, such as a `Player`) with `assert.ok(a === b, '...')`, never `equal`/`notEqual`/`deepEqual`. **Do not run a bare `node --test` over the whole glob.** One spec
 file run alone peaks at 0.6–0.95 GB (`spawn.spec.ts` is the largest). The whole suite on 14 cores
 peaked at 6.8 GB in total and 826 MB for one process (main `5412b9a`, 2026-11-06).
 
