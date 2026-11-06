@@ -150,6 +150,36 @@ gates and mob counts against the commit before was identical).
 - **Open (private-6):** the client ignores input on a pad until its tag changes
   (`LocalPlayer.awaitingHop`), so a refused or delayed handoff would leave the player stuck on it.
 
+## The private map
+
+**Every private world is built on one map** (decision #60, task private-5, 2026-11-06; mechanism
+only until private-6 builds private worlds): `World.build(size, { layers, map: PRIVATE_MAP })`
+(`src/objects/privatemap.ts`, `WorldOptions.map`).
+- **Seeded, so it is the same in every process and across deploys.** The first private world a
+  process builds runs the ordinary generation (`carveValleys`, `placeGate`, `placeWalls`) with
+  `seeded(PRIVATE_MAP_SEED)` (mulberry32, integer math only) instead of `Math.random`, so the map
+  neither depends on nor shifts the world's other draws. It leaves a template on the map:
+  valleys, walls, run encodings, static blocked cells, and gate sites in placement order. Every
+  later private world takes it (~0.15 ms, against ~16 ms for the generating build).
+- **Shared read-only.** The `VOIDS`, `WALLS`, `VOID_RUNS` and `WALL_RUNS` entries are the
+  template's own objects in every private world: `FrozenSet`s whose `add`/`delete`/`clear` throw,
+  and frozen arrays, which throw on write in the server's strict-mode output. A per-world terrain
+  change goes through that world's `BLOCKED` (a copy each; `privatemap.spec.ts` checks a later
+  world's too).
+- **Per world:** `BLOCKED` (copied from the template's terrain; rocks, stones and bodies go on
+  top), new portal, exit and pad objects at the template's sites (own ids), and every NPC, pickup,
+  item and cache (`refillLayer`, at random as in any world).
+- **One map, one key:** size, held tags and `padsUp`. A world on `PRIVATE_MAP` that asks for
+  anything else throws. The holder keeps its one template for the life of the process (~110 KB at
+  map 2000, estimated), on purpose.
+- **A new map is a release.** A changed seed, a changed generator (`valleys.ts`, `walls.ts`,
+  `World.placeGate`, `getUnobstructedPosition`) or a changed `LAYERS` row the map reads
+  (`voidShare`, `wallShare`, gate counts) changes the map for every player. `privatemap.spec.ts`
+  pins its `DIGEST` (hello voids and walls plus gate sites); update it only on purpose. Today the
+  map uses today's gate counts (28 gates); private-8's rows will change it. The key does not
+  include the `LAYERS` rows, so code that edits `LAYERS` after the first build gets the old map.
+- A world built with `firstRun` or `empty` ignores `map`.
+
 ## Map generation
 
 **The valleys replaced world rocks** (`src/objects/valleys.ts`, tile art pass 2026-09-27).
@@ -158,7 +188,7 @@ noise, void specks under 12 cells filled back in, free scraps under 30 cells fil
 other cut-off region joined to the rest by a one-cell bridge carved across the shortest stretch
 of void, so each layer's ground is one walkable region (`valleys.spec.ts`). Carved once per
 layer in the `World` constructor, before the gates, at random (every server start is a new
-map, ~30 ms a layer); void cells are in `World.BLOCKED` with a null blocker and in
+map, ~30 ms a layer; except the private map, below); void cells are in `World.BLOCKED` with a null blocker and in
 `World.VOIDS`. They are not objects: they reach the client as **`hello.voids`**, per layer in
 `layers` order, alternating free/void run lengths over `Hex.mapCells(map)` (mirrored in
 `utils/hex.ts`, a consumed order), decoded by `Session.decodeRuns` into `Game.VOIDS`, which
