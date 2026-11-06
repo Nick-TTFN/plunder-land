@@ -16,7 +16,15 @@ import Portal from '../objects/portal'
 export default class HandoffGate extends Portal {
   readonly handoff = true
 
-  constructor (x: number, y: number, tag: number) {
-    super(x, y, tag, tag)
+  /**
+   * `to` defaults to `tag`: the first run's pad. A partial world's pad out of
+   * the world (decision #60, `WorldOptions.layers`) names the layer it leads
+   * to, one the world does not hold: `World.portalOn` skips it (so it hops
+   * nobody), `World.padOn` finds it, a route ends on it as the client's
+   * `_stopsOn` ends one on any portal to another tag, and the client labels
+   * it with that layer.
+   */
+  constructor (x: number, y: number, tag: number, to: number = tag) {
+    super(x, y, to, tag)
   }
 }

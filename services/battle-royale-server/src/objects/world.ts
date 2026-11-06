@@ -7,6 +7,7 @@ import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
 import { Random } from '../utils/random'
 import Portal from './portal'
+import HandoffGate from '../firstrun/gate'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob, { MobPack } from './mob'
 import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, rollGear } from '../archetypes/archetypes'
@@ -68,6 +69,24 @@ export interface WorldOptions {
    * never tops it up. The layer tags stay `World.TAGS`.
    */
   firstRun?: boolean
+  /**
+   * The layers this world holds, by tag (decision #60, task private-1).
+   * Default: every one in `World.TAGS`. A layer it does not hold stays in
+   * `World.TAGS` and `hello.layers` (every reader that numbers layers by
+   * place in that list keeps its number), but gets no valleys, walls,
+   * gates, mobs, loot, items or caches, and nobody joins on it. A held
+   * layer's portal count into an unheld layer places pads that lead out of
+   * the world (`HandoffGate` with that `to`) instead of portals: down
+   * counts always, up counts only with `padsUp`. Every tag must be in
+   * `World.TAGS`; an empty or unknown list throws.
+   */
+  layers?: readonly number[]
+  /**
+   * With `layers`: a held layer's up portals into an unheld layer place pads
+   * out of the world too. Default false: they place nothing (#60 Q3, no way
+   * back up from layer 3; private-6 decides).
+   */
+  padsUp?: boolean
 }
 
 /**
@@ -218,6 +237,12 @@ export default class World {
    * single.
    */
   handoff: ((player: Player) => void) | undefined
+  /**
+   * The tags this world holds (`WorldOptions.layers`), or undefined for every
+   * layer, which is every world but a partial one (a default world never
+   * builds the set, so its checks stay a single comparison).
+   */
+  readonly held: ReadonlySet<number> | undefined
   PLAYERS: Player[] = []
   MOBS: Unit[] = []
   AREA_EFFECT: Area[] = []
@@ -552,6 +577,30 @@ export default class World {
     }
   }
 
+  /** True if this world holds layer `tag` (`WorldOptions.layers`); every world but a partial one holds them all. */
+  holds (tag: number): boolean {
+    return this.held === undefined || this.held.has(tag)
+  }
+
+  /**
+   * `hello.voids` for a layer with no valleys of its own: nothing for a layer
+   * this world holds (the old `?? []`), one all-void run (`encodeRuns`' shape:
+   * no free cells, then every cell of the map) for one it does not, so a
+   * client routes nowhere on it. Built once per world.
+   */
+  unheldRuns (tag: number): number[] {
+    if (this.holds(tag)) return []
+    this._unheldRuns ??= [0, Hex.mapCells(this.mapSize).length]
+    return this._unheldRuns
+  }
+
+  private _unheldRuns: number[] | undefined
+
+  /** The highest layer this world holds: where a human joins, and a bot with no layer. */
+  get topLayer (): number {
+    return World.LAYERS.find((layer) => this.holds(layer.tag))?.tag ?? World.LAYERS[0].tag
+  }
+
   /**
    * `new World(size, options)` without leaving it current: the previous
    * current world (or none) is restored, as `run` does. What `Worlds` uses.
@@ -669,6 +718,13 @@ export default class World {
     World.enter(this)
 
     this.mapSize = size
+    if (options.layers !== undefined) {
+      const known = options.layers.filter((tag) => World.TAGS.includes(tag))
+      if (known.length === 0 || known.length !== options.layers.length) {
+        throw new Error(`a world must hold some of the layers ${World.TAGS.join(', ')}, not ${options.layers.join(', ')}`)
+      }
+      this.held = new Set(known)
+    }
     if (options.empty === true) return
     // A first-run world's map is its scenario's (`src/firstrun/`).
     if (options.firstRun === true) {
@@ -676,8 +732,10 @@ export default class World {
       return
     }
 
-    // The valleys first: gates are placed on the ground they leave.
-    for (const layer of World.LAYERS) {
+    // The valleys first: gates are placed on the ground they leave. Only on
+    // the layers this world holds, here and below.
+    const built = World.LAYERS.filter((layer) => this.holds(layer.tag))
+    for (const layer of built) {
       const voids = carveValleys(size, layer.voidShare)
       for (const cell of Hex.mapCells(size)) {
         if (voids.has(Hex.key(cell.x, cell.y))) World.block(cell.x, cell.y, layer.tag, null)
@@ -689,13 +747,19 @@ export default class World {
     // Portals chain the layers in order: 01 <-> 02 <-> 03. A layer's up
     // portals lead to the one before it in LAYERS, its down portals to the one
     // after. A count with no layer to lead to is a table error, not a portal to
-    // nowhere.
+    // nowhere. In a partial world (`WorldOptions.layers`) an unheld layer
+    // places nothing, and a count into one places pads out of the world
+    // (`placeGate`): down counts always, up counts only with `padsUp`.
+    const padsUp = options.padsUp === true
     World.LAYERS.forEach((layer, i) => {
+      if (!this.holds(layer.tag)) return
       const above = World.LAYERS[i - 1]
       const below = World.LAYERS[i + 1]
       if (layer.portalsUp > 0) {
         if (above === undefined) throw new Error(`layer ${layer.tag} has up portals but nothing above it`)
-        for (let n = 0; n < layer.portalsUp; n++) this.placeGate(layer.tag, above.tag)
+        if (padsUp || this.holds(above.tag)) {
+          for (let n = 0; n < layer.portalsUp; n++) this.placeGate(layer.tag, above.tag)
+        }
       }
       if (layer.portalsDown > 0) {
         if (below === undefined) throw new Error(`layer ${layer.tag} has down portals but nothing below it`)
@@ -706,7 +770,7 @@ export default class World {
 
     // The walls last, on the ground the valleys left, clear of every gate's
     // disc (and so of every arrival cell).
-    for (const layer of World.LAYERS) {
+    for (const layer of built) {
       const voids = World.VOIDS.get(layer.tag) ?? new Set<number>()
       const walls = placeWalls(size, voids, World.gateKeepOut(layer.tag), layer.wallShare)
       for (const cell of Hex.mapCells(size)) {
@@ -740,6 +804,9 @@ export default class World {
    * with scattered rocks, because a third of every layer is void.
    */
   private placeGate (tag: number, to: number | undefined): void {
+    // A portal to a layer this world does not hold is a pad out of the world
+    // (`HandoffGate` with that `to`), placed by the same rules: the unheld
+    // layer is empty, so its clearance and arrival checks pass trivially.
     const reach = to === undefined ? [tag] : [tag, to]
 
     for (let attempt = 0; attempt < 60; attempt++) {
@@ -765,22 +832,25 @@ export default class World {
       })
       if (crowded) continue
 
-      World.addObstacle(to === undefined ? new Exit(pos.x, pos.y, tag) : new Portal(pos.x, pos.y, to, tag))
+      World.addObstacle(to === undefined
+        ? new Exit(pos.x, pos.y, tag)
+        : this.holds(to) ? new Portal(pos.x, pos.y, to, tag) : new HandoffGate(pos.x, pos.y, tag, to))
       return
     }
   }
 
   /**
-   * Joins on the top layer (#26), or a bot's `tag`, at a cell centre `spawnCell` picks. `name`,
+   * Joins on the top layer this world holds (#26, `topLayer`), or a bot's `tag`, at a cell centre `spawnCell` picks. `name`,
    * `finish` and `robot` are what the client sent, raw; Player's constructor
    * cleans the first two, `robotFor` the last. `kit` is the run's 4 skill
    * ids, already resolved (`kitFor`, or a bot's); it is not checked here.
    * Left out, the player gets the start kit (`Player`). `tag` is the layer
    * to join on, for a bot only (`BotFill`, #58 addendum 2 Q6); left out, or
-   * not a layer, it is the top one, where every human joins.
+   * not a layer this world holds, it is the top held one, where every human joins.
    */
   static createPlayer (playerId: string, name?: unknown, finish?: unknown, robot?: unknown, kit?: readonly number[], tag?: number, clearance?: number): Player {
-    const layer = tag !== undefined && World.TAGS.includes(tag) ? tag : World.LAYERS[0].tag
+    const world = World.current
+    const layer = tag !== undefined && World.TAGS.includes(tag) && world.holds(tag) ? tag : world.topLayer
     // A first-run world's fixed start (`World.spawn`, humans only), else a
     // random cell `clearance` (default `SPAWN_CLEARANCE`) clear of gates and
     // mobs: the handoff's join asks 6 (decision #58 addendum 2, Q10).
@@ -979,7 +1049,10 @@ export default class World {
     // A first-run world is never topped up: its scenario is all it holds.
     if (!this.firstRun) {
       const humans = World.humansByLayer()
-      for (const layer of World.LAYERS) this.refillLayer(layer, humans.get(layer.tag) ?? 0)
+      // Only the layers this world holds (`WorldOptions.layers`). Through
+      // `holds`, not a list built in the constructor: specs tick an
+      // `Object.create(World.prototype)` world that never ran one.
+      for (const layer of World.LAYERS) if (this.holds(layer.tag)) this.refillLayer(layer, humans.get(layer.tag) ?? 0)
     }
 
     // Pickups never move or change, so nothing else would tell a player who
@@ -1643,11 +1716,32 @@ export default class World {
   /**
    * The portal on cell (q, r) of layer `tag` that leads somewhere else, or
    * undefined. A portal to its own layer (only specs build one) takes nobody
-   * anywhere, so it does not count.
+   * anywhere, so it does not count; nor does a pad to a layer this world does
+   * not hold (`padOn`), or `Player.hopPortal` would drop a player onto an
+   * empty layer.
    */
   static portalOn (q: number, r: number, tag: number): GameObject | undefined {
+    const world = World.current
     for (const gate of World.GATES_ON(q, r, tag)) {
-      if (gate.type === ObjectType.Portal && gate.to !== tag) return gate
+      if (gate.type === ObjectType.Portal && gate.to !== tag && world.holds(gate.to)) return gate
+    }
+    return undefined
+  }
+
+  /**
+   * The pad on cell (q, r) of layer `tag` that leads out of this world: a
+   * portal (`HandoffGate`) to a layer the world does not hold
+   * (`WorldOptions.layers`, decision #60). `portalOn` skips it, so it hops
+   * nobody; a route still ends on it (`Player.stopsOn`), as the client's
+   * `_stopsOn` ends one on any portal to another tag, and a human standing
+   * on it is handed off (`Player.update`). Never one in a world that holds
+   * every layer.
+   */
+  static padOn (q: number, r: number, tag: number): GameObject | undefined {
+    const world = World.current
+    if (world.held === undefined) return undefined
+    for (const gate of World.GATES_ON(q, r, tag)) {
+      if (gate.type === ObjectType.Portal && gate.to !== tag && !world.holds(gate.to)) return gate
     }
     return undefined
   }

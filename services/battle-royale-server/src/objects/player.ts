@@ -239,9 +239,12 @@ export default class Player extends Unit {
 
     // Before the pickup, so a hop picks up on the cell it lands on.
     this.hopPortal()
-    // A first-run world's handoff gate (decision #58): `Worlds` hands the run
-    // off after this tick (`World.handoff`, kept single there).
-    if (World.current.firstRun && this.onHandoffGate()) World.current.handoff?.(this)
+    // A handoff gate (a first run's, decision #58, or a partial world's pad
+    // out of it, #60): `Worlds` hands the run off after this tick
+    // (`World.handoff`, kept single there). Humans only: a bot is never
+    // handed anywhere, and `BotBrain` keeps it off such a pad.
+    const world = World.current
+    if (world.handoff !== undefined && this.bot === undefined && this.onHandoffGate()) world.handoff(this)
     this.applyHeal(dt)
     this.pickUp()
     // No push-out out of mobs (hex-cells P2): players may share a cell with a
@@ -264,9 +267,13 @@ export default class Player extends Unit {
     return World.current.firstRun ? 1 : 0
   }
 
-  /** A portal to another layer: routes end on it (`Unit.endAtPortal`). */
+  /**
+   * A portal to another layer, or a pad out of the world (`World.padOn`):
+   * routes end on it (`Unit.endAtPortal`), as the client's `_stopsOn` ends
+   * them on any portal to another tag.
+   */
   stopsOn (q: number, r: number): boolean {
-    return World.portalOn(q, r, this.tag) !== undefined
+    return World.portalOn(q, r, this.tag) !== undefined || World.padOn(q, r, this.tag) !== undefined
   }
 
   /**

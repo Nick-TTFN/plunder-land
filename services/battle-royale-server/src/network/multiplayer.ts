@@ -583,8 +583,10 @@ export default class Multiplayer {
       // Each layer's valleys, in `layers` order: alternating free and void run
       // lengths over `Hex.mapCells(map)` (valleys.ts `encodeRuns`). About 1 KB
       // a layer. Additive: an older client ignores it and routes into the
-      // void, and the server corrects it, so ship the client first.
-      voids: World.TAGS.map((tag) => World.VOID_RUNS.get(tag) ?? []),
+      // void, and the server corrects it, so ship the client first. A layer
+      // this world does not hold (`WorldOptions.layers`, #60) is one all-void
+      // run, so no client routes anywhere on it; only a partial world sends one.
+      voids: World.TAGS.map((tag) => World.VOID_RUNS.get(tag) ?? World.current.unheldRuns(tag)),
       // Each layer's walls (decision #44), the same way. Additive like voids:
       // an older client routes into a wall and is corrected.
       walls: World.TAGS.map((tag) => World.WALL_RUNS.get(tag) ?? []),

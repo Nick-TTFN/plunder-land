@@ -90,9 +90,13 @@ export function botLayer (tag: number): BotLayer {
   return BOT_SKILL[Math.min(layer, BOT_SKILL.length - 1)]
 }
 
-/** Whether a bot that is robot `key` may be on layer `tag`: its row lists it. */
+/**
+ * Whether a bot that is robot `key` may be on layer `tag`: the current world
+ * holds it (`WorldOptions.layers`, decision #60: a pad to an unheld layer
+ * leads out of the world, and a bot is never handed off) and its row lists it.
+ */
 export function robotAllowedOn (key: string | undefined, tag: number): boolean {
-  if (key === undefined || !World.TAGS.includes(tag)) return false
+  if (key === undefined || !World.TAGS.includes(tag) || !World.current.holds(tag)) return false
   return (botLayer(tag).robots as readonly string[]).includes(key)
 }
 
@@ -435,12 +439,16 @@ export default class BotBrain implements IAIRoutine {
     return false
   }
 
-  /** True if its route ends on a portal into a layer whose `robots` leave its robot out. */
+  /**
+   * True if its route ends on a portal into a layer whose `robots` leave its
+   * robot out, or on a pad out of the world (`World.padOn`, to a layer the
+   * world does not hold, which `robotAllowedOn` refuses).
+   */
   private routeLeavesRange (): boolean {
     const me = this.owner
     const last = me.path[me.path.length - 1]
     if (last === undefined) return false
-    const portal = World.portalOn(last.x, last.y, me.tag)
+    const portal = World.portalOn(last.x, last.y, me.tag) ?? World.padOn(last.x, last.y, me.tag)
     return portal !== undefined && !robotAllowedOn(me.archetype?.key, portal.to)
   }
 

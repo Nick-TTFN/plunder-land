@@ -94,10 +94,11 @@ export default class BotFill {
   }
 
   /**
-   * A bot on layer `tag` (by default `layerFor`'s, else the top one), as one
-   * of that layer's robots and temperaments, with its cargo (`BOT_SKILL`).
+   * A bot on layer `tag` (by default `layerFor`'s, else the top one the
+   * world holds, `World.topLayer`), as one of that layer's robots and
+   * temperaments, with its cargo (`BOT_SKILL`).
    */
-  spawn (now: number = Date.now(), tag: number = BotFill.layerFor() ?? World.TAGS[0]): Player {
+  spawn (now: number = Date.now(), tag: number = BotFill.layerFor() ?? World.current.topLayer): Player {
     const pick = <T>(list: readonly T[]): T => list[Math.floor(this.random() * list.length)]
     const row = botLayer(tag)
     let name = pick(NAMES)
