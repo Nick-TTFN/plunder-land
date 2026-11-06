@@ -69,5 +69,13 @@ same.
 `tools/load/privatebench.cjs` (`node --expose-gc`, `MODE=private|shared`, `N`, `BOTS`, `MAP`):
 N one-human worlds through the real `Worlds` (cap 1, bots topping up) against the same humans
 in one shared world, with a simulated clock so bots and NPC timers run. Prints ms per tick per
-human, heap/RSS per human after a GC and `World.build`'s time. No sockets. Every world is a full
-3-layer build, so it overstates a two-layer copy.
+human, heap/RSS per human after a GC and `World.build`'s time. No sockets. Without `PRIVATE` or `LAYERS`, every world is a full 3-layer build: an upper bound for a
+two-layer copy.
+
+`PRIVATE=1` builds every world as a real private world: the top two layers held
+(`WorldOptions.layers`, so layer 02's down count places pads out of the world) on the shared
+`PRIVATE_MAP` (`WorldOptions.map`). Use it without `LAYERS`. The first build generates the map
+and is reported apart as `firstBuildMs`; `buildMsPerWorld` covers every later build. Measured
+2026-11-06 (private-5, M-series Mac, `MAP=2000 BOTS=4 MOBSCALE=0.25 LOOTSCALE=0.25`, after the
+layer 01-02 loot cut): later builds 0.14 ms, the first 15.5-16.7 ms; 0.18-0.21 MB heap per
+world; ~0.06 ms/tick per human at N=50 and N=100.
