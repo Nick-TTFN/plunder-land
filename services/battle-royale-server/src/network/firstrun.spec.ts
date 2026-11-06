@@ -10,6 +10,7 @@ import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
 import Worlds, { HANDOFF_CLEARANCE } from './worlds'
 import World from '../objects/world'
 import Mob from '../objects/mob'
+import { ObjectType } from '../objects/gameobject'
 import type Player from '../objects/player'
 import { type Account, MemoryAccountStore } from '../db/accounts'
 import { type SeasonCredit } from '../progress/seasons'
@@ -23,8 +24,9 @@ import { FIRST_RUN } from '../firstrun/scenario'
 /**
  * The safe first run (decision #58, task retest-4) through `Worlds`: who gets
  * a private world, what reads `worlds` and what reads `firstRuns`, the HP
- * floor, the handoff into a shared world (and that it never ends the first
- * run as a run: `runOver` first), energy across it, and leaving halfway.
+ * floor, the handoff into a private world of its own (#60 Q15; and that it
+ * never ends the first run as a run: `runOver` first), energy across it, and
+ * leaving halfway. The private world's own rules are private.spec.ts's.
  */
 
 let reported: unknown[] = []
@@ -173,12 +175,36 @@ function stepOnGate (worlds: Worlds, world: World, player: Player): void {
   worlds.tickAll(250)
 }
 
+/** The private layers (decision #60, `LayerSpec.owned`), top first. */
+const PRIVATE_TAGS = World.LAYERS.filter((layer) => layer.owned === true).map((layer) => layer.tag)
+
+/**
+ * A private world's way out (#60): down a real portal to its deepest layer,
+ * then onto a pad there; the handoff runs after that tick.
+ */
+function takePad (worlds: Worlds, world: World, player: Player): void {
+  const deepest = PRIVATE_TAGS[PRIVATE_TAGS.length - 1]
+  while (player.tag !== deepest) {
+    const from = player.tag
+    const portal = world.OBSTACLES.find((o) => o.type === ObjectType.Portal && o.tag === from && (o as unknown as { to: number }).to < from && (o as { handoff?: boolean }).handoff !== true)
+    assert.ok(portal !== undefined, `no portal down on layer ${from}`)
+    World.run(world, () => { player.position = Hex.toPosition(Hex.toCell(portal.position)) })
+    worlds.tickAll(250)
+    assert.ok(player.tag < from, 'the portal hopped nobody')
+  }
+  const pad = world.OBSTACLES.find((o) => o.tag === deepest && (o as { handoff?: boolean }).handoff === true)
+  assert.ok(pad !== undefined, 'no pad on the private world\'s deepest layer')
+  World.run(world, () => { player.position = Hex.toPosition(Hex.toCell(pad.position)) })
+  worlds.tickAll(250)
+}
+
 test('a persisted account that has not done it, starting with firstRun, gets a private first-run world', async () => {
   const store = new Store()
   const worlds = makeWorlds(store)
   const { world, player } = await begin(worlds, store)
   assert.equal(world.firstRun, true)
-  assert.deepEqual(worlds.firstRuns, [world])
+  // Worlds compared by identity only: a failing deepEqual on a World builds a multi-GB diff.
+  assert.ok(worlds.firstRuns.length === 1 && worlds.firstRuns[0] === world, 'not the one first-run world')
   assert.ok(!worlds.worlds.includes(world), 'a first-run world is in the shared list')
   assert.equal(world.mapSize, FIRST_RUN.mapSize)
   World.run(world, () => {
@@ -283,12 +309,12 @@ test('choose never returns a first-run world, and no bot ever joins one', async 
   const { world } = await begin(worlds, store)
   for (let i = 0; i < 40; i++) worlds.tickAll(250)
   World.run(world, () => {
-    assert.deepEqual(World.PLAYERS.filter((p) => p.bot !== undefined), [], 'a bot joined a first-run world')
+    assert.equal(World.PLAYERS.filter((p) => p.bot !== undefined).length, 0, 'a bot joined a first-run world')
   })
   for (let i = 0; i < 20; i++) assert.ok(!worlds.firstRuns.includes(worlds.choose()), 'choose returned a first-run world')
   for (let i = 0; i < 20; i++) assert.ok(!worlds.firstRuns.includes(worlds.choose('party1')))
   // closeIdle never closes it as an idle shared world either: it is still open.
-  assert.deepEqual(worlds.firstRuns, [world])
+  assert.ok(worlds.firstRuns.length === 1 && worlds.firstRuns[0] === world, 'the first-run world was closed')
 })
 
 test('activeRuns, drained and full count a first run', async () => {
@@ -304,7 +330,7 @@ test('activeRuns, drained and full count a first run', async () => {
   assert.equal(client.events('full').length, 1, 'a burst cap undercounted a first run')
 })
 
-test('HP never drops below 1 in a first-run world, and does in a shared one', async () => {
+test('HP never drops below 1 in a first-run world, and does in a private one', async () => {
   const store = new Store()
   const worlds = makeWorlds(store)
   const first = await begin(worlds, store, undefined, 'one')
@@ -315,14 +341,15 @@ test('HP never drops below 1 in a first-run world, and does in a shared one', as
     assert.equal(first.player.hit(5), false)
     assert.equal(first.player.hp, 1)
   })
-  const shared = await begin(worlds, store, {}, 'two')
-  World.run(shared.world, () => {
-    assert.equal(shared.player.hit(1e6), true)
-    assert.equal(shared.player.destroyed, true)
+  const other = await begin(worlds, store, {}, 'two')
+  assert.ok(worlds.privates.includes(other.world))
+  World.run(other.world, () => {
+    assert.equal(other.player.hit(1e6), true)
+    assert.equal(other.player.destroyed, true)
   })
 })
 
-test('the handoff: a shared world on layer 0 at a spawn 6+ cells from every mob, loot and kill XP carried, the first run never ended as a run', async () => {
+test('the handoff: a private world of its own on its top layer at a spawn 6+ cells from every mob, loot and kill XP carried, the first run never ended as a run (#58, #60 Q15)', async () => {
   const redis = redisStub()
   const store = new Store()
   const worlds = makeWorlds(store, { redis })
@@ -344,30 +371,38 @@ test('the handoff: a shared world on layer 0 at a spawn 6+ cells from every mob,
   redis.writes.length = 0
   assert.equal(first.kills, 1)
   const ref = new WeakRef(firstWorld)
+  assert.equal(worlds.privates.length, 0, 'a first run opened a private world before its pad')
 
   stepOnGate(worlds, firstWorld, first)
   await settle()
-  const closed = new WeakRef(firstWorld)
   firstWorld = undefined
-  const shared = worlds.worldFor(client.connection) as World
+  const priv = worlds.worldFor(client.connection) as World
   const next = client.connection.player as Player
-  assert.ok(shared !== undefined && next !== undefined && next !== first)
-  assert.equal(shared.firstRun, false)
-  assert.ok(worlds.worlds.includes(shared))
+  assert.ok(priv !== undefined && next !== undefined && next !== first)
+  assert.equal(priv.firstRun, false)
+  // A private world of its own (#60 Q15), not a shared one.
+  assert.ok(worlds.privates.length as number === 1 && worlds.privates[0] === priv, 'the handoff did not open a private world')
+  assert.ok(!worlds.worlds.includes(priv), 'the private world is in the shared list')
+  assert.deepEqual(World.TAGS.filter((tag) => priv.holds(tag)), PRIVATE_TAGS)
   // `handoff`, then the new world's hello, in that order, and no lobby.
   const order = client.emitted.map(([e]) => e).filter((e) => e === 'handoff' || e === 'hello')
   assert.deepEqual(order, ['hello', 'handoff', 'hello'])
-  // The tutorial hints' flag: on the private world's hello only.
+  // The tutorial hints' flag: on the first-run world's hello only.
   const hellos = client.events('hello') as Array<{ firstRun?: boolean }>
   assert.equal(hellos[0].firstRun, true)
   assert.equal('firstRun' in hellos[1], false)
-  World.run(shared, () => {
-    assert.equal(next.tag, World.TAGS[0], 'not on layer 0')
+  World.run(priv, () => {
+    assert.equal(next.tag, World.TAGS[0], 'not on the top layer')
+    // No other human there.
+    assert.equal(World.PLAYERS.filter((p) => p.bot === undefined && p !== next).length, 0, 'another human in the private world')
     const cell = Hex.toCell(next.position)
+    let near = 0
     for (const mob of World.MOBS) {
       if (mob.tag !== next.tag || mob.destroyed) continue
+      near++
       assert.ok(Hex.distance(cell, Hex.toCell(mob.position)) >= HANDOFF_CLEARANCE, 'a mob within the handoff\'s clearance')
     }
+    assert.ok(near > 0, 'no mob on the layer: the clearance check checked nothing')
     assert.equal(next.loot, 75, 'the loot was not carried')
     assert.equal(next.kills, 1, 'the kills were not carried')
     assert.equal(next.hp, next.maxHP(), 'HP not fresh')
@@ -378,19 +413,22 @@ test('the handoff: a shared world on layer 0 at a spawn 6+ cells from every mob,
   assert.equal(sent.filter((e) => e.name === 'run_end').length, 0, 'run_end for the first run')
   assert.equal(store.refunds, 0)
   assert.equal(sent.filter((e) => e.name === 'first_run_done').length, 1)
+  // The run the handoff begins is the run's one `run_start`; no `private_done` yet.
+  assert.equal(sent.filter((e) => e.name === 'run_start').length, 1)
+  assert.equal(sent.filter((e) => e.name === 'private_done').length, 0)
   // Done once, in memory and in the store.
   assert.deepEqual(store.finished, [publicId])
   assert.equal(client.connection.account?.firstRunDone, true)
   assert.equal((await store.resolve(token))?.firstRunDone, true)
-  // The private world is closed, gone from every list, and (below) collected.
-  assert.equal(closed.deref()?.closed, true)
-  assert.deepEqual(worlds.firstRuns, [])
+  // The first-run world is closed, gone from every list, and (below) collected.
+  assert.equal(ref.deref()?.closed, true)
+  assert.equal(worlds.firstRuns.length, 0)
   assert.equal(worlds.worlds.length, 1)
 
-  // The shared run's extraction pays the first run's kill too (a Crawler, 1)
-  // and the carried loot, once; its energy comes back.
+  // The private run's extraction pays the first run's kill too (a Crawler, 1)
+  // and the carried loot, once; its energy comes back; the private world closes.
   const stockBefore = await store.stock(token)
-  World.run(shared, () => { next.exit() })
+  World.run(priv, () => { next.exit() })
   worlds.tickAll(250)
   await settle()
   assert.equal(store.grants.length, 1)
@@ -402,10 +440,12 @@ test('the handoff: a shared world on layer 0 at a spawn 6+ cells from every mob,
   const withoutKill = Math.round(PROGRESSION.extractMultiplier * (Math.floor(75 / PROGRESSION.loot.per)))
   assert.equal(store.grants[0].xp, Math.round(PROGRESSION.extractMultiplier * (Math.floor(75 / PROGRESSION.loot.per) + PROGRESSION.kills.mob.crawler)))
   assert.ok(store.grants[0].xp > withoutKill)
-  assert.equal(await store.stock(token), stockBefore + 1, 'the play did not come back on the shared run\'s extraction')
+  assert.equal(await store.stock(token), stockBefore + 1, 'the play did not come back on the private run\'s extraction')
   assert.equal(store.finished.length, 1, 'marked done twice')
+  assert.equal(priv.closed, true, 'the private world outlived its run')
+  assert.equal(worlds.privates.length, 0)
 
-  // Nothing keeps it: no timer, listener, index or connection.
+  // Nothing keeps the first-run world: no timer, listener, index or connection.
   for (let i = 0; i < 10 && ref.deref() !== undefined; i++) {
     await new Promise((resolve) => setImmediate(resolve))
     setFlagsFromString('--expose_gc')
@@ -414,16 +454,17 @@ test('the handoff: a shared world on layer 0 at a spawn 6+ cells from every mob,
   assert.equal(ref.deref(), undefined, 'the closed first-run world was never collected')
 })
 
-test('the play moves across the handoff: the shared run\'s death keeps it spent', async () => {
+test('the play moves across the handoff: the private run\'s death keeps it spent', async () => {
   const store = new Store()
   const worlds = makeWorlds(store)
   const { client, token, world, player } = await begin(worlds, store)
   assert.equal(await store.stock(token), 5)
   stepOnGate(worlds, world, player)
   await settle()
-  const shared = worlds.worldFor(client.connection) as World
+  const priv = worlds.worldFor(client.connection) as World
   const next = client.connection.player as Player
-  World.run(shared, () => { assert.equal(next.hit(1e6), true) })
+  assert.ok(worlds.privates.includes(priv))
+  World.run(priv, () => { assert.equal(next.hit(1e6), true) })
   worlds.tickAll(250)
   await settle()
   assert.equal(store.refunds, 0)
@@ -447,7 +488,7 @@ test('a disconnect inside the first run refunds the play, leaves the account not
   assert.equal(sent.filter((e) => e.name === 'run_end').length, 0)
   assert.equal(sent.filter((e) => e.name === 'first_run_left').length, 1)
   assert.equal(world.closed, true)
-  assert.deepEqual(worlds.firstRuns, [])
+  assert.equal(worlds.firstRuns.length, 0)
   // The next start replays it.
   const again = new Client('a', { token })
   again.connection = worlds.onConnection(again.socket)
@@ -467,7 +508,7 @@ test('a drain\'s cut-off inside the first run refunds once', async () => {
   await settle()
   assert.equal(store.refunds, 1)
   assert.equal(await store.stock(token), 6)
-  assert.deepEqual(worlds.firstRuns, [])
+  assert.equal(worlds.firstRuns.length, 0)
 })
 
 test('a handoff during a drain redirects, refunds and still marks the account done', async () => {
@@ -485,17 +526,44 @@ test('a handoff during a drain redirects, refunds and still marks the account do
   assert.deepEqual(store.grants, [])
 })
 
-test('a party code lands the handoff in the friend\'s world', async () => {
+test('a party code: the first run\'s pad leads into a private world of its own, and its pad into the friend\'s shared world (#60 Q5)', async () => {
   const store = new Store()
   const worlds = makeWorlds(store)
-  // A friend in a shared run with the code, and another shared world besides.
-  const friend = await begin(worlds, store, { party: 'abc123' }, 'friend')
-  assert.equal(friend.world.firstRun, false)
-  const { client, world, player } = await begin(worlds, store, { party: 'abc123', firstRun: true }, 'me')
-  assert.equal(world.firstRun, true)
-  stepOnGate(worlds, world, player)
+  // Someone without the code in the oldest shared world, where fill-first
+  // would send anyone (a tie goes to the oldest)...
+  const other = await begin(worlds, store, {}, 'other')
+  takePad(worlds, other.world, other.player)
   await settle()
-  assert.equal(worlds.worldFor(client.connection), friend.world)
+  const oldest = worlds.worldFor(other.client.connection)
+  assert.ok(oldest !== undefined && oldest === worlds.worlds[0], 'the first pad did not land in the oldest shared world')
+  // ...and the friend, with the code, in a newer one, just as full.
+  const friend = await begin(worlds, store, { party: 'abc123' }, 'friend')
+  assert.ok(worlds.privates.includes(friend.world), 'the friend\'s start is not private')
+  const newer = worlds.open()
+  const choose = worlds.choose
+  worlds.choose = () => newer
+  try {
+    takePad(worlds, friend.world, friend.player)
+  } finally {
+    worlds.choose = choose
+  }
+  await settle()
+  assert.ok(worlds.worldFor(friend.client.connection) === newer, 'the friend is not in the newer shared world')
+  assert.ok(worlds.choose() === oldest, 'without the code the pad would not go to the oldest: the party check checks nothing')
+
+  const me = await begin(worlds, store, { party: 'abc123', firstRun: true }, 'me')
+  assert.equal(me.world.firstRun, true)
+  stepOnGate(worlds, me.world, me.player)
+  await settle()
+  // The code shares no private layers: a private world of my own.
+  const mine = worlds.worldFor(me.client.connection)
+  assert.ok(mine !== undefined && worlds.privates.includes(mine) && !worlds.worlds.includes(mine), 'the first run\'s pad did not lead into a private world')
+  World.run(mine, () => {
+    assert.equal(World.PLAYERS.filter((p) => p.bot === undefined).length, 1, 'another human in my private world')
+  })
+  takePad(worlds, mine, me.client.connection.player as Player)
+  await settle()
+  assert.ok(worlds.worldFor(me.client.connection) === newer, 'the pad did not land in the friend\'s world')
 })
 
 test('standing on the gate across several ticks hands off once', async () => {
