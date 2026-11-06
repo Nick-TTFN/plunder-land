@@ -6,6 +6,7 @@ import type { Socket } from 'socket.io'
 import './multiplayer'
 import Worlds from './worlds'
 import World from '../objects/world'
+import Multiplayer from './multiplayer'
 import Obstacle from '../objects/obstacle'
 import { GameObject, ObjectType } from '../objects/gameobject'
 import type Player from '../objects/player'
@@ -151,10 +152,11 @@ function connect (worlds: Worlds, id: string): HeadlessClient {
   const connection = worlds.onConnection(client.socket)
   Object.defineProperty(client, 'player', { get: () => connection.player })
   Object.defineProperty(client, 'world', { get: () => worlds.worldFor(connection) })
+  Object.defineProperty(client, 'connection', { get: () => connection })
   return client
 }
 
-type Connected = HeadlessClient & { player: Player | undefined, world: World | undefined }
+type Connected = HeadlessClient & { player: Player | undefined, world: World | undefined, connection: unknown }
 
 function kill (worlds: Worlds, client: Connected): void {
   const { world, player } = client
@@ -306,4 +308,129 @@ test('a client through a first run, its handoff and the shared run keeps no id, 
   worlds.tickAll(250)
   await x.play('X AGAIN')
   assert.equal(x.continued, 1)
+})
+
+/** Every object of `world` by id, for "is this held id that world's?". */
+function objectsOf (world: World): Map<number, GameObject> {
+  const objects = new Map<number, GameObject>()
+  for (const list of [world.PLAYERS, world.MOBS, world.OBSTACLES, world.PROJECTILES, world.CONSUMABLES, world.ITEMS, world.GEAR]) {
+    for (const obj of list as GameObject[]) objects.set(obj.id, obj)
+  }
+  return objects
+}
+
+/** What the client must hold as `world`'s valleys on `tag`: its own, or every cell for a layer it doesn't hold (#60). */
+function voidsOf (world: World, tag: number): Set<number> {
+  return Session.decodeRuns(world.VOID_RUNS.get(tag) ?? world.unheldRuns(tag), world.mapSize)
+}
+
+test('a client through two handoffs, first run to a private world to a shared one, keeps nothing of either and one run record (#60)', async () => {
+  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: okRedis() })
+  // The two worlds the handoffs land in: the private copy of layers 01-02 and
+  // a shared world of layer 03 (private-1's partial worlds). Nothing chooses
+  // them yet (private-6 does), so `choose` hands them out in order; a world
+  // is opened as `Worlds.open` opens one.
+  const open = (layers: number[]): World => {
+    const world = World.build(4000, { multiplayer: (worlds as unknown as { multiplayer: () => Multiplayer }).multiplayer(), layers })
+    worlds.worlds.push(world)
+    return world
+  }
+  const priv = open([0, -1])
+  const shared = open([-2])
+  const targets = [priv, shared]
+  worlds.choose = () => targets.shift() ?? assert.fail('a third choose')
+
+  const x = connect(worlds, 'x') as Connected
+  const start = { id: 'abcdef', name: 'X', firstRun: true }
+  await x.play('X', { firstRun: true })
+  const first = x.world as World
+  assert.equal(first.firstRun, true)
+  for (let i = 0; i < 2; i++) worlds.tickAll(250)
+  const xf = x.player as Player
+  xf.loot = 3
+
+  // Handoff 1, the real one: the first run's pad.
+  const gate = first.OBSTACLES.find((o) => (o as { handoff?: boolean }).handoff === true) as GameObject
+  World.run(first, () => { xf.position = Hex.toPosition(Hex.toCell(gate.position)) })
+  worlds.tickAll(250)
+  assert.equal(x.world, priv, 'the first handoff did not land in the private world')
+  for (let i = 0; i < 4; i++) worlds.tickAll(250)
+  const xp = x.player as Player
+  assert.equal(x.continued, 1)
+  assert.equal(xp.tag, 0)
+  assert.equal(xp.loot, 3, 'the first run\'s loot did not reach the private world')
+  for (const [id, data] of x.held) {
+    const obj = objectsOf(priv).get(id)
+    assert.ok(obj !== undefined && obj.type === data.type, `held id ${id} is not the private world's`)
+  }
+  for (const tag of World.TAGS) assert.deepEqual(x.map.voids.get(tag), voidsOf(priv, tag), `layer ${tag}'s valleys are not the private world's`)
+  assert.equal(x.map.voids.get(-2)?.size, Hex.mapCells(4000).length, 'the private world\'s layer 03 is not all void')
+  // Walk a little on layer 01, to leave explored fog and portals behind.
+  for (let i = 0; i < 6; i++) {
+    World.run(priv, () => { xp.setWaypoints([Hex.toCell(xp.position).add(new Vector(i % 2 === 0 ? 3 : -3, 0))]) })
+    worlds.tickAll(250)
+  }
+  const privExplored: Vector[] = []
+  for (const cell of Hex.mapCells(4000)) if (x.fog.state(cell.x, cell.y, 0) !== SEEN.UNKNOWN) privExplored.push(cell)
+  assert.ok(privExplored.length > 0)
+  assert.ok((x.map.portals.get(0)?.size ?? 0) > 0, 'no portal of the private world reached the client')
+  const privHeld = new Map([...x.held].map(([id, data]) => [id, { type: data.type as number, x: data.position.x as number, y: data.position.y as number }]))
+  xp.loot = 5
+
+  // Handoff 2: what private-6 wires to the private world's pads into layer 03,
+  // here called directly. The same server path as the first (`Worlds.handoff`):
+  // `handoff`, then the shared world's hello, join and own create, in order.
+  ;(worlds as unknown as { handoff: (world: World, state: unknown) => void }).handoff(priv, {
+    connection: x.connection, start: Multiplayer.parseStart(start), data: start, player: xp, due: true
+  })
+  assert.equal(x.world, shared, 'the second handoff did not land in the shared world')
+  assert.equal(priv.closed, true)
+  for (let i = 0; i < 4; i++) worlds.tickAll(250)
+  const xs = x.player as Player
+  assert.ok(xs !== xp)
+  assert.equal(xs.tag, -2, 'the shared run did not start on layer 03')
+  assert.equal(xs.loot, 5, 'the private world\'s loot did not reach the shared world')
+
+  // One run record across both handoffs (#58 addendum 5).
+  assert.equal(x.continued, 2, 'an own create after a handoff restarted the run')
+
+  // Ids: every one held is the shared world's (both worlds count from 1, so
+  // many private ids are reused; the type and the list say whose it is).
+  const objects = objectsOf(shared)
+  for (const [id, data] of x.held) {
+    const obj = objects.get(id)
+    assert.ok(obj !== undefined && obj.type === data.type, `held id ${id} (type ${String(data.type)}) is not the shared world's`)
+  }
+  assert.equal(x.held.get(x.ownId as number)?.id, xs.id)
+  // Teeth: some id the client held in the private world names another object
+  // (or none) in the shared one, so a record kept across the handoff is wrong.
+  assert.ok([...privHeld].some(([id, was]) => {
+    const obj = objects.get(id)
+    return obj === undefined || obj.type !== was.type || Math.floor(obj.position.x) !== was.x || Math.floor(obj.position.y) !== was.y
+  }), 'every private id names the same object in the shared world: the id check checked nothing')
+
+  // Map: the shared world's valleys on every layer (01 and 02 all void now),
+  // its portals on 03, nothing on the private layers.
+  for (const tag of World.TAGS) assert.deepEqual(x.map.voids.get(tag), voidsOf(shared, tag), `layer ${tag}'s valleys are not the shared world's`)
+  assert.notDeepEqual(voidsOf(priv, 0), voidsOf(shared, 0))
+  assert.equal(x.map.portals.get(0)?.size ?? 0, 0, 'a private world\'s portal is still on the map')
+  assert.equal(x.map.blocked.get(0)?.size ?? 0, 0, 'a private world\'s stone is still on the map')
+  const portals = new Map<number, number>()
+  for (const obj of shared.OBSTACLES) {
+    if (obj.type !== ObjectType.Portal || obj.tag !== xs.tag) continue
+    const cell = Hex.toCell(obj.position)
+    portals.set(Hex.key(cell.x, cell.y), obj.to)
+  }
+  // A shared world of layer 03 alone has none (no pads up, private-1's default).
+  assert.deepEqual(x.map.portals.get(xs.tag) ?? new Map(), portals)
+
+  // Fog: nothing of layer 01 is known any more (the shared run is on 03).
+  for (const cell of privExplored) assert.equal(x.fog.state(cell.x, cell.y, 0), SEEN.UNKNOWN, `the private world's explored cell ${cell.x},${cell.y} is still known`)
+
+  // A later run from the lobby starts a fresh record.
+  World.run(shared, () => { xs.destroy() })
+  worlds.tickAll(250)
+  targets.push(shared)
+  await x.play('X AGAIN')
+  assert.equal(x.continued, 2)
 })
