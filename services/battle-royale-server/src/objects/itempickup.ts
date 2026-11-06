@@ -37,8 +37,7 @@ export default class ItemPickup extends GameObject {
     }
 
     // Snapshot sets only: a pickup's kind never changes, so it is never dirty.
-    this.allFields.add('item')
-    this.allFieldsOwn.add('item')
+    this.addFields('both', 'item')
 
     Multiplayer.Instance.create(this)
   }

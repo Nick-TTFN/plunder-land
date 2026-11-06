@@ -96,8 +96,7 @@ export default class Throwable extends GameObject {
     this.destroyCallback = destroyCallback
     this.projectile = projectile
     // Snapshot sets only: a projectile's kind never changes.
-    this.allFields.add('projectile')
-    this.allFieldsOwn.add('projectile')
+    this.addFields('both', 'projectile')
 
     Multiplayer.Instance.create(this)
   }

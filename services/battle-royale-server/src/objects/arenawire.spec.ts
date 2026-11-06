@@ -48,7 +48,7 @@ function setup (): void {
   new World(4000)
 }
 
-function decoded (obj: GameObject, fields: Set<string>): any {
+function decoded (obj: GameObject, fields: ReadonlySet<string>): any {
   const record = obj.serialiseBinary(fields)
   assert.ok(record !== null)
   return decodeRecord(record, GameObject.fieldOrder)

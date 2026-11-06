@@ -1252,7 +1252,7 @@ export default class Multiplayer {
     if (connection.layer !== player.tag) {
       for (const obj of World.OBSTACLES) {
         if (obj.tag === connection.layer && !obj.destroyed && Multiplayer.isTerrain(obj)) {
-          out.destroy.push(obj.serialiseBinary(ID_ONLY as Set<string>))
+          out.destroy.push(obj.serialiseBinary(ID_ONLY))
         }
       }
       this.setLayer(connection, player.tag)
@@ -1271,7 +1271,7 @@ export default class Multiplayer {
         if (whole !== null) out.update.push(whole)
         continue
       }
-      this.leave(connection, obj, obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer)
+      this.leave(connection, obj, obj.serialiseBinary(ID_ONLY) as Buffer)
     }
     this.sendVisible(connection, out.create)
     // Re-centred here, so the pickup pass settles it from scratch.
@@ -1400,7 +1400,7 @@ export default class Multiplayer {
         if (!Multiplayer.isPickupLike(obj) || Multiplayer.gone(obj)) continue
         const view = obj.tag === tag ? Multiplayer.viewOf(viewer, obj.position.x, obj.position.y, Hex.toCell(obj.position)) : Multiplayer.VIEW_OUT
         if (view === Multiplayer.VIEW_OUT) {
-          this.leave(connection, obj, obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer)
+          this.leave(connection, obj, obj.serialiseBinary(ID_ONLY) as Buffer)
           counts.left++
         }
       }
@@ -1597,7 +1597,7 @@ export default class Multiplayer {
           }
           continue
         }
-        if (gone === undefined) gone = obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
+        if (gone === undefined) gone = obj.serialiseBinary(ID_ONLY) as Buffer
         this.leave(connection, obj, gone)
       }
     }
@@ -1717,7 +1717,7 @@ export default class Multiplayer {
   destroy (obj: GameObject): void {
     Multiplayer.checkWorld(this, 'Multiplayer.destroy')
     // Never null: `GameObject.destroy` and `Player.exit` both put `id` in it.
-    const data = obj.serialiseBinary(obj.dirtyFields) ?? obj.serialiseBinary(ID_ONLY as Set<string>) as Buffer
+    const data = obj.serialiseBinary(obj.dirtyFields) ?? obj.serialiseBinary(ID_ONLY) as Buffer
     if (Multiplayer.isTerrain(obj)) {
       for (const connection of this.layers.get(obj.tag) ?? []) this.outbox(connection).destroy.push(data)
     } else {

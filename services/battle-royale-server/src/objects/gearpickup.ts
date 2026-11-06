@@ -44,8 +44,7 @@ export default class GearPickup extends GameObject {
     }
 
     // Snapshot sets only: the instance never changes, so it is never dirty.
-    this.allFields.add('gear')
-    this.allFieldsOwn.add('gear')
+    this.addFields('both', 'gear')
 
     Multiplayer.Instance.create(this)
   }

@@ -393,6 +393,13 @@ an old client stops parsing a record at an index it doesn't know, and fields are
 in dirty order, not table order, so it can lose a position update in the same record.
 Ship the client before, or together with, the server.
 
+**Which fields a create carries** is the object's snapshot sets, `allFields` (everyone) and
+`allFieldsOwn` (the owner's own create), written in the sets' order. They are **interned and
+read-only** (`GameObject.internFields`): every object with the same list shares one Set, so no
+object carries its own copy (two per-object Sets were ~780 B of every object; heap breakdown
+2026-11-06). Build them only in a constructor through `addFields` / `moveFieldToEnd`; never
+cast one back to `Set` and mutate it, which would change every object sharing it.
+
 `direction` has a serialiser case on the server but is **not** in `fieldOrder`, so
 `indexOf` returns -1 and it would encode as key index 255, which the client (with no case
 for it) reads as an unknown index and stops parsing the record. It is unreachable because

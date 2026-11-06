@@ -204,16 +204,12 @@ export class Unit extends GameObject {
       if (archetype.armor.max > 0) {
         this.maxArmor = archetype.armor.max
         this.armor = archetype.armor.max
-        for (const fields of [this.allFields, this.allFieldsOwn]) {
-          fields.add('armor')
-          fields.add('maxArmor')
-        }
+        this.addFields('both', 'armor', 'maxArmor')
       }
 
       // Last, so it lands at the end of both records. Snapshot sets only: the
       // id never changes, so it is never dirty and never in a delta.
-      this.allFields.add('archetype')
-      this.allFieldsOwn.add('archetype')
+      this.addFields('both', 'archetype')
     }
   }
 
@@ -221,7 +217,7 @@ export class Unit extends GameObject {
    * The wire carries the snapped index, not the vector (see `facing`), and the
    * archetype's id, not the archetype.
    */
-  serialise (fields: Set<string>): ReturnType<GameObject['serialise']> {
+  serialise (fields: ReadonlySet<string>): ReturnType<GameObject['serialise']> {
     const result = super.serialise(fields)
     if (result !== null && 'facing' in result) (result as Record<string, unknown>).facing = this._facingIndex
     if (result !== null && 'archetype' in result) (result as Record<string, unknown>).archetype = this.archetype?.id

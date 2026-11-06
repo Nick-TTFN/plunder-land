@@ -75,8 +75,49 @@ export class GameObject {
   readonly knownBy = new Set<Connection>()
   destroyed: boolean
   dirtyFields: Set<string>
-  allFieldsOwn: Set<string>
-  allFields: Set<string>
+  /**
+   * The snapshot field sets: which fields a create carries (`allFields`; the
+   * owner's own create, `allFieldsOwn`), in the order `serialiseBinary` writes
+   * them. **Shared and read-only**: every object with the same list holds the
+   * same interned Set (`internFields`), so no object carries its own copy
+   * (two Sets were ~780 B of every object, heap breakdown 2026-11-06). Build
+   * them only in a constructor, through `addFields` / `moveFieldToEnd`.
+   */
+  allFieldsOwn: ReadonlySet<string>
+  allFields: ReadonlySet<string>
+
+  /**
+   * One Set per distinct field list, keyed by the list in order. Bounded by
+   * the object kinds and archetype shapes (a few dozen); it never shrinks, on
+   * purpose: the entries are shared by every world for the process's life.
+   */
+  private static readonly FIELD_SETS = new Map<string, ReadonlySet<string>>()
+
+  /** The shared read-only Set for `fields` (duplicates dropped, first place kept). */
+  static internFields (fields: Iterable<string>): ReadonlySet<string> {
+    const list = [...new Set(fields)]
+    const key = list.join(',')
+    let set = GameObject.FIELD_SETS.get(key)
+    if (set === undefined) {
+      set = new Set(list)
+      GameObject.FIELD_SETS.set(key, set)
+    }
+    return set
+  }
+
+  /** Appends `names` to `allFields`, `allFieldsOwn` or both, as `Set.add` would (one already there keeps its place). */
+  protected addFields (which: 'all' | 'own' | 'both', ...names: string[]): void {
+    if (which !== 'own') this.allFields = GameObject.internFields([...this.allFields, ...names])
+    if (which !== 'all') this.allFieldsOwn = GameObject.internFields([...this.allFieldsOwn, ...names])
+  }
+
+  /** Moves `name` to the end of the chosen set (appending it if absent). */
+  protected moveFieldToEnd (which: 'all' | 'own', name: string): void {
+    const set = which === 'all' ? this.allFields : this.allFieldsOwn
+    const moved = GameObject.internFields([...[...set].filter((n) => n !== name), name])
+    if (which === 'all') this.allFields = moved
+    else this.allFieldsOwn = moved
+  }
 
   private _type: number
   private _position: Vector
@@ -204,7 +245,7 @@ export class GameObject {
     to = 0
   ) {
     this.dirtyFields = new Set()
-    this.allFieldsOwn = new Set([
+    this.allFieldsOwn = GameObject.internFields([
       'id',
       'type',
       'position',
@@ -218,7 +259,7 @@ export class GameObject {
       'maxVelocity',
       'maxHp'
     ])
-    this.allFields = new Set([
+    this.allFields = GameObject.internFields([
       'id',
       'type',
       'position',
@@ -465,7 +506,7 @@ export class GameObject {
 
   onCollide (target) { }
 
-  serialise (fields: Set<string>) {
+  serialise (fields: ReadonlySet<string>) {
     if (!fields?.size) return null
 
     const result = { id: this.id }
@@ -518,7 +559,7 @@ export class GameObject {
    * same RangeError from the same Buffer write for a value that does not fit
    * its field. The writes go through the same Buffer methods for that reason.
    */
-  serialiseBinary (fields: Set<string>) {
+  serialiseBinary (fields: ReadonlySet<string>) {
     const dataObj = this.serialise(fields)
     if (dataObj == null) return null
     let at = 0

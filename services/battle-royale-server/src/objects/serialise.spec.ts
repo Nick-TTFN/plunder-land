@@ -20,7 +20,7 @@ import { SKILL_LIST } from '../utils/skills'
  * match it on every object a real world makes, for every field set it uses and
  * for random subsets, and to throw the same error where the old one threw.
  */
-function legacy (obj: GameObject, fields: Set<string>): Buffer | null {
+function legacy (obj: GameObject, fields: ReadonlySet<string>): Buffer | null {
   const getBuffer = (value: number): Buffer => { const res = Buffer.alloc(1); res.writeInt8(value); return res }
   const getBuffer2 = (value: number): Buffer => { const res = Buffer.alloc(2); res.writeUInt16BE(value); return res }
   const getBufferVec = (value: Vector): Buffer => {
@@ -118,7 +118,7 @@ function fakeSocket (id: string): { socket: Socket, fire: (event: string, data?:
 }
 
 /** Same result, or the same error. */
-function same (obj: GameObject, fields: Set<string>, label: string): void {
+function same (obj: GameObject, fields: ReadonlySet<string>, label: string): void {
   let want: Buffer | null | Error
   let got: Buffer | null | Error
   try { want = legacy(obj, fields) } catch (e) { want = e as Error }

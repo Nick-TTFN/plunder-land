@@ -116,7 +116,7 @@ function createRecordOf (obj: GameObject): { fields: Record<string, unknown>, by
   return found[0]
 }
 
-function bytesOf (obj: GameObject, fields: Set<string>): number[] {
+function bytesOf (obj: GameObject, fields: ReadonlySet<string>): number[] {
   return [...(obj.serialiseBinary(fields) as Buffer)]
 }
 

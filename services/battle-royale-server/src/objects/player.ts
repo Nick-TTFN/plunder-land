@@ -154,29 +154,27 @@ export default class Player extends Unit {
     this.deepestTag = tag
 
     // The owner's own record only. Its create for everyone else stays as it was.
-    this.allFieldsOwn.add('inventory')
+    this.addFields('own', 'inventory')
     // Kills this run, for the end-of-run card (run-summary-card). Starts at 0,
     // so the owner's create always carries it.
-    this.allFieldsOwn.add('kills')
+    this.addFields('own', 'kills')
     // Everyone's create, the owner's included, so your own robot is drawn from
     // what the server holds. Never dirty: it doesn't change within a run.
-    this.allFields.add('finish')
-    this.allFieldsOwn.add('finish')
+    this.addFields('both', 'finish')
     // Carried gear (49-2), the owner's create only, and a delta on change.
     // Then the speed, moved to the end: it goes out as field 27 since 49-2.
     // Fields go out in the order the sets were filled, and a client from
     // before 49-2 stops at the first index it doesn't know, so with these two
     // last it still reads everything else of its own create (PROTOCOL 6 then
     // sends it to reload).
-    this.allFieldsOwn.add('carried')
-    this.allFieldsOwn.delete('maxVelocity')
-    this.allFieldsOwn.add('maxVelocity')
+    this.addFields('own', 'carried')
+    this.moveFieldToEnd('own', 'maxVelocity')
 
     Multiplayer.Instance.create(this)
   }
 
   /** `finish` goes on the wire as its bytes (see 'finish' in `GameObject.fieldOrder`). */
-  serialise (fields: Set<string>): ReturnType<Unit['serialise']> {
+  serialise (fields: ReadonlySet<string>): ReturnType<Unit['serialise']> {
     const result = super.serialise(fields)
     if (result !== null && 'finish' in result) (result as Record<string, unknown>).finish = finishToBytes(this.finish)
     return result
