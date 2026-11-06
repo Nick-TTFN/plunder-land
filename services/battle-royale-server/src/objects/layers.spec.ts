@@ -66,9 +66,9 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
     }
   }
   assert.equal(LAYERS.length, 3)
-  assert.deepEqual(row(0), { tag: 0, loot: 1, voids: 1 / 3, cap: 150, mobs: ['4 crawler packs, no escort 0', 'compactor 4'] })
+  assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 10, mobs: ['4 crawler packs, no escort 0', 'compactor 4'] })
   assert.deepEqual(row(1), {
-    tag: -1, loot: 1.75, voids: 1 / 3, cap: 150, mobs: ['6 crawler packs, coil escort 0.6', 'compactor 9', 'kiln 4', 'reactor 2']
+    tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['6 crawler packs, coil escort 0.6', 'compactor 9', 'kiln 4', 'reactor 2']
   })
   assert.deepEqual(row(2), {
     tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['7 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']
@@ -184,13 +184,14 @@ test('natural pickups and mobs carry their layer\'s loot multiplier', () => {
   const lootOf = (a: Archetype, tag: number): number[] =>
     [...new Set(World.MOBS.filter((m) => m.archetype === a && m.tag === tag).map((m) => m.loot))]
   // Loot per NPC: Nick, #51 L1 plan calls (Crawler 25, Compactor 50, Coil 75,
-  // Kiln 100, Reactor 500, Brood 800), times 1 / 1.75 / 3, rounded.
-  assert.deepEqual(lootOf(ARCHETYPES.crawler, TOP), [25])
-  assert.deepEqual(lootOf(ARCHETYPES.compactor, TOP), [50])
-  assert.deepEqual(lootOf(ARCHETYPES.crawler, MIDDLE), [44])
-  assert.deepEqual(lootOf(ARCHETYPES.compactor, MIDDLE), [88])
-  assert.deepEqual(lootOf(ARCHETYPES.kiln, MIDDLE), [175])
-  assert.deepEqual(lootOf(ARCHETYPES.reactor, MIDDLE), [875])
+  // Kiln 100, Reactor 500, Brood 800), times 0.1 / 0.175 / 3, rounded (layers
+  // 01-02 cut to a tenth, 2026-11-06).
+  assert.deepEqual(lootOf(ARCHETYPES.crawler, TOP), [3])
+  assert.deepEqual(lootOf(ARCHETYPES.compactor, TOP), [5])
+  assert.deepEqual(lootOf(ARCHETYPES.crawler, MIDDLE), [4])
+  assert.deepEqual(lootOf(ARCHETYPES.compactor, MIDDLE), [9])
+  assert.deepEqual(lootOf(ARCHETYPES.kiln, MIDDLE), [18])
+  assert.deepEqual(lootOf(ARCHETYPES.reactor, MIDDLE), [88])
   assert.deepEqual(lootOf(ARCHETYPES.crawler, BOTTOM), [75])
   assert.deepEqual(lootOf(ARCHETYPES.coil, BOTTOM), [225])
   assert.deepEqual(lootOf(ARCHETYPES.kiln, BOTTOM), [300])

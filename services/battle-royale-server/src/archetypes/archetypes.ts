@@ -772,7 +772,7 @@ function npcPopulation (i: number): LayerMobs[] {
  * The first run's space rock (decision #58, task retest-5; Dez's
  * `ideas/retest-onboarding.md` section 4, accepted in #58 addendum 2 Q9): a
  * unit, so shots and auto-aim hit and pick it, but inert. 24 HP (two shots),
- * 25 loot dropped through the normal death path (`World.createLootFrom`,
+ * 3 loot (single digits since 2026-11-06) dropped through the normal death path (`World.createLootFrom`,
  * one pickup at that size). No routine, skill, contact, armor, gear
  * (`gearRolls` null) or stats key (`killStats` empty; its world writes no
  * kill stats anyway). Placed only by `firstrun/scenario.ts`.
@@ -785,7 +785,8 @@ const rock: Archetype = {
   speed: 0,
   body: 30,
   pickupReach: null,
-  loot: 25,
+  // Single digits, as everything above layer 03 (2026-11-06; Dez's 25 before).
+  loot: 3,
   contact: { damage: 0, cooldownMs: 0, rings: 1 },
   killStats: [],
   gearRolls: null,
@@ -1007,12 +1008,16 @@ export interface LayerSpec {
  * Items are #26's provisional counts: medkits 8/10/12 and bombs 3/5/7.
  */
 export const LAYERS: readonly LayerSpec[] = Object.freeze([
+  // Layers 01 and 02 pay almost nothing (Nick, 2026-11-06, decision #60's
+  // loot cut): 10 natural pickups worth 2-4 each and NPC drops at a tenth,
+  // so real loot starts on layer 03, where humans meet. 01 is x0.1 of the
+  // old x1, 02 x0.175 of the old x1.75; 03 is unchanged.
   {
     tag: 0,
-    lootMultiplier: 1,
+    lootMultiplier: 0.1,
     voidShare: 1 / 3,
     wallShare: 0.06,
-    naturalLoot: 150,
+    naturalLoot: 10,
     exits: 4,
     extractMs: 5000,
     portalsUp: 0,
@@ -1033,10 +1038,10 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   },
   {
     tag: -1,
-    lootMultiplier: 1.75,
+    lootMultiplier: 0.175,
     voidShare: 1 / 3,
     wallShare: 0.06,
-    naturalLoot: 150,
+    naturalLoot: 10,
     exits: 4,
     extractMs: 7000,
     portalsUp: 5,

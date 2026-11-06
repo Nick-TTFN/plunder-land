@@ -15,7 +15,7 @@ import { Vector } from '../utils/vector'
  *
  * 1. The start: nothing within reach. (Dez's "glint" at the edge of vision has
  *    no art and is left out.)
- * 2. Three rocks (`ARCHETYPES.rock`: 24 HP, 25 loot each, inert).
+ * 2. Three rocks (`ARCHETYPES.rock`: 24 HP, 3 loot each, inert).
  * 3. One Crawler that shoots back: the real archetype and numbers.
  * 4. One Compactor: the real archetype; its slam's cells are drawn ahead.
  * 5. The pad (`HandoffGate`) at the strip's end.
@@ -31,10 +31,10 @@ export const FIRST_RUN = Object.freeze({
   start: Object.freeze({ q: 3, r: 4 }),
   /**
    * The strip's centreline after the start: straight legs along
-   * `Hex.DIRECTIONS[dir]`, `cells` each. 1 + 12 + 11 = 24 cells, indices 0-23,
+   * `Hex.DIRECTIONS[dir]`, `cells` each. 1 + 12 + 13 = 26 cells, indices 0-25,
    * bent once at 12.
    */
-  legs: Object.freeze([Object.freeze({ dir: 0, cells: 12 }), Object.freeze({ dir: 1, cells: 11 })]),
+  legs: Object.freeze([Object.freeze({ dir: 0, cells: 12 }), Object.freeze({ dir: 1, cells: 13 })]),
   /** Rings of ground either side of the centreline: 2 makes the strip 5 cells wide. */
   halfWidth: 2,
   /**
@@ -49,11 +49,17 @@ export const FIRST_RUN = Object.freeze({
     Object.freeze({ at: 8, side: 1 }),
     Object.freeze({ at: 8, side: 4 })
   ]),
-  /** The Crawler and the Compactor, by centreline index. */
-  crawlerAt: 12,
-  compactorAt: 18,
+  /**
+   * The Crawler and the Compactor, by centreline index. The Crawler stands
+   * at least 7 rings from every rock (its notice range is 5), so a player at
+   * the rocks learns to shoot before anything shoots back (Jeremy's re-test,
+   * 2026-11-05: at 12 the rocks were 4-5 rings away, inside its notice).
+   * The Compactor is 9+ rings from where the Crawler fight happens.
+   */
+  crawlerAt: 16,
+  compactorAt: 21,
   /** The pad: the centreline's last cell. */
-  padAt: 23
+  padAt: 25
 })
 
 /** The strip's centreline, start first, and every cell of the strip (`Hex.key`). */
@@ -108,7 +114,7 @@ export function buildFirstRun (world: World): void {
   World.VOID_RUNS.set(tag, encodeRuns(voids, size))
 
   world.spawn = line[0]
-  // Rocks are exact (Dez: 25 each); the NPCs carry layer 01's loot, as there.
+  // Rocks are exact (3 each, single digits like layer 01 since 2026-11-06); the NPCs carry layer 01's loot, as there.
   for (const rock of FIRST_RUN.rocks) {
     const on = line[rock.at]
     place(ARCHETYPES.rock, rock.side === null ? on : Hex.neighbour(on, rock.side), tag, 1)

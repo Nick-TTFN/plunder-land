@@ -16,10 +16,13 @@ direction. So was `area/circlearea.ts`, an unused storm-shaped damage area, dele
 hex-cells P4.
 
 The world is **three ground layers**, 01 on top to 03 at the bottom, with tags **0, -1, -2**
-(depth is `-tag`). Deeper is richer and more dangerous (decisions #3, #16, #26). **Every
+(depth is `-tag`). Deeper is richer and more dangerous (decisions #3, #16, #26). **Layers 01 and 02 pay almost
+nothing** (#60's loot cut, 2026-11-06): 10 natural pickups worth 2-4 each and NPC drops at a
+tenth of the old ×1 / ×1.75, so real loot, XP from loot and season credit start on layer 03,
+where humans meet. **Every
 per-layer number lives in one table, `LAYERS` in `src/archetypes/archetypes.ts`**: tag, loot
-multiplier (×1 / ×1.75 / ×3 on natural pickups and on every mob's loot, not on what a dead
-player drops), the void share (1/3 each, the valleys), natural loot cap (150 each, death drops
+multiplier (×0.1 / ×0.175 / ×3 on natural pickups and on every mob's loot, not on what a dead
+player drops), the void share (1/3 each, the valleys), natural loot cap (10 / 10 / 150, death drops
 uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
 Crawler packs and single NPCs per layer, built by `npcPopulation` from `NPC_NUMBERS.layers`.
 `World.refillLayer` tops each entry up every tick, at most one spawn (or one whole pack) per
@@ -69,13 +72,15 @@ flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every re
   any world, so the client takes the small map as it takes a new world.
 - **The content is `firstrun/scenario.ts` (`FIRST_RUN`, `buildFirstRun`)**, Dez's strip
   (`ideas/retest-onboarding.md` section 4): a 1200-unit map; a centreline from (3,4), 12 cells
-  east then 11 south-east (24 cells, indices 0-23, bent at 12); everything within 2 rings of it
+  east then 13 south-east (26 cells, indices 0-25, bent at 12); everything within 2 rings of it
   is ground (5 wide) and every other cell of layer 01 is void through `VOIDS`/`VOID_RUNS`, so
   `hello.voids` carries it and the client routes as on any map. Beats: the start with nothing in
   reach; three rocks (archetype 16, `docs/npcs.md`, "Rock") at index 7 and two at 8 beside the line,
-  beyond a robot's vision and shot (6); a real Crawler at 12; a real Compactor at 18; the pad at 23.
+  beyond a robot's vision and shot (6); a real Crawler at 16 (7+ rings from every rock, outside its notice of 5, so the rocks are
+  a safe beat; `scenario.spec.ts` checks every rock against both NPCs' notice + 1); a real
+  Compactor at 21; the pad at 25.
   Mobs guard the cell they were placed on; loot is the layer's multiplier as `placeMob` gives it,
-  rocks exactly 25. A Periscope (vision 10) sees the rocks from the start; new accounts can only
+  rocks exactly 3. A Periscope (vision 10) sees the rocks from the start; new accounts can only
   pick Peep. Dez's "glint" at the edge of vision has no art and is left out.
 - **Fixed start:** `World.spawn` (humans only, read by `createPlayer`).
 - **HP floors at 1** there (`Unit.hpFloor()`, 0, read in `Unit.hit`; `Player.hpFloor()` is 1 in a

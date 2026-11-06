@@ -40,10 +40,10 @@ function withFirstRun<T> (fn: (world: World) => T): T {
 
 const at = (mob: { position: Vector }): Vector => Hex.toCell(mob.position)
 
-test('the strip: 24 centreline cells bent once, 5 wide, valleys everywhere else on the first layer, sent in hello.voids', () => {
+test('the strip: 26 centreline cells bent once, 5 wide, valleys everywhere else on the first layer, sent in hello.voids', () => {
   const { line, cells } = firstRunStrip()
   assert.equal(line.length, FIRST_RUN.padAt + 1)
-  assert.equal(line.length, 24)
+  assert.equal(line.length, 26)
   for (let i = 1; i < line.length; i++) assert.equal(Hex.distance(line[i - 1], line[i]), 1, `a gap at ${i}`)
   // Bent: the far end is not on the first leg's line.
   assert.notEqual(line[line.length - 1].y, line[0].y)
@@ -86,11 +86,19 @@ test('the beats: 3 rocks, one Crawler, one Compactor, the pad at the end, and no
     assert.equal(World.MOBS.length, 5, 'something else among the mobs')
     for (const rock of rocks) {
       assert.equal(rock.hp, 24)
-      assert.equal(rock.loot, 25)
+      assert.equal(rock.loot, 3)
       assert.ok(cells.has(Hex.key(at(rock).x, at(rock).y)), 'a rock off the strip')
     }
     assert.deepEqual(at(crawlers[0]), line[FIRST_RUN.crawlerAt])
     assert.deepEqual(at(compactors[0]), line[FIRST_RUN.compactorAt])
+    // Beat 2: a player at the rocks is outside every NPC's notice, with a ring to spare.
+    for (const rock of rocks) {
+      for (const npc of [crawlers[0], compactors[0]]) {
+        const guard = npc.archetype?.routines.find((r) => r.kind === 'guard')
+        const acquire = guard?.kind === 'guard' ? guard.acquire : Infinity
+        assert.ok(Hex.distance(at(rock), at(npc)) > acquire + 1, `a rock within ${acquire + 1} rings of the ${npc === crawlers[0] ? 'Crawler' : 'Compactor'}`)
+      }
+    }
     // Beat 1: nothing within a robot's vision or shot (6) of the start.
     for (const mob of World.MOBS) assert.ok(Hex.distance(at(mob), line[0]) > 6, `${mob.archetype?.key ?? '?'} within reach of the start`)
     // The pad, and no other gate, pickup or item.
@@ -107,7 +115,7 @@ test('the beats: 3 rocks, one Crawler, one Compactor, the pad at the end, and no
   })
 })
 
-test('a rock: two shots of 12, a 25-loot pickup through the normal death path, no gear, inert', () => {
+test('a rock: two shots of 12, a 3-loot pickup through the normal death path, no gear, inert', () => {
   withFirstRun((world) => {
     const rock = World.MOBS.find((m) => m.archetype === ARCHETYPES.rock) as Mob
     const cell = at(rock)
@@ -119,7 +127,7 @@ test('a rock: two shots of 12, a 25-loot pickup through the normal death path, n
     assert.equal(World.MOBS.includes(rock), false)
     const drops = World.CONSUMABLES as Consumable[]
     assert.equal(drops.length, 1)
-    assert.equal(drops[0].loot, 25)
+    assert.equal(drops[0].loot, 3)
     assert.ok(Hex.distance(Hex.toCell(drops[0].position), cell) <= World.DROP_RINGS)
     assert.equal(World.isBlocked(Hex.toCell(drops[0].position).x, Hex.toCell(drops[0].position).y, rock.tag), false, 'the loot fell in a valley')
     assert.equal(World.GEAR.length, 0)
@@ -153,7 +161,7 @@ test('everything a first run can carry out stays below level 2 (40 XP): it can\'
       mobKills[key] = (mobKills[key] ?? 0) + 1
       loot += mob.loot
     }
-    assert.equal(loot, 3 * 25 + Math.round(ARCHETYPES.crawler.loot * LAYERS[0].lootMultiplier) + Math.round(ARCHETYPES.compactor.loot * LAYERS[0].lootMultiplier))
+    assert.equal(loot, 3 * 3 + Math.round(ARCHETYPES.crawler.loot * LAYERS[0].lootMultiplier) + Math.round(ARCHETYPES.compactor.loot * LAYERS[0].lootMultiplier))
     // All of it, banked by an extraction the moment the shared run begins.
     const xp = runXp({ extracted: true, loot, playerKills: 0, mobKills, deepestLayer: 1, seconds: 0 })
     assert.ok(xp < xpToReach(2), `the first run alone pays ${xp} XP`)

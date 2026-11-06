@@ -35,7 +35,7 @@ their looks for an old server during a drain), but **no layer spawns them**.
 **Rock, id 16** (#58, retest-5; the first run's only: no `LAYERS` population names it, only
 `firstrun/scenario.ts` places it; `docs/world.md`, "First-run worlds"). A target for auto-aim and
 shots, so it is a unit, not an obstacle (shots and auto-aim only hit and pick units): kind mob,
-rarity null, 24 HP, 25 loot dropped through the normal death path (`createLootFrom`), no armor,
+rarity null, 24 HP, 3 loot dropped through the normal death path (`createLootFrom`), no armor,
 speed 0, body 30, contact 0 (`Mob.touch` returns early), no routine or skill, `killStats` empty,
 `gearRolls` null (no gear, even in a shared world), `unlockLevel` null (not selectable). It pays
 `PROGRESSION.kills.mob.mobDefault` (2 XP): it has no key of its own. **The client draws it with the
