@@ -138,6 +138,15 @@ gates and mob counts against the commit before was identical).
 - **`hello.voids` for an unheld layer is one all-void run** `[0, cells]`
   (`World.unheldRuns`), so a client routes nowhere there; `walls` is `[]` for it. A held
   layer's runs are as before.
+- **The client still builds an unheld layer, and that is deliberate** (task private-2,
+  measured 2026-11-06): its plane, an empty terrain and empty walls (6 display objects), alpha
+  0 and never drawn, since nobody stands on it. Per unheld layer at map 4000: about 150 KB of
+  heap (its all-void Set) and about 2.4 ms of `onHello` on a 4x-CPU-throttled phone emulation
+  (0.8 ms desktop), against a phone hello of about 120 ms. Skipping it would thread
+  placeholders through every reader of the parallel `layers`/`terrains`/`walls` arrays for
+  that. Re-measure before proposing it again if maps grow past 4000 or a world leaves many
+  more layers unheld. The planes are rebuilt at every world's hello (`Game.resetRun` drops
+  them on a handoff too), not once per session.
 - **Open (private-6):** the client ignores input on a pad until its tag changes
   (`LocalPlayer.awaitingHop`), so a refused or delayed handoff would leave the player stuck on it.
 
