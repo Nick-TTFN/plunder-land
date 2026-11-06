@@ -85,7 +85,7 @@ async function inRun (t: TestContext): Promise<{ worlds: Worlds, connection: Con
 
   const writes: string[] = []
   const store = new CountingStore()
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => Date.now(), accounts: store })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => Date.now(), accounts: store })
   const handlers: Record<string, (data?: unknown) => void> = {}
   let closed = false
   const socket = {

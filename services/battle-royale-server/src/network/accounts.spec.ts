@@ -100,7 +100,7 @@ async function settle (): Promise<void> {
 }
 
 function makeWorlds (accounts: AccountStore, writes?: string[], accountTimeoutMs?: number): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => 0, accounts, accountTimeoutMs })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => 0, accounts, accountTimeoutMs })
 }
 
 function connect (worlds: Worlds, id: string, auth?: unknown): Client {
@@ -516,7 +516,7 @@ test('an issued id without ID_SHAPE is never played under', async () => {
 test('bots join with bot-N ids and never touch the store', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
   const store = new TestStore()
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now(), accounts: store })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now(), accounts: store })
   const a = connect(worlds, 'a')
   a.start()
   await settle()

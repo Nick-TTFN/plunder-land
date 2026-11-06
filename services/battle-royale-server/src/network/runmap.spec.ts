@@ -166,7 +166,7 @@ function kill (worlds: Worlds, client: Connected): void {
 }
 
 test('a client that plays in world A, dies and plays again in world B keeps nothing of A', async () => {
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: okRedis() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: okRedis() })
   const [x, y, z] = ['x', 'y', 'z'].map((id) => connect(worlds, id) as Connected)
 
   // X plays in A, next to a StoneWall stone, and walks a little.

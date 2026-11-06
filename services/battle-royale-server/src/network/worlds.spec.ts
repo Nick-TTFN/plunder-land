@@ -102,7 +102,7 @@ function connect (worlds: Worlds, id: string): Client {
 }
 
 function makeWorlds (cap: number, idleMs = 300_000, now: () => number = () => 0): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap, idleMs, redis: redisStub(), now })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap, idleMs, redis: redisStub(), now })
 }
 
 /** Kill `client`'s player, in its own world, and tick so the run ends. */
@@ -411,7 +411,7 @@ test('a world with no active players closes after WORLD_IDLE_MS, the last one ne
 
 test('the shared Redis client gets one error listener, however many worlds open', () => {
   const redis = redisStub()
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 1000, redis })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 1, idleMs: 1000, redis })
   worlds.open()
   worlds.open()
   assert.equal((redis as unknown as EventEmitter).listenerCount('error'), 1)
@@ -462,7 +462,7 @@ test('a stats write finishes after its world is no longer current', async (t) =>
   mockClock(t)
   const writes: string[] = []
   const logged = t.mock.method(Multiplayer.STATS_LOG, 'report', () => {})
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 1000, redis: redisStub(writes) })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 1000, redis: redisStub(writes) })
   const one = connect(worlds, 'one')
   await one.start('ONE')
   t.mock.timers.tick(5000)

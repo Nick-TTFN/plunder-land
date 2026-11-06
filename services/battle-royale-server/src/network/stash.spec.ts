@@ -148,7 +148,7 @@ async function ledgerOn (store: GearStore): Promise<GearLedger> {
 }
 
 function makeWorlds (store: Store, ledger: GearLedger | undefined, options: { cap?: number, bots?: number } = {}): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: options.cap ?? 10, idleMs: 300_000, redis: redisStub(), accounts: store, ledger, bots: options.bots })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: options.cap ?? 10, idleMs: 300_000, redis: redisStub(), accounts: store, ledger, bots: options.bots })
 }
 
 /** An account at `level` with `items` stashed; their row ids in order. */

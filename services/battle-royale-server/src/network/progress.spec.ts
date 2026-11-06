@@ -130,7 +130,7 @@ async function settle (): Promise<void> {
 }
 
 function makeWorlds (store: AccountStore, options: { bots?: number, timeoutMs?: number } = {}): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => Date.now(), accounts: store, accountTimeoutMs: options.timeoutMs, bots: options.bots })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => Date.now(), accounts: store, accountTimeoutMs: options.timeoutMs, bots: options.bots })
 }
 
 /** A human in a run, on an account, with nothing in its world to end the run by accident. */

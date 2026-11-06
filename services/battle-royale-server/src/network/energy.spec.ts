@@ -131,7 +131,7 @@ async function settle (): Promise<void> {
 
 /** Worlds on a clock the test moves. */
 function makeWorlds (store: AccountStore, clock: { now: number }, timeoutMs?: number): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => clock.now, accounts: store, accountTimeoutMs: timeoutMs })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => clock.now, accounts: store, accountTimeoutMs: timeoutMs })
 }
 
 /** An account with `left` plays, its stock settled at `clock.now`. */
@@ -376,7 +376,7 @@ test('an offline account spends nothing, and is told no energy', async () => {
 test('bots spend nothing', async () => {
   const clock = { now: 1_000_000_000 }
   const store = new EnergyStore()
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => clock.now, accounts: store, bots: 4 })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => clock.now, accounts: store, bots: 4 })
   const known = await accountWith(store, 6, clock)
   const { world } = await join(worlds, known.token)
   for (let i = 0; i < 40; i++) worlds.tickAll(250)

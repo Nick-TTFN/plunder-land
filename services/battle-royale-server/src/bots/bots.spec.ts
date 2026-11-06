@@ -104,7 +104,7 @@ function clock (t: TestContext): (ms: number) => void {
 
 test('a world with a human fills to the target, one bot every 2 s; none without a human', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now() })
   const world = worlds.worlds[0]
   noPortals(world)
   for (let i = 0; i < 20; i++) { worlds.tickAll(250); tick(250) }
@@ -129,7 +129,7 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
 
 test('a human over the target displaces a bot, which heads out and is gone within the grace', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now() })
   const world = worlds.worlds[0]
   noPortals(world)
   await human(worlds, 'a').start()
@@ -149,7 +149,7 @@ test('a human over the target displaces a bot, which heads out and is gone withi
 
 test('bots never count as humans: world choice, idle and drain ignore them', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now() })
   noPortals(worlds.worlds[0])
   const a = human(worlds, 'a')
   await a.start()
@@ -176,7 +176,7 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
   process.env.GA_MEASUREMENT_ID = 'G-TEST'
   process.env.GA_API_SECRET = 'secret'
   try {
-    const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), bots: 2, now: () => Date.now() })
+    const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), bots: 2, now: () => Date.now() })
     const a = human(worlds, 'a')
     await a.start()
     worlds.tickAll(250)
@@ -207,7 +207,7 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
 
 test('bots leave a human alone for the first 10 s of the run', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 2, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 2, now: () => Date.now() })
   const world = worlds.worlds[0]
   const a = human(worlds, 'a')
   await a.start()
@@ -264,7 +264,7 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
   const realError = console.error
   console.error = (...args: unknown[]) => { errors.push(args) }
   try {
-    const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 7, now: () => Date.now() })
+    const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 7, now: () => Date.now() })
     const world = worlds.worlds[0]
     const a = human(worlds, 'a')
     await a.start()

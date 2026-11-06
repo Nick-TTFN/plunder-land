@@ -45,7 +45,7 @@ function client (worlds: Worlds, name: string): { connection: Connection, start:
  * so fill-first alone would send anyone else to the older one.
  */
 async function setup (): Promise<{ worlds: Worlds, older: World, inviters: World }> {
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 2, idleMs: 300_000, redis: redisStub() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 2, idleMs: 300_000, redis: redisStub() })
   const a = client(worlds, 'a')
   await a.start()
   await client(worlds, 'b').start()

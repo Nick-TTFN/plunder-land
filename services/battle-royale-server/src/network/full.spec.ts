@@ -59,7 +59,7 @@ async function settle (): Promise<void> {
 }
 
 function makeWorlds (maxPlayers?: number): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 2, idleMs: 300_000, redis: redisStub(), accounts: new MemoryAccountStore(), maxPlayers })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 2, idleMs: 300_000, redis: redisStub(), accounts: new MemoryAccountStore(), maxPlayers })
 }
 
 async function connectAndStart (worlds: Worlds, id: string): Promise<Client> {
@@ -106,7 +106,7 @@ test('MAX_PLAYERS unset or 0: never full', async () => {
 })
 
 test('MAX_PLAYERS counts humans only: bots fill worlds and never make a process full', async () => {
-  const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), accounts: new MemoryAccountStore(), maxPlayers: 2, bots: 8 })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), accounts: new MemoryAccountStore(), maxPlayers: 2, bots: 8 })
   await connectAndStart(worlds, 'a')
   for (let i = 0; i < 40; i++) worlds.tickAll(250)
   const second = await connectAndStart(worlds, 'b')

@@ -120,7 +120,7 @@ async function settle (): Promise<void> {
 const WEDNESDAY = Date.parse('2026-10-07T12:00:00.000Z')
 
 function makeWorlds (store: SeasonStore, clock: { now: number }, bots?: number): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => clock.now, accounts: store, bots })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => clock.now, accounts: store, bots })
 }
 
 /** A human in a run, with nothing in its world to end the run by accident. */

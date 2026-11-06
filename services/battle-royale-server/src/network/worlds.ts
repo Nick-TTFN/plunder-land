@@ -74,6 +74,13 @@ export interface WorldsOptions {
    * decision #60, Dez's 9: 1 human + 3 bots). 0 or absent: no bots, as `bots`.
    */
   privateBots?: number
+  /**
+   * `false`: no layer is private, so every run plays in a shared world holding
+   * every layer, as before decision #60 (`privateRuns`). For specs of the
+   * shared-world rules (world choice, parties, bot fill, idle, drain). Absent
+   * or `true`: the `LAYERS` rows' `owned` flags decide.
+   */
+  privateRuns?: boolean
 }
 
 /** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
@@ -298,7 +305,7 @@ export default class Worlds {
     this.privateCap = options.privateCap ?? PRIVATE_CAP_DEFAULT
     this.privateBots = options.privateBots ?? 0
     // Read here, not at import: a bench may cut `World.LAYERS` first.
-    this.privateTags = World.LAYERS.filter((layer) => layer.owned === true).map((layer) => layer.tag)
+    this.privateTags = options.privateRuns === false ? [] : World.LAYERS.filter((layer) => layer.owned === true).map((layer) => layer.tag)
     this.sharedTags = World.TAGS.filter((tag) => !this.privateTags.includes(tag))
     World.strict = true
     this.open()

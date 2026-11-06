@@ -79,7 +79,7 @@ function connect (worlds: Worlds, id: string): Client {
 }
 
 function makeWorlds (writes?: string[]): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => 0 })
+  return new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), now: () => 0 })
 }
 
 test('every connection is welcomed with the protocol number, before anything else', async () => {
