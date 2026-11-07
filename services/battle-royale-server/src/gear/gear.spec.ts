@@ -222,13 +222,18 @@ test('rollGear: parts bare; skill items roll rollCount distinct stats, reach onl
 })
 
 test('every layer has a gear row: caches from spec section 3, the drop pass of 2026-10-15, and each mix sums to 1', () => {
-  assert.deepEqual(LAYERS.map((l) => [l.gear.caches, l.gear.cacheRespawnMs]), [[1, 180000], [1, 120000], [2, 90000]])
-  assert.deepEqual(LAYERS.map((l) => l.gear.humansPerCache), [10, 10, 10])
-  assert.deepEqual(LAYERS.map((l) => l.gear.mobChance), [0.08, 0.08, 0.1])
+  // Layers 04 and 05 (tags -3, -4) are Dez's (`ideas/private-layers-numbers.md`
+  // section 2, accepted 2026-11-06, task private-8); 01-03 unchanged.
+  assert.deepEqual(LAYERS.map((l) => [l.gear.caches, l.gear.cacheRespawnMs]), [[1, 180000], [1, 120000], [2, 90000], [2, 75000], [3, 60000]])
+  assert.deepEqual(LAYERS.map((l) => l.gear.humansPerCache), [10, 10, 10, 10, 10])
+  assert.deepEqual(LAYERS.map((l) => l.gear.mobChance), [0.08, 0.08, 0.1, 0.11, 0.12])
   assert.deepEqual(LAYERS.map((l) => l.gear.cacheMix), [
-    { part: 0.75, t1: 0.22, t2: 0.03 }, { part: 0.65, t1: 0.28, t2: 0.07 }, { part: 0.55, t1: 0.33, t2: 0.12 }
+    { part: 0.75, t1: 0.22, t2: 0.03 }, { part: 0.65, t1: 0.28, t2: 0.07 }, { part: 0.55, t1: 0.33, t2: 0.12 },
+    { part: 0.5, t1: 0.33, t2: 0.17 }, { part: 0.45, t1: 0.33, t2: 0.22 }
   ])
-  assert.deepEqual(LAYERS.map((l) => l.gear.mobMix), [{ part: 0.5, skill: 0.5 }, { part: 0.6, skill: 0.4 }, { part: 0.55, skill: 0.45 }])
+  assert.deepEqual(LAYERS.map((l) => l.gear.mobMix), [
+    { part: 0.5, skill: 0.5 }, { part: 0.6, skill: 0.4 }, { part: 0.55, skill: 0.45 }, { part: 0.5, skill: 0.5 }, { part: 0.45, skill: 0.55 }
+  ])
   // The mob's rarity decides how many rolls (gearrun.spec.ts); the layer, each roll's chance and mix.
   assert.deepEqual(LAYERS.map((l) => Object.keys(l.gear).sort()), LAYERS.map(() => ['cacheMix', 'cacheRespawnMs', 'caches', 'humansPerCache', 'mobChance', 'mobMix']))
   for (const l of LAYERS) {

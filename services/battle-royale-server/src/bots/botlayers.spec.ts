@@ -77,6 +77,10 @@ test('BOT_SKILL: Dez\'s table and addendum 4, top layer first', () => {
   assert.deepEqual(row(0), [900, 0.6, 5, 0.25, ['peep', 'magnet', 'periscope'], ['steady', 'looter', 'diver'], { chance: 0.25, tier: 1 }])
   assert.deepEqual(row(1), [450, 0.25, 6, 0.15, ['peep', 'magnet', 'periscope', 'hopper'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.25, tier: 1 }])
   assert.deepEqual(row(2), [300, 0.12, 6, 0, ['magnet', 'periscope', 'hopper', 'waddle'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.4, tier: 2 }])
+  // Layers 04 and 05 (tags -3, -4): Dez's section 3 (`ideas/private-layers-numbers.md`,
+  // accepted 2026-11-06, task private-8).
+  assert.deepEqual(row(3), [250, 0.08, 6, 0, ['magnet', 'periscope', 'hopper', 'waddle'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.5, tier: 2 }])
+  assert.deepEqual(row(4), [200, 0.05, 7, 0, ['magnet', 'periscope', 'hopper', 'waddle'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.4, tier: 3 }])
   assert.equal(robotAllowedOn('waddle', TOP), false)
   assert.equal(robotAllowedOn('hopper', TOP), false)
   assert.equal(robotAllowedOn('peep', BOTTOM), false)

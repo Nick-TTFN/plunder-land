@@ -92,7 +92,8 @@ test('two simulated minutes: every layer holds its LAYERS population of NPCs, pa
       for (const mob of live(layer.tag)) {
         assert.ok(!RETIRED.has(mob.archetype), `tick ${tick}: a retired ${mob.archetype.key} spawned on ${layer.tag}`)
         assert.notEqual(mob.archetype, ARCHETYPES.broodling, 'a Broodling spawned from LAYERS')
-        if (mob.archetype === ARCHETYPES.brood) assert.equal(layer.tag, BOTTOM, 'a Brood off layer -2')
+        // The Brood lives on layer 03 (-2) and below (04 and 05 since private-8).
+        if (mob.archetype === ARCHETYPES.brood) assert.ok(LAYERS.indexOf(layer) >= 2, `a Brood on layer ${layer.tag}, above 03`)
         if (mob.archetype === ARCHETYPES.kiln || mob.archetype === ARCHETYPES.reactor) assert.notEqual(layer.tag, TOP)
         if (mob.archetype === ARCHETYPES.coil) assert.ok(mob.pack !== undefined, 'a Coil with no pack')
         if (mob.archetype === ARCHETYPES.crawler) assert.ok(mob.pack !== undefined, 'a Crawler with no pack')

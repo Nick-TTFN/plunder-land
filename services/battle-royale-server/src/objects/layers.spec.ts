@@ -56,6 +56,9 @@ beforeEach(() => {
 // layers 01 and 02 are area-scaled for the 2000 private map (Dez's
 // `ideas/private-layers-numbers.md` section 1): packs 4/6 -> 1/2, Compactors
 // 4/9 -> 1/2, Kilns 4 -> 1 and Reactors 2 -> 1 on 02. Layer 03 unchanged.
+// DELIBERATE CHANGE (#60 Q19, task private-8): two new layers below 03, tags
+// -3 and -4 (Dez's section 2, accepted 2026-11-06): loot x5 / x7, natural
+// loot 150, one more of each NPC kind per layer.
 test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   const row = (i: number): unknown => {
     const l = LAYERS[i]
@@ -69,7 +72,7 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
         : `${m.archetype.key} ${m.count}`)
     }
   }
-  assert.equal(LAYERS.length, 3)
+  assert.equal(LAYERS.length, 5)
   assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 10, mobs: ['1 crawler packs, no escort 0', 'compactor 1'] })
   assert.deepEqual(row(1), {
     tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['2 crawler packs, coil escort 0.6', 'compactor 2', 'kiln 1', 'reactor 1']
@@ -77,11 +80,21 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   assert.deepEqual(row(2), {
     tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['7 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']
   })
-  assert.deepEqual(World.TAGS, [0, -1, -2])
+  assert.deepEqual(row(3), {
+    tag: -3, loot: 5, voids: 1 / 3, cap: 150, mobs: ['8 crawler packs, coil escort 1', 'compactor 5', 'kiln 7', 'reactor 3', 'brood 2']
+  })
+  assert.deepEqual(row(4), {
+    tag: -4, loot: 7, voids: 1 / 3, cap: 150, mobs: ['9 crawler packs, coil escort 1', 'compactor 6', 'kiln 8', 'reactor 4', 'brood 3']
+  })
+  assert.deepEqual(World.TAGS, [0, -1, -2, -3, -4])
 })
 
-test('gates keep today\'s density: 10 portals and 4 exits a layer, chained in order', () => {
-  assert.deepEqual(LAYERS.map((l) => [l.portalsUp, l.portalsDown, l.exits]), [[0, 10, 4], [5, 5, 4], [10, 0, 4]])
+// DELIBERATE CHANGE (task private-8; Dez's `ideas/private-layers-numbers.md`,
+// accepted 2026-11-06): was 10 portals and 4 exits a layer ([0, 10, 4],
+// [5, 5, 4], [10, 0, 4]). The private layers 01-02 (map 2000) take config C;
+// 03 has no way back up (#60 Q3) and 10 down; 05 has 3 exits.
+test('gates: up, down and exits per layer as Dez\'s rows, chained in order', () => {
+  assert.deepEqual(LAYERS.map((l) => [l.portalsUp, l.portalsDown, l.exits]), [[0, 4, 2], [2, 3, 2], [0, 10, 4], [5, 5, 4], [5, 0, 3]])
 })
 
 // --- the map --------------------------------------------------------------------
@@ -96,15 +109,23 @@ test('a new world puts each layer\'s portals and exits on it, leading only to th
     gates().filter((g) => g instanceof Portal && g.tag === tag && g.to === to).length
   const exits = (tag: number): number => gates().filter((g) => g instanceof Exit && g.tag === tag).length
 
-  assert.equal(portals(TOP, MIDDLE), 10)
-  assert.equal(portals(MIDDLE, TOP), 5)
-  assert.equal(portals(MIDDLE, BOTTOM), 5)
-  assert.equal(portals(BOTTOM, MIDDLE), 10)
-  for (const tag of World.TAGS) assert.equal(exits(tag), 4, `exits on layer ${tag}`)
+  // Each layer's counts from its row (pinned in the test above), to the
+  // layer before and after it in LAYERS only.
+  let portalCount = 0
+  let gateCount = 0
+  LAYERS.forEach((layer, i) => {
+    if (i > 0) assert.equal(portals(layer.tag, LAYERS[i - 1].tag), layer.portalsUp, `up portals on ${layer.tag}`)
+    if (i < LAYERS.length - 1) assert.equal(portals(layer.tag, LAYERS[i + 1].tag), layer.portalsDown, `down portals on ${layer.tag}`)
+    assert.equal(exits(layer.tag), layer.exits, `exits on layer ${layer.tag}`)
+    portalCount += layer.portalsUp + layer.portalsDown
+    gateCount += layer.portalsUp + layer.portalsDown + layer.exits
+  })
+  assert.equal(portals(BOTTOM, MIDDLE), 0, 'an up portal on layer 03 (#60 Q3: none)')
 
   // Nothing else: no portal skips a layer, none leads to its own layer.
-  assert.equal(gates().filter((g) => g instanceof Portal).length, 30)
-  assert.equal(gates().length, 42)
+  assert.equal(gates().filter((g) => g instanceof Portal).length, portalCount)
+  assert.equal(gates().length, gateCount)
+  assert.equal(gateCount, 49)
 })
 
 test('no gate lies within GATE_SPACING of another a player could meet on the same layer', () => {
@@ -238,7 +259,7 @@ test('hello carries the layer tags, top first', () => {
   handlers.start_requested({ id: 'cccccc' })
 
   const hello = sent.find(([event]) => event === 'hello')?.[1] as { layers: number[] }
-  assert.deepEqual(hello.layers, [0, -1, -2])
+  assert.deepEqual(hello.layers, [0, -1, -2, -3, -4])
 })
 
 // --- portals --------------------------------------------------------------------

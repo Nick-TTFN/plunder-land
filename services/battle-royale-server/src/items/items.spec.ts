@@ -135,13 +135,19 @@ test('values are the balance pass section 1 "Items"', () => {
   assert.equal(ITEMS.medkit.aimRange, null)
 })
 
-test('layers keep #26\'s provisional item counts: medkits 8/10/12, bombs 3/5/7', () => {
+// DELIBERATE CHANGE (task private-8; Dez's `ideas/private-layers-numbers.md`,
+// accepted 2026-11-06): was #26's medkits 8/10/12 and bombs 3/5/7. The
+// private layers 01-02 (map 2000) hold 3 medkits and 1 bomb; 04 and 05
+// continue the +2 / +2 steps.
+test('layers keep Dez\'s item counts: medkits 3/3/12/14/16, bombs 1/1/7/9/11', () => {
   assert.deepEqual(
     LAYERS.map((l) => l.items.map(({ item, count }) => [item.key, count])),
     [
-      [['medkit', 8], ['bomb', 3]],
-      [['medkit', 10], ['bomb', 5]],
-      [['medkit', 12], ['bomb', 7]]
+      [['medkit', 3], ['bomb', 1]],
+      [['medkit', 3], ['bomb', 1]],
+      [['medkit', 12], ['bomb', 7]],
+      [['medkit', 14], ['bomb', 9]],
+      [['medkit', 16], ['bomb', 11]]
     ]
   )
 })
@@ -507,7 +513,9 @@ test('each layer is topped up to its item counts, a kind a tick, and a taken one
   const count = (tag: number, item: Item): number =>
     World.ITEMS.filter((i) => i.tag === tag && i.kind === item && i.expiresAt === 0).length
 
-  for (let tick = 0; tick < 15; tick++) for (const layer of LAYERS) refill(layer)
+  // One of each short kind a tick: the largest count, and a few to spare.
+  const ticks = Math.max(...LAYERS.flatMap((l) => l.items.map((i) => i.count))) + 3
+  for (let tick = 0; tick < ticks; tick++) for (const layer of LAYERS) refill(layer)
   for (const layer of LAYERS) {
     for (const { item, count: want } of layer.items) assert.equal(count(layer.tag, item), want, `${item.key} on ${layer.tag}`)
   }
@@ -518,7 +526,7 @@ test('each layer is topped up to its item counts, a kind a tick, and a taken one
   const natural = World.ITEMS.findIndex((i) => i.tag === 0 && i.kind === ITEMS.bomb && i.expiresAt === 0)
   World.ITEMS.splice(natural, 1)
   refill(LAYERS[0])
-  assert.equal(count(0, ITEMS.bomb), 3)
+  assert.equal(count(0, ITEMS.bomb), LAYERS[0].items.find((i) => i.item === ITEMS.bomb)?.count)
   // And items are not loot: none of this moved the loot cap.
   assert.ok(World.CONSUMABLES.every((c) => !(c instanceof ItemPickup)))
 })

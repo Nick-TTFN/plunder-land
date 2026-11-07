@@ -22,7 +22,7 @@ import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
 /**
- * Extraction is a channel on the exit's cell (#16): 5 / 7 / 9 s by layer,
+ * Extraction is a channel on the exit's cell (#16): 5 / 7 / 9 / 11 / 13 s by layer,
  * cancelled by stepping off or by a hit that does damage. The second half of
  * this file holds the client's `LocalPlayer` to the server's `Unit.update`:
  * walking, portal hops onto arrival cells and Dash (hex-cells P2).
@@ -127,11 +127,12 @@ function ticksToExtract (player: Player, limit = 100): number {
 
 // --- the channel --------------------------------------------------------------
 
-test('each layer\'s extraction time comes from LAYERS: 5 / 7 / 9 s', () => {
-  assert.deepEqual(World.LAYERS.map((layer) => layer.extractMs), [5000, 7000, 9000])
+// Layers 04 and 05 (11 and 13 s) are Dez's (task private-8), continuing #16/#26's steps.
+test('each layer\'s extraction time comes from LAYERS: 5 / 7 / 9 / 11 / 13 s', () => {
+  assert.deepEqual(World.LAYERS.map((layer) => layer.extractMs), [5000, 7000, 9000, 11000, 13000])
 })
 
-for (const [name, tag, ms] of [['01', TOP, 5000], ['02', MIDDLE, 7000], ['03', BOTTOM, 9000]] as const) {
+for (const [name, tag, ms] of [['01', TOP, 5000], ['02', MIDDLE, 7000], ['03', BOTTOM, 9000], ['04', World.TAGS[3], 11000], ['05', World.TAGS[4], 13000]] as const) {
   test(`a player who stays on a layer ${name} exit extracts after ${ms / 1000} s, and not a tick sooner`, () => {
     exitOn(tag)
     const player = playerOn(tag)

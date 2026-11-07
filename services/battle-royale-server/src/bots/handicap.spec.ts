@@ -77,8 +77,8 @@ const keyOf = (p: Player): keyof typeof ARCHETYPES => (p.archetype as { key: key
 
 // --- the table -------------------------------------------------------------------
 
-test('BOT_SKILL handicap: x0.5 on layer 01, x0.75 on 02, x1 on 03, HP (and armor) and damage alike', () => {
-  assert.deepEqual(BOT_SKILL.map((r) => [r.hpScale, r.damageScale]), [[0.5, 0.5], [0.75, 0.75], [1, 1]])
+test('BOT_SKILL handicap: x0.5 on layer 01, x0.75 on 02, x1 from 03 down (04, 05 since private-8), HP (and armor) and damage alike', () => {
+  assert.deepEqual(BOT_SKILL.map((r) => [r.hpScale, r.damageScale]), [[0.5, 0.5], [0.75, 0.75], [1, 1], [1, 1], [1, 1]])
 })
 
 // --- HP and armor ----------------------------------------------------------------

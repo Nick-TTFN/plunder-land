@@ -39,7 +39,7 @@ test('a diver bot on layer -1 of a [0, -1] world never routes to a pad to -2 nor
     // A Hopper: listed on 02 and 03 but not 01, so it stays on -1 (no up
     // portal), and only the held-layer gate keeps it off the pads to -2.
     const rows = BOT_SKILL.map((row) => (row.robots as readonly string[]).includes('hopper'))
-    assert.deepEqual(rows, [false, true, true])
+    assert.deepEqual(rows, [false, true, true, true, true])
     assert.equal(robotAllowedOn('hopper', BOTTOM), false, 'a bot may go to a layer this world does not hold')
     assert.equal(robotAllowedOn('hopper', MIDDLE), true)
     assert.ok(botLayer(MIDDLE).descend > 0)

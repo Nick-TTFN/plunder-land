@@ -66,6 +66,10 @@ export interface BotLayer {
  * Waddle and no brawler on layer 0, no Peep on layer -2, a richer cargo on -2.
  * The handicap (`hpScale`, `damageScale`) is Nick's (#60, Q7): x0.5 on layer
  * 01, x0.75 on 02, full strength from 03; a row added below -2 takes 1.
+ * Layers 04 and 05 (tags -3, -4) are Dez's (`ideas/private-layers-numbers.md`
+ * section 3, accepted 2026-11-06): reaction 250 / 200 ms, 8% / 5% miss,
+ * engage 6 / 7, cargo 50% T2 / 40% T3. A bot thinks at most once a 250 ms
+ * tick, so 200 ms is the floor: a lower `reactionMs` changes nothing.
  * Tunables (TEAM.md).
  */
 export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
@@ -99,6 +103,28 @@ export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
     robots: Object.freeze(['magnet', 'periscope', 'hopper', 'waddle'] as const),
     temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
     cargo: Object.freeze({ chance: 0.4, tier: 2 as const }),
+    hpScale: 1,
+    damageScale: 1
+  }),
+  Object.freeze({
+    reactionMs: 250,
+    aimMiss: 0.08,
+    engageRings: 6,
+    descend: 0,
+    robots: Object.freeze(['magnet', 'periscope', 'hopper', 'waddle'] as const),
+    temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
+    cargo: Object.freeze({ chance: 0.5, tier: 2 as const }),
+    hpScale: 1,
+    damageScale: 1
+  }),
+  Object.freeze({
+    reactionMs: 200,
+    aimMiss: 0.05,
+    engageRings: 7,
+    descend: 0,
+    robots: Object.freeze(['magnet', 'periscope', 'hopper', 'waddle'] as const),
+    temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
+    cargo: Object.freeze({ chance: 0.4, tier: 3 as const }),
     hpScale: 1,
     damageScale: 1
   })
@@ -140,7 +166,7 @@ export function humanOn (tag: number): boolean {
  * A bot's skills (decision #48 step 4, Dez's proposal accepted with the rest):
  * melee, ranged and defend, plus fireball or icicle, picked when it joins
  * (`botKit`). Bots have no account and are not checked against a level; the
- * throw is used only on 02-03 (`fight`), so a bot on 01 is no stronger than
+ * throw is used only from 02 down (`fight`), so a bot on 01 is no stronger than
  * a level-3 human (Melee opens at 2 and Defend at 3, #58 addendum 2 Q7). The brain presses by skill id (`press`, `Player.slotOf`),
  * never by a fixed slot, and never presses Dash, StoneWall or IceBreath.
  */
@@ -164,7 +190,7 @@ export function botKit (random: () => number): number[] {
  *   (StoneWall goes behind it). Kit: ranged, defend, stone wall, a throw.
  * - `diver`: takes portals down two and a half times as often, stays longer.
  *   Kit as steady.
- * The throw is still only used on 02-03 (`fight`). Bots have no account and
+ * The throw is still only used from 02 down (`fight`). Bots have no account and
  * aren't level-checked: a looter's StoneWall (a level-6 skill) is used only
  * when running away.
  */

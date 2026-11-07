@@ -10,6 +10,7 @@ import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
 import Worlds, { PRIVATE_BOTS_DEFAULT, PRIVATE_MAP_SIZE, privateBotsFrom } from './worlds'
 import World from '../objects/world'
 import Mob from '../objects/mob'
+import Portal from '../objects/portal'
 import Timers from '../objects/timers'
 import { ObjectType } from '../objects/gameobject'
 import type Player from '../objects/player'
@@ -289,6 +290,14 @@ test('bots top a private world up to privateBots for its human\'s layer (2 on th
   await settle()
   const shared = worlds.worldFor(b.client.connection) as World
   assert.ok(worlds.worlds.includes(shared))
+  // The shared world's portals away (as bots.spec.ts's `noPortals`): since
+  // private-8 layer 03 has 10 down portals, and a bot whose wander or walk to
+  // loot ends on one lands on a layer with no human and heads out while the
+  // fill replaces it, so 8 or 9 bots were in play at once in 5 of 15 runs.
+  // A bot's hop is play, not what this test is about.
+  World.run(shared, () => {
+    for (const o of [...World.OBSTACLES]) if (o instanceof Portal) World.removeObstacle(o)
+  })
   const most = { private: 0, shared: 0 }
   for (let i = 0; i < 30; i++) {
     clock += 2500
@@ -734,8 +743,19 @@ test('tickAll ticks a private world: its human walks', async () => {
   const { world, player } = await begin(worlds, store)
   const from = Hex.toCell(player.position)
   World.run(world, () => {
-    const to = [new Vector(3, 0), new Vector(-3, 0), new Vector(0, 3), new Vector(0, -3)].map((d) => from.add(d)).find((c) => Hex.onMap(c.x, c.y, World.mapSize) && !World.isBlocked(c.x, c.y, player.tag))
-    assert.ok(to !== undefined)
+    // Any free cell 2-4 rings out: the four cells 3 out along the axes were
+    // all blocked in 1 of 3 full suite runs on private-8's map (the spawn
+    // cell is random; the private map changed with Dez's gate counts).
+    const near: Vector[] = []
+    for (let dq = -4; dq <= 4; dq++) {
+      for (let dr = -4; dr <= 4; dr++) {
+        const c = from.add(new Vector(dq, dr))
+        const d = Hex.distance(from, c)
+        if (d >= 2 && d <= 4 && Hex.onMap(c.x, c.y, World.mapSize) && !World.isBlocked(c.x, c.y, player.tag)) near.push(c)
+      }
+    }
+    const to = near[0]
+    assert.ok(to !== undefined, 'no free cell 2-4 rings from the spawn')
     player.setWaypoints([to])
   })
   for (let i = 0; i < 8; i++) worlds.tickAll(250)

@@ -33,8 +33,11 @@ const HELD = [TOP, MIDDLE]
  * the private map changed**: a seed, generator (`valleys.ts`, `walls.ts`,
  * `World.placeGate`) or `LAYERS` row change. That is a new map for every
  * player and so a release; update the digest only if that was the intent.
+ * Last changed by private-8: Dez's private gate counts (01: 4 down, 2 exits;
+ * 02: 2 up, 3 pads, 2 exits; 13 gates where there were 28). No private map
+ * is live yet.
  */
-const DIGEST = '3003cc9cfa3158185a04ac395ec54b389fd91fd0101a1e61da52275e6a061d2f'
+const DIGEST = '8b23d444fbe8512208d629385ac157b663b6cfa649a54235def5c65d3eeb140c'
 
 function redisStub (): Redis {
   const redis = { on: () => redis, hincrby: async () => 0 } as unknown as Redis

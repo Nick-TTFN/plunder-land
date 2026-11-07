@@ -146,7 +146,7 @@ test('a pad out of the world: a human on it is handed off once a tick and stays 
   world.close()
 })
 
-test('layers [-2]: a human joins on -2; hello keeps every tag, sends -2\'s valleys and one all-void run for 0 and -1; no gate leads up', async (t: TestContext) => {
+test('layers [-2]: a human joins on -2; hello keeps every tag, sends -2\'s valleys and one all-void run for every other; no gate leads up', async (t: TestContext) => {
   const sent: Array<{ name: string, params: Record<string, unknown> }> = []
   const realPost = Analytics.post
   Analytics.post = async (_url, body) => { sent.push(...JSON.parse(body).events) }
@@ -165,8 +165,11 @@ test('layers [-2]: a human joins on -2; hello keeps every tag, sends -2\'s valle
     assert.equal(world.VOIDS.get(MIDDLE), undefined)
     const gates = gatesOf(world)
     assert.ok(gates.every((g) => g.tag === BOTTOM), 'a gate off -2')
-    // padsUp left out: -2's up count places nothing, so only exits.
-    assert.ok(gates.length > 0 && gates.every((g) => g instanceof Exit), 'a gate leads up out of a shared world')
+    // -2 has no up count (#60 Q3, task private-8), and padsUp is left out
+    // anyway: exits, and pads down to the unheld -3 (its down count).
+    assert.ok(gates.some((g) => g instanceof Exit), 'no exit on -2')
+    assert.ok(gates.every((g) => g instanceof Exit || (g instanceof HandoffGate && g.to === World.TAGS[3])), 'a gate leads up out of a shared world')
+    assert.equal(pads(world).length, World.LAYERS[2].portalsDown)
 
     const handlers: Record<string, (data?: unknown) => void> = {}
     const hellos: Array<Record<string, unknown>> = []
@@ -186,8 +189,8 @@ test('layers [-2]: a human joins on -2; hello keeps every tag, sends -2\'s valle
     const hello = hellos[0]
     assert.deepEqual(hello.layers, World.TAGS)
     const all = Hex.mapCells(4000).length
-    assert.deepEqual(hello.voids, [[0, all], [0, all], world.VOID_RUNS.get(BOTTOM)])
-    assert.deepEqual(hello.walls, [[], [], world.WALL_RUNS.get(BOTTOM)])
+    assert.deepEqual(hello.voids, World.TAGS.map((tag) => tag === BOTTOM ? world.VOID_RUNS.get(BOTTOM) : [0, all]))
+    assert.deepEqual(hello.walls, World.TAGS.map((tag) => tag === BOTTOM ? world.WALL_RUNS.get(BOTTOM) : []))
 
     // Layer numbers stay global: -2 is layer 03 for the bots and in run_end.
     assert.equal(botLayer(BOTTOM), BOT_SKILL[2])
@@ -201,10 +204,15 @@ test('layers [-2]: a human joins on -2; hello keeps every tag, sends -2\'s valle
 })
 
 test('padsUp: a held layer\'s up count into an unheld layer places pads, with the real `to`', () => {
-  const { world } = build([BOTTOM], true)
+  // -2 has no up count since private-8 (#60 Q3), so -3 (5 up, 5 down) is the
+  // held layer here: its up count makes pads to -2, its down count pads to -4.
+  const [, , , FOURTH, FIFTH] = World.TAGS
+  const { world } = build([FOURTH], true)
   World.run(world, () => {
     const out = pads(world)
-    assert.ok(out.length > 0 && out.every((p) => p.tag === BOTTOM && p.to === MIDDLE))
+    assert.ok(out.every((p) => p.tag === FOURTH && (p.to === BOTTOM || p.to === FIFTH)))
+    assert.equal(out.filter((p) => p.to === BOTTOM).length, World.LAYERS[3].portalsUp)
+    assert.ok(World.LAYERS[3].portalsUp > 0, 'pick a layer with an up count')
   })
   world.close()
 })

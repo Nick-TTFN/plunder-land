@@ -614,12 +614,16 @@ const NPC_NUMBERS = Object.freeze({
    * area-scaled (decision #60 addendum 2026-11-07; Dez's
    * `ideas/private-layers-numbers.md` section 1): layer 01 one pack and one
    * Compactor, layer 02 two packs, two Compactors, a Kiln and a Reactor
-   * (0.5 rounded up). Layer 03 keeps the shared map's density.
+   * (0.5 rounded up). Layer 03 keeps the shared map's density; 04 and 05
+   * (tags -3, -4, decision #60 Q19) add one of each kind per layer (Dez's
+   * section 2, accepted 2026-11-06; playtest whether 05 is too dense).
    */
   layers: Object.freeze([
     { packs: 1, escortShare: 0, compactor: 1, kiln: 0, reactor: 0, brood: 0 },
     { packs: 2, escortShare: 0.6, compactor: 2, kiln: 1, reactor: 1, brood: 0 },
-    { packs: 7, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 }
+    { packs: 7, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 },
+    { packs: 8, escortShare: 1, compactor: 5, kiln: 7, reactor: 3, brood: 2 },
+    { packs: 9, escortShare: 1, compactor: 6, kiln: 8, reactor: 4, brood: 3 }
   ])
 })
 
@@ -1003,25 +1007,28 @@ export interface LayerSpec {
 /**
  * **Every per-layer number is here and nowhere else**, top layer (01) first.
  *
- * Tags 0, -1, -2: depth is `-tag`, so the two tags the world already used keep
- * their order (0 was drawn above -1) and 1, which old clients drew as an
- * airborne plane, is never reused.
+ * Tags 0, -1, -2, -3, -4: depth is `-tag`, so the two tags the world already
+ * used keep their order (0 was drawn above -1) and 1, which old clients drew
+ * as an airborne plane, is never reused. -3 and -4 (layers 04, 05) are
+ * decision #60 Q19's two new layers, appended below -2.
  *
- * Portals and exits keep the shared map's density on every layer: 10 portals
- * and 4 exits per layer, as the two-layer world had (20 and 8). Layer 02
- * splits its 10 evenly between up and down; every layer keeps its exits
- * (#10). On the private layers (01, 02, map 2000) that is 4x as dense; Dez's
- * area-scaled gate, item and cache rows are task private-8.
+ * Gates, items and caches are Dez's (`ideas/private-layers-numbers.md`,
+ * accepted by Nick 2026-11-06, task private-8). The private layers 01 and 02
+ * (map 2000, a quarter of the area) have config C: 01 4 down and 2 exits, 02
+ * 2 up, 3 pads to layer 03 and 2 exits; medkits 3, bombs 1 and one gear cache
+ * each. The shared layers keep the shared map's density: 03 10 down and no
+ * way back up (#60 Q3), 04 5 up and 5 down, 05 5 up; every layer keeps its
+ * exits (#10), 05 one fewer.
  *
  * Rocks, loot cap and multiplier are #26's list. The mobs are the NPC roster
  * (decision #51, L1), counts in `NPC_NUMBERS.layers`, area-scaled on the
  * private layers 01 and 02 (#60 addendum 2026-11-07):
- * layer 0 holds Crawler packs and Compactors only; Kiln and Reactor -1/-2;
- * the Brood -2 only; Coils only as pack escorts on -1/-2; Broodlings never
+ * layer 0 holds Crawler packs and Compactors only; Kiln and Reactor -1 down;
+ * the Brood -2 down; Coils only as pack escorts from -1 down; Broodlings never
  * (the Brood releases them, l1-7). Grunt, gunner and boss are spawned by no
  * layer.
  *
- * Items are #26's provisional counts: medkits 8/10/12 and bombs 3/5/7.
+ * Items on 03-05 continue #26's +2 / +2 steps: medkits 12/14/16, bombs 7/9/11.
  */
 export const LAYERS: readonly LayerSpec[] = Object.freeze([
   // Layers 01 and 02 pay almost nothing (Nick, 2026-11-06, decision #60's
@@ -1035,14 +1042,14 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     voidShare: 1 / 3,
     wallShare: 0.06,
     naturalLoot: 10,
-    exits: 4,
+    exits: 2,
     extractMs: 5000,
     portalsUp: 0,
-    portalsDown: 10,
+    portalsDown: 4,
     mobs: npcPopulation(0),
     items: [
-      { item: ITEMS.medkit, count: 8 },
-      { item: ITEMS.bomb, count: 3 }
+      { item: ITEMS.medkit, count: 3 },
+      { item: ITEMS.bomb, count: 1 }
     ],
     gear: {
       caches: 1,
@@ -1060,14 +1067,14 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     voidShare: 1 / 3,
     wallShare: 0.06,
     naturalLoot: 10,
-    exits: 4,
+    exits: 2,
     extractMs: 7000,
-    portalsUp: 5,
-    portalsDown: 5,
+    portalsUp: 2,
+    portalsDown: 3,
     mobs: npcPopulation(1),
     items: [
-      { item: ITEMS.medkit, count: 10 },
-      { item: ITEMS.bomb, count: 5 }
+      { item: ITEMS.medkit, count: 3 },
+      { item: ITEMS.bomb, count: 1 }
     ],
     gear: {
       caches: 1,
@@ -1086,8 +1093,10 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     naturalLoot: 150,
     exits: 4,
     extractMs: 9000,
-    portalsUp: 10,
-    portalsDown: 0,
+    // No way back up from layer 03 (#60 Q3): its up portals would lead to
+    // the private layer 02, which no shared world holds.
+    portalsUp: 0,
+    portalsDown: 10,
     mobs: npcPopulation(2),
     items: [
       { item: ITEMS.medkit, count: 12 },
@@ -1100,6 +1109,54 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
       cacheMix: { part: 0.55, t1: 0.33, t2: 0.12 },
       mobChance: 0.1,
       mobMix: { part: 0.55, skill: 0.45 }
+    }
+  },
+  {
+    tag: -3,
+    lootMultiplier: 5,
+    voidShare: 1 / 3,
+    wallShare: 0.06,
+    naturalLoot: 150,
+    exits: 4,
+    extractMs: 11000,
+    portalsUp: 5,
+    portalsDown: 5,
+    mobs: npcPopulation(3),
+    items: [
+      { item: ITEMS.medkit, count: 14 },
+      { item: ITEMS.bomb, count: 9 }
+    ],
+    gear: {
+      caches: 2,
+      humansPerCache: 10,
+      cacheRespawnMs: 75000,
+      cacheMix: { part: 0.5, t1: 0.33, t2: 0.17 },
+      mobChance: 0.11,
+      mobMix: { part: 0.5, skill: 0.5 }
+    }
+  },
+  {
+    tag: -4,
+    lootMultiplier: 7,
+    voidShare: 1 / 3,
+    wallShare: 0.06,
+    naturalLoot: 150,
+    exits: 3,
+    extractMs: 13000,
+    portalsUp: 5,
+    portalsDown: 0,
+    mobs: npcPopulation(4),
+    items: [
+      { item: ITEMS.medkit, count: 16 },
+      { item: ITEMS.bomb, count: 11 }
+    ],
+    gear: {
+      caches: 3,
+      humansPerCache: 10,
+      cacheRespawnMs: 60000,
+      cacheMix: { part: 0.45, t1: 0.33, t2: 0.22 },
+      mobChance: 0.12,
+      mobMix: { part: 0.45, skill: 0.55 }
     }
   }
 ])
