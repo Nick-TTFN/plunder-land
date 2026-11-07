@@ -22,9 +22,11 @@
  * and run arrays. The Sets are `FrozenSet`s, whose `add`/`delete`/`clear`
  * throw, and the run arrays are frozen, so a write anywhere fails loudly
  * instead of changing every private world at once. A `ReadonlySet` type would
- * not do: types are erased and the server is built by swc. `BLOCKED` (static
- * terrain plus per-world rocks, stones and bodies in one Map) is **copied**
- * per world from the template's terrain.
+ * not do: types are erased and the server is built by swc. `BLOCKED`'s
+ * static terrain is shared the same way (private-10): the template holds each
+ * layer's void and wall cells once, as `FrozenCells`, and every world built
+ * from the template gets a `CellOverlay` per layer on top of it for its own
+ * stones and rocks.
  */
 
 /** The private map's seed. Changing it is a new map (and a release). */
@@ -50,6 +52,103 @@ export class FrozenSet<T> extends Set<T> {
 
   clear (): void {
     throw new TypeError('the private map is shared by every private world: it is read-only')
+  }
+}
+
+/**
+ * A Map that cannot be written after construction: `set`, `delete` and
+ * `clear` throw. Reads are a plain Map's. The template's blocked terrain
+ * (`MapTemplate.terrain`), one per layer, shared by every private world.
+ */
+export class FrozenCells<V> extends Map<number, V> {
+  constructor (entries: Iterable<readonly [number, V]>) {
+    super()
+    for (const [key, value] of entries) super.set(key, value)
+  }
+
+  set (_key: number, _value: V): this {
+    throw new TypeError('the private map is shared by every private world: it is read-only')
+  }
+
+  delete (_key: number): boolean {
+    throw new TypeError('the private map is shared by every private world: it is read-only')
+  }
+
+  clear (): void {
+    throw new TypeError('the private map is shared by every private world: it is read-only')
+  }
+}
+
+/**
+ * One layer's blocked cells as `World.BLOCKED` holds them: a plain `Map` in
+ * every world that generates its own map (shared and default worlds, and the
+ * world that generates the private map), a `CellOverlay` in a world built from
+ * the private map's template. Only what `BLOCKED`'s readers use.
+ */
+export interface BlockedCells<V> {
+  readonly size: number
+  get: (key: number) => V | undefined
+  has: (key: number) => boolean
+  set: (key: number, value: V) => unknown
+  delete: (key: number) => boolean
+  keys: () => Iterable<number>
+}
+
+/**
+ * A private world's blocked cells on one layer (private-10): the template's
+ * shared, read-only terrain (`base`, void and wall cells, blocker null) plus
+ * this world's own entries (its StoneWall stones and rocks, each naming its
+ * obstacle). Reads check the world's own entries, then the base; writes go to
+ * the world's own entries.
+ *
+ * **Overwriting or deleting a base cell throws**: only an obstacle is ever
+ * unblocked, and an obstacle can't stand on void or a wall (everything that
+ * places one checks `World.isBlocked` first), so such a write is a bug, and a
+ * silent one would either open a hole in the terrain of this world only or,
+ * through a shared base, of every private world. The own entries are made on
+ * the first write: most private worlds never block a cell.
+ */
+export class CellOverlay<V> implements BlockedCells<V> {
+  private own: Map<number, V> | undefined
+
+  constructor (readonly base: ReadonlyMap<number, V>) {}
+
+  get size (): number {
+    return this.base.size + (this.own?.size ?? 0)
+  }
+
+  /** On `World.isBlocked`'s hot path (`mobCanEnter`): the own entries only when there are any. */
+  has (key: number): boolean {
+    const own = this.own
+    if (own !== undefined && own.size !== 0 && own.has(key)) return true
+    return this.base.has(key)
+  }
+
+  get (key: number): V | undefined {
+    const own = this.own
+    if (own !== undefined && own.size !== 0) {
+      const value = own.get(key)
+      if (value !== undefined) return value
+    }
+    return this.base.get(key)
+  }
+
+  set (key: number, value: V): this {
+    if (this.base.has(key)) throw new TypeError(`cell ${key} is the private map's terrain: it can't be blocked again`)
+    if (this.own === undefined) this.own = new Map()
+    this.own.set(key, value)
+    return this
+  }
+
+  delete (key: number): boolean {
+    if (this.base.has(key)) throw new TypeError(`cell ${key} is the private map's terrain: it can't be unblocked`)
+    return this.own?.delete(key) ?? false
+  }
+
+  /** The base's cells, then this world's own (never both: `set` refuses a base cell). */
+  * keys (): IterableIterator<number> {
+    yield * this.base.keys()
+    if (this.own !== undefined) yield * this.own.keys()
   }
 }
 
@@ -86,8 +185,8 @@ export interface MapTemplate {
   walls: ReadonlyMap<number, FrozenSet<number>>
   voidRuns: ReadonlyMap<number, readonly number[]>
   wallRuns: ReadonlyMap<number, readonly number[]>
-  /** Static blocked cells per layer (void and wall), the base of each world's own `BLOCKED`. */
-  terrain: ReadonlyMap<number, ReadonlyMap<number, null>>
+  /** Static blocked cells per layer (void and wall), the shared base of each world's `BLOCKED` (`CellOverlay`). */
+  terrain: ReadonlyMap<number, FrozenCells<null>>
   /** In the order they were placed, so every world's gates get the same ids. */
   gates: readonly MapGate[]
 }

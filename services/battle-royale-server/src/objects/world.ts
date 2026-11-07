@@ -23,7 +23,7 @@ import type Throwable from './throwable'
 import { CellIndex } from '../utils/cellindex'
 import { carveValleys, encodeRuns } from './valleys'
 import { placeWalls } from './walls'
-import { FrozenSet, type MapGate, type MapTemplate, PrivateMap } from './privatemap'
+import { type BlockedCells, CellOverlay, FrozenCells, FrozenSet, type MapGate, type MapTemplate, PrivateMap } from './privatemap'
 // Read inside functions only (the interest bucket size): multiplayer imports
 // this module, so its default export is not defined yet while this one loads.
 import Multiplayer from '../network/multiplayer'
@@ -94,7 +94,8 @@ export interface WorldOptions {
    * map's seed (not `Math.random`) and leaves them on it as a template;
    * every later one takes the template. Its `VOIDS`, `WALLS`, `VOID_RUNS`
    * and `WALL_RUNS` entries are then the template's own objects, read-only
-   * (`FrozenSet`, frozen arrays); `BLOCKED` is copied per world, and the
+   * (`FrozenSet`, frozen arrays); each `BLOCKED` layer is a `CellOverlay`
+   * on the template's shared terrain (private-10), and the
    * portal, exit and pad objects are made per world at the template's
    * cells. Mobs, loot, items and caches are as in any world. Default: none,
    * a new random map.
@@ -172,8 +173,13 @@ export default class World {
    * Kept in step by `Obstacle`, which blocks its cell on construction and
    * releases it on destroy. Nothing else may write to it - a cell blocked
    * without an obstacle to explain it is invisible in every log.
+   *
+   * Void and wall cells are in it too, with a null blocker. A layer is a
+   * plain `Map`, except in a world built from the private map's template:
+   * there it is a `CellOverlay` on the template's shared, read-only terrain
+   * (`privatemap.ts`, private-10), which throws on a write to a terrain cell.
    */
-  BLOCKED: Map<number, Map<number, GameObject | null>> = new Map()
+  BLOCKED: Map<number, BlockedCells<GameObject | null>> = new Map()
 
   /**
    * Each layer's valleys (`valleys.ts`): void cells, blocked with no blocker
@@ -659,8 +665,8 @@ export default class World {
   static set mapSize (value: number) { World.current.mapSize = value }
   static get FINISHED (): FinishedPlayer[] { return World.current.FINISHED }
   static set FINISHED (value: FinishedPlayer[]) { World.current.FINISHED = value }
-  static get BLOCKED (): Map<number, Map<number, GameObject | null>> { return World.current.BLOCKED }
-  static set BLOCKED (value: Map<number, Map<number, GameObject | null>>) { World.current.BLOCKED = value }
+  static get BLOCKED (): Map<number, BlockedCells<GameObject | null>> { return World.current.BLOCKED }
+  static set BLOCKED (value: Map<number, BlockedCells<GameObject | null>>) { World.current.BLOCKED = value }
   static get VOIDS (): Map<number, Set<number>> { return World.current.VOIDS }
   static set VOIDS (value: Map<number, Set<number>>) { World.current.VOIDS = value }
   static get VOID_RUNS (): Map<number, number[]> { return World.current.VOID_RUNS }
@@ -829,18 +835,18 @@ export default class World {
     const walls = new Map<number, FrozenSet<number>>()
     const voidRuns = new Map<number, readonly number[]>()
     const wallRuns = new Map<number, readonly number[]>()
-    const terrain = new Map<number, ReadonlyMap<number, null>>()
+    const terrain = new Map<number, FrozenCells<null>>()
     for (const [tag, set] of this.VOIDS) voids.set(tag, new FrozenSet(set))
     for (const [tag, set] of this.WALLS) walls.set(tag, new FrozenSet(set))
     for (const [tag, runs] of this.VOID_RUNS) voidRuns.set(tag, Object.freeze([...runs]))
     for (const [tag, runs] of this.WALL_RUNS) wallRuns.set(tag, Object.freeze([...runs]))
     for (const [tag, cells] of this.BLOCKED) {
-      const own = new Map<number, null>()
-      for (const [key, by] of cells) {
-        if (by !== null) throw new Error(`a shared map's layer ${tag} has an obstacle in BLOCKED at build: only void and walls may be`)
-        own.set(key, null)
+      const own: Array<[number, null]> = []
+      for (const key of cells.keys()) {
+        if (cells.get(key) !== null) throw new Error(`a shared map's layer ${tag} has an obstacle in BLOCKED at build: only void and walls may be`)
+        own.push([key, null])
       }
-      terrain.set(tag, own)
+      terrain.set(tag, new FrozenCells(own))
     }
     const gates: MapGate[] = []
     for (const gate of this.OBSTACLES) {
@@ -852,11 +858,12 @@ export default class World {
 
   /**
    * Put a shared map's template on this world: its very valley and wall
-   * Sets and run arrays (read-only, shared by every world on the map), a
-   * copy of its static `BLOCKED` cells (this world's rocks, stones and
-   * bodies go on top), and, unless `gates` is false (the world that
-   * generated the map already has them), a new portal, exit or pad at each
-   * of its gate sites.
+   * Sets and run arrays (read-only, shared by every world on the map), and,
+   * unless `gates` is false (the world that generated the map built both
+   * already, and keeps its own plain `BLOCKED`), a `CellOverlay` per layer
+   * on its static blocked cells (shared and read-only too; this world's
+   * rocks and stones go in the overlay, private-10) and a new portal, exit or
+   * pad at each of its gate sites.
    */
   private takeMap (template: MapTemplate, gates = true): void {
     for (const [tag, set] of template.voids) this.VOIDS.set(tag, set)
@@ -864,7 +871,7 @@ export default class World {
     for (const [tag, runs] of template.voidRuns) this.VOID_RUNS.set(tag, runs as number[])
     for (const [tag, runs] of template.wallRuns) this.WALL_RUNS.set(tag, runs as number[])
     if (!gates) return
-    for (const [tag, cells] of template.terrain) this.BLOCKED.set(tag, new Map(cells))
+    for (const [tag, cells] of template.terrain) this.BLOCKED.set(tag, new CellOverlay<GameObject | null>(cells))
     for (const gate of template.gates) {
       World.addObstacle(gate.to === undefined
         ? new Exit(gate.x, gate.y, gate.tag)

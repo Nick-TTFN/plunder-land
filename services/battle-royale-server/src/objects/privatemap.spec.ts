@@ -16,7 +16,8 @@ import { Hex } from '../utils/hex'
  * One private map for every private world (decision #60, task private-5):
  * `WorldOptions.map`. The first world on a map generates it from the map's
  * seed; every later one holds the template's very valley and wall Sets and
- * run arrays, read-only, a copy of its static `BLOCKED`, and its own gate
+ * run arrays, read-only, a `BLOCKED` on the template's shared terrain
+ * (`CellOverlay`, private-10; `privateblocked.spec.ts`), and its own gate
  * objects at the template's sites.
  */
 
@@ -85,7 +86,8 @@ test('two private worlds on one map hold the same void and wall Sets and run arr
     assert.equal(b.WALL_RUNS.get(tag), a.WALL_RUNS.get(tag))
     assert.equal(map.template?.voids.get(tag), voids, 'the world that generated the map holds the template too')
 
-    // BLOCKED: a copy each, the same static cells: every void and wall, nothing else.
+    // BLOCKED: one each (the generating world's a plain Map, a later one's an
+    // overlay on the shared terrain), the same static cells: every void and wall, nothing else.
     const blockedA = a.BLOCKED.get(tag)
     const blockedB = b.BLOCKED.get(tag)
     assert.ok(blockedA !== undefined && blockedB !== undefined)

@@ -79,3 +79,15 @@ and is reported apart as `firstBuildMs`; `buildMsPerWorld` covers every later bu
 2026-11-06 (private-5, M-series Mac, `MAP=2000 BOTS=4 MOBSCALE=0.25 LOOTSCALE=0.25`, after the
 layer 01-02 loot cut): later builds 0.14 ms, the first 15.5-16.7 ms; 0.18-0.21 MB heap per
 world; ~0.06 ms/tick per human at N=50 and N=100.
+
+**Where a private world's heap goes:** run privatebench with `SNAPSHOT=<dir>` (it writes
+`before-<n>.heapsnapshot` before anyone joins and `after-<n>.heapsnapshot` after the ticks), then
+`node tools/load/heapattr.cjs <dir>/before-<n>.heapsnapshot <dir>/after-<n>.heapsnapshot`. It labels
+every new node with the `World` field it is first reached from and prints KB per world per field
+(`L1`), one class deeper (`L2`), and what no world reaches (`UN`, KB total). Something shared by
+every private world (the private map's terrain) is counted once, against whichever world reached
+it first, so it shows up amortised. An N=100 after-snapshot is ~30 MB (run 2026-11-07 with
+`node --max-old-space-size=6000`; not tried without).
+Measured 2026-11-07 (private-10, `MODE=real N=100 MAP=2000`, one run): `BLOCKED` 1.55 KB per world
+(56.3 when it was copied per world: Archie's run at `d47fad2` with `MOBSCALE=0.25`, a different
+configuration), ~125 KB attributed per world in all.

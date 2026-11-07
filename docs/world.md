@@ -171,12 +171,19 @@ only until private-6 builds private worlds): `World.build(size, { layers, map: P
   later private world takes it (~0.15 ms, against ~16 ms for the generating build).
 - **Shared read-only.** The `VOIDS`, `WALLS`, `VOID_RUNS` and `WALL_RUNS` entries are the
   template's own objects in every private world: `FrozenSet`s whose `add`/`delete`/`clear` throw,
-  and frozen arrays, which throw on write in the server's strict-mode output. A per-world terrain
-  change goes through that world's `BLOCKED` (a copy each; `privatemap.spec.ts` checks a later
-  world's too).
-- **Per world:** `BLOCKED` (copied from the template's terrain; rocks, stones and bodies go on
-  top), new portal, exit and pad objects at the template's sites (own ids), and every NPC, pickup,
-  item and cache (`refillLayer`, at random as in any world).
+  and frozen arrays, which throw on write in the server's strict-mode output. So is the terrain in
+  `BLOCKED` (private-10): the template holds each layer's void and wall cells once as a
+  `FrozenCells` (a Map whose `set`/`delete`/`clear` throw), and each later world's `BLOCKED` layer
+  is a `CellOverlay` on it: reads check the world's own entries (made on its first stone or rock),
+  then the base; writes go to its own entries; **a write to a base cell throws**, through
+  `World.block`/`unblock` or directly, because only an obstacle is ever unblocked and none may
+  stand on void or a wall. `privateblocked.spec.ts` covers the sharing, the throws, a StoneWall
+  and a bomb in a private world, and plain Maps everywhere else (shared and default worlds, and
+  the world that generated the map, which keeps the `BLOCKED` it built). `BLOCKED` went from 56.3
+  to 1.55 KB a private world (heapattr, `docs/load-testing.md`).
+- **Per world:** `BLOCKED`'s own entries (its stones and rocks, over the shared terrain), new
+  portal, exit and pad objects at the template's sites (own ids), and every NPC, pickup, item and
+  cache (`refillLayer`, at random as in any world).
 - **One map, one key:** size, held tags and `padsUp`. A world on `PRIVATE_MAP` that asks for
   anything else throws. The holder keeps its one template for the life of the process (~110 KB at
   map 2000, estimated), on purpose.
