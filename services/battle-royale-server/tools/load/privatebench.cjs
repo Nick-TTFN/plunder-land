@@ -9,8 +9,9 @@
 //                 These two run with `privateRuns: false` (no world is the
 //                 private-6 code's private world; PRIVATE=1 stands one in).
 //   MODE=real     the code itself (private-6): every start in a private world
-//                 of its own (`Worlds.privates`), topped up to PRIVATE_BOTS
-//                 (default 4, `PRIVATE_BOT_TARGET`); shared worlds keep BOTS
+//                 of its own (`Worlds.privates`), with PRIVATE_BOTS bots by
+//                 the human's layer (a comma list, top first; default the
+//                 code's `PRIVATE_BOTS_DEFAULT`, 2,3); shared worlds keep BOTS
 //                 (cap 10000), unused unless DESCEND takes the pad. Use
 //                 without PRIVATE and LAYERS (the `owned` rows decide).
 //   DESCEND=1     (MODE=real) at tick 100 every human takes a real portal
@@ -60,7 +61,7 @@ const gc = global.gc ?? (() => {})
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve)) }
 const MODE = process.env.MODE ?? 'private'
 const BOTS = Number(process.env.BOTS ?? 8)
-const PRIVATE_BOTS = Number(process.env.PRIVATE_BOTS ?? 4)
+const PRIVATE_BOTS = req('network/worlds.js').privateBotsFrom(process.env.PRIVATE_BOTS)
 const DESCEND = process.env.DESCEND === '1'
 const MAP = Number(process.env.MAP ?? 4000)
 const LAYER_COUNT = Number(process.env.LAYERS ?? World.LAYERS.length)

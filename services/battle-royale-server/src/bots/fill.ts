@@ -28,7 +28,8 @@ export default class BotFill {
   private readonly leavingSince = new Map<Player, number>()
 
   constructor (
-    readonly target: number,
+    /** Humans + bots. A private world's follows its human's layer, set before each `update` (`Worlds.tickAll`). */
+    public target: number,
     readonly spawnEveryMs: number = 2000,
     private readonly random: () => number = Math.random
   ) {}

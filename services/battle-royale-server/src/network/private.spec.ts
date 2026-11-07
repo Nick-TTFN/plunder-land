@@ -7,7 +7,7 @@ import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
-import Worlds, { PRIVATE_MAP_SIZE } from './worlds'
+import Worlds, { PRIVATE_BOTS_DEFAULT, PRIVATE_MAP_SIZE, privateBotsFrom } from './worlds'
 import World from '../objects/world'
 import Mob from '../objects/mob'
 import Timers from '../objects/timers'
@@ -147,7 +147,7 @@ async function settle (): Promise<void> {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve))
 }
 
-interface Options { bots?: number, privateBots?: number, privateCap?: number, maxPlayers?: number, idleMs?: number, redis?: Redis }
+interface Options { bots?: number, privateBots?: readonly number[], privateCap?: number, maxPlayers?: number, idleMs?: number, redis?: Redis }
 
 function makeWorlds (store: MemoryAccountStore, options: Options = {}): Worlds {
   return new Worlds({
@@ -278,11 +278,11 @@ test('privateRuns false, or no owned row: every run in a shared world holding ev
 
 // Bots ======
 
-test('bots top a private world up to privateBots (1 human + 3) and a shared world to bots (1 human + 7)', async () => {
+test('bots top a private world up to privateBots for its human\'s layer (2 on the top layer) and a shared world to bots (1 human + 7)', async () => {
   let clock = realNow()
   Date.now = () => clock
   const store = new Store()
-  const worlds = makeWorlds(store, { bots: 8, privateBots: 4 })
+  const worlds = makeWorlds(store, { bots: 8, privateBots: [2, 3] })
   const a = await begin(worlds, store, {}, 'a')
   const b = await begin(worlds, store, {}, 'b')
   takePad(worlds, b.world, b.player)
@@ -301,15 +301,15 @@ test('bots top a private world up to privateBots (1 human + 3) and a shared worl
     most.shared = Math.max(most.shared, botsIn(shared).length)
   }
   assert.ok(!a.world.closed && !shared.closed)
-  assert.deepEqual(most, { private: 3, shared: 7 }, 'a world not topped up to its own target')
+  assert.deepEqual(most, { private: 2, shared: 7 }, 'a world not topped up to its own target')
   assert.equal(humansIn(a.world), 1, 'a bot fill put a human somewhere')
 })
 
-test('a descent inside a private world: the old layer\'s bots exit at once, so it never holds more than its target', async () => {
+test('a descent inside a private world: the old layer\'s bots exit at once, and the target follows the human: 2 bots on the top layer, 3 below', async () => {
   let clock = realNow()
   Date.now = () => clock
   const store = new Store()
-  const worlds = makeWorlds(store, { privateBots: 4 })
+  const worlds = makeWorlds(store, { privateBots: [2, 3] })
   const { world, player } = await begin(worlds, store)
   const heal = (): void => { World.run(world, () => { player.hp = player.maxHP() }) }
   for (let i = 0; i < 6; i++) {
@@ -318,20 +318,94 @@ test('a descent inside a private world: the old layer\'s bots exit at once, so i
     worlds.tickAll(250)
   }
   const top = botsIn(world)
-  assert.ok(top.length > 0, 'no bot on the top layer: the descent checks nothing')
+  assert.equal(top.length, 2, 'not 2 bots with the human on the top layer')
   assert.ok(top.every((bot) => bot.tag === World.TAGS[0]))
   descend(worlds, world, player)
+  assert.ok(player.tag === PRIVATE_TAGS[1], 'the descent did not reach the second private layer')
   let most = 0
+  let full = 0
   for (let i = 0; i < 12; i++) {
     clock += 2500
     heal()
     worlds.tickAll(250)
-    most = Math.max(most, botsIn(world).length)
+    const bots = botsIn(world)
+    most = Math.max(most, bots.length)
+    if (bots.length === 3 && bots.every((bot) => bot.tag === player.tag)) full++
   }
   // Exited (or killed meanwhile), never still walking out.
   assert.ok(top.every((bot) => bot.exited || bot.destroyed), 'a bot left behind on the old layer is still in the world')
   assert.ok(most <= 3, `${most} bots after a descent, over the target`)
-  assert.ok(botsIn(world).some((bot) => bot.tag === player.tag), 'no bot joined the human on its new layer')
+  // A bot the human's NPCs kill meanwhile is replaced within 2 s, so most of the ticks hold all 3.
+  assert.ok(full >= 4, `3 bots beside the human on only ${full} of 12 ticks after the descent`)
+})
+
+test('PRIVATE_BOTS: a comma list of bots per private layer, top first; unset or malformed is the default 2,3', () => {
+  assert.deepEqual([...PRIVATE_BOTS_DEFAULT], [2, 3])
+  assert.deepEqual([...privateBotsFrom(undefined)], [2, 3])
+  assert.deepEqual([...privateBotsFrom('')], [2, 3])
+  assert.deepEqual([...privateBotsFrom('1, 4')], [1, 4])
+  assert.deepEqual([...privateBotsFrom('0')], [0])
+  assert.deepEqual([...privateBotsFrom('2,x')], [2, 3])
+  assert.deepEqual([...privateBotsFrom('-1,3')], [2, 3])
+})
+
+// NPC density ======
+
+/**
+ * Dez's area-scaled NPC rows for the private layers (`ideas/private-layers-numbers.md`
+ * section 1, accepted in #60's 2026-11-07 addendum), top first: Crawler packs,
+ * then single NPCs by archetype key. Pinned here on purpose: a retune of these
+ * rows is a decision and changes this table.
+ */
+const PRIVATE_NPCS: ReadonlyArray<{ packs: number, escorts: boolean, singles: Record<string, number> }> = [
+  { packs: 1, escorts: false, singles: { compactor: 1 } },
+  { packs: 2, escorts: true, singles: { compactor: 2, kiln: 1, reactor: 1 } }
+]
+
+test('a private world holds Dez\'s area-scaled NPC counts on each private layer over two simulated minutes', async () => {
+  const store = new Store()
+  const worlds = makeWorlds(store)
+  const { world, player } = await begin(worlds, store)
+  assert.equal(PRIVATE_TAGS.length, PRIVATE_NPCS.length, 'a private layer without a pinned row')
+  const TICKS = 480
+  const full = PRIVATE_TAGS.map(() => 0)
+  for (let tick = 0; tick < TICKS; tick++) {
+    // The human stands still and is kept alive; nothing kills an NPC, so
+    // each layer fills to its rows and stays there.
+    World.run(world, () => { player.hp = player.maxHP() })
+    worlds.tickAll(250)
+    assert.ok(!world.closed, 'the private world closed')
+    World.run(world, () => {
+      PRIVATE_TAGS.forEach((tag, i) => {
+        const want = PRIVATE_NPCS[i]
+        const live = (World.MOBS as Mob[]).filter((m) => m.tag === tag && !m.destroyed)
+        const packs = new Set(live.map((m) => m.pack).filter((p) => p !== undefined))
+        assert.ok(packs.size <= want.packs, `tick ${tick}, layer ${tag}: ${packs.size} packs, over ${want.packs}`)
+        for (const pack of packs) {
+          const crawlers = pack.members.filter((m) => m.archetype === ARCHETYPES.crawler).length
+          const coils = pack.members.filter((m) => m.archetype === ARCHETYPES.coil).length
+          assert.ok(crawlers >= 2 && crawlers <= 4, `a pack of ${crawlers} Crawlers`)
+          assert.ok(coils <= (want.escorts ? 1 : 0), `${coils} Coils in a pack on layer ${tag}`)
+        }
+        const singles: Record<string, number> = {}
+        for (const m of live) if (m.pack === undefined) singles[m.archetype.key] = (singles[m.archetype.key] ?? 0) + 1
+        for (const [key, n] of Object.entries(singles)) {
+          assert.ok(n <= (want.singles[key] ?? 0), `tick ${tick}, layer ${tag}: ${n} lone ${key}, over ${want.singles[key] ?? 0}`)
+        }
+        // Mobs alive within the pack-size range: 2-4 Crawlers (plus a Coil where escorted) a pack, plus the singles.
+        const singlesWanted = Object.values(want.singles).reduce((a, b) => a + b, 0)
+        const most = want.packs * (want.escorts ? 5 : 4) + singlesWanted
+        assert.ok(live.length <= most, `tick ${tick}, layer ${tag}: ${live.length} mobs alive, over ${most}`)
+        const exact = packs.size === want.packs && Object.entries(want.singles).every(([key, n]) => singles[key] === n)
+        if (exact) {
+          assert.ok(live.length >= want.packs * 2 + singlesWanted, `tick ${tick}, layer ${tag}: ${live.length} mobs alive, under the least`)
+          full[i]++
+        }
+      })
+    })
+  }
+  // After the first fill (a few ticks), full on nearly every tick.
+  full.forEach((n, i) => { assert.ok(n >= TICKS - 60, `layer ${PRIVATE_TAGS[i]} at its rows on only ${n} of ${TICKS} ticks`) })
 })
 
 // The pad ======
@@ -458,7 +532,7 @@ test('a death inside a private world ends the run normally (stats, run_end, XP, 
   Date.now = () => clock
   const redis = redisStub()
   const store = new Store()
-  const worlds = makeWorlds(store, { redis, privateBots: 4 })
+  const worlds = makeWorlds(store, { redis, privateBots: [2, 3] })
   const { client, token, world, player } = await begin(worlds, store)
   for (let i = 0; i < 4; i++) {
     clock += 2500

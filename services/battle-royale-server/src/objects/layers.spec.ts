@@ -52,6 +52,10 @@ beforeEach(() => {
 // 0/8/14, bosses 0/2/3. Now the NPC roster, PROVISIONAL (l1-0) counts.
 // DELIBERATE CHANGE (#58 addendum 2, Q1): packs 5/5/5 -> 4/6/7 and
 // Compactors 8/7/4 -> 4/9/4; danger moves deeper.
+// DELIBERATE CHANGE (#60 addendum 2026-11-07, task private-6b): the private
+// layers 01 and 02 are area-scaled for the 2000 private map (Dez's
+// `ideas/private-layers-numbers.md` section 1): packs 4/6 -> 1/2, Compactors
+// 4/9 -> 1/2, Kilns 4 -> 1 and Reactors 2 -> 1 on 02. Layer 03 unchanged.
 test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   const row = (i: number): unknown => {
     const l = LAYERS[i]
@@ -66,9 +70,9 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
     }
   }
   assert.equal(LAYERS.length, 3)
-  assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 10, mobs: ['4 crawler packs, no escort 0', 'compactor 4'] })
+  assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 10, mobs: ['1 crawler packs, no escort 0', 'compactor 1'] })
   assert.deepEqual(row(1), {
-    tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['6 crawler packs, coil escort 0.6', 'compactor 9', 'kiln 4', 'reactor 2']
+    tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['2 crawler packs, coil escort 0.6', 'compactor 2', 'kiln 1', 'reactor 1']
   })
   assert.deepEqual(row(2), {
     tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['7 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']

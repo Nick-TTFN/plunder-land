@@ -2,7 +2,7 @@ import { flushErrors, initErrorReporting, reportError } from './errors'
 import { Server } from 'socket.io'
 import http from 'http'
 import Multiplayer from './network/multiplayer'
-import Worlds, { PRIVATE_BOT_TARGET_DEFAULT } from './network/worlds'
+import Worlds, { privateBotsFrom } from './network/worlds'
 import { openAccountStore } from './db/open'
 import { NotReadyError } from './db/pgstore'
 import { BOARD_SIZE, type SeasonBoard, SeasonPayer } from './progress/seasons'
@@ -78,8 +78,10 @@ function startGame (): void {
     // this many open at once a start is sent `full`. Unset or not a number:
     // PRIVATE_CAP_DEFAULT (500); 0: no cap.
     privateCap: Number.isInteger(parseInt(process.env.PRIVATE_CAP ?? '')) ? Math.max(0, parseInt(process.env.PRIVATE_CAP ?? '')) : undefined,
-    // Bots top each private world up to this many players (#60, Dez's 9: 1 human + 3 bots).
-    privateBots: Number.isInteger(parseInt(process.env.PRIVATE_BOT_TARGET ?? '')) ? Math.max(0, parseInt(process.env.PRIVATE_BOT_TARGET ?? '')) : PRIVATE_BOT_TARGET_DEFAULT
+    // Bots in a private world by the layer its human is on, top first, as a
+    // comma list (#60 addendum 2026-11-07: "2,3"); "0" turns them off. Unset,
+    // or any entry not a number: PRIVATE_BOTS_DEFAULT.
+    privateBots: privateBotsFrom(process.env.PRIVATE_BOTS)
   })
 
   // A deploy (decision #46): the host starts the new server, routes new

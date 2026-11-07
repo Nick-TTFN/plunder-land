@@ -25,6 +25,14 @@ multiplier (×0.1 / ×0.175 / ×3 on natural pickups and on every mob's loot, no
 player drops), the void share (1/3 each, the valleys), natural loot cap (10 / 10 / 150, death drops
 uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
 Crawler packs and single NPCs per layer, built by `npcPopulation` from `NPC_NUMBERS.layers`.
+**The NPC rows of layers 01 and 02 are area-scaled for the private map** (2000, a quarter of the
+shared 4000's area; #60 addendum 2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1):
+01 one Crawler pack and one Compactor (~3.9 mobs alive), 02 two packs (Coil escort 0.6), two
+Compactors, a Kiln and a Reactor (~11). Their gates, items and caches still have the shared
+map's counts (task private-8). The rows are read wherever a world holds those layers: private
+worlds in production, and a shared world holding every layer only when `privateRuns` is
+`false` (specs, and the load tools' old modes), which then runs them sparse on a 4000 map. A
+first-run world never refills from them.
 `World.refillLayer` tops each entry up every tick, at most one spawn (or one whole pack) per
 entry per tick; **a pack entry counts live packs, a single entry counts live mobs with no
 pack** (`packsAlive`), so a pack is replaced only when all its members are dead. The layer tags reach the client in `hello.layers`; **the client

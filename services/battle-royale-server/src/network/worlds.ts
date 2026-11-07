@@ -71,10 +71,13 @@ export interface WorldsOptions {
    */
   privateCap?: number
   /**
-   * Humans + bots each private world is topped up to (`PRIVATE_BOT_TARGET`,
-   * decision #60, Dez's 9: 1 human + 3 bots). 0 or absent: no bots, as `bots`.
+   * Bots a private world is topped up with while its human is on each
+   * private layer, top first (`PRIVATE_BOTS`, decision #60 addendum
+   * 2026-11-07: 2 on layer 01, 3 on layer 02; `PRIVATE_BOTS_DEFAULT`). Bots,
+   * not humans + bots as `bots` counts. A layer past the list's end gets
+   * its last value. Absent, empty or all 0: no bots.
    */
-  privateBots?: number
+  privateBots?: readonly number[]
   /**
    * `false`: no layer is private, so every run plays in a shared world holding
    * every layer, as before decision #60 (`privateRuns`). For specs of the
@@ -100,8 +103,24 @@ export const HANDOFF_CLEARANCE = 6
 /** `PRIVATE_CAP` when unset (decision #60 Q11; provisional). */
 export const PRIVATE_CAP_DEFAULT = 500
 
-/** `PRIVATE_BOT_TARGET` when unset (decision #60, Dez's 9). */
-export const PRIVATE_BOT_TARGET_DEFAULT = 4
+/**
+ * `PRIVATE_BOTS` when unset (decision #60 addendum 2026-11-07, Nick: "a
+ * couple in layer 1, 3-4 on layer 2"; overrides Dez's flat 4 per world):
+ * bots per private layer, top first, by the layer the human is on.
+ */
+export const PRIVATE_BOTS_DEFAULT: readonly number[] = Object.freeze([2, 3])
+
+/**
+ * `PRIVATE_BOTS` from the environment: a comma list of whole numbers, top
+ * layer first ("2,3"), each at least 0. Unset, empty, or any entry not a
+ * whole number: `PRIVATE_BOTS_DEFAULT`.
+ */
+export function privateBotsFrom (value: string | undefined): readonly number[] {
+  if (value === undefined || value.trim() === '') return PRIVATE_BOTS_DEFAULT
+  const parts = value.split(',').map((part) => part.trim())
+  if (!parts.every((part) => /^\d+$/.test(part))) return PRIVATE_BOTS_DEFAULT
+  return parts.map((part) => parseInt(part, 10))
+}
 
 /** Every private world's map size: the one private map's (`PRIVATE_MAP`, private-5). */
 export const PRIVATE_MAP_SIZE = 2000
@@ -260,7 +279,7 @@ export default class Worlds {
   /** Each open private world's run. */
   private readonly privateOf = new Map<World, OwnRun>()
   private readonly privateCap: number
-  private readonly privateBots: number
+  private readonly privateBots: readonly number[]
   /** The layers a private world holds (`LayerSpec.owned`), top first. */
   private readonly privateTags: readonly number[]
   /** The layers a shared world holds: every other one. */
@@ -304,7 +323,7 @@ export default class Worlds {
     this.firstRunCap = options.firstRunCap ?? FIRST_RUN_CAP_DEFAULT
     this.firstRunStore = firstRunStoreOf(this.accounts)
     this.privateCap = options.privateCap ?? PRIVATE_CAP_DEFAULT
-    this.privateBots = options.privateBots ?? 0
+    this.privateBots = options.privateBots ?? []
     // Read here, not at import: a bench may cut `World.LAYERS` first.
     this.privateTags = options.privateRuns === false ? [] : World.LAYERS.filter((layer) => layer.owned === true).map((layer) => layer.tag)
     this.sharedTags = World.TAGS.filter((tag) => !this.privateTags.includes(tag))
@@ -1470,8 +1489,13 @@ export default class Worlds {
     for (const world of [...this.privates]) {
       World.run(world, () => {
         try {
-          if (this.privateBots > 0) {
-            this.fillOf(world, this.privateBots).update(this.draining ? 0 : Worlds.activePlayers(world))
+          if (this.privateBots.some((n) => n > 0)) {
+            const humans = Worlds.activePlayers(world)
+            const fill = this.fillOf(world, 0)
+            // The target follows the human's layer (#60 Q8 and its 2026-11-07
+            // addendum): one more bot joins on a descent.
+            fill.target = humans + this.privateBotsFor(world)
+            fill.update(this.draining ? 0 : humans)
             Worlds.exitLeaving()
           }
           world.update(dt)
@@ -1596,7 +1620,19 @@ export default class Worlds {
     }
   }
 
-  /** `world`'s bot fill, made at `target` on first use: `botTarget` for a shared world, `privateBots` for a private one. */
+  /**
+   * The bots a private world wants now: `privateBots`' value for the layer
+   * its human is on (the last value past the list's end), 0 with no human
+   * in play.
+   */
+  private privateBotsFor (world: World): number {
+    const human = world.PLAYERS.find((p) => p.bot === undefined && !p.destroyed && !p.exited)
+    if (human === undefined || this.privateBots.length === 0) return 0
+    const i = this.privateTags.indexOf(human.tag)
+    return this.privateBots[Math.min(Math.max(i, 0), this.privateBots.length - 1)]
+  }
+
+  /** `world`'s bot fill, made at `target` on first use: `botTarget` for a shared world; a private world's is set every tick (`privateBotsFor`). */
   private fillOf (world: World, target: number): BotFill {
     let fill = this.fills.get(world)
     if (fill === undefined) {

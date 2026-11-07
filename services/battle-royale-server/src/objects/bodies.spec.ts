@@ -457,7 +457,12 @@ test('two simulated minutes on a real world: no mob ever stands, or steps, on a 
       }
     }
   }
-  assert.ok(bodiesSeen > 480 * 4, `bodies on only ${bodiesSeen} body-ticks`)
+  // The bodied NPCs the layers keep alive (Reactors and Broods, 4 since the
+  // private layers' area-scaled rows, task private-6b); all but one of them
+  // on every tick, so a spawn's first ticks and a death or two still pass.
+  const bodied = LAYERS.reduce((n, l) => n + l.mobs.reduce((k, e) => k + (!isPackEntry(e) && e.archetype.bodyRings > 0 ? e.count : 0), 0), 0)
+  assert.ok(bodied >= 3, `only ${bodied} bodied NPCs in LAYERS: the test says little`)
+  assert.ok(bodiesSeen > 480 * (bodied - 1), `bodies on only ${bodiesSeen} body-ticks of ${480 * bodied}`)
   assert.ok(bodySteps > 50, `bodies stepped on only ${bodySteps} body-ticks: the test says little`)
   assert.equal(World.UNITS.rebuilds, rebuilds, 'the cell index rebuilt: something edited a list behind it')
 })

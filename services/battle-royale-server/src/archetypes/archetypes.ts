@@ -608,12 +608,17 @@ const NPC_NUMBERS = Object.freeze({
   ]),
   /**
    * Per layer, top first: packs, Coil escort share, and the single NPCs.
-   * Danger moves deeper (#58 addendum 2, Q1, accepted 2026-11-03; #58 wins
-   * over #53 on layer 0 only): packs 4/6/7 and Compactors 4/9/4.
+   * Danger moves deeper (#58 addendum 2, Q1; #58 wins over #53 on layer 0).
+   * Layers 01 and 02 are private (`LayerSpec.owned`) and built on the 2000
+   * private map, a quarter of the shared map's area, so their rows are
+   * area-scaled (decision #60 addendum 2026-11-07; Dez's
+   * `ideas/private-layers-numbers.md` section 1): layer 01 one pack and one
+   * Compactor, layer 02 two packs, two Compactors, a Kiln and a Reactor
+   * (0.5 rounded up). Layer 03 keeps the shared map's density.
    */
   layers: Object.freeze([
-    { packs: 4, escortShare: 0, compactor: 4, kiln: 0, reactor: 0, brood: 0 },
-    { packs: 6, escortShare: 0.6, compactor: 9, kiln: 4, reactor: 2, brood: 0 },
+    { packs: 1, escortShare: 0, compactor: 1, kiln: 0, reactor: 0, brood: 0 },
+    { packs: 2, escortShare: 0.6, compactor: 2, kiln: 1, reactor: 1, brood: 0 },
     { packs: 7, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 }
   ])
 })
@@ -1002,12 +1007,15 @@ export interface LayerSpec {
  * their order (0 was drawn above -1) and 1, which old clients drew as an
  * airborne plane, is never reused.
  *
- * Portals and exits keep today's density: 10 portals and 4 exits per layer, as
- * the two-layer world had (20 and 8). Layer 02 splits its 10 evenly between up
- * and down; every layer keeps its exits (#10).
+ * Portals and exits keep the shared map's density on every layer: 10 portals
+ * and 4 exits per layer, as the two-layer world had (20 and 8). Layer 02
+ * splits its 10 evenly between up and down; every layer keeps its exits
+ * (#10). On the private layers (01, 02, map 2000) that is 4x as dense; Dez's
+ * area-scaled gate, item and cache rows are task private-8.
  *
  * Rocks, loot cap and multiplier are #26's list. The mobs are the NPC roster
- * (decision #51, L1), counts **PROVISIONAL (l1-0)** in `NPC_NUMBERS.layers`:
+ * (decision #51, L1), counts in `NPC_NUMBERS.layers`, area-scaled on the
+ * private layers 01 and 02 (#60 addendum 2026-11-07):
  * layer 0 holds Crawler packs and Compactors only; Kiln and Reactor -1/-2;
  * the Brood -2 only; Coils only as pack escorts on -1/-2; Broodlings never
  * (the Brood releases them, l1-7). Grunt, gunner and boss are spawned by no
