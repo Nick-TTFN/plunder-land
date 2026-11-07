@@ -14,11 +14,11 @@ Seven NPCs, archetype ids **9-15** (append-only; 6-8 stay reserved, see below):
 | Id | Key | Rarity | Layers | What it does | Code |
 |---|---|---|---|---|---|
 | 9 | crawler | common | all, in packs | shoots like the old gunner (8 dmg / 2000 ms, 5 cells, holds at 4) | `RangedAttack` + `useSkillOnTarget` |
-| 10 | kiln | rare | -1, -2 | keeps 5-6 away, lobs at the target's cell | `mobskills/kilnlob.ts` |
-| 11 | reactor | epic | -1, -2 | charges, plants, bursts a 2-ring disc; contact 15 | `mobskills/reactorburst.ts` |
-| 12 | coil | rare | -1, -2, as a pack escort | slowing field on a 3-ring disc, no damage | `mobskills/coilfield.ts`, `buffs/fieldslow.ts` |
+| 10 | kiln | rare | -1 down | keeps 5-6 away, lobs at the target's cell | `mobskills/kilnlob.ts` |
+| 11 | reactor | epic | -1 down | charges, plants, bursts a 2-ring disc; contact 15 | `mobskills/reactorburst.ts` |
+| 12 | coil | rare | -1 down, as a pack escort | slowing field on a 3-ring disc, no damage | `mobskills/coilfield.ts`, `buffs/fieldslow.ts` |
 | 13 | compactor | common | all | slams a 2-ring disc round itself, knocks players 2 cells away from it | `mobskills/shockwave.ts` |
-| 14 | brood | legendary | -2 only | keeps 5-6 away, releases Broodlings | `mobskills/brood.ts` |
+| 14 | brood | legendary | -2 down (1 / 2 / 3) | keeps 5-6 away, releases Broodlings | `mobskills/brood.ts` |
 | 15 | broodling | common | never spawned by a layer | fuse, primes when adjacent, blasts | `mobskills/broodling.ts` |
 
 `rarity` (`'common' | 'rare' | 'epic' | 'legendary' | null`) and the optional `attack` cell shape
@@ -51,13 +51,16 @@ a `SkillClass` gets only its owner; `SkillSpec`/`buildSkill` stay as they were.
 
 ## Spawning: packs and singles
 
-`LAYERS[].mobs` is built by `npcPopulation(i)` from `NPC_NUMBERS.layers` (top first): Crawler
-packs 4/6/7; Compactors 4/9/4; Kilns 0/4/6; Reactors 0/2/2; Brood 0/0/1 (danger moved deeper by #58
-addendum 2 Q1, Dez's layer-0 cut: packs were 5 a layer and Compactors 8/7/4; #58 wins over #53 on
-layer 01 only). Net about +8-10 live mobs a world; spread tickbench at 400 +2.9% (1.903 to 1.959 ms,
+`LAYERS[].mobs` is built by `npcPopulation(i)` from `NPC_NUMBERS.layers` (top first, five layers):
+Crawler packs 1/2/7/8/9; Compactors 1/2/4/5/6; Kilns 0/1/6/7/8; Reactors 0/1/2/3/4; Brood 0/0/1/2/3.
+Layers 01-02 are area-scaled for the private map (2000, a quarter of the area; #60 addendum
+2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1; they were 4/6, 4/9, 0/4, 0/2 on the
+shared map); 04-05 add one of each kind a layer (#60 Q19, Dez's section 2, task private-8). Before
+that: danger moved deeper by #58 addendum 2 Q1, Dez's layer-0 cut (packs were 5 a layer and
+Compactors 8/7/4; #58 wins over #53 on layer 01 only). Net about +8-10 live mobs a world; spread tickbench at 400 +2.9% (1.903 to 1.959 ms,
 noisy machine; accepted by Nick, #58 addendum 6). An entry is a
 `LayerSingle` or a `LayerPack` (`isPackEntry`): `{ pack: crawler, sizes, escort?: coil,
-escortShare }`, sizes 2/3/4 at 35/40/25 %, a Coil escort on a pack with share 0 / 0.6 / 1 by
+escortShare }`, sizes 2/3/4 at 35/40/25 %, a Coil escort on a pack with share 0 / 0.6 / 1 / 1 / 1 by
 layer (none on layer 0, no free Coils).
 
 - A pack spawns on one free cell and its free neighbours (`mobCellFree`), **whole or not at

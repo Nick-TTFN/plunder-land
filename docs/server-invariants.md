@@ -34,34 +34,58 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   **The client ships first**: the next run on a socket may be another world, and the client
   resets its map, fog and ids per run (`resetForRun` in `net/runmap.ts`, from `Game.start`);
   an older client keeps `Game.BLOCKED` across runs and would route on the old world's stones.
-- **First-run worlds live in `Worlds.firstRuns`, never in `Worlds.worlds`** (decision #58,
-  retest-4; the world itself: `docs/world.md`, "First-run worlds"). `openFirstRun` builds one per
-  first run with its own `Multiplayer`, and `firstRunOf` keeps its state (connection, start, the
-  player, `due`). **Every reader of `this.worlds` decides what it does with them** (all in
-  `network/worlds.ts`; a spec walks each):
-  - shared worlds only: `choose` (both loops: a party code and the fullest world), the bot fill in
-    `tickAll` (no bot ever joins a first run), `closeIdle` (a first-run world closes as soon as its
-    player leaves, never kept as "the one that stays open");
-  - both lists: `activeRuns` (so `full`, the burst cap) and `drained` (so a drain plays first runs
-    out, and `index.ts`'s drain log and stop), and `close` (a no-op on a closed world; drops the
-    first-run state);
-  - `tickAll` ticks first runs after the shared worlds, then hands off a `due` one or closes one
-    with no active player (this covers a join that threw).
-  Not counted against `WORLD_CAP`; capped per process by **`FIRST_RUN_CAP`** (env, default
+- **Three lists of worlds: `Worlds.worlds` (shared), `Worlds.privates` (decision #60,
+  private-6) and `Worlds.firstRuns` (decision #58, retest-4)**; a world is in exactly one. The
+  worlds themselves: `docs/world.md`, "Private worlds" and "First-run worlds". `openPrivate` and
+  `openFirstRun` build one per run with its own `Multiplayer`; `privateOf` and `firstRunOf` keep
+  its state (`OwnRun`: connection, start, the player, `due`). **Every reader of one list decides
+  what it does with the other two** (all in `network/worlds.ts`; specs walk each, mostly in
+  `private.spec.ts` and `firstrun.spec.ts`):
+  - shared worlds only: `choose` (both loops: a party code and the fullest world; it never returns
+    a private or first-run world, even for the party code of a human inside one), the shared bot
+    fill in `tickAll` (at `BOT_TARGET`), `closeIdle` (a private or first-run world closes as soon
+    as its human has gone, never kept as "the one that stays open");
+  - all three: `activeRuns` (so `full`, the burst cap, and `index.ts`'s SIGTERM log), `drained`
+    (so a drain plays private and first runs out, and `index.ts` stops), and `close` (a no-op on a closed world; removes
+    the world from every list and drops `privateOf`, `firstRunOf`, its fill and `emptySince`);
+  - `privates` alone: `privateFull` (`PRIVATE_CAP`) and `tickAll`'s private loop, run after the
+    shared worlds (its own fill at `privateBotsFor`, `exitLeaving`, then a `due` run's
+    `padHandoff`, else close with no active player);
+  - `firstRuns` alone: `firstRunFor` (`FIRST_RUN_CAP`) and `tickAll`'s first-run loop, after the
+    private one (no bots; a `due` run's `handoff`, else close with no active player, which covers
+    a join that threw);
+  - the disconnect handler closes a private or first-run world at once (`privateOf`/`firstRunOf`).
+  Neither private nor first-run worlds count against `WORLD_CAP`. `FIRST_RUN_CAP` (env, default
   `FIRST_RUN_CAP_DEFAULT` 50, provisional): over it a start plays a normal run and the account
-  stays not done.
-- **A first run ends with `runOver` set before anything destroys its player.**
+  stays not done. `PRIVATE_CAP` (env, default 500): over it a start is sent `full`. **Outside
+  `worlds.ts`, `tools/load/probe.cjs` reads `worlds` only**, so it undercounts players and mobs
+  once runs are private (not fixed).
+- **A first run, and a private world's pad, end the old player with `runOver` set before
+  anything destroys it.**
   `Multiplayer.destroy` runs a run's end (gear settle, Redis stats, GA `run_end`, XP grant, the
-  energy refund through `runEnded`) only while `runOver` is false. `Worlds.handoff` (the pad), in
-  order: `runOver = true`; the play (`paid`) taken off the private player; `finishFirstRun`
+  energy refund through `runEnded`) only while `runOver` is false. `Worlds.handoff` (a first run's
+  pad), in order: `runOver = true`; the play (`paid`) taken off the first-run player; `finishFirstRun`
   (in memory at once, the store write bounded and not awaited); GA `first_run_done`; emit
   `handoff`; `connection.started = false`; `begin` with a `Join` (`clearance`
   `HANDOFF_CLEARANCE` 6, and `prepare` copying loot, `kills` and `carryKills`, `progress/run.ts`,
-  into the new player before the join snapshot); `paid` set on the new player; the private world
-  closed in `finally`. A drain, or a `begin` that throws: refund and `Worlds.redirect`, the
+  into the new player before the join snapshot); `paid` set on the new player; the first-run
+  world closed in `finally`. A drain, or a `begin` that throws: refund and `Worlds.redirect`, the
   account stays done. `leaveFirstRun` (from the disconnect handler, before the release) sets
   `runOver`, refunds and sends `first_run_left`; the account stays not done. A spec drops each
-  `runOver` and sees XP and `run_end` fire.
+  `runOver` and sees XP and `run_end` fire. With private runs the first run's `begin` is
+  `beginPrivate` (a new private world, even over `PRIVATE_CAP`).
+  **`Worlds.padHandoff`** (a private world's pad), in order, all in one synchronous step:
+  `runOver = true`; `paid` and `brought` taken off the old player; GA `private_done`; emit
+  `handoff`; `connection.started = false`; HP, armor, `createdAt` and `firstLootAt` read and
+  **the gear taken off the old player** (`takeCarried`), because the join's move destroys it and
+  `close` discards every gear instance still on any player listed in the world, destroyed ones
+  included (before private-7 that deleted the stash rows a run had brought); `joinIn` into
+  `choose(start.party)` with a `Join` (`continues`: no `run_start`; `prepare` copying loot, kills,
+  `carryKills`, `giveCarried`, HP and armor capped at the new max, `createdAt`, `firstLootAt`);
+  `paid` and `brought` set on the new player and any gear with no place `uncarry`'d; the private
+  world closed in `finally`. No `finishFirstRun`, no `first_run_*`. It always hands off, a drain
+  included; a join that throws: the carried rows `uncarry`'d (found items lost), refund,
+  `Worlds.redirect`.
 - **The world is not persisted.** It lives entirely in memory. Redis holds cumulative
   `stats-*` hashes (and the `player-<id>` first days); Postgres holds guest accounts only
   (see Accounts). This is why the tick has an error boundary — an uncaught throw would

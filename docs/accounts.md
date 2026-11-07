@@ -106,6 +106,13 @@ than 30 minutes ends at cap + 1 (never higher: above the cap no clock runs). The
 plays under READY (`net/energy.ts` `energyLine`, counted forward on the client) and disables READY
 at 0 until the next play is due; the server decides regardless. Every start now waits one database
 round trip (a transaction of four statements) before its `hello`.
+**Across a private world's pad** (#60, private-6; `docs/world.md`, "Private worlds"): a run in a
+private world and its continuation in a shared world are one run and cost **one** play. The play
+spent at the start moves to the shared world's player at the pad (`paid`, `padHandoff`), so the
+run's extraction refunds it wherever it happens (layers 01-02 or deeper) and its death or the
+player's own disconnect keeps it spent, as for any run. A pad whose join throws refunds the play
+and redirects. At `PRIVATE_CAP` a start is sent `full` before the account and the play, so
+nothing is spent.
 
 **First run** (decision #58 and addenda 5-6; tasks retest-3/4; the world: `docs/world.md`,
 "First-run worlds"; `Worlds`: `docs/server-invariants.md`). **Once per account.** Migration 8,
@@ -124,11 +131,11 @@ run. **Who gets one** at `Worlds.start`: the start asks (`start_requested.firstR
 current client sends it, the server decides), the account is persisted with `firstRunDone === false`,
 the store has `finishFirstRun`, no drain, and fewer than `FIRST_RUN_CAP` first runs open. Otherwise
 today's run, and the account stays not done. **Energy:** intro + the run after it cost **one** play,
-spent at the start as usual; at the handoff the paid play moves to the shared run's player, so that
-run's extraction refunds it and its death doesn't. **Leaving halfway** (disconnect, closed tab)
+spent at the start as usual; at the handoff the paid play moves to the private world's player (and
+at its pad to the shared one's, above), so that run's extraction refunds it and its death doesn't. **Leaving halfway** (disconnect, closed tab)
 refunds the play and leaves the account not done, so the next start replays the first run from its
 beginning (#58 addendum 5, Archie's default). The account is marked done at the handoff (in memory
-at once, the store write not awaited); a handoff that can't join a shared world (drain, `begin`
+at once, the store write not awaited); a handoff that can't join (drain, `begin`
 threw) refunds and redirects, and the account stays done. **No `bring`:** a start that will be a
 first run equips no stash gear. **XP:** the first run's kills are carried (`carryKills`) and paid at
 the shared run's end with its loot; nothing is granted at the handoff. With the strip's content the
@@ -137,7 +144,8 @@ for Dez/Nick: a `rock` key in `PROGRESSION.kills.mob` would change it), and ever
 banked at once is 23 XP, below level 2's 40, so the first run alone doesn't open Melee (spec'd).
 Redis `stats-lootCollected` gets the carried loot at the shared run's end. Two tabs on one account can
 each play a first run (the in-memory flag is per connection); accepted. An invite link opened by a
-new account plays the first run first, then hands off into the friend's world (open for Nick).
+new account plays the first run first, then its private world, then hands off at the pad into the
+friend's world (open for Nick).
 
 **Stash** (#49, 49-3..49-5, live 2026-10-05; see "Gear" for the items themselves). Migration 6:
 `stash_items` (a row is `state` 0 stashed or 1 carried; a carried row names `holder`, the boot id of
@@ -181,6 +189,10 @@ plays free and with no gear; whatever was carried but isn't on a live run's play
 | Death or own disconnect | nothing written; dropped on death | nothing written; dropped keeping `rowId` |
 | Extraction offline, under another account, or a bot's | lost | deleted (`discardGear`) |
 
+A private world's pad (#60, private-7) is **not** a run end: the run's gear (slots, bag, same
+instances and rows) moves to the shared world's player before the private world closes, so the table
+applies once, where the run ends; a pad whose join throws `uncarry`s the carried rows and loses found
+items (`docs/world.md`, "Private worlds").
 Keep and discard take the gear off the player before the write, so a cut-off player's disconnect
 sweep drops nothing. A dropped stash item expiring on the ground, and every stash item in a world
 being closed, is deleted too. Extraction never loses an item (Nick, #49): above 12 the stash asks for

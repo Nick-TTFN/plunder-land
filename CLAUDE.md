@@ -9,8 +9,10 @@ game is, how to verify, the rules at consumed boundaries, and the traps that fai
 An **extraction game**, not a battle royale: no rounds, no lobby match, no shrinking zone.
 Players join a `World` at a random point, loot, and leave through an `Exit` (a channel of
 `LAYERS.extractMs`), which banks the run; death scatters their loot (`createLootFrom`). A
-process holds several worlds (`WORLD_CAP`, `src/network/worlds.ts`). Three ground layers,
-tags 0 / -1 / -2, deeper is richer and deadlier; every per-layer number is in `LAYERS`
+process holds several worlds (`WORLD_CAP`, `src/network/worlds.ts`). Five ground layers,
+tags 0 to -4, deeper is richer and deadlier. Every run starts in a private world of its own
+(layers 01-02: NPCs and bots, no other human), and a pad on 02 hands it off into a shared world
+(03-05), where humans meet. Every per-layer number is in `LAYERS`
 (`src/archetypes/archetypes.ts`), every unit stat in `ARCHETYPES` beside it, and **the client
 never hardcodes a layer tag** (`hello.layers`). `services/battle-royale-server` is a leftover
 name. The world lives in memory only; Postgres holds accounts, progression and the stash,
@@ -23,7 +25,7 @@ backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 
 | Topic (quoted section names in the docs) | File |
 |---|---|
-| World, layers, portals, spawns, valleys, walls ("What this actually is", "Walls inside the islands"), first-run worlds, known-unfixed | `docs/world.md` |
+| World, layers, portals, spawns, valleys, walls ("What this actually is", "Walls inside the islands"), first-run worlds, partial and private worlds, the pad, the private map, known-unfixed | `docs/world.md` |
 | Server invariants: worlds per process, `World.run`, `Timers`, cell indexes, dead units, spec flakes ("Things that are deliberate") | `docs/server-invariants.md` |
 | Verification detail, builds, Node/swc, Railway IaC, running locally, Sentry, GA4, bundle size, lockfiles | `docs/dev-and-ops.md` |
 | Load harness, tickbench, CPU per player | `docs/load-testing.md` |
@@ -143,9 +145,20 @@ Old clients stay open across releases and other code reads these formats, so:
 - **Reactor and Brood fill 7 cells; `UNITS` holds only the centre.** A cell walk of `UNITS`
   that should hit or hold mobs must also read `World.bodyAt`, or misses their rings silently.
 - **Projectiles are removed only in `World.updateProjectiles`** (walks backwards).
-- **Every reader of `Worlds.worlds` decides about `Worlds.firstRuns`** (private first-run worlds
-  live only there), and **a first run sets `Player.runOver` before anything destroys its player**,
-  or its end grants XP, refunds, writes stats and sends `run_end` (`docs/server-invariants.md`).
+- **Every reader of `Worlds.worlds`, `Worlds.privates` or `Worlds.firstRuns` decides about the
+  other two** (a world lives in exactly one), and **a first run's or a private world's pad sets
+  `Player.runOver` before anything destroys its player**, or its end grants XP, refunds, writes
+  stats and sends `run_end` (`docs/server-invariants.md`).
+- **`Worlds.close(world)` discards every gear instance still on any player listed in the world,
+  destroyed ones included**: anything handed off to another world comes off the old player first.
+- **A portal lookup that should hop someone uses `World.portalOn`; one that should stop a route
+  also checks `World.padOn`** (pads out of a partial world), or the server walks across a pad the
+  client stops on.
+- **A private world's terrain is shared by every private world and throws on write**: its
+  `VOIDS`/`WALLS` Sets, `VOID_RUNS`/`WALL_RUNS` arrays and `BLOCKED`'s base (a frozen base under a
+  per-world overlay); a per-world change is an obstacle in the overlay. A change to the private
+  map's seed, its generators or a `LAYERS` row they read is a new map for every player
+  (`privatemap.spec.ts` `DIGEST`).
 - **`LocalPlayer._step` mirrors the server's `Unit.walkPath`, and `LocalPlayer.knockback`
   mirrors `Player.knockback`** (effect 15, applied with the same flush's `lastInputSeq`):
   change one, change the other (`extract.spec.ts` will tell you). The Compactor's

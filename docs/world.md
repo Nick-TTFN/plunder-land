@@ -5,9 +5,11 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
 ## What this actually is
 
 An **extraction game**, not a battle royale. There is no round, no lobby, no match
-start/end and no shrinking play area. A process holds one or more `World`s (#39): each run
-goes to the fullest world under `WORLD_CAP`, a new one opens when all are full, and an empty
-one closes after `WORLD_IDLE_MS` (one always stays open). Players join at a random point and leave through an
+start/end and no shrinking play area. A process holds one or more `World`s (#39). **Every run
+starts in a private world of its own** (decision #60, below) holding layers 01-02, and a pad on
+02 hands it off into a shared world holding 03-05, where humans meet: the fullest shared world
+under `WORLD_CAP`, a new one when all are full; an empty shared world closes after
+`WORLD_IDLE_MS` (one always stays open). Players join at a random point and leave through an
 `Exit`, which banks the run. Death scatters your loot on the ground via
 `createLootFrom(player)` — the same path mobs use.
 
@@ -15,21 +17,24 @@ The `services/battle-royale-server` directory name is a leftover from an abandon
 direction. So was `area/circlearea.ts`, an unused storm-shaped damage area, deleted in
 hex-cells P4.
 
-The world is **three ground layers**, 01 on top to 03 at the bottom, with tags **0, -1, -2**
-(depth is `-tag`). Deeper is richer and more dangerous (decisions #3, #16, #26). **Layers 01 and 02 pay almost
+The world is **five ground layers**, 01 on top to 05 at the bottom, with tags **0, -1, -2, -3,
+-4** (depth is `-tag`; 04 and 05 are #60 Q19's, task private-8). Layers 01-02 are private
+(`LayerSpec.owned`), 03-05 shared. Deeper is richer and more dangerous (decisions #3, #16, #26). **Layers 01 and 02 pay almost
 nothing** (#60's loot cut, 2026-11-06): 10 natural pickups worth 2-4 each and NPC drops at a
 tenth of the old ×1 / ×1.75, so real loot, XP from loot and season credit start on layer 03,
 where humans meet. **Every
 per-layer number lives in one table, `LAYERS` in `src/archetypes/archetypes.ts`**: tag, loot
-multiplier (×0.1 / ×0.175 / ×3 on natural pickups and on every mob's loot, not on what a dead
-player drops), the void share (1/3 each, the valleys), natural loot cap (10 / 10 / 150, death drops
-uncapped), portals up and down, exits (4 each, #10) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
+multiplier (×0.1 / ×0.175 / ×3 / ×5 / ×7 on natural pickups and on every mob's loot, not on what a dead
+player drops), the void share (1/3 each, the valleys), natural loot cap (10 / 10 / 150 / 150 / 150, death drops
+uncapped), portals up and down, exits (2 / 2 / 4 / 4 / 3), extraction time (5 / 7 / 9 / 11 / 13 s),
+medkits (3 / 3 / 12 / 14 / 16), bombs (1 / 1 / 7 / 9 / 11), gear caches (1 / 1 / 2 / 2 / 3) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
 Crawler packs and single NPCs per layer, built by `npcPopulation` from `NPC_NUMBERS.layers`.
+Gates, items and caches are Dez's rows (`ideas/private-layers-numbers.md`, task private-8): the
+private layers' "config C", the shared ones at the shared map's density.
 **The NPC rows of layers 01 and 02 are area-scaled for the private map** (2000, a quarter of the
 shared 4000's area; #60 addendum 2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1):
 01 one Crawler pack and one Compactor (~3.9 mobs alive), 02 two packs (Coil escort 0.6), two
-Compactors, a Kiln and a Reactor (~11). Their gates, items and caches still have the shared
-map's counts (task private-8). The rows are read wherever a world holds those layers: private
+Compactors, a Kiln and a Reactor (~11). The rows are read wherever a world holds those layers: private
 worlds in production, and a shared world holding every layer only when `privateRuns` is
 `false` (specs, and the load tools' old modes), which then runs them sparse on a 4000 map. A
 first-run world never refills from them.
@@ -38,8 +43,9 @@ entry per tick; **a pack entry counts live packs, a single entry counts live mob
 pack** (`packsAlive`), so a pack is replaced only when all its members are dead. The layer tags reach the client in `hello.layers`; **the client
 never hardcodes a tag**.
 
-**Portals chain 01 ↔ 02 ↔ 03 and move players only** (#26): 10 down on 01, 5 up and 5 down
-on 02, 10 up on 03. A player whose tick ends on a portal's cell is put down on that portal's
+**Portals chain 01 ↔ 02 ↔ … ↔ 05 and move players only** (#26): 4 down on 01; 2 up and 3 down on 02,
+the down ones pads out of the private world ("Partial worlds"); none up on 03 (#60 Q3: it would lead to
+the private 02, which no shared world holds) and 10 down; 5 up and 5 down on 04; 5 up on 05. A player whose tick ends on a portal's cell is put down on that portal's
 **arrival cell**, its east neighbour (`World.arrivalOf`, #31 Q3, #33), on the layer it leads
 to, on the cell's centre, and stops (`Player.hopPortal`). Routes end on a portal's cell on
 both sides (`Unit.endAtPortal` / `LocalPlayer._endAtPortal`, via `stopsOn`), so a dash can't
@@ -53,14 +59,15 @@ the layer it leads to (`World.placeGate`; `World.gateKeepOut` is the same disc),
 each arrival cell and its neighbours, so a pad is always reachable and nobody lands in a
 valley. Both are plain
 constants since hex-cells P2; they were derived from push-out radii before. New players join
-on layer 01 on a free cell centre at least `World.SPAWN_CLEARANCE` (3) cells from every
+on their world's top layer (`World.topLayer`: 01 in a private world, 03 for a pad's join into a
+shared world) on a free cell centre at least `World.SPAWN_CLEARANCE` (3) cells from every
 portal, exit and spawn hazard (an epic or legendary NPC, `World.isSpawnHazard`: Reactor,
 Brood, and the retired boss), and from other mobs when possible (`World.spawnCell`); distances
 are from a unit's centre cell, so a Reactor's or Brood's 7-cell body is 2 rings from the edge
 (`docs/npcs.md`, "Bodies"), and such a body spawns only where all 7 cells are free (`spawnMob`,
 `World.mobFits`). A fully random spawn
 put about 1 join in 250 close enough to an exit to leave within a second. Bots join on any
-layer (`docs/bots-and-spectate.md`); a first run's handoff joins layer 01 with clearance 6 (below).
+layer (`docs/bots-and-spectate.md`); a first run's handoff joins a private world's layer 01 with clearance 6 (below).
 The airborne plane,
 its clouds and the half-alpha "ground seen from above" are gone; only the player's own layer
 is drawn.
@@ -68,14 +75,15 @@ is drawn.
 ## First-run worlds
 
 **A new account's first run is a private mini world, ending in one teleport into layer 01 of a
-shared world** (decision #58; built in tasks retest-3/4/5). Who gets one, energy and the account
+private world** (decision #58; built in tasks retest-3/4/5; into a private world rather than a
+shared one since #60 Q15, task private-6). Who gets one, energy and the account
 flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every reader of `worlds`):
 `docs/server-invariants.md`, "First-run worlds". Wire: `docs/wire-format.md` (`handoff`).
 
 - **A real `World` per first run**, built `World.build(FIRST_RUN.mapSize, { firstRun: true })`:
   the constructor returns before any carving (no valleys, portals, exits or walls), `World.update`
   skips `refillLayer` and mobs drop no gear (`createGearFrom` skipped). `World.TAGS` and `LAYERS`
-  are unchanged, so `hello.layers` is the usual three and the player stands on the first; making
+  are unchanged, so `hello.layers` is the usual five and the player stands on the first; making
   `LAYERS` per world was rejected (24 readers in 13 files). The map is sent in `hello.map` as for
   any world, so the client takes the small map as it takes a new world.
 - **The content is `firstrun/scenario.ts` (`FIRST_RUN`, `buildFirstRun`)**, Dez's strip
@@ -99,10 +107,11 @@ flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every re
   nowhere (`World.portalOn`, `World.isArrival`, `gateKeepOut`, the client's `_stopsOn`), so it hops
   nobody, ends no route and is no arrival cell; the client labels it LAYER 01, where it leads.
   `Player.update` calls `World.handoff` when a human stands on a handoff gate in a world that has
-  a `handoff` set (`Player.onHandoffGate`; only first-run worlds set one today; never for a bot);
+  a `handoff` set (`Player.onHandoffGate`; first-run and private worlds set one; never for a bot);
   `Worlds` hands off after the tick. An exit pad was rejected: its
   channel and EXTRACTING cues say the player is leaving.
-- **The handoff's join** lands on layer 01 at a normal random spawn cell with **mob clearance 6**
+- **The handoff's join** opens a new private world (`beginPrivate`, even over `PRIVATE_CAP`) and
+  lands on its layer 01 at a normal random spawn cell with **mob clearance 6**
   (`HANDOFF_CLEARANCE`, `network/worlds.ts`) for that spawn only: `World.spawnCell(tag, clearance =
   SPAWN_CLEARANCE)` takes it as a parameter, and every other join keeps 3.
 - **Measured (retest-4, this Mac):** with the strip's 5 mobs, 50 concurrent first runs cost
@@ -119,8 +128,10 @@ flag: `docs/accounts.md`, "First run". The `Worlds` side (its own list, every re
 
 ## Partial worlds
 
-**A world can hold only some of the layers** (decision #60, task private-1, 2026-11-06;
-mechanism only: no world is built this way until private-6). `World.build(size, { layers })`
+**A world can hold only some of the layers** (decision #60, task private-1, 2026-11-06). Since
+private-6 every production world is one: a private world holds 01-02, a shared world 03-05
+(`Worlds.privateTags`/`sharedTags`, from the `owned` flags); only `privateRuns: false` (specs,
+the load tools' old modes) builds a world holding every layer. `World.build(size, { layers })`
 takes the tags it holds (`WorldOptions.layers`; an empty list or an unknown tag throws); left
 out, it holds every layer, and such a world is unchanged (a seeded comparison of hello bytes,
 gates and mob counts against the commit before was identical).
@@ -154,15 +165,66 @@ gates and mob counts against the commit before was identical).
   placeholders through every reader of the parallel `layers`/`terrains`/`walls` arrays for
   that. Re-measure before proposing it again if maps grow past 4000 or a world leaves many
   more layers unheld. The planes are rebuilt at every world's hello (`Game.resetRun` drops
-  them on a handoff too), not once per session.
-- **Open (private-6):** the client ignores input on a pad until its tag changes
-  (`LocalPlayer.awaitingHop`), so a refused or delayed handoff would leave the player stuck on it.
+  them on a handoff too), not once per session. Since private-8 a shared world leaves two
+  layers unheld at map 4000 and a private world three at map 2000 (a quarter of the cells);
+  not re-measured.
+- **A pad always hands off.** The client ignores input on a pad until its tag changes
+  (`LocalPlayer.awaitingHop`), so `Worlds.padHandoff` never refuses (a drain, `MAX_PLAYERS`,
+  `PRIVATE_CAP` and `WORLD_CAP` included); only a join that throws redirects the client, which
+  reconnects (below, "Private worlds").
+
+## Private worlds
+
+**Every run starts in a private world of its own** (decision #60, tasks private-6, -6b, -7):
+`Worlds.begin` sends any start that isn't a first run to `beginPrivate`, whatever its party code
+(Q5: the private layers are solo; the code is kept on the connection for the pad). The world
+lives in `Worlds.privates`, never in `worlds` (readers: `docs/server-invariants.md`).
+
+- **Built** `World.build(PRIVATE_MAP_SIZE, { layers: privateTags, map: PRIVATE_MAP })`: map 2000,
+  the `owned` layers (01-02) on the one private map (above), with its own `Multiplayer` and bot
+  fill. Before the join, `Worlds.prefill` runs dt-0 updates until a pass adds no object (at most
+  `PREFILL_TICKS`, 32), so the refill's mobs and pickups are placed and the join's spawn
+  clearance measures something. The human joins layer 01; NPCs and bots, no other human.
+- **Bots:** a target per layer the human is on (`PRIVATE_BOTS`, `docs/bots-and-spectate.md`).
+- **The pad.** Layer 02's down count places pads into the unheld 03 (`HandoffGate` with a real
+  `to`, "Partial worlds"); no pads up from 03. A human standing on one marks the run `due`, and
+  after the tick is flushed `Worlds.padHandoff` hands it into `choose(start.party)`'s shared world
+  (a friend's with that party code under `WORLD_CAP`, else the fullest; a new one when all are
+  full), on its top layer (03) at the usual `SPAWN_CLEARANCE`. Order and side effects:
+  `docs/server-invariants.md`; wire: `docs/wire-format.md` (`handoff`); energy: `docs/accounts.md`.
+- **What the pad carries** (Q6, task private-7): the whole run. Loot, kills and kill credit
+  (`carryKills`); the gear slots, bag and item stacks, every instance the same object, its stash
+  row kept (`Player.takeCarried` on the old player, `giveCarried` on the new one before its join
+  snapshot; anything that finds no place goes back to the stash if it has a row, and none does
+  for the same robot, which a pad always plays); HP and armor,
+  each capped at the new player's max; the run's clock (`createdAt`, so `run_end.seconds`, the XP
+  time term and the stats' lifetime count the private part) and `firstLootAt`. **Not carried:**
+  buffs, statuses, cooldowns, a heal in progress, routes, spectators. The run sends no second
+  `run_start` (`Join.continues`) and one `run_end` wherever it ends; GA `private_done { seconds }`
+  at the pad.
+- **When the join fails** (it throws): the carried gear is on no player, so its stash rows go back
+  to the stash (`uncarry`); **found items (no stash row) are lost**. The play is refunded and the
+  client redirected (it reconnects to the lobby). The private world closes either way.
+- **Closes** (`Worlds.close`) after the pad's handoff, or once its human has gone: a death or an
+  extraction (at the end of that tick, `tickAll` finding no active player) or a disconnect (at
+  once, from the disconnect handler). A death in it watches nobody: `close` sends `spectate { id: null }` (Q9).
+  Closing discards every gear instance still in the world (pickups, and the gear of every player
+  still listed, destroyed ones included), which is why the pad takes the gear off the old player
+  first.
+- **`PRIVATE_CAP`** (env, default `PRIVATE_CAP_DEFAULT` 500 per process, Q11, provisional; 0 or
+  less: no cap): at that many open private worlds a start is sent `full` with nothing spent
+  (`privateFull`, checked before the first-run test, so a first-run start is refused too). A first
+  run's pad opens one over it, so nobody is left on a pad.
+- **A drain** plays private runs out: `drained` counts them, and a pad hands off during a drain.
+- **`privateRuns: false`** (a `Worlds` option; specs of the shared-world rules and the load tools'
+  old modes): no layer is private and every run plays in a shared world holding every layer, as
+  before #60. Production (`index.ts`) never passes it.
 
 ## The private map
 
-**Every private world is built on one map** (decision #60, task private-5, 2026-11-06; mechanism
-only until private-6 builds private worlds): `World.build(size, { layers, map: PRIVATE_MAP })`
-(`src/objects/privatemap.ts`, `WorldOptions.map`).
+**Every private world is built on one map** (decision #60, task private-5, 2026-11-06):
+`World.build(PRIVATE_MAP_SIZE, { layers, map: PRIVATE_MAP })` (`Worlds.openPrivate`;
+`src/objects/privatemap.ts`, `WorldOptions.map`).
 - **Seeded, so it is the same in every process and across deploys.** The first private world a
   process builds runs the ordinary generation (`carveValleys`, `placeGate`, `placeWalls`) with
   `seeded(PRIVATE_MAP_SEED)` (mulberry32, integer math only) instead of `Math.random`, so the map
@@ -190,8 +252,8 @@ only until private-6 builds private worlds): `World.build(size, { layers, map: P
 - **A new map is a release.** A changed seed, a changed generator (`valleys.ts`, `walls.ts`,
   `World.placeGate`, `getUnobstructedPosition`) or a changed `LAYERS` row the map reads
   (`voidShare`, `wallShare`, gate counts) changes the map for every player. `privatemap.spec.ts`
-  pins its `DIGEST` (hello voids and walls plus gate sites); update it only on purpose. Today the
-  map uses today's gate counts (28 gates); private-8's rows will change it. The key does not
+  pins its `DIGEST` (hello voids and walls plus gate sites); update it only on purpose. Since
+  private-8's rows it has 13 gates (01: 4 down, 2 exits; 02: 2 up, 3 pads, 2 exits). The key does not
   include the `LAYERS` rows, so code that edits `LAYERS` after the first build gets the old map.
 - A world built with `firstRun` or `empty` ignores `map`.
 

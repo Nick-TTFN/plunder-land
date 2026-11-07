@@ -147,12 +147,14 @@ http://localhost:3000/?server=http://localhost:8000
 
 Smoke-test without a browser: connect a `socket.io-client`, emit `start_requested` (an
 object; the bare string is gone since #48; the server sends `account` first and makes a guest
-account for it), and count the `create` records. Since interest filtering (#35) a join gets
-only layer 01's terrain (10 portals and 4 exits; the valleys come in `hello.voids`, about 1 KB
-a layer) plus the units, pickups and StoneWall stones within its robot's `vision` + 1 rings
+account for it), and count the `create` records. Since #60 the join lands in a private world of
+its own (map 2000, `hello.layers` all five tags, layers 03-05 one all-void run each; without
+`firstRun: true` a new guest account gets no first run). Since interest filtering (#35) a join gets
+only layer 01's terrain (4 portals and 2 exits; the valleys come in `hello.voids`) plus the units, pickups and StoneWall stones within its robot's `vision` + 1 rings
 (server fog, #48), and its own `create_own`. (Before the valleys it was about 150 terrain records plus 10-20, 4-11 KB, not
-re-measured since.) The whole-world counts (per layer: the void share, 150 loot, the item and mob
-numbers in `LAYERS`) are checked by the world specs, not by a join.
+re-measured since.) The whole-world counts (per layer: the void share, the natural loot cap, the item and mob
+numbers in `LAYERS`) are checked by the world specs, not by a join. Reaching a shared world takes
+walking to a pad on layer 02, so a join-only smoke test sees only a private world.
 
 ## Bundle size
 
@@ -193,7 +195,10 @@ whether or not the settle lands). The first run (#58) sends none of `run_start`,
 `run_end` (its loot and kills ride into the shared run, whose events count them); it sends
 `first_run_start` (`robot`), `first_run_done` (`seconds` to the handoff) and `first_run_left`
 (`seconds`, a disconnect inside it). First-run extraction rate = `first_run_done` followed by that
-player's `run_end` with `extracted`. Smoke tests against production send real events, and since #48 the
+player's `run_end` with `extracted`. Private worlds (#60 Q16): the run's one `run_start` is sent in
+its private world, `private_done` (`seconds` from the private world's join to its pad) when it takes
+the pad, no second `run_start` in the shared world, and one `run_end` wherever the run ends (none of
+`private_done` for a run that ends on 01-02). Smoke tests against production send real events, and since #48 the
 server picks the id, so record the id the `account` event gives the smoke test.
 
 **Visits and portals (#56, for the itch soft launch and the CrazyGames gate).** The client says

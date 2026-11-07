@@ -49,7 +49,11 @@ healed each tick so the population stays engaged, effects counted by type). Rele
 as a scratch copy (`l1-10-release.md` in the project memory has the numbers); folding it into
 `tickbench.cjs` as options is open. With NPCs that draw from the seeded `Math.random`, two builds
 bench different worlds (check `avgHolders`, `moving`, the counts) and part of any difference is
-the world, not the cost.
+the world, not the cost. **Since #60 it is not production's shape either:** its `new World(4000)`
+holds every layer and its players join tag 0, which is now a private layer with the area-scaled
+NPC rows on a 4000 map, while a production shared world holds 03-05 and its humans join on 03.
+It still compares two builds of the same tick; a variant joining a shared-shaped world (Beck's
+scratch `SHARED=1`, private-8) is not committed.
 `GEAR=<0-2>` makes every player equip that many max-roll T3 items. **Its world is seeded
 through `Math.random`, and the gear caches (`World.refillCaches`, including its
 `getUnobstructedPosition`) draw from it**, so a build that adds or moves a draw benches a
@@ -62,17 +66,28 @@ agrees; measured that way 49-2 cost +0.094 ms a tick (+3.1%, accepted by Nick, #
 still per tick of the loop, and its counts are summed over the open worlds (`worlds` is the
 number open). It reads each world's own lists: with `World.strict` on, a static `World.X`
 outside `World.run` throws, which is the point, so anything added to the probe must do the
-same.
+same. **The probe reads `Worlds.worlds` only** (`counts()`), so since #60 it misses every
+private and first-run world: its players and mobs undercount once runs are private (not fixed).
 
 ## Private worlds (decision #60)
 
-`tools/load/privatebench.cjs` (`node --expose-gc`, `MODE=private|shared`, `N`, `BOTS`, `MAP`):
-N one-human worlds through the real `Worlds` (cap 1, bots topping up) against the same humans
-in one shared world, with a simulated clock so bots and NPC timers run. Prints ms per tick per
-human, heap/RSS per human after a GC and `World.build`'s time. No sockets. Without `PRIVATE` or `LAYERS`, every world is a full 3-layer build: an upper bound for a
-two-layer copy.
+`tools/load/privatebench.cjs` (`node --expose-gc`; options in its header). **`MODE=real` is the
+production path** (private-6): every human starts in a private world of its own through the real
+`Worlds` (`Worlds.privates`, `openPrivate`, the private map, `prefill`), with `PRIVATE_BOTS` bots
+by the human's layer (a comma list, default the code's `PRIVATE_BOTS_DEFAULT`) and no
+`PRIVATE_CAP`; `DESCEND=1` sends every human down a real portal to layer 02 at tick 100 and
+counts bots from then on (`maxBots`). Use it without `PRIVATE` and `LAYERS`. A simulated clock
+(250 ms a tick) runs bots and NPC timers; humans are healed every tick so no run ends. Prints
+ms per tick per human, heap/RSS per human after a GC, `World.build`'s time and the counts. No
+sockets, so sending isn't in it. Measured at `1436bb5`'s rows (private-8, Beck's runs, twice each,
+`MODE=real N=100,500 MAP=2000`): at 500, 0.0572 ms/tick and 0.071-0.072 MB heap per human; at
+100, 0.056 ms and 0.095-0.097 MB.
+The old modes, `MODE=private|shared` (`N`, `BOTS`, `MAP`), run with `privateRuns: false`: N
+one-human worlds holding every layer (cap 1, bots topping up to `BOTS`) against the same humans
+in one shared world. Without `PRIVATE` or `LAYERS`, every world there is a full five-layer
+build: an upper bound for a two-layer copy.
 
-`PRIVATE=1` builds every world as a real private world: the top two layers held
+`PRIVATE=1` (old modes only) builds every world as a private world: the top two layers held
 (`WorldOptions.layers`, so layer 02's down count places pads out of the world) on the shared
 `PRIVATE_MAP` (`WorldOptions.map`). Use it without `LAYERS`. The first build generates the map
 and is reported apart as `firstBuildMs`; `buildMsPerWorld` covers every later build. Measured

@@ -332,7 +332,7 @@ doubling backoff from 1 s to 15 s (never under `retryMs`, +-30% jitter); `hello`
 clears it. An older client just lands back in the lobby: no PROTOCOL bump. The cap's value needs a
 load test on Railway.
 
-**`hello`** is emitted once on join: `{ tick, map, interest, layers, skills }`; `skills` is the run's 4 skill ids, Q W E R, as the server resolved them (#48 step 4), and the client resets `Session.skills` on every hello. A first-run world's `hello` adds `firstRun: true` (absent otherwise, so the shared world's hello after a `handoff` clears it): the client's `Session.firstRun` turns on the tutorial hints (`docs/world.md`, "First-run worlds"). Nothing on the client
+**`hello`** is emitted once on join: `{ tick, map, interest, layers, skills }`; `skills` is the run's 4 skill ids, Q W E R, as the server resolved them (#48 step 4), and the client resets `Session.skills` on every hello. A first-run world's `hello` adds `firstRun: true` (absent otherwise, so the next world's hello after a `handoff` clears it): the client's `Session.firstRun` turns on the tutorial hints (`docs/world.md`, "First-run worlds"). Nothing on the client
 may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, top (01) first;
 the client builds one plane per entry when `hello` lands (it precedes the join's first
 flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hello` without
@@ -340,19 +340,26 @@ flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hel
 an older client hardcodes `[-1, 0, 1]` and has nowhere to draw tag -2. `voids` and `walls`
 are per layer in `layers` order, run-length over `Hex.mapCells(map)` (`docs/world.md`, "Map
 generation"); a layer the world does not hold (`docs/world.md`, "Partial worlds") gets
-`voids[i] = [0, cells]`, one all-void run, and `walls[i] = []`. Only a partial world sends that.
+`voids[i] = [0, cells]`, one all-void run, and `walls[i] = []`. Since #60 every production world
+is partial: a private world's hello carries all-void runs for 03-05, a shared world's for 01-02.
+Today's client reads them without a change (`Session.decodeRuns`).
 
 **`handoff`** (server → client, `{}`; #58, retest-4, `network/worlds.ts` `Worlds.handoff`): the
-player stood on a first run's pad. Emitted **before** the shared world's `hello`, join snapshot and
+player stood on a first run's pad. Since #60 (private-6) **a run can get two**: the first run's pad
+into a private world, and every private world's pad into a shared world (`Worlds.padHandoff`), so
+any run that takes a private world's pad gets one, first run or not. Emitted **before** the next world's `hello`, join snapshot and
 `create_own`, in the same socket stream, so the client (`Game.onHandoff`: `resetRun`, then
 `net/handoff.ts` `Handoff.begin`, i.e. `resetForRun` and a pending flag) drops everything of the
 private world before any record of the new one is read: **ids from the two worlds collide** (each
 world has its own id pool). No lobby in between, the run's socket handlers and HUD kept; the own
 create after it doesn't restart `Game.RUN` (`Handoff.takeOwnCreate`), so one run card covers intro
 and run (the HUD clock does restart). Order pinned by `firstrun.spec.ts` (`hello, handoff, hello`)
-and `runmap.spec.ts`, which plays the client half through it; real socket.io ordering is reasoned,
-not observed. Only a client that sent `firstRun` gets it. **The pad is a portal (type 8) with
+and `runmap.spec.ts`, which plays the client half through both handoffs (first run, private,
+shared); real socket.io ordering is reasoned, not observed. The pad's join sends no second
+`run_start` (`Join.continues`) and sends GA `private_done`; the shared world's `hello` has no
+`firstRun`. **The first run's pad is a portal (type 8) with
 `to === tag`** (`firstrun/gate.ts`), drawn and labelled as any portal (LAYER 01); no new type id.
+A private world's pad is the same class with the real `to` (-2), labelled LAYER 03.
 A first-run world also sends **archetype 16** (`rock`, `docs/npcs.md`), which an older client would
 draw as the old mob sprite, but no older client ever gets one.
 
@@ -441,7 +448,7 @@ connection's range is sent a `create`. A whole record can still arrive in `updat
 layer change keeps an object the client already holds (`switchLayer`).
 
 **Extraction is a channel, and exits are zones.** A player whose centre is on an exit's cell
-counts down that layer's `LAYERS.extractMs` (5 / 7 / 9 s). The check runs each tick at the
+counts down that layer's `LAYERS.extractMs` (5 / 7 / 9 / 11 / 13 s). The check runs each tick at the
 top of `Player.update` (`channelExtract`). Stepping off cancels it, and so does any hit that
 lowers hp + armor (a hit that Defend floors to 0 doesn't). Finishing calls `player.exit()`,
 and an exited player can't be hit. **Nothing is solid since hex-cells P2:** a player walks onto an exit's cell, and a mob never
