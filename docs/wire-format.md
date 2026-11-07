@@ -233,8 +233,9 @@ reloads the page at the lobby (`net/protocol.ts`; retries every 20 s, at most 6 
 number, while the matching client deploys). **Bump `PROTOCOL` with any change an older client
 can't read**, or (as in #48) one an older client would silently misbehave against; additive
 ones it already skips need none. Ship the client first all the same: the number only rescues
-tabs left open across a release. **`PROTOCOL` is 9 since the re-test build** (#58, retest-8;
-not yet live as of 2026-11-03): Melee now unlocks at level 2 and Defend at 3, so an older client's
+tabs left open across a release. **`PROTOCOL` is 10 since the private layers** (#60): every run's
+layer-02 pad now sends `handoff`, which a client older than its handler (2026-11-03) would ignore and
+then collide the private world's object ids with the shared world's. 9 was the re-test build (#58, retest-8): Melee now unlocks at level 2 and Defend at 3, so an older client's
 lobby offers Melee at 1 and Defend at 2 and the server refuses the save without the lobby knowing
 why (a silent misbehaviour); the bump also moves every open tab onto the auto-aim client. The first
 run alone needed none (only a client that asks gets it). 8 was pve-2 (#53, live at `502b902`: on 2026-10-12 Railway logged `release 502b902` and a production join got `protocol: 8`): the Compactor's slam is

@@ -50,5 +50,9 @@
  * Defend at 2, and this server refuses the save without the lobby knowing why.
  * The bump also moves every open tab onto the auto-aim client (retest-1).
  * The first run (retest-4) alone needed none: only a client that asks gets it.
+ * 10: private layers (decision #60). Every run now starts in a private world
+ * and its layer-02 pad sends `handoff` before the shared world's `hello`; a
+ * client older than the handler (2026-11-03) keeps the private world's
+ * objects and collides ids. Five layers in `hello.layers` too.
  */
-export const PROTOCOL = 9
+export const PROTOCOL = 10
