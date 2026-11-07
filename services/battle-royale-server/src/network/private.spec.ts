@@ -312,13 +312,19 @@ test('a descent inside a private world: the old layer\'s bots exit at once, and 
   const worlds = makeWorlds(store, { privateBots: [2, 3] })
   const { world, player } = await begin(worlds, store)
   const heal = (): void => { World.run(world, () => { player.hp = player.maxHP() }) }
+  // The most at once, not the count at the end: an NPC may kill a bot (at
+  // half HP on layer 01) and its replacement joins up to 2 s later (seen
+  // once in a full suite run).
+  let mostTop = 0
   for (let i = 0; i < 6; i++) {
     clock += 2500
     heal()
     worlds.tickAll(250)
+    mostTop = Math.max(mostTop, botsIn(world).length)
   }
+  assert.equal(mostTop, 2, 'not 2 bots with the human on the top layer')
   const top = botsIn(world)
-  assert.equal(top.length, 2, 'not 2 bots with the human on the top layer')
+  assert.ok(top.length > 0, 'no bot on the top layer: the descent checks nothing')
   assert.ok(top.every((bot) => bot.tag === World.TAGS[0]))
   descend(worlds, world, player)
   assert.ok(player.tag === PRIVATE_TAGS[1], 'the descent did not reach the second private layer')
