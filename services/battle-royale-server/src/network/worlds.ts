@@ -1317,18 +1317,31 @@ export default class Worlds {
    * 3. `handoff` to the client, before the shared world's `hello`.
    * 4. The run joins `choose(start.party)`'s shared world (Q5: a friend's
    *    under the cap, else the fullest), on its top layer (03) at the usual
-   *    `SPAWN_CLEARANCE`, carrying loot, kills and kill credit; no
-   *    `run_start` (`Join.continues`: it is the same run). The rest of the
-   *    run (gear, items, HP, the clock) is private-7's.
-   * 5. The play moves to the new player (`paid`).
+   *    `SPAWN_CLEARANCE`, carrying **the whole run** (Q6, task private-7):
+   *    loot, kills and kill credit; the gear slots, bag and item stacks,
+   *    every instance unchanged (`Player.takeCarried`/`giveCarried`); HP and
+   *    armor (max values are the robot's with that gear); the run's clock
+   *    (`createdAt`, so `run_end.seconds`, the XP time term and the stats'
+   *    lifetime count the private part) and `firstLootAt`. Not buffs,
+   *    statuses, cooldowns, a heal in progress, routes or spectators. No
+   *    `run_start` (`Join.continues`: it is the same run).
+   *    **The gear comes off the old player before the join**, in this same
+   *    synchronous step: the move destroys the old player (`release`, its
+   *    `runOver` already set, so no `gearEnded`) and `close` below discards
+   *    whatever gear is still on a player in the world, which deleted the
+   *    stash rows a run had brought in before private-7.
+   * 5. The play moves to the new player (`paid`), and so does the list of
+   *    stash rows brought in at the start (`brought`, for `run_end`'s
+   *    `gear_brought` and `gear_found`).
    *
    * **Always hands off, a drain included** (Q10: the run is live, and a
    * drain plays live runs out), and over `maxPlayers`, `PRIVATE_CAP` and
    * `cap` alike (`choose` opens a world): a refused handoff would leave the
    * player on the pad, where the client ignores every click until its layer
    * changes (`LocalPlayer.awaitingHop`). Only a join that throws redirects
-   * the client (and refunds the play), as the first run's does. The private
-   * world closes either way.
+   * the client (and refunds the play), as the first run's does, and returns
+   * the carried stash rows to the stash (`uncarry`; found items are lost).
+   * The private world closes either way.
    */
   private padHandoff (world: World, state: OwnRun): void {
     const { connection, start, data } = state
@@ -1339,10 +1352,16 @@ export default class Worlds {
       player.runOver = true
       const paid = this.paid.get(player)
       this.paid.delete(player)
+      const brought = this.brought.get(player)
+      this.brought.delete(player)
       Analytics.send(Worlds.runInfo(player, connection), 'private_done', { seconds: Math.round((Date.now() - player.createdAt) / 1000) })
       connection.socket.emit('handoff', {})
       connection.started = false
 
+      // Read and taken now, before the move destroys the old player.
+      const { hp, armor, createdAt, firstLootAt } = player
+      const carried = player.takeCarried()
+      let left: GearInstance[] = []
       let next: Player | undefined
       const join: Join = {
         continues: true,
@@ -1350,6 +1369,11 @@ export default class Worlds {
           into.loot = player.loot
           into.kills = player.kills
           carryKills(player, into)
+          left = into.giveCarried(carried)
+          into.hp = Math.min(hp, into.maxHp)
+          into.armor = Math.min(armor, into.maxArmor)
+          into.createdAt = createdAt
+          into.firstLootAt = firstLootAt
         }
       }
       try {
@@ -1359,11 +1383,18 @@ export default class Worlds {
         reportError('handoff', e)
       }
       if (next === undefined) {
+        // The carried gear is on no player in any world (a join that threw
+        // took its player back out): its stash rows go back to the stash, as
+        // for a run that didn't begin.
+        this.uncarry([...carried.slots.filter((item): item is GearInstance => item !== null), ...carried.bag])
         if (paid !== undefined) this.refund(paid, connection)
         if (!connection.closed) Worlds.redirect(connection)
         return
       }
       if (paid !== undefined) this.paid.set(next, paid)
+      if (brought !== undefined) this.brought.set(next, brought)
+      // None for the same robot, which a handoff always plays.
+      if (left.length > 0) this.uncarry(left)
     } finally {
       this.close(world)
     }

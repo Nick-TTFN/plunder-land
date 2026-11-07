@@ -36,6 +36,15 @@ export class Stats {
   lootCollected?: number
   lifeTime?: number
 }
+
+/** What a run carries across a private world's pad (`Player.takeCarried`). */
+export interface CarriedRun {
+  /** The gear slots, `GEAR_SLOTS` long, null for an empty one. */
+  slots: Array<GearInstance | null>
+  bag: GearInstance[]
+  items: Array<{ item: Item, count: number }>
+}
+
 export default class Player extends Unit {
   // Always set, by Unit's constructor; narrowed from Unit's optional one.
   declare archetype: Archetype
@@ -666,6 +675,41 @@ export default class Player extends Unit {
     out.push(...this._bag)
     this._bag.length = 0
     return out
+  }
+
+  /**
+   * What a run carries across a private world's pad (decision #60 Q6, task
+   * private-7): the gear slots as they stand, the bag, and the item stacks,
+   * all taken off this player (it is about to be destroyed by the move).
+   * Every instance is the same object, `rowId` included. For `giveCarried`.
+   */
+  takeCarried (): CarriedRun {
+    const slots = [...this._gear]
+    const bag = [...this._bag]
+    this.takeGear()
+    return { slots, bag, items: this.takeInventory() }
+  }
+
+  /**
+   * A carried run onto this new player, before its join snapshot: each slot's
+   * item into the same slot (`equipGear`, which applies its stats), the bag
+   * as it was (nothing moves between bag and slots, #49 Q3), the stacks.
+   * Returns what found no place (none, for the same robot it came from).
+   */
+  giveCarried (run: CarriedRun): GearInstance[] {
+    const left: GearInstance[] = []
+    run.slots.forEach((item, slot) => {
+      if (item !== null && !this.equipGear(slot, item)) left.push(item)
+    })
+    for (const item of run.bag) {
+      if (this._bag.length < GEAR_BAG) this._bag.push(item)
+      else left.push(item)
+    }
+    this.dirtyFields.add('carried')
+    for (const { item, count } of run.items) {
+      for (let i = 0; i < count; i++) this.addItem(item)
+    }
+    return left
   }
 
   /**

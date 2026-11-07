@@ -16,6 +16,8 @@ import type { StashEvent } from './stash'
 import { BRING_LEVEL, GEAR_STATS, type GearInstance } from '../utils/gear'
 import { SKILL_INFO } from '../utils/skills'
 import { xpToReach } from '../progress/xp'
+import { ObjectType } from '../objects/gameobject'
+import { Hex } from '../utils/hex'
 
 /**
  * Task 49-4's end-to-end run against the pg store: bring two stash items into
@@ -223,6 +225,93 @@ test('pg: a merge to Legendary before migration 7 answers store and keeps its in
     Worlds.ACCOUNTS_LOG = savedLog
     Worlds.accountReport = savedReport
     Worlds.mergeRandom = savedRandom
+    await ledger.close()
+    await store.close()
+  }
+})
+
+test('pg: a stash item brought into a private world and a found one ride the pad (private-7); extracting in the shared world keeps the row and inserts the found one once', async (t) => {
+  if (URL === undefined || URL === '') {
+    t.skip('TEST_DATABASE_URL not set')
+    return
+  }
+  assert.ok(isLocalDatabase(URL), 'TEST_DATABASE_URL is not on 127.0.0.1, localhost or ::1: refusing to touch it')
+  const store = new PgAccountStore({ connectionString: await ownDatabase() })
+  await store.migrateOnce()
+  store.ready = true
+  const ledger = new GearLedger(store, { timeoutMs: 3000 })
+  const savedLog = Worlds.ACCOUNTS_LOG
+  const savedReport = Worlds.accountReport
+  const reported: unknown[] = []
+  Worlds.ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000, () => Date.now(), () => {})
+  Worlds.accountReport = (e) => { reported.push(e) }
+  try {
+    await ledger.beat()
+    const { account, token } = await store.create()
+    await store.grant(account.publicId, xpToReach(BRING_LEVEL))
+    const ids = (await store.settleGear(account.publicId, ledger.holder, [], [item(SKILL_INFO.fireball.id)])).stash.map((row) => row.rowId)
+    assert.equal(ids.length, 1)
+
+    const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), accounts: store, ledger })
+    assert.ok(worlds.privateRuns, 'no private runs: this spec would test nothing')
+    const handlers: Record<string, (data?: unknown) => void> = {}
+    const stash: StashEvent[] = []
+    const socket = {
+      id: 'pg-pad',
+      handshake: { query: { frames: '1' }, auth: { token } },
+      on: (event: string, cb: (data?: unknown) => void) => { handlers[event] = cb },
+      emit: (event: string, data?: unknown) => { if (event === 'stash') stash.push(data as StashEvent); return true },
+      conn: { write: () => {}, close: () => { handlers.disconnect?.() } }
+    } as unknown as Socket
+    const connection = worlds.onConnection(socket)
+    await until('the stash on connect', () => stash.length === 1)
+    handlers.start_requested({ name: 'pg', bring: ids })
+    await until('the run', () => connection.player !== undefined)
+    const first = connection.player
+    const own = worlds.worldFor(connection)
+    assert.ok(first !== undefined && own !== undefined && worlds.privates.includes(own), 'not in a private world')
+    assert.equal(first.gear[0]?.rowId, ids[0])
+    const found: GearInstance = { tier: 1, skill: SKILL_INFO.icicle.id, rolls: [{ stat: GEAR_STATS.hp.id, q: 400 }] }
+    World.run(own, () => {
+      World.MOBS.length = 0
+      assert.ok(first.addGear(found))
+    })
+
+    // Down to the deepest private layer, then onto a pad.
+    const step = (pick: (gate: { to: number, handoff?: boolean }) => boolean): void => {
+      const gate = own.OBSTACLES.find((o) => o.type === ObjectType.Portal && o.tag === first.tag && pick(o as unknown as { to: number, handoff?: boolean }))
+      assert.ok(gate !== undefined, `no such gate on layer ${first.tag}`)
+      World.run(own, () => {
+        first.stop()
+        first.position = Hex.toPosition(Hex.toCell(gate.position))
+      })
+      worlds.tickAll(250)
+    }
+    const deepest = World.LAYERS.filter((l) => l.owned === true).at(-1)?.tag as number
+    while (first.tag !== deepest) {
+      const from = first.tag
+      step((gate) => gate.handoff !== true && gate.to < from)
+      assert.ok(first.tag < from, 'the portal hopped nobody')
+    }
+    step((gate) => gate.handoff === true)
+    const next = connection.player
+    const shared = worlds.worldFor(connection) as World
+    assert.ok(next !== undefined && next !== first && worlds.worlds.includes(shared), 'the pad did not hand off')
+    assert.equal(next.gear[0]?.rowId, ids[0])
+    assert.ok(next.gear[1] === found, 'the found item is not the same instance')
+
+    World.run(shared, () => { next.exit() })
+    await until('the stash after the settle', () => stash.some((e) => e.run !== undefined))
+    const last = stash.filter((e) => e.run !== undefined).at(-1) as StashEvent
+    assert.equal(last.items.length, 2)
+    assert.ok(last.items.some((i) => i.id === ids[0]), 'the brought row was not kept')
+    assert.deepEqual(last.run, { kept: 2, full: 0 })
+    const rows = (await store.pool.query('SELECT state FROM stash_items ORDER BY id')).rows
+    assert.deepEqual(rows.map((r) => r.state), [0, 0], 'not two stashed rows in the table')
+    assert.deepEqual(reported, [])
+  } finally {
+    Worlds.ACCOUNTS_LOG = savedLog
+    Worlds.accountReport = savedReport
     await ledger.close()
     await store.close()
   }
