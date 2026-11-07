@@ -18,7 +18,7 @@ never hardcodes a layer tag** (`hello.layers`). `services/battle-royale-server` 
 name. The world lives in memory only; Postgres holds accounts, progression and the stash,
 Redis cumulative `stats-*`. So: no serverless or sleep-enabled hosting.
 
-Decisions are numbered (#1–#51) in the project memory's `decisions.md`; task records and the
+Decisions are numbered (#1–#60) in the project memory's `decisions.md`; task records and the
 backlog are there too (`.claude/TEAM.md` explains the crew and the task store).
 
 ## Where things are documented
