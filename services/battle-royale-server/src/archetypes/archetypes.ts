@@ -977,7 +977,7 @@ export interface LayerSpec {
   exits: number
   /**
    * How long a player must stay on one of this layer's exits to extract, in
-   * ms (#16, #26: 5 / 7 / 9 s). Leaving the pad or taking damage starts it
+   * ms (#16, #26, #60 Q19: 5 / 7 / 9 / 11 / 13 s). Leaving the pad or taking damage starts it
    * over (`Player.channelExtract`).
    */
   extractMs: number

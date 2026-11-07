@@ -782,7 +782,7 @@ export default class World {
       World.VOID_RUNS.set(layer.tag, encodeRuns(voids, size))
     }
 
-    // Portals chain the layers in order: 01 <-> 02 <-> 03. A layer's up
+    // Portals chain the layers in order: 01 <-> 02 <-> ... <-> 05. A layer's up
     // portals lead to the one before it in LAYERS, its down portals to the one
     // after. A count with no layer to lead to is a table error, not a portal to
     // nowhere. In a partial world (`WorldOptions.layers`) an unheld layer

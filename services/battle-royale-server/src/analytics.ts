@@ -19,7 +19,7 @@ import type Redis from 'ioredis'
  * - `first_loot`: `seconds` from the start to the first loot picked up.
  * - `run_end`: `outcome` (`extracted`, `died`, `left`), `seconds`, `loot`
  *   (carried at the end: banked on an extraction, lost otherwise), `kills`,
- *   `deepest_layer` (1-3), `robot`, and `killed_by` (`robot`, `mob`, `other`)
+ *   `deepest_layer` (1-5), `robot`, and `killed_by` (`robot`, `mob`, `other`)
  *   on a death. `xp_gained` (decision #48 step 3, added with XP): the XP the
  *   run earned by the formula in `progress/xp.ts`, 0 on an offline run; sent
  *   whether or not the grant then reached the database. Gear (decision #49,
