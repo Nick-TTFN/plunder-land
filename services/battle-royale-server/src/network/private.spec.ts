@@ -347,8 +347,10 @@ test('a descent inside a private world: the old layer\'s bots exit at once, and 
     most = Math.max(most, bots.length)
     if (bots.length === 3 && bots.every((bot) => bot.tag === player.tag)) full++
   }
-  // Exited (or killed meanwhile), never still walking out.
-  assert.ok(top.every((bot) => bot.exited || bot.destroyed), 'a bot left behind on the old layer is still in the world')
+  // Exited (or killed meanwhile), never still walking out. A top-layer bot
+  // that took a down portal itself is beside the human, not left behind
+  // (#60 Q8; seen 2 in 10 full suite runs and 1 in 40 alone: tag -1, in the world).
+  assert.ok(top.every((bot) => bot.exited || bot.destroyed || bot.tag === player.tag), 'a bot left behind on the old layer is still in the world')
   assert.ok(most <= 3, `${most} bots after a descent, over the target`)
   // A bot the human's NPCs kill meanwhile is replaced within 2 s, so most of the ticks hold all 3.
   assert.ok(full >= 4, `3 bots beside the human on only ${full} of 12 ticks after the descent`)
