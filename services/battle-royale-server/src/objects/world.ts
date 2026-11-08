@@ -111,6 +111,9 @@ export interface WorldOptions {
  */
 export class WrongWorldError extends Error {}
 
+/** A world's `sides` when it has none: every layer is the whole map. */
+const NO_SIDES: ReadonlyMap<number, number> = new Map()
+
 export default class World {
   /** How long loot dropped on death survives on the ground, in ms. */
   static DROPPED_LOOT_LIFETIME = 30000
@@ -262,6 +265,12 @@ export default class World {
    * builds the set, so its checks stay a single comparison).
    */
   readonly held: ReadonlySet<number> | undefined
+  /**
+   * Layers played on a square smaller than the map (`PrivateMap.sides`, from
+   * `WorldOptions.map`): outside it the layer is void (the constructor) and
+   * random sites are drawn inside it (`sideOf`). Empty in every other world.
+   */
+  private sides: ReadonlyMap<number, number> = NO_SIDES
   PLAYERS: Player[] = []
   MOBS: Unit[] = []
   AREA_EFFECT: Area[] = []
@@ -662,6 +671,9 @@ export default class World {
   // writes the current world's. The fields are declared further up, next to
   // their documentation.
   static get mapSize (): number { return World.current.mapSize }
+  /** The side of the square layer `tag`'s ground lies in, from (0, 0): the map's, unless `sides` shrinks it. */
+  static sideOf (tag: number): number { return World.current.sideOf(tag) }
+  sideOf (tag: number): number { return Math.min(this.sides.get(tag) ?? this.mapSize, this.mapSize) }
   static set mapSize (value: number) { World.current.mapSize = value }
   static get FINISHED (): FinishedPlayer[] { return World.current.FINISHED }
   static set FINISHED (value: FinishedPlayer[]) { World.current.FINISHED = value }
@@ -756,7 +768,8 @@ export default class World {
     // if there is one, else generated below from its seed and left on it.
     const padsUp = options.padsUp === true
     const map = options.map
-    const mapKey = map === undefined ? '' : PrivateMap.key(size, World.TAGS.filter((tag) => this.holds(tag)), padsUp)
+    if (map !== undefined) this.sides = map.sides
+    const mapKey = map === undefined ? '' : PrivateMap.key(size, World.TAGS.filter((tag) => this.holds(tag)), padsUp, map.sides)
     if (map !== undefined) {
       map.check(mapKey)
       if (map.template !== undefined) {
@@ -773,8 +786,14 @@ export default class World {
     // The valleys first: gates are placed on the ground they leave. Only on
     // the layers this world holds, here and below.
     const built = World.LAYERS.filter((layer) => this.holds(layer.tag))
+    // A layer with a smaller side (`sides`) carves its valleys inside its
+    // square and is void outside it: the client draws off-map as void too.
     for (const layer of built) {
-      const voids = carveValleys(size, layer.voidShare, random)
+      const side = this.sideOf(layer.tag)
+      const voids = carveValleys(side, layer.voidShare, random)
+      if (side < size) {
+        for (const cell of Hex.mapCells(size)) if (!Hex.onMap(cell.x, cell.y, side)) voids.add(Hex.key(cell.x, cell.y))
+      }
       for (const cell of Hex.mapCells(size)) {
         if (voids.has(Hex.key(cell.x, cell.y))) World.block(cell.x, cell.y, layer.tag, null)
       }
@@ -909,9 +928,12 @@ export default class World {
     // (`HandoffGate` with that `to`), placed by the same rules: the unheld
     // layer is empty, so its clearance and arrival checks pass trivially.
     const reach = to === undefined ? [tag] : [tag, to]
+    // Drawn where both ends can be ground: a portal up into a smaller layer
+    // (`sides`) missed it on most tries and was skipped.
+    const side = to === undefined || !this.holds(to) ? this.sideOf(tag) : Math.min(this.sideOf(tag), this.sideOf(to))
 
     for (let attempt = 0; attempt < 60; attempt++) {
-      const pos = this.getUnobstructedPosition(tag, random)
+      const pos = this.getUnobstructedPosition(tag, random, side)
       if (pos === undefined) continue
       const cell = Hex.toCell(pos)
       if (!World.isClear(cell.x, cell.y, tag, World.GATE_ROCK_RINGS)) continue
@@ -1033,8 +1055,9 @@ export default class World {
     }
     const n = clearance
 
+    const side = World.sideOf(tag)
     for (let attempt = 0; attempt < World.SPAWN_TRIES; attempt++) {
-      const cell = Hex.toCell(new Vector(Random.RangeInt(0, World.mapSize), Random.RangeInt(0, World.mapSize)))
+      const cell = Hex.toCell(new Vector(Random.RangeInt(0, side), Random.RangeInt(0, side)))
       if (World.isBlocked(cell.x, cell.y, tag)) continue
       if (nearest(cell, hazards) >= n && nearest(cell, mobs) >= n) return { cell, fallback: false }
     }
@@ -1688,13 +1711,13 @@ export default class World {
    * now skip a tick instead; at roughly 2% occupancy the cap is never reached in
    * practice anyway.
    */
-  getUnobstructedPosition (tag: number, random?: () => number): Vector | undefined {
+  getUnobstructedPosition (tag: number, random?: () => number, side = World.sideOf(tag)): Vector | undefined {
     const rings = World.CLEAR_RINGS
 
     for (let attempts = 0; attempts < 40; attempts++) {
       const cell = Hex.toCell(random === undefined
-        ? new Vector(Random.RangeInt(0, World.mapSize), Random.RangeInt(0, World.mapSize))
-        : new Vector(Math.floor(random() * World.mapSize), Math.floor(random() * World.mapSize)))
+        ? new Vector(Random.RangeInt(0, side), Random.RangeInt(0, side))
+        : new Vector(Math.floor(random() * side), Math.floor(random() * side)))
 
       if (World.isClear(cell.x, cell.y, tag, rings)) return Hex.toPosition(cell)
     }

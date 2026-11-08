@@ -303,7 +303,7 @@ test('bots top a private world up to privateBots for its human\'s layer (2 on th
     clock += 2500
     for (const connection of [a.client.connection, b.client.connection]) {
       const player = connection.player as Player
-      World.run(worlds.worldFor(connection) as World, () => { player.hp = player.maxHP() })
+      World.run(worlds.worldFor(connection) as World, () => { player.hp = player.maxHP(); player.hit = () => false })
     }
     worlds.tickAll(250)
     most.private = Math.max(most.private, botsIn(a.world).length)
@@ -320,7 +320,9 @@ test('a descent inside a private world: the old layer\'s bots exit at once, and 
   const store = new Store()
   const worlds = makeWorlds(store, { privateBots: [2, 3] })
   const { world, player } = await begin(worlds, store)
-  const heal = (): void => { World.run(world, () => { player.hp = player.maxHP() }) }
+  // Healed and unhittable: these specs count bots, and since 01 and 02 shrank
+  // (2026-11-08) their NPCs could kill a human between two heals (4 in 200 runs).
+  const heal = (): void => { World.run(world, () => { player.hp = player.maxHP(); player.hit = () => false }) }
   // The most at once, not the count at the end: an NPC may kill a bot (at
   // half HP on layer 01) and its replacement joins up to 2 s later (seen
   // once in a full suite run).
@@ -332,9 +334,10 @@ test('a descent inside a private world: the old layer\'s bots exit at once, and 
     mostTop = Math.max(mostTop, botsIn(world).length)
   }
   assert.equal(mostTop, 2, 'not 2 bots with the human on the top layer')
-  const top = botsIn(world)
+  // The bots still up top: one may already have taken a down portal itself
+  // (more often since 01 shrank to a 1000 square, 2026-11-08: 1 in 20 runs).
+  const top = botsIn(world).filter((bot) => bot.tag === World.TAGS[0])
   assert.ok(top.length > 0, 'no bot on the top layer: the descent checks nothing')
-  assert.ok(top.every((bot) => bot.tag === World.TAGS[0]))
   descend(worlds, world, player)
   assert.ok(player.tag === PRIVATE_TAGS[1], 'the descent did not reach the second private layer')
   let most = 0
@@ -389,7 +392,7 @@ test('a private world holds Dez\'s area-scaled NPC counts on each private layer 
   for (let tick = 0; tick < TICKS; tick++) {
     // The human stands still and is kept alive; nothing kills an NPC, so
     // each layer fills to its rows and stays there.
-    World.run(world, () => { player.hp = player.maxHP() })
+    World.run(world, () => { player.hp = player.maxHP(); player.hit = () => false })
     worlds.tickAll(250)
     assert.ok(!world.closed, 'the private world closed')
     World.run(world, () => {
@@ -553,9 +556,11 @@ test('a death inside a private world ends the run normally (stats, run_end, XP, 
   const { client, token, world, player } = await begin(worlds, store)
   for (let i = 0; i < 4; i++) {
     clock += 2500
-    World.run(world, () => { player.hp = player.maxHP() })
+    World.run(world, () => { player.hp = player.maxHP(); player.hit = () => false })
     worlds.tickAll(250)
   }
+  // The real `hit` back (the prototype's) for the kill below.
+  delete (player as { hit?: unknown }).hit
   assert.ok(botsIn(world).length > 0, 'no bot to watch: the spectate check checks nothing')
   killAndLoot(world, player, 30)
   // Killed inside the tick, as a mob or a bot kills (a `Timers` callback runs
@@ -718,7 +723,7 @@ test('choose never returns a private world, even for the party code of a human i
   // world, with its human, is no shared world and stays.
   worlds.open()
   for (let i = 0; i < 10; i++) {
-    World.run(world, () => { player.hp = player.maxHP() })
+    World.run(world, () => { player.hp = player.maxHP(); player.hit = () => false })
     worlds.tickAll(250)
   }
   assert.equal(world.closed, false)

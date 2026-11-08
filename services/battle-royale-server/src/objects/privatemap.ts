@@ -33,6 +33,19 @@
 export const PRIVATE_MAP_SEED = 0x5eed0060
 
 /**
+ * Every private world's map size, and so layer 02's (Nick 2026-11-08: "next
+ * one maybe a bit bigger" than 01). A change is a new map (and a release).
+ */
+export const PRIVATE_MAP_SIZE = 1400
+
+/**
+ * Layers played on less than the whole map (`PrivateMap.sides`): 01 on the
+ * square 0..1000 (Nick 2026-11-08: "the first non tutorial map can easily be
+ * halved both dimensions"). A change is a new map (and a release).
+ */
+export const PRIVATE_SIDES: ReadonlyMap<number, number> = new Map([[0, 1000]])
+
+/**
  * A Set that cannot be written after construction: `add`, `delete` and
  * `clear` throw. Reads are a plain Set's.
  */
@@ -179,7 +192,7 @@ export interface MapGate {
 
 /** What a private world takes from the template (`World` constructor). */
 export interface MapTemplate {
-  /** The map size, held tags and `padsUp` it was built for (`PrivateMap.key`). */
+  /** The map size, held tags, `padsUp` and sides it was built for (`PrivateMap.key`). */
   key: string
   voids: ReadonlyMap<number, FrozenSet<number>>
   walls: ReadonlyMap<number, FrozenSet<number>>
@@ -200,15 +213,22 @@ export interface MapTemplate {
 export class PrivateMap {
   template: MapTemplate | undefined
 
-  constructor (readonly seed: number) {}
+  /**
+   * `sides`: a layer tag to the side of the square, from the map's corner
+   * (0, 0), its ground lies in; every cell outside it is void on that layer
+   * (`World.sideOf`). The client already draws off-map as void, so the layer
+   * simply ends sooner. A layer not listed is the whole map.
+   */
+  constructor (readonly seed: number, readonly sides: ReadonlyMap<number, number> = new Map()) {}
 
   /** A fresh generator from the seed: one per generation, never shared. */
   random (): () => number {
     return seeded(this.seed)
   }
 
-  static key (size: number, tags: readonly number[], padsUp: boolean): string {
-    return `${size}|${[...tags].join(',')}|${padsUp ? 'up' : 'no-up'}`
+  static key (size: number, tags: readonly number[], padsUp: boolean, sides: ReadonlyMap<number, number> = new Map()): string {
+    const own = [...sides].map(([tag, side]) => `${tag}:${side}`).join(',')
+    return `${size}|${[...tags].join(',')}|${padsUp ? 'up' : 'no-up'}${own === '' ? '' : `|${own}`}`
   }
 
   /** Throw unless the template (if any) was built for `key`. */
@@ -220,4 +240,4 @@ export class PrivateMap {
 }
 
 /** The process's private map: every private world is built on it (private-6). */
-export const PRIVATE_MAP = new PrivateMap(PRIVATE_MAP_SEED)
+export const PRIVATE_MAP = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)

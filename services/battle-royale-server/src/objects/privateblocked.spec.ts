@@ -7,7 +7,7 @@ import World from './world'
 import Timers from './timers'
 import Player from './player'
 import Obstacle from './obstacle'
-import { CellOverlay, FrozenCells, PRIVATE_MAP_SEED, PrivateMap } from './privatemap'
+import { CellOverlay, FrozenCells, PRIVATE_MAP_SEED, PRIVATE_MAP_SIZE, PRIVATE_SIDES, PrivateMap } from './privatemap'
 import { StoneWall } from '../skills/stonewall'
 import { ITEMS } from '../archetypes/archetypes'
 import { Hex } from '../utils/hex'
@@ -20,7 +20,7 @@ import { Vector } from '../utils/vector'
  */
 
 const [TOP, MIDDLE] = World.TAGS
-const SIZE = 2000
+const SIZE = PRIVATE_MAP_SIZE
 const HELD = [TOP, MIDDLE]
 
 function redisStub (): Redis {
@@ -47,7 +47,7 @@ function overlay (world: World, tag: number): CellOverlay<unknown> {
 }
 
 test('two private worlds share one frozen terrain base per layer; a stone in one blocks nothing in the other, the template or the generating world', () => {
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   const a = build(map) // generates the map, keeps its own plain BLOCKED
   const b = build(map)
   const c = build(map)
@@ -85,7 +85,7 @@ test('two private worlds share one frozen terrain base per layer; a stone in one
 })
 
 test('a write to a terrain cell throws, through World.block/unblock and directly, and changes nothing', () => {
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   build(map)
   const b = build(map)
   for (const tag of HELD) {
@@ -111,7 +111,7 @@ test('a write to a terrain cell throws, through World.block/unblock and directly
 
 test('in a private world a StoneWall\'s stones block their cells, and a bomb\'s blast frees them (the real bomb.ts path)', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   build(map)
   const b = build(map)
   World.run(b, () => {
@@ -156,5 +156,5 @@ test('shared and default worlds, and the world that generates the private map, h
   }
   plain(build(undefined, undefined, 4000), 'a default world')
   plain(build(undefined, HELD, 4000), 'a partial world')
-  plain(build(new PrivateMap(PRIVATE_MAP_SEED)), 'the generating world')
+  plain(build(new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)), 'the generating world')
 })

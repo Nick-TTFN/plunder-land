@@ -23,7 +23,7 @@ import type { GearStore, Spent, StashEdits, StashItem } from '../db/accounts'
 import { mergedItem, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from '../gear/merge'
 import { BRING_LEVEL, type GearInstance } from '../utils/gear'
 import { Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
-import { PRIVATE_MAP } from '../objects/privatemap'
+import { PRIVATE_MAP, PRIVATE_MAP_SIZE } from '../objects/privatemap'
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -122,8 +122,8 @@ export function privateBotsFrom (value: string | undefined): readonly number[] {
   return parts.map((part) => parseInt(part, 10))
 }
 
-/** Every private world's map size: the one private map's (`PRIVATE_MAP`, private-5). */
-export const PRIVATE_MAP_SIZE = 2000
+/** Every private world's map size: the one private map's (`PRIVATE_MAP`, `privatemap.ts`). */
+export { PRIVATE_MAP_SIZE }
 
 /**
  * How many dt-0 updates a new private world gets before its human joins, at

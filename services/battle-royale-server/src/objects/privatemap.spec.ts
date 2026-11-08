@@ -9,7 +9,7 @@ import World from './world'
 import Portal from './portal'
 import Exit from './exit'
 import HandoffGate from '../firstrun/gate'
-import { FrozenSet, PRIVATE_MAP_SEED, PrivateMap, seeded } from './privatemap'
+import { FrozenSet, PRIVATE_MAP_SEED, PRIVATE_MAP_SIZE, PRIVATE_SIDES, PrivateMap, seeded } from './privatemap'
 import { Hex } from '../utils/hex'
 
 /**
@@ -23,7 +23,7 @@ import { Hex } from '../utils/hex'
 
 const [TOP, MIDDLE, BOTTOM] = World.TAGS
 /** The private worlds' map size and layers (Dez's 3a, private-3; private-6 builds them). */
-const SIZE = 2000
+const SIZE = PRIVATE_MAP_SIZE
 const HELD = [TOP, MIDDLE]
 
 /**
@@ -33,11 +33,10 @@ const HELD = [TOP, MIDDLE]
  * the private map changed**: a seed, generator (`valleys.ts`, `walls.ts`,
  * `World.placeGate`) or `LAYERS` row change. That is a new map for every
  * player and so a release; update the digest only if that was the intent.
- * Last changed by private-8: Dez's private gate counts (01: 4 down, 2 exits;
- * 02: 2 up, 3 pads, 2 exits; 13 gates where there were 28). No private map
- * is live yet.
+ * Last changed 2026-11-08 (Nick): map 1400 (was 2000), 01 on the square
+ * 0..1000 (`PRIVATE_SIDES`), portal sites drawn where both ends can be ground.
  */
-const DIGEST = '8b23d444fbe8512208d629385ac157b663b6cfa649a54235def5c65d3eeb140c'
+const DIGEST = '46a51132e751ec778e3977b4e4f28f06d171b7fc21d8ac4a1a4b824f27d77e8b'
 
 function redisStub (): Redis {
   const redis = { on: () => redis, hincrby: async () => 0 } as unknown as Redis
@@ -75,7 +74,7 @@ function digest (world: World): string {
 }
 
 test('two private worlds on one map hold the same void and wall Sets and run arrays; their BLOCKED and gates are their own', () => {
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   const a = build(map).world
   const b = build(map).world
   for (const tag of HELD) {
@@ -124,7 +123,7 @@ test('two private worlds on one map hold the same void and wall Sets and run arr
 })
 
 test('the shared map is read-only: writing its Sets or run arrays throws, in every world', () => {
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   const a = build(map).world
   const b = build(map).world
   for (const world of [a, b]) {
@@ -168,26 +167,26 @@ test('a default world and a partial world without a map are unchanged: their own
 })
 
 test('the map comes from its seed alone: built twice from clean state, whatever Math.random does, the same hello and gates; pinned', (t: TestContext) => {
-  const first = build(new PrivateMap(PRIVATE_MAP_SEED)).world
+  const first = build(new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)).world
   // Another sequence of Math.random for the second build: the map must not draw from it.
   const lcg = seeded(99)
   t.mock.method(Math, 'random', lcg)
-  const second = build(new PrivateMap(PRIVATE_MAP_SEED)).world
+  const second = build(new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)).world
   t.mock.restoreAll()
   assert.equal(JSON.stringify(helloMap(second)), JSON.stringify(helloMap(first)), 'hello voids/walls differ')
   assert.deepEqual(sites(second), sites(first))
   // And a later world on the second map (the template path) sends the same.
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   build(map)
   assert.equal(digest(build(map).world), digest(first))
 
   // Another seed is another map.
-  assert.notEqual(digest(build(new PrivateMap(PRIVATE_MAP_SEED + 1)).world), digest(first))
+  assert.notEqual(digest(build(new PrivateMap(PRIVATE_MAP_SEED + 1, PRIVATE_SIDES)).world), digest(first))
   assert.equal(digest(first), DIGEST, 'the private map changed: a new map for every player is a release (see DIGEST)')
 })
 
 test('building on a map draws nothing from Math.random, generating or not', (t: TestContext) => {
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   const random = t.mock.method(Math, 'random')
   build(map)
   assert.equal(random.mock.callCount(), 0, 'the generating world drew from Math.random')
@@ -196,7 +195,7 @@ test('building on a map draws nothing from Math.random, generating or not', (t: 
 })
 
 test('the private map places every gate its layers ask for: down portals and exits on 0, up portals, pads to -2 and exits on -1', () => {
-  const world = build(new PrivateMap(PRIVATE_MAP_SEED)).world
+  const world = build(new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)).world
   const [top, middle] = World.LAYERS
   const gates = gatesOf(world)
   const count = (tag: number, kind: string, to?: number): number => gates.filter((g) => g.tag === tag &&
@@ -209,8 +208,39 @@ test('the private map places every gate its layers ask for: down portals and exi
   assert.equal(gates.length, top.portalsDown + top.exits + middle.portalsUp + middle.portalsDown + middle.exits)
 })
 
+test('layer 01 is played on its side of the map only: void outside it, its spawns and refill inside; 02 on the whole map', () => {
+  const { world } = build(new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES))
+  const side = PRIVATE_SIDES.get(TOP) as number
+  assert.ok(side < SIZE)
+  assert.equal(world.sideOf(TOP), side)
+  assert.equal(world.sideOf(MIDDLE), SIZE)
+  const voids = world.VOIDS.get(TOP) as Set<number>
+  let outside = 0
+  for (const cell of Hex.mapCells(SIZE)) {
+    if (Hex.onMap(cell.x, cell.y, side)) continue
+    outside++
+    assert.ok(voids.has(Hex.key(cell.x, cell.y)), `layer 01 cell ${cell.x},${cell.y} outside its side is not void`)
+  }
+  assert.ok(outside > 0)
+  // Ground on 02 outside 01's square: 02 really is the bigger layer.
+  const middleVoids = world.VOIDS.get(MIDDLE) as Set<number>
+  assert.ok(Hex.mapCells(SIZE).some((c) => !Hex.onMap(c.x, c.y, side) && !middleVoids.has(Hex.key(c.x, c.y))))
+  World.run(world, () => {
+    for (let i = 0; i < 200; i++) {
+      const { cell, fallback } = World.spawnCell(TOP)
+      assert.ok(Hex.onMap(cell.x, cell.y, side) && !fallback, `spawn ${cell.x},${cell.y} outside 01's side, or a fallback`)
+    }
+    for (let i = 0; i < 32; i++) world.update(0)
+    for (const unit of [...world.MOBS, ...world.CONSUMABLES, ...world.ITEMS, ...world.GEAR, ...world.PLAYERS]) {
+      if (unit.tag !== TOP) continue
+      const cell = Hex.toCell(unit.position)
+      assert.ok(Hex.onMap(cell.x, cell.y, side), `layer 01 object at ${cell.x},${cell.y} is outside its side`)
+    }
+  })
+})
+
 test('one map is one size and one set of layers: another asks throws', () => {
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   build(map)
   assert.throws(() => build(map, HELD, 4000), /built for/)
   assert.throws(() => build(map, [TOP]), /built for/)
@@ -219,7 +249,7 @@ test('one map is one size and one set of layers: another asks throws', () => {
 
 test('hello sends the shared map; mobs and loot still spawn at random per world', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
-  const map = new PrivateMap(PRIVATE_MAP_SEED)
+  const map = new PrivateMap(PRIVATE_MAP_SEED, PRIVATE_SIDES)
   const worlds = [build(map), build(map)]
   const hellos: Array<Record<string, unknown>> = []
   for (const { world, mp } of worlds) {
