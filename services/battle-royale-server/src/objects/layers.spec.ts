@@ -94,7 +94,7 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
 // [5, 5, 4], [10, 0, 4]). The private layers 01-02 (map 2000) take config C;
 // 03 has no way back up (#60 Q3) and 10 down; 05 has 3 exits.
 test('gates: up, down and exits per layer as Dez\'s rows, chained in order', () => {
-  assert.deepEqual(LAYERS.map((l) => [l.portalsUp, l.portalsDown, l.exits]), [[0, 4, 2], [2, 3, 2], [0, 10, 4], [5, 5, 4], [5, 0, 3]])
+  assert.deepEqual(LAYERS.map((l) => [l.portalsUp, l.portalsDown, l.exits]), [[0, 1, 2], [2, 3, 2], [0, 10, 4], [5, 5, 4], [5, 0, 3]])
 })
 
 // --- the map --------------------------------------------------------------------
@@ -125,7 +125,7 @@ test('a new world puts each layer\'s portals and exits on it, leading only to th
   // Nothing else: no portal skips a layer, none leads to its own layer.
   assert.equal(gates().filter((g) => g instanceof Portal).length, portalCount)
   assert.equal(gates().length, gateCount)
-  assert.equal(gateCount, 49)
+  assert.equal(gateCount, 46)
 })
 
 test('no gate lies within GATE_SPACING of another a player could meet on the same layer', () => {

@@ -1045,7 +1045,8 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     exits: 2,
     extractMs: 5000,
     portalsUp: 0,
-    portalsDown: 4,
+    // One way down (Nick 2026-11-08: "layer one needs only one portal down"); was 4 (Dez's private-3).
+    portalsDown: 1,
     mobs: npcPopulation(0),
     items: [
       { item: ITEMS.medkit, count: 3 },
