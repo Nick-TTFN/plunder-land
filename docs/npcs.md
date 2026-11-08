@@ -53,7 +53,8 @@ a `SkillClass` gets only its owner; `SkillSpec`/`buildSkill` stay as they were.
 
 `LAYERS[].mobs` is built by `npcPopulation(i)` from `NPC_NUMBERS.layers` (top first, five layers):
 Crawler packs 1/2/7/8/9; Compactors 1/2/4/5/6; Kilns 0/1/6/7/8; Reactors 0/1/2/3/4; Brood 0/0/1/2/3.
-Layers 01-02 are area-scaled for the private map (2000, a quarter of the area; #60 addendum
+Layers 01-02 were area-scaled for the private map at 2000 (a quarter of the area; kept when it shrank
+to 01 at 1000 and 02 at 1400 on 2026-11-08, `docs/world.md`; #60 addendum
 2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1; they were 4/6, 4/9, 0/4, 0/2 on the
 shared map); 04-05 add one of each kind a layer (#60 Q19, Dez's section 2, task private-8). Before
 that: danger moved deeper by #58 addendum 2 Q1, Dez's layer-0 cut (packs were 5 a layer and

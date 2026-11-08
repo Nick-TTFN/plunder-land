@@ -31,8 +31,10 @@ medkits (3 / 3 / 12 / 14 / 16), bombs (1 / 1 / 7 / 9 / 11), gear caches (1 / 1 /
 Crawler packs and single NPCs per layer, built by `npcPopulation` from `NPC_NUMBERS.layers`.
 Gates, items and caches are Dez's rows (`ideas/private-layers-numbers.md`, task private-8): the
 private layers' "config C", the shared ones at the shared map's density.
-**The NPC rows of layers 01 and 02 are area-scaled for the private map** (2000, a quarter of the
-shared 4000's area; #60 addendum 2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1):
+**The NPC rows of layers 01 and 02 were area-scaled for the private map at 2000** (a quarter of
+the shared 4000's area; #60 addendum 2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1),
+and kept when the map shrank on 2026-11-08 (01 a 1000 square, 02 the 1400 map, below), so both are
+now about twice to four times as dense as Dez's rows assumed:
 01 one Crawler pack and one Compactor (~3.9 mobs alive), 02 two packs (Coil escort 0.6), two
 Compactors, a Kiln and a Reactor (~11). The rows are read wherever a world holds those layers: private
 worlds in production, and a shared world holding every layer only when `privateRuns` is
@@ -166,7 +168,7 @@ gates and mob counts against the commit before was identical).
   that. Re-measure before proposing it again if maps grow past 4000 or a world leaves many
   more layers unheld. The planes are rebuilt at every world's hello (`Game.resetRun` drops
   them on a handoff too), not once per session. Since private-8 a shared world leaves two
-  layers unheld at map 4000 and a private world three at map 2000 (a quarter of the cells);
+  layers unheld at map 4000 and a private world three at map 1400 (about an eighth of the cells);
   not re-measured.
 - **A pad always hands off.** The client ignores input on a pad until its tag changes
   (`LocalPlayer.awaitingHop`), so `Worlds.padHandoff` never refuses (a drain, `MAX_PLAYERS`,
@@ -180,7 +182,7 @@ gates and mob counts against the commit before was identical).
 (Q5: the private layers are solo; the code is kept on the connection for the pad). The world
 lives in `Worlds.privates`, never in `worlds` (readers: `docs/server-invariants.md`).
 
-- **Built** `World.build(PRIVATE_MAP_SIZE, { layers: privateTags, map: PRIVATE_MAP })`: map 2000,
+- **Built** `World.build(PRIVATE_MAP_SIZE, { layers: privateTags, map: PRIVATE_MAP })`: map 1400,
   the `owned` layers (01-02) on the one private map (above), with its own `Multiplayer` and bot
   fill. Before the join, `Worlds.prefill` runs dt-0 updates until a pass adds no object (at most
   `PREFILL_TICKS`, 32), so the refill's mobs and pickups are placed and the join's spawn
@@ -248,7 +250,17 @@ lives in `Worlds.privates`, never in `worlds` (readers: `docs/server-invariants.
   cache (`refillLayer`, at random as in any world).
 - **One map, one key:** size, held tags and `padsUp`. A world on `PRIVATE_MAP` that asks for
   anything else throws. The holder keeps its one template for the life of the process (~110 KB at
-  map 2000, estimated), on purpose.
+  map 2000, estimated, less at 1400), on purpose.
+- **Layer 01 is smaller than the map** (Nick 2026-11-08: "the first non tutorial map can easily be
+  halved both dimensions. next one maybe a bit bigger"). `PRIVATE_SIDES` (`privatemap.ts`) gives 01
+  the square 0..1000 of the 1400 map, about 585 cells (380 ground) against 02's 1134 (720 ground).
+  The map holder carries the sides (`PrivateMap.sides`, part of its key); the `World` constructor
+  carves 01's valleys inside the square and makes every cell outside it void, and random sites
+  (`getUnobstructedPosition`, `spawnCell`'s draws) are drawn inside the layer's square
+  (`World.sideOf`). A portal's site is drawn inside both its ends' squares, else 02's up portals
+  into 01 missed on most tries and were skipped silently. The client needs nothing: it draws
+  off-map as void already, so 01's void frame looks like the map's edge. Shared, default and
+  first-run worlds have no sides.
 - **A new map is a release.** A changed seed, a changed generator (`valleys.ts`, `walls.ts`,
   `World.placeGate`, `getUnobstructedPosition`) or a changed `LAYERS` row the map reads
   (`voidShare`, `wallShare`, gate counts) changes the map for every player. `privatemap.spec.ts`
