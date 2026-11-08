@@ -159,6 +159,11 @@ each frame: units, pickups and projectiles only on visible cells, terrain on vis
 explored, portals, exits and your own robot always (#16). `renderable`, not `visible`, because
 other code already drives `visible` (a unit that left view, a stale one) and the two
 would undo each other. The minimap draws only `renderable` objects, or it would show what fog hides.
+Under the dots it draws the layer's ground (not void, walls darker, unfogged: the terrain is static
+and the same for every player of a map), scaled to the ground's extent from the map's corner rather than to the map:
+`hello.map` differs per world (first run 1200, private 1400, shared 4000) and a private world's
+layer 01 is a 1000 square of its 1400 map, void outside (`docs/world.md`). It redraws the ground
+only when the layer, the map size or the void Set (new at every `hello`) changes.
 
 **World markers** (`world-markers`, M2, placeholder look). Every unit has a fixed-width
 health bar over its head (`ui/elements/unitbar.ts`: 36 px, 60 for a boss; red); it used to be

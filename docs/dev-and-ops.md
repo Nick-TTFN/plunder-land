@@ -150,7 +150,7 @@ object; the bare string is gone since #48; the server sends `account` first and 
 account for it), and count the `create` records. Since #60 the join lands in a private world of
 its own (map 1400, layer 01 the square 0..1000 of it, `hello.layers` all five tags, layers 03-05 one all-void run each; without
 `firstRun: true` a new guest account gets no first run). Since interest filtering (#35) a join gets
-only layer 01's terrain (4 portals and 2 exits; the valleys come in `hello.voids`) plus the units, pickups and StoneWall stones within its robot's `vision` + 1 rings
+only layer 01's terrain (1 portal and 2 exits; the valleys come in `hello.voids`) plus the units, pickups and StoneWall stones within its robot's `vision` + 1 rings
 (server fog, #48), and its own `create_own`. (Before the valleys it was about 150 terrain records plus 10-20, 4-11 KB, not
 re-measured since.) The whole-world counts (per layer: the void share, the natural loot cap, the item and mob
 numbers in `LAYERS`) are checked by the world specs, not by a join. Reaching a shared world takes

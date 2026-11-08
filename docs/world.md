@@ -45,7 +45,7 @@ entry per tick; **a pack entry counts live packs, a single entry counts live mob
 pack** (`packsAlive`), so a pack is replaced only when all its members are dead. The layer tags reach the client in `hello.layers`; **the client
 never hardcodes a tag**.
 
-**Portals chain 01 ↔ 02 ↔ … ↔ 05 and move players only** (#26): 4 down on 01; 2 up and 3 down on 02,
+**Portals chain 01 ↔ 02 ↔ … ↔ 05 and move players only** (#26): 1 down on 01 (Nick 2026-11-08, was 4); 2 up and 3 down on 02,
 the down ones pads out of the private world ("Partial worlds"); none up on 03 (#60 Q3: it would lead to
 the private 02, which no shared world holds) and 10 down; 5 up and 5 down on 04; 5 up on 05. A player whose tick ends on a portal's cell is put down on that portal's
 **arrival cell**, its east neighbour (`World.arrivalOf`, #31 Q3, #33), on the layer it leads
@@ -265,7 +265,7 @@ lives in `Worlds.privates`, never in `worlds` (readers: `docs/server-invariants.
   `World.placeGate`, `getUnobstructedPosition`) or a changed `LAYERS` row the map reads
   (`voidShare`, `wallShare`, gate counts) changes the map for every player. `privatemap.spec.ts`
   pins its `DIGEST` (hello voids and walls plus gate sites); update it only on purpose. Since
-  private-8's rows it has 13 gates (01: 4 down, 2 exits; 02: 2 up, 3 pads, 2 exits). The key does not
+  2026-11-08 it has 10 gates (01: 1 down, 2 exits; 02: 2 up, 3 pads, 2 exits). The key does not
   include the `LAYERS` rows, so code that edits `LAYERS` after the first build gets the old map.
 - A world built with `firstRun` or `empty` ignores `map`.
 
