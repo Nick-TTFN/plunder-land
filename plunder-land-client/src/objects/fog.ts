@@ -17,11 +17,29 @@ export const FOG_TINT: Readonly<Record<Seen, number>> = {
 }
 
 /**
- * Each plane's ground tint, top (01) first, multiplied into the fog's: the
- * same steel gets darker and colder the deeper you are. A layer past the end
- * takes the last entry.
+ * Nick's layer palette, top (01) first: mint, yellow, apricot, coral,
+ * lavender, so depth reads as danger. Picked in the palette lab (2026-11-09),
+ * not an interpolated ramp (that went muddy khaki in the middle).
  */
-export const LAYER_TINT: readonly number[] = [0xFFFFFF, 0xD2DAEC, 0xAEBAD8]
+const LAYER_PALETTE: readonly number[] = [0x73F7A6, 0xF2FF3D, 0xF7C278, 0xD56E67, 0xB37DCA]
+
+/**
+ * Each plane's ground tint, top (01) first, multiplied into the fog's (and
+ * the walls'), over the greyscale ground sheet (`greyOf`): `LAYER_PALETTE`'s
+ * hues, much lighter, so the layer's NPCs (the palette at full strength)
+ * stand out on it. Picked in the palette lab with the palette (Nick
+ * 2026-11-09). A layer past the end takes the last entry.
+ */
+export const LAYER_TINT: readonly number[] = [0xC7FCDB, 0xFAFFB1, 0xFCE7C9, 0xEEC5C2, 0xE1CBEA]
+
+/**
+ * Each layer's NPC body tint, top (01) first, by the mob's tag's place in
+ * `Session.layers` (`Mob.layerTint`): `LAYER_PALETTE` as is, over the
+ * greyscale NPC sheets. Multiplied under the hit flash and the ice tint
+ * (`bodyTint`). Robots (players and bots) are never tinted. A layer past the
+ * end takes the last.
+ */
+export const MOB_LAYER_TINT: readonly number[] = LAYER_PALETTE
 
 /**
  * Tile fog of war (fog-of-war, M2). Cells within `radius` rings of the

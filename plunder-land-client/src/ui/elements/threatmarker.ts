@@ -73,7 +73,8 @@ export class ThreatMarker extends Graphics {
       }
     }
 
-    this.beginFill(COLOUR, 0.16)
+    // Faint, so the layer's ground colour still reads through (Nick, palette lab 2026-11-09).
+    this.beginFill(COLOUR, 0.1)
     for (const cell of cells) {
       const c = Hex.toPosition(new Vector(cell.x, cell.y))
       const points: number[] = []
@@ -82,7 +83,7 @@ export class ThreatMarker extends Graphics {
     }
     this.endFill()
 
-    this.lineStyle(2, COLOUR, 0.85)
+    this.lineStyle(2, COLOUR, 0.35)
     for (const cell of cells) {
       const c = Hex.toPosition(new Vector(cell.x, cell.y))
       for (let i = 0; i < 6; i++) {

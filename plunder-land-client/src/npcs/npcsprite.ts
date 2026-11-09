@@ -4,6 +4,7 @@ import { RobotSprite } from '../robots/robotsprite'
 import { SHOT } from '../robots/eyeshot'
 import { layShadow } from '../objects/shadow'
 import { HitOverlay, bodyTint } from '../vfx/hitoverlay'
+import { greyOf, highlightOf } from '../objects/greyscale'
 import { TILT } from '../objects/tilt'
 
 /** An `NpcMasked` drawn: its images in a container cut by its mask sprite. */
@@ -11,6 +12,8 @@ interface MaskedGroup {
   readonly container: Container
   readonly mask: Sprite
   readonly sprites: Sprite[]
+  /** Each sprite's highlight mask (`highlightOf`), when the body is tinted. */
+  readonly lights: Sprite[]
 }
 
 /** A clip played over the idle/move loop, then gone (death holds). */
@@ -123,6 +126,18 @@ export class NpcSprite extends Container {
   private readonly hitShown = new HitOverlay()
   /** Frozen (effect 21, `FrozenEffect`): the ice tint, and the idle/move loop held still. */
   frozen = false
+  /** Its layer's body tint (`MOB_LAYER_TINT`, set by `Mob`), under the flash and the ice tint; kept through a death. */
+  baseTint = 0xffffff
+  /** The highlight masks over its tinted parts (`highlightOf`), reused frame to frame as `sprites`. */
+  private readonly lights: Sprite[] = []
+
+  /**
+   * How opaque the white highlight masks are over a tinted body: a multiply
+   * tint pulls highlights down to the tint, and these bring them back toward
+   * white (Nick 2026-11-09). 0 draws none. Only on a tinted NPC
+   * (`baseTint` not white). PROVISIONAL until Nick looks.
+   */
+  static HIGHLIGHT_ALPHA = 0.6
   /** Seconds since it was made, for the rigs' own clocks (`NpcPoseOptions.clock`: the Kiln's furnace, the Brood's lamps). */
   private age = 0
   private readonly tick = (): void => { this.update(Ticker.shared.deltaMS / 1000) }
@@ -390,16 +405,27 @@ export class NpcSprite extends Container {
     let graphics = 0
     let groups = 0
     let open: Graphics | undefined
-    const tint = bodyTint(this.hitShown.flashing, this.frozen)
+    let lights = 0
+    const tint = bodyTint(this.hitShown.flashing, this.frozen, this.baseTint)
+    const lit = this.baseTint !== 0xffffff && NpcSprite.HIGHLIGHT_ALPHA > 0
     for (const item of list.items) {
       if (item.kind === 'image') {
         open = undefined
         const sprite = this.sprites[sprites] ?? (this.sprites[sprites] = new Sprite())
-        this.place(sprite, item)
         const glow = item.contact === true || item.effect === true
+        // A body part draws from the greyscale sheet, so the layer tint shows as its colour.
+        this.place(sprite, item, glow ? 'colour' : 'grey')
         sprite.tint = glow ? 0xffffff : tint
         sprite.blendMode = item.blend === 'screen' ? BLEND_MODES.SCREEN : BLEND_MODES.NORMAL
         order.push(sprite)
+        if (lit && !glow) {
+          const light = this.lights[lights] ?? (this.lights[lights] = new Sprite())
+          if (this.place(light, item, 'highlight')) {
+            light.alpha *= NpcSprite.HIGHLIGHT_ALPHA
+            order.push(light)
+            lights++
+          }
+        }
         if (this.cast !== undefined && !glow) {
           const shade = this.castSprites[shades.length] ?? (this.castSprites[shades.length] = Object.assign(new Sprite(), { tint: 0x000000 }))
           this.place(shade, item)
@@ -415,12 +441,18 @@ export class NpcSprite extends Container {
         const group = this.groups[groups] ?? (this.groups[groups] = NpcSprite.maskedGroup())
         groups++
         while (group.sprites.length < item.items.length) group.sprites.push(new Sprite())
+        while (group.lights.length < item.items.length) group.lights.push(new Sprite())
+        const want: Sprite[] = []
         for (let k = 0; k < item.items.length; k++) {
-          this.place(group.sprites[k], item.items[k])
+          this.place(group.sprites[k], item.items[k], 'grey')
           group.sprites[k].tint = tint
+          want.push(group.sprites[k])
+          if (lit && this.place(group.lights[k], item.items[k], 'highlight')) {
+            group.lights[k].alpha *= NpcSprite.HIGHLIGHT_ALPHA
+            want.push(group.lights[k])
+          }
         }
         this.place(group.mask, item.mask)
-        const want = group.sprites.slice(0, item.items.length)
         const now = group.container.children
         if (now.length !== want.length + 1 || want.some((s, k) => now[k] !== s)) {
           group.container.removeChildren()
@@ -455,15 +487,18 @@ export class NpcSprite extends Container {
     const container = new Container()
     const mask = new Sprite()
     container.mask = mask
-    return { container, mask, sprites: [] }
+    return { container, mask, sprites: [], lights: [] }
   }
 
   /**
    * The frame for an image: the art; or the band of it a clip cuts, as its
    * own frame (the Crawler's shell sections, `body-<top row>`) or, where the
-   * sheet has none, cut from the art's frame (`cut`).
+   * sheet has none, cut from the art's frame (`cut`). From the sheet as
+   * drawn (`sheet`), its greyscale copy (`greyOf`, for a part the layer tint colours),
+   * or its highlight mask (`highlightOf`). False, and nothing placed, for a
+   * highlight whose sheet can't be read yet.
    */
-  private place (sprite: Sprite, item: NpcImage): void {
+  private place (sprite: Sprite, item: NpcImage, sheet: 'colour' | 'grey' | 'highlight' = 'colour'): boolean {
     const art = this.npc.arts[item.art]
     let texture: Texture
     let clip = item.clip
@@ -476,6 +511,12 @@ export class NpcSprite extends Container {
         ;({ texture, clip } = NpcSprite.cut(frame, Texture.from(frame), art, clip))
       }
     }
+    if (sheet === 'grey') texture = greyOf(texture)
+    else if (sheet === 'highlight') {
+      const light = highlightOf(texture)
+      if (light === undefined) return false
+      texture = light
+    }
     if (sprite.texture !== texture) sprite.texture = texture
     sprite.alpha = item.alpha ?? 1
     const ox = clip?.x ?? 0
@@ -486,6 +527,7 @@ export class NpcSprite extends Container {
     const m = item.m
     this.scratch.set(m.a * fx, m.b * fx, m.c * fy, m.d * fy, m.a * ox + m.c * oy + m.x, m.b * ox + m.d * oy + m.y)
     sprite.transform.setFromMatrix(this.scratch)
+    return true
   }
 
   /**

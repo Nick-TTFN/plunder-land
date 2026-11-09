@@ -23,6 +23,7 @@ import TWEEN from '@tweenjs/tween.js'
 import { HexTerrain } from './objects/hexterrain'
 import { Walls } from './objects/walls'
 import { Fog, SEEN, LAYER_TINT } from './objects/fog'
+import { greyOf } from './objects/greyscale'
 import { ROW_SCREEN, TILT, TiltedContainer, onGround } from './objects/tilt'
 import Mob from './objects/mob'
 import Player from './objects/player'
@@ -334,14 +335,17 @@ export class Game extends Container {
     // `meta.regions` names the palettes in the order the terrain lays them out
     // along its noise field, so the order is the sheet's to decide and not this
     // function's to guess from key order.
+    // Faces and fades from the sheet's greyscale copy (`greyOf`), so the
+    // layer's tint (`LAYER_TINT`) reads as its colour; walls wear the same
+    // faces. The unknown-cell outline keeps its own colour.
     const sheet = Assets.get('./res/ground.json')
     const terrain = new HexTerrain(
       sheet.data.meta.regions[group].map((region: string) =>
-        sheet.data.animations[region].map((name: string) => Texture.from(name))
+        sheet.data.animations[region].map((name: string) => greyOf(Texture.from(name)))
       ),
       Texture.from(sheet.data.meta.outline),
-      Texture.from(sheet.data.meta.fade.left),
-      Texture.from(sheet.data.meta.fade.right)
+      greyOf(Texture.from(sheet.data.meta.fade.left)),
+      greyOf(Texture.from(sheet.data.meta.fade.right))
     )
     if (Math.abs(sheet.data.meta.tilt - TILT) > 1e-6) {
       console.warn(`ground.json is baked for tilt ${String(sheet.data.meta.tilt)}, the camera is at ${TILT}: re-bake`)
@@ -503,8 +507,9 @@ export class Game extends Container {
    * emitted before the join's first flush, so the layers exist before any
    * object that stands on them arrives.
    *
-   * Every layer is the same steel ground (`ground.json`), tinted darker and
-   * colder per layer (`LAYER_TINT`) until there is art for each.
+   * Every layer is the same steel ground (`ground.json`), greyscaled and
+   * tinted per layer from green on 01 to red on 05 (`LAYER_TINT`) until there
+   * is art for each.
    */
   onHello (data: Parameters<typeof Session.onHello>[0]): void {
     Session.onHello(data)

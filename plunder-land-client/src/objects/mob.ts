@@ -7,7 +7,9 @@ import { NpcSprite } from '../npcs/npcsprite'
 import { RobotSprite } from '../robots/robotsprite'
 import { SETTINGS } from '../net/settings'
 import { hitSpark } from '../vfx/npcfx'
-import { bodyTint } from '../vfx/hitoverlay'
+import { bodyTint, multiplyTint } from '../vfx/hitoverlay'
+import { MOB_LAYER_TINT } from './fog'
+import { Session } from '../net/session'
 import { type EmergeAbove, emergeDepth } from '../vfx/broodpick'
 import { BROODLING_RIG } from '../npcs/broodling/rig'
 import { BroodSockets } from '../vfx/broodsockets'
@@ -68,6 +70,16 @@ export default class Mob extends Unit {
   /** When `applyPosition` last ran, and the smoothed ground speed it fed the rig, as `Player`'s. */
   private lastMovedAt = 0
   private pace = 1
+
+  /** The layer tint last applied (`applyLayerTint`), and whether an old-sprite mob is frozen (`setIceTint`). */
+  private shownLayerTint = 0xffffff
+  private iceFrozen = false
+
+  /** Its layer's body tint (`MOB_LAYER_TINT`), white for a tag `hello.layers` didn't list. */
+  static layerTint (tag: number | undefined): number {
+    const i = tag !== undefined ? Session.layers.indexOf(tag) : -1
+    return i < 0 ? 0xffffff : MOB_LAYER_TINT[Math.min(i, MOB_LAYER_TINT.length - 1)]
+  }
 
   initAnimation (): void {
     const look = lookFor('mob', this.archetype)
@@ -146,6 +158,14 @@ export default class Mob extends Unit {
       if (now >= this.emergeAbove.until) this.emergeAbove = undefined
     }
     if (this.launch !== undefined) this.fly(now)
+    // `tag` arrives after the constructor (`Game.onObjectCreated`), so the
+    // layer tint is applied here, once it is known and whenever it changes.
+    const layerTint = Mob.layerTint(this.tag)
+    if (layerTint !== this.shownLayerTint) {
+      this.shownLayerTint = layerTint
+      if (this.npc !== undefined) this.npc.baseTint = layerTint
+      this.setIceTint(this.iceFrozen)
+    }
   }
 
   /**
@@ -253,12 +273,15 @@ export default class Mob extends Unit {
   /**
    * An old-sprite mob's (grunt, gunner, boss, or a rig whose sheet hasn't
    * loaded) frozen look (effect 21, `FrozenEffect`): its look's own tint
-   * times `ICE_TINT` while frozen, its own tint back after. A rigged NPC's is
-   * `NpcSprite.frozen` instead. These sprites have no hit flash.
+   * times `ICE_TINT` while frozen, its own tint back after, both over its
+   * layer's tint (`layerTint`). A rigged NPC's is `NpcSprite.frozen` instead.
+   * These sprites have no hit flash.
    */
   setIceTint (frozen: boolean): void {
+    this.iceFrozen = frozen
     if (this.animation === undefined || this.animation.destroyed) return
-    this.animation.tint = bodyTint(false, frozen, lookFor('mob', this.archetype).tint ?? 0xffffff)
+    const look = lookFor('mob', this.archetype).tint ?? 0xffffff
+    this.animation.tint = bodyTint(false, frozen, multiplyTint(look, this.shownLayerTint))
   }
 
   /** A hit is an overlay over whatever plays (decision #52): the rig's flash and jolt, and the spark. */

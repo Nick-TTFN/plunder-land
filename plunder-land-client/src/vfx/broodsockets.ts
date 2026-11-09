@@ -73,6 +73,8 @@ export class BroodSockets extends Container {
     const dying = this.brood.dying
     for (let i = 0; i < this.seats.length; i++) {
       const seat = this.seats[i]
+      // The Brood's layer tint (`Mob.update`), so a seated Broodling isn't left grey.
+      seat.baseTint = this.brood.baseTint
       const scale = dying || i >= points.length ? 0 : socketScale(this.loadedAt, i, now)
       seat.visible = scale > 0
       if (scale <= 0) continue

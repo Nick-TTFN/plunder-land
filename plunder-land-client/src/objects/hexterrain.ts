@@ -111,14 +111,15 @@ export class HexTerrain extends Container {
    */
   voidOf: ((q: number, r: number) => boolean) | undefined
 
-  /** This plane's own tint, multiplied into the fog's: deeper reads colder. */
+  /** This plane's own tint (`LAYER_TINT`), multiplied into the fog's. */
   tint = 0xFFFFFF
 
   /**
-   * The edge fade's colour, multiplied in with the fog's and the plane's: the
-   * art is grey, and the mockup's walls are the tiles' navy.
+   * The edge fade's colour, multiplied in with the fog's and the plane's: a
+   * neutral grey, so the drop-off darkens the layer's own tint rather than
+   * pulling it toward navy (Nick, palette lab 2026-11-09).
    */
-  static FADE_TINT = 0x8FA6D6
+  static FADE_TINT = 0x7D7D7D
 
   /** The edge fade's opacity: half the art's, which read too strong in play. */
   static FADE_ALPHA = 0.5
