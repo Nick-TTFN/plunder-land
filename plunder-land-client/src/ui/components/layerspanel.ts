@@ -24,7 +24,7 @@ function hexagon (g: Graphics, r: number): Graphics {
  * (three-ground-layers follow-up). `reset` starts a new run's visits.
  */
 export class LayersPanel extends Panel {
-  private readonly _badges: Array<{ tag: number, frame: Graphics, mark: Text, name: Text }> = []
+  private readonly _badges: Array<{ tag: number, frame: Graphics, mark: Text, name: Text, tags: Text }> = []
   private readonly _visited = new Set<number>()
   private _current: number | undefined = NaN
 
@@ -50,8 +50,16 @@ export class LayersPanel extends Panel {
       name.anchor.set(0.5, 0)
       name.x = x
       name.y = BADGE_R * 2 + 8
-      this.body.addChild(frame, mark, name)
-      this._badges.push({ tag, frame, mark, name })
+      // The current layer's tags (Session.layerTags: "MOBS -50%", "NO PVP"),
+      // one a line under its name. Fitted with two lines in, so the panel
+      // keeps room for them whichever layer is current.
+      const tags = Panel.text('MOBS -50%\nNO PVP', THEME.smallSize - 2, THEME.hp)
+      tags.anchor.set(0.5, 0)
+      tags.style.align = 'center'
+      tags.x = x
+      tags.y = name.y + name.height + 4
+      this.body.addChild(frame, mark, name, tags)
+      this._badges.push({ tag, frame, mark, name, tags })
     })
     this.fit()
     this.setCurrent(undefined)
@@ -77,6 +85,7 @@ export class LayersPanel extends Panel {
       badge.mark.text = this._visited.has(badge.tag) ? two(i + 1) : '?'
       badge.mark.style.fill = current ? THEME.accent : THEME.muted
       badge.name.style.fill = current ? THEME.accent : THEME.muted
+      badge.tags.text = current ? Session.layerTags(badge.tag).join('\n') : ''
     })
   }
 }
@@ -96,7 +105,7 @@ export class LayerBadge extends Container {
 
   constructor () {
     super()
-    this._text = new Text('LAYER --', { fontFamily: THEME.font, fontSize: LayerBadge.FONT, fill: THEME.accent, stroke: 0x04070D, strokeThickness: 3 })
+    this._text = new Text('LAYER --', { fontFamily: THEME.font, fontSize: LayerBadge.FONT, fill: THEME.accent, stroke: 0x04070D, strokeThickness: 3, align: 'right' })
     this.addChild(this._text)
     this.setCurrent(undefined)
   }
@@ -115,11 +124,17 @@ export class LayerBadge extends Container {
     return i < 0 ? 'LAYER --' : `LAYER ${two(i + 1)}`
   }
 
-  /** The layer the player is on now, undefined between runs. */
-  setCurrent (tag: number | undefined): void {
-    if (tag === this._current) return
+  /**
+   * The layer the player is on now, undefined between runs; its tags
+   * (`Session.layerTags`) on a second line. True when the text changed, so
+   * the HUD lays it out again (its size moved).
+   */
+  setCurrent (tag: number | undefined): boolean {
+    if (tag === this._current) return false
     this._current = tag
-    this._text.text = LayerBadge.label(tag)
+    const tags = Session.layerTags(tag)
+    this._text.text = tags.length > 0 ? `${LayerBadge.label(tag)}\n${tags.join(' · ')}` : LayerBadge.label(tag)
+    return true
   }
 }
 

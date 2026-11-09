@@ -48,7 +48,7 @@ export class Session {
   private static _lastArrival: number = 0
   private static _p95: number = 250
 
-  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown, skills?: unknown, firstRun?: unknown }): void {
+  static onHello (data: { tick?: number, map?: number, interest?: number, layers?: unknown, voids?: unknown, walls?: unknown, skills?: unknown, firstRun?: unknown, mobHandicap?: unknown, noPvp?: unknown }): void {
     Session.skills = helloSkills(data?.skills)
     Session.firstRun = data?.firstRun === true
     if (typeof data?.tick === 'number' && data.tick > 0) Session.tickMs = data.tick
@@ -71,6 +71,15 @@ export class Session {
     const walls = data?.walls
     Session.walls = Session.layers.map((_, i) =>
       Array.isArray(walls) ? Session.decodeRuns(walls[i], Session.mapSize) : new Set<number>())
+    // Per layer, in `layers` order (FTUE balance): the NPC handicap and the
+    // no-PvP flag. Missing or malformed (an older server): no tags.
+    const handicap = data?.mobHandicap
+    Session.mobHandicap = Session.layers.map((_, i) => {
+      const v = Array.isArray(handicap) ? handicap[i] : undefined
+      return typeof v === 'number' && v > 0 && v <= 1 ? v : 1
+    })
+    const noPvp = data?.noPvp
+    Session.noPvp = Session.layers.map((_, i) => Array.isArray(noPvp) && noPvp[i] === true)
     Session.known = true
 
     // Seed the measurement so the first second of play is not timed off a guess.
@@ -94,6 +103,29 @@ export class Session {
       for (let j = 0; j < length; j++, i++) if (n % 2 === 1) out.add(Hex.key(cells[i].x, cells[i].y))
     })
     return out
+  }
+
+  /**
+   * Each layer's NPC handicap from `hello.mobHandicap` (1 = full strength), in
+   * `layers` order; all 1 from a server that sends none.
+   */
+  static mobHandicap: number[] = []
+  /** Each layer's no-PvP flag from `hello.noPvp` (a private layer), in `layers` order. */
+  static noPvp: boolean[] = []
+
+  /**
+   * The current layer's tags (FTUE balance, Nick 2026-11-09): "MOBS -50%"
+   * for a handicapped layer, "NO PVP" for a private one. Empty for an
+   * unknown tag or a server that sends neither.
+   */
+  static layerTags (tag: number | undefined): string[] {
+    const i = tag === undefined ? -1 : Session.layers.indexOf(tag)
+    if (i < 0) return []
+    const tags: string[] = []
+    const handicap = Session.mobHandicap[i] ?? 1
+    if (handicap < 1) tags.push(`MOBS -${Math.round((1 - handicap) * 100)}%`)
+    if (Session.noPvp[i] === true) tags.push('NO PVP')
+    return tags
   }
 
   /** A layer's number as players see it, 1 for the top layer; undefined for an unknown tag. */

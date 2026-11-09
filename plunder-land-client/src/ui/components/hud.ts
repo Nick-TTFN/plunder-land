@@ -530,7 +530,8 @@ export class HUD extends Container {
     // After the cards: the radial draws their cooldowns and hint as they now stand.
     this.radial.update(performance.now())
     this.layers?.setCurrent(Game.PLAYER?.tag)
-    this.badge?.setCurrent(Game.PLAYER?.tag)
+    // A new layer can change the badge's size (its tags line): place it again.
+    if (this.badge?.setCurrent(Game.PLAYER?.tag) === true) this.updateLayout()
   }
 
   clearGameUI (): void {

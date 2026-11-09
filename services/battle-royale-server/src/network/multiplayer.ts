@@ -596,6 +596,12 @@ export default class Multiplayer {
       // Each layer's walls (decision #44), the same way. Additive like voids:
       // an older client routes into a wall and is corrected.
       walls: World.TAGS.map((tag) => World.WALL_RUNS.get(tag) ?? []),
+      // Each layer's NPC handicap (`LayerSpec.mobHandicap`, 1 for none) and
+      // whether it is a private layer (`owned`: no other human, so no PvP),
+      // in `layers` order: the client's tags on the current layer (FTUE
+      // balance, 2026-11-09). Additive: an older client ignores both.
+      mobHandicap: World.TAGS.map((tag) => World.LAYERS.find((layer) => layer.tag === tag)?.mobHandicap ?? 1),
+      noPvp: World.TAGS.map((tag) => World.LAYERS.find((layer) => layer.tag === tag)?.owned === true),
       // The run's 4 skill ids, Q W E R (decision #48 step 4): the kit the
       // server built, after checking and any fallback, never what the client
       // asked for. Slot i of it is what a `skill` press of i runs. A client
