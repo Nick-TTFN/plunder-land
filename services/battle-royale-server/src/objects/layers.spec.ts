@@ -224,6 +224,33 @@ test('natural pickups and mobs carry their layer\'s loot multiplier', () => {
   assert.deepEqual(lootOf(ARCHETYPES.brood, BOTTOM), [2400])
 })
 
+// Nick 2026-11-09 (FTUE balance): mobs on 01 at half strength, on 02 at three
+// quarters, HP and damage; counts untouched (the table test above).
+test('mobs carry their layer\'s handicap: HP and every hit x0.5 on 01, x0.75 on 02, full from 03', () => {
+  assert.deepEqual(LAYERS.map((l) => l.mobHandicap ?? 1), [0.5, 0.75, 1, 1, 1])
+  const world = worldWithoutGates()
+  for (let i = 0; i < 40; i++) world.update(DT)
+  for (const layer of LAYERS) {
+    const scale = layer.mobHandicap ?? 1
+    const mobs = World.MOBS.filter((m) => m.tag === layer.tag && !m.destroyed) as Mob[]
+    assert.ok(mobs.length > 0, `no mobs on ${layer.tag}`)
+    for (const mob of mobs) {
+      assert.equal(mob.handicap, scale)
+      assert.equal(mob.maxHp, Math.max(1, Math.round(mob.archetype.maxHp * scale)), `${mob.archetype.key} on ${layer.tag}`)
+      assert.equal(mob.damageScale, mob.archetype.damageScale * scale)
+    }
+  }
+  // Contact damage bypasses `Skill.dealt`: it is scaled too. A Crawler on 01
+  // touching a player deals half its contact damage.
+  const crawler = World.MOBS.find((m) => m.archetype === ARCHETYPES.crawler && m.tag === TOP) as Mob
+  const player = World.createPlayer('handicap-1', 'H', undefined, undefined, undefined, TOP)
+  player.armor = 0
+  const before = player.hp
+  crawler.canAttack = true
+  crawler.onCollideWithPlayer(player)
+  assert.equal(before - player.hp, ARCHETYPES.crawler.contact.damage * 0.5)
+})
+
 test('a mob\'s death drops carry its multiplied loot', () => {
   const world = worldWithoutGates()
   for (let i = 0; i < 5; i++) world.update(DT)

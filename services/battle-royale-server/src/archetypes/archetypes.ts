@@ -1002,6 +1002,14 @@ export interface LayerSpec {
    * code; which layers are private is this flag alone.
    */
   owned?: boolean
+  /**
+   * The NPC handicap (Nick 2026-11-09, FTUE balance): every mob spawned on
+   * this layer has this share of its archetype's max HP, and every hit it
+   * deals is times this (`Mob.handicap`, through `damageScale` and the
+   * attacks that bypass `Skill.dealt`). Counts, speed, timings, XP and loot
+   * are untouched. Absent: 1. As the bots' (`BOT_SKILL`'s `hpScale`).
+   */
+  mobHandicap?: number
 }
 
 /**
@@ -1038,6 +1046,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   {
     tag: 0,
     owned: true,
+    mobHandicap: 0.5,
     lootMultiplier: 0.1,
     voidShare: 1 / 3,
     wallShare: 0.06,
@@ -1064,6 +1073,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   {
     tag: -1,
     owned: true,
+    mobHandicap: 0.75,
     lootMultiplier: 0.175,
     voidShare: 1 / 3,
     wallShare: 0.06,

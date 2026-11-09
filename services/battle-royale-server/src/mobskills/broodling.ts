@@ -194,7 +194,7 @@ export default class BroodlingFuse implements IAIRoutine {
       // A corpse stays in the index until the next sweep; an extracted player
       // too (`Player.hit` refuses it anyway).
       if (unit === owner || unit.destroyed || (unit as { exited?: boolean }).exited === true) continue
-      if (!unit.hit(this.spec.damage)) continue
+      if (!unit.hit(this.spec.damage * owner.damageScale)) continue
       if (unit.type === ObjectType.Player) owner.onKill(unit)
       else killed.push(unit)
     }

@@ -1525,9 +1525,9 @@ export default class World {
     this.placeMob(archetype, pos, layer)
   }
 
-  /** A new mob of `archetype` at `pos`, carrying the layer's loot, added to `MOBS`. */
+  /** A new mob of `archetype` at `pos`, carrying the layer's loot and handicap, added to `MOBS`. */
   private placeMob (archetype: Archetype, pos: Vector, layer: LayerSpec): Mob {
-    const mob = new Mob(pos.x, pos.y, layer.tag, archetype)
+    const mob = new Mob(pos.x, pos.y, layer.tag, archetype, layer.mobHandicap ?? 1)
     mob.loot = Math.round(archetype.loot * layer.lootMultiplier)
     // A mob's loot is server-side only: it is not in its create record
     // (`allFields`), and nothing else ever marks it. Left dirty, the next

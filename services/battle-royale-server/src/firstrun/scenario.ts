@@ -81,10 +81,10 @@ export function firstRunStrip (): { line: Vector[], cells: Set<number> } {
   return { line, cells }
 }
 
-/** A scenario mob of `archetype` on `cell`, carrying its loot as a layer's spawn would (`World.placeMob`). */
-function place (archetype: Archetype, cell: Vector, tag: number, lootMultiplier: number): Mob {
+/** A scenario mob of `archetype` on `cell`, carrying its loot and handicap (`Mob.handicap`) as a layer's spawn would (`World.placeMob`). */
+function place (archetype: Archetype, cell: Vector, tag: number, lootMultiplier: number, handicap: number): Mob {
   const at = Hex.toPosition(cell)
-  const mob = new Mob(at.x, at.y, tag, archetype)
+  const mob = new Mob(at.x, at.y, tag, archetype, handicap)
   mob.loot = Math.round(archetype.loot * lootMultiplier)
   // Server-side only, as `placeMob` keeps it (no "+25" floated over it on sight).
   mob.dirtyFields.delete('loot')
@@ -114,13 +114,16 @@ export function buildFirstRun (world: World): void {
   World.VOID_RUNS.set(tag, encodeRuns(voids, size))
 
   world.spawn = line[0]
-  // Rocks are exact (3 each, single digits like layer 01 since 2026-11-06); the NPCs carry layer 01's loot, as there.
+  // Rocks are exact (3 each, single digits like layer 01 since 2026-11-06,
+  // and their full 24 HP: the "two shots" beat); the NPCs carry layer 01's
+  // loot and handicap, as there.
   for (const rock of FIRST_RUN.rocks) {
     const on = line[rock.at]
-    place(ARCHETYPES.rock, rock.side === null ? on : Hex.neighbour(on, rock.side), tag, 1)
+    place(ARCHETYPES.rock, rock.side === null ? on : Hex.neighbour(on, rock.side), tag, 1, 1)
   }
-  place(ARCHETYPES.crawler, line[FIRST_RUN.crawlerAt], tag, LAYERS[0].lootMultiplier)
-  place(ARCHETYPES.compactor, line[FIRST_RUN.compactorAt], tag, LAYERS[0].lootMultiplier)
+  const handicap = LAYERS[0].mobHandicap ?? 1
+  place(ARCHETYPES.crawler, line[FIRST_RUN.crawlerAt], tag, LAYERS[0].lootMultiplier, handicap)
+  place(ARCHETYPES.compactor, line[FIRST_RUN.compactorAt], tag, LAYERS[0].lootMultiplier, handicap)
 
   const pad = Hex.toPosition(line[FIRST_RUN.padAt])
   World.addObstacle(new HandoffGate(pad.x, pad.y, tag))

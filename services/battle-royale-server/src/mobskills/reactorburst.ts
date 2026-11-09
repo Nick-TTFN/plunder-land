@@ -136,13 +136,13 @@ export default class ReactorBurst implements IAIRoutine {
     })
   }
 
-  /** `spec.damage` to every live, unextracted player on the disc round `cell`. */
+  /** `spec.damage`, times the Reactor's `damageScale` (its layer's handicap), to every live, unextracted player on the disc round `cell`. */
   private pulse (cell: Vector): void {
     const owner = this.owner
     for (const unit of World.FIND_IN_CELLS(cell, this.spec.rings, owner.tag, ObjectType.Player)) {
       // A corpse stays filed until the next sweep; an extracted player until the next tick.
       if (unit.destroyed || (unit as { exited?: boolean }).exited === true) continue
-      if (unit.hit(this.spec.damage)) owner.onKill(unit)
+      if (unit.hit(this.spec.damage * owner.damageScale)) owner.onKill(unit)
     }
   }
 }

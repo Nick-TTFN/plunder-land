@@ -65,10 +65,29 @@ export default class Mob extends Unit {
    * construction, never by a base constructor.
    */
   blastKills: Unit[] | undefined = undefined
+  /**
+   * Its layer's NPC handicap (`LayerSpec.mobHandicap`), given by the spawn
+   * (`World.placeMob`, the first run's `place`) as the constructor's
+   * `handicap`: max HP scaled by it before the create, and every hit it deals
+   * times it (`damageScale`, and the contact, Reactor pulse and Broodling
+   * blast, which bypass `Skill.dealt`). 1 for a mob nothing handicapped (a
+   * spec's bare `new Mob`, a Brood's Broodling: the Brood never spawns on a
+   * handicapped layer). Set in the constructor body, after this initialiser,
+   * never by a base constructor.
+   */
+  handicap = 1
 
   /** `archetype` defaults to the grunt, which is what a plain `Mob` always was. */
-  constructor (x: number, y: number, tag: number, archetype: Archetype = ARCHETYPES.grunt) {
+  constructor (x: number, y: number, tag: number, archetype: Archetype = ARCHETYPES.grunt, handicap = 1) {
     super(ObjectType.Mob, x, y, 0, tag, archetype)
+
+    // Before the create, so the first record already carries the scaled HP.
+    // A mob's armor is always 0/0 (Unit's constructor), so HP is all there is.
+    this.handicap = handicap
+    if (handicap !== 1) {
+      this.maxHp = Math.max(1, Math.round(this.maxHp * handicap))
+      this.hp = this.maxHp
+    }
 
     // The skills live only inside the routines that use them: a mob never
     // receives a slot index, so it has no `skills` list of its own.
@@ -80,6 +99,14 @@ export default class Mob extends Unit {
 
     // After the create, not in Unit's constructor: see Archetype.level.
     if (archetype.level !== undefined) this.level = archetype.level
+  }
+
+  /**
+   * The archetype's, times the layer's handicap (`handicap`). An accessor,
+   * never a field: a field would shadow Unit's getter (CLAUDE.md).
+   */
+  get damageScale (): number {
+    return super.damageScale * this.handicap
   }
 
   update (dt: number): void {
@@ -121,7 +148,7 @@ export default class Mob extends Unit {
       Timers.schedule(this.archetype.contact.cooldownMs, () => { this.canAttack = true }, this)
 
       this.canAttack = false
-      if (target.hit(this.archetype.contact.damage)) { this.onKill(target) }
+      if (target.hit(this.archetype.contact.damage * this.damageScale)) { this.onKill(target) }
     }
   }
 }
