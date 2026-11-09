@@ -5,7 +5,10 @@ import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
-import Worlds, { LOAD_HOT, PRIVATE_BOTS_DEFAULT } from './worlds'
+import Worlds, { LOAD_HOT } from './worlds'
+
+// Pinned, not the shipping default: these specs need bots on the human's layer.
+const BOTS: readonly number[] = [2, 3]
 import World from '../objects/world'
 import Mob from '../objects/mob'
 import { ARCHETYPES } from '../archetypes/archetypes'
@@ -94,7 +97,7 @@ async function settle (): Promise<void> {
 }
 
 function makeWorlds (store: MemoryAccountStore): Worlds {
-  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), accounts: store, privateBots: PRIVATE_BOTS_DEFAULT })
+  return new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), accounts: store, privateBots: BOTS })
 }
 
 /**

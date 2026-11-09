@@ -79,7 +79,7 @@ function startGame (): void {
     // PRIVATE_CAP_DEFAULT (2500, an emergency stop; private-15); 0: no cap.
     privateCap: Number.isInteger(parseInt(process.env.PRIVATE_CAP ?? '')) ? Math.max(0, parseInt(process.env.PRIVATE_CAP ?? '')) : undefined,
     // Bots in a private world by the layer its human is on, top first, as a
-    // comma list (#60 addendum 2026-11-07: "2,3"); "0" turns them off. Unset,
+    // comma list (#60 addendum 2026-11-07: "2,3"; "0,2" since 2026-11-09); "0" turns them off. Unset,
     // or any entry not a number: PRIVATE_BOTS_DEFAULT.
     privateBots: privateBotsFrom(process.env.PRIVATE_BOTS),
     // Starts let through to private worlds per tick; the rest wait, nothing

@@ -159,10 +159,12 @@ export const PRIVATE_CAP_DEFAULT = 2500
 
 /**
  * `PRIVATE_BOTS` when unset (decision #60 addendum 2026-11-07, Nick: "a
- * couple in layer 1, 3-4 on layer 2"; overrides Dez's flat 4 per world):
+ * couple in layer 1, 3-4 on layer 2"; overrides Dez's flat 4 per world;
+ * 2026-11-09, Nick: "layer 01 is too busy. definitely less bots", after the
+ * map shrink made it a 1000 square, then "do PRIVATE_BOTS=0,2"):
  * bots per private layer, top first, by the layer the human is on.
  */
-export const PRIVATE_BOTS_DEFAULT: readonly number[] = Object.freeze([2, 3])
+export const PRIVATE_BOTS_DEFAULT: readonly number[] = Object.freeze([0, 2])
 
 /**
  * `PRIVATE_BOTS` from the environment: a comma list of whole numbers, top

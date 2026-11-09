@@ -359,14 +359,14 @@ test('a descent inside a private world: the old layer\'s bots exit at once, and 
   assert.ok(full >= 4, `3 bots beside the human on only ${full} of 12 ticks after the descent`)
 })
 
-test('PRIVATE_BOTS: a comma list of bots per private layer, top first; unset or malformed is the default 2,3', () => {
-  assert.deepEqual([...PRIVATE_BOTS_DEFAULT], [2, 3])
-  assert.deepEqual([...privateBotsFrom(undefined)], [2, 3])
-  assert.deepEqual([...privateBotsFrom('')], [2, 3])
+test('PRIVATE_BOTS: a comma list of bots per private layer, top first; unset or malformed is the default 0,2', () => {
+  assert.deepEqual([...PRIVATE_BOTS_DEFAULT], [0, 2])
+  assert.deepEqual([...privateBotsFrom(undefined)], [0, 2])
+  assert.deepEqual([...privateBotsFrom('')], [0, 2])
   assert.deepEqual([...privateBotsFrom('1, 4')], [1, 4])
   assert.deepEqual([...privateBotsFrom('0')], [0])
-  assert.deepEqual([...privateBotsFrom('2,x')], [2, 3])
-  assert.deepEqual([...privateBotsFrom('-1,3')], [2, 3])
+  assert.deepEqual([...privateBotsFrom('2,x')], [0, 2])
+  assert.deepEqual([...privateBotsFrom('-1,3')], [0, 2])
 })
 
 // NPC density ======

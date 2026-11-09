@@ -5,7 +5,10 @@ import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import { type Connection, ThrottledLog } from './multiplayer'
-import Worlds, { LOAD_COOL, LOAD_HOLD_TICKS, LOAD_HOT, LOAD_WARM, PRIVATE_BOTS_DEFAULT } from './worlds'
+import Worlds, { LOAD_COOL, LOAD_HOLD_TICKS, LOAD_HOT, LOAD_WARM } from './worlds'
+
+// Pinned, not the shipping default: these specs need bots on the human's layer.
+const BOTS: readonly number[] = [2, 3]
 import World from '../objects/world'
 import { MemoryAccountStore } from '../db/accounts'
 import Analytics from '../analytics'
@@ -104,7 +107,7 @@ function makeWorlds (store: MemoryAccountStore, options: Options = {}): Worlds {
     redis: redisStub(),
     accounts: store,
     bots: 4,
-    privateBots: PRIVATE_BOTS_DEFAULT,
+    privateBots: BOTS,
     privateOpensPerTick: options.opens,
     privateQueueMaxMs: options.maxMs,
     tickClock: options.tickClock
@@ -248,7 +251,7 @@ test('the load level rises with the tick, sheds private work, and gives it back 
   const bots = (): number => world.PLAYERS.filter((p) => p.bot !== undefined && !p.destroyed && !p.exited && !p.bot.leaving).length
   for (let i = 0; i < 6; i++) await tick(worlds, 2500)
   assert.equal(worlds.load, LOAD_COOL)
-  assert.equal(bots(), PRIVATE_BOTS_DEFAULT[0], 'not the cool bot count on the top layer')
+  assert.equal(bots(), BOTS[0], 'not the cool bot count on the top layer')
   assert.equal(world.farThinkFactor, World.FAR_THINK_FACTOR)
   assert.equal(world.wakeMargin, World.WAKE_MARGIN_RINGS)
 
@@ -263,7 +266,7 @@ test('the load level rises with the tick, sheds private work, and gives it back 
   assert.equal(worlds.load, LOAD_HOT)
   assert.equal(world.wakeMargin, 0)
   assert.equal(player.tag, World.TAGS[0], 'the human left the top layer')
-  assert.equal(bots(), PRIVATE_BOTS_DEFAULT[0] - 1, 'hot did not take a bot away')
+  assert.equal(bots(), BOTS[0] - 1, 'hot did not take a bot away')
 
   // Between the hot threshold and its hysteresis: stays hot.
   tickCostMs = 135 // 54%
@@ -288,7 +291,7 @@ test('the load level rises with the tick, sheds private work, and gives it back 
   assert.equal(worlds.load, LOAD_COOL)
   assert.equal(world.farThinkFactor, World.FAR_THINK_FACTOR)
   assert.equal(world.wakeMargin, World.WAKE_MARGIN_RINGS)
-  assert.equal(bots(), PRIVATE_BOTS_DEFAULT[0], 'the bot did not come back')
+  assert.equal(bots(), BOTS[0], 'the bot did not come back')
 })
 
 test('a private world opened while hot starts shed; a shared world is never touched', async () => {
