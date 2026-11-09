@@ -333,7 +333,7 @@ doubling backoff from 1 s to 15 s (never under `retryMs`, +-30% jitter); `hello`
 clears it. An older client just lands back in the lobby: no PROTOCOL bump. The cap's value needs a
 load test on Railway.
 
-**`hello`** is emitted once on join: `{ tick, map, interest, layers, skills }`; `skills` is the run's 4 skill ids, Q W E R, as the server resolved them (#48 step 4), and the client resets `Session.skills` on every hello. A first-run world's `hello` adds `firstRun: true` (absent otherwise, so the next world's hello after a `handoff` clears it): the client's `Session.firstRun` turns on the tutorial hints (`docs/world.md`, "First-run worlds"). Nothing on the client
+**`hello`** is emitted once on join: `{ tick, map, interest, layers, skills }`; `skills` is the run's 4 skill ids, Q W E R, as the server resolved them (#48 step 4), and the client resets `Session.skills` on every hello. `mobHandicap` and `noPvp` (additive, in `layers` order) are each layer's NPC handicap (`LayerSpec.mobHandicap`, 1 for none) and whether it is private (`owned`: no other human); the client shows them as the current layer's tags (`Session.layerTags`). A first-run world's `hello` adds `firstRun: true` (absent otherwise, so the next world's hello after a `handoff` clears it): the client's `Session.firstRun` turns on the tutorial hints (`docs/world.md`, "First-run worlds"). Nothing on the client
 may hardcode these — see `src/net/session.ts`. `layers` is every layer's tag, top (01) first;
 the client builds one plane per entry when `hello` lands (it precedes the join's first
 flush) and labels a portal "LAYER 0N" by its `to`'s position in the list. A `hello` without

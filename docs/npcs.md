@@ -311,6 +311,31 @@ and `killer`, too late for that run's XP and `run_end`. StoneWall stones survive
 them; a feel call for Dez). The remaining fuse goes out in **`lifetime` (9)** on the create
 (see `docs/wire-format.md`).
 
+## Layer handicap and tint (FTUE balance, Nick 2026-11-09)
+
+**Server.** `LayerSpec.mobHandicap` (`LAYERS`): 0.5 on 01, 0.75 on 02, absent (1) from 03, the
+bots' `BOT_SKILL` ramp. The spawn passes it to `new Mob(..., handicap)` (`World.placeMob`, and
+the first run's `place` for its Crawler and Compactor; its rocks stay at 24 HP for the "two
+shots" beat): max HP scaled, rounded, at least 1, **before the create** (a scaled HP sent after
+it would read as an hp drop and play `onHurt` on the client). Damage: `Mob.damageScale` (an
+accessor over `Unit`'s) times `handicap`, which covers every `Skill.dealt` attack (Crawler shot,
+Kiln lob, Compactor slam); the three attacks that bypass `dealt` multiply it in themselves:
+contact (`Mob.onCollideWithPlayer`), the Reactor pulse, the Broodling blast. Counts, speed,
+timings, notice ranges, XP and loot are unchanged. A bare `new Mob` (specs) and a Brood's
+Broodling get 1. Spec: `layers.spec.ts` "mobs carry their layer's handicap".
+
+**Client.** `MOB_LAYER_TINT` (`objects/fog.ts`, Nick's palette from the palette lab), by the
+mob's tag's index in `Session.layers`, applied in `Mob.update` once the tag is known
+(`NpcSprite.baseTint`, or the old sprite's look tint times it in `setIceTint`), under the hit flash
+and the ice tint, and kept through a death; a Brood passes it to its socket Broodlings. Body parts
+draw from a 65%-desaturated, x1.35 copy of the sheet (`objects/greyscale.ts` `greyOf`, built in the
+browser on first use), so the tint reads as its colour; glow and effect layers keep theirs. Over
+each tinted part `NpcSprite` draws a white highlight mask (`highlightOf`: opaque above 55%
+luminance) at `HIGHLIGHT_ALPHA` 0.6, since a multiply pulls highlights down to the tint. Robots are
+never tinted. **Tags:** `hello.mobHandicap` and `hello.noPvp` (per layer, `docs/wire-format.md`)
+become `Session.layerTags`, "MOBS -50%" / "NO PVP", under the current badge of `LayersPanel` and on
+the phone `LayerBadge`'s second line.
+
 ## Frozen NPCs (#54, ice-1)
 
 Icicle and Ice Breath chill mobs; the chill and freeze rules, weaker metal (x1.5 taken while

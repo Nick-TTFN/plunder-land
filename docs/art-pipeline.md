@@ -60,7 +60,10 @@ not the renderer's 2x, and with a fractional row pitch every row snapped differe
 are not rounded; every pad lands on a whole device pixel by construction (column 45, row shift
 22.5, row `ROW_SCREEN` 36, all face frames the same size with the face centre on a whole texel), and
 the camera and `Game`'s own position are snapped to device pixels. Break any one and it wobbles. Every layer uses the same
-set, tinted by `LAYER_TINT` (`objects/fog.ts`) times the fog's. The old `hexpad/*` frames in
+set, drawn from a desaturated copy of the sheet (`objects/greyscale.ts`) and tinted by `LAYER_TINT`
+(`objects/fog.ts`, Nick's palette lab picks, 2026-11-09: mint, yellow, apricot, coral, lavender, much
+lighter than the mobs') times the fog's; the cell-edge fades take `HexTerrain.FADE_TINT`, a neutral
+grey. NPC bodies take `MOB_LAYER_TINT` (`docs/npcs.md` "Layer handicap and tint"). The old `hexpad/*` frames in
 `hex.json` are now unused and go at its next re-bake.
 
 **Props, effects and icons are a third generated sheet, `assets/res/arena.png` + `arena.json`,
