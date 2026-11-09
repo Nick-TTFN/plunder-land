@@ -138,6 +138,8 @@ export const LOBBY_CSS = `
 .lb-ready-sub { text-align: center; font-size: 13px; letter-spacing: .06em; color: #c9d6e2; }
 .lb-privacy { align-self: center; font-size: 11px; letter-spacing: .12em; color: #6f8496; text-decoration: none; }
 .lb-privacy:hover { color: #33dbd3; }
+.lb-build { position: absolute; left: 8px; bottom: 4px; font-size: 10px; letter-spacing: .08em; color: #6f8496; opacity: .7;
+  font-family: ui-monospace, Menlo, monospace; pointer-events: none; }
 .lb-join { display: flex; align-items: center; gap: 10px; max-width: 100%;
   padding: 6px 8px 6px 14px; font-size: 12px; letter-spacing: .08em; color: #0b1622; background: #33dbd3; border-radius: 6px; pointer-events: auto; }
 .lb-full { background: #ffc45e; }

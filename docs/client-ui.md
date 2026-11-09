@@ -69,6 +69,9 @@ bundle as Windows-1252 and every non-ASCII string (the lobby's arrows) came out 
 three action rows, the season row and READY with the plays line under it. Under 760 px it is one
 column (progression, journey, hero, callsign, rows, season), READY is `position: sticky` at the
 bottom of the scroll, and INVITE / settings / PRIVACY fold into the header's menu button.
+The bottom-left corner shows the build's short commit (`.lb-build`, `BUILD` in `config.ts`, from
+`__RELEASE__`: Workers Builds set `WORKERS_CI_COMMIT_SHA`, the itch zip build sets it by hand; `dev`
+when unset), so a deploy can be checked by eye.
 Four panels, one open at a time (`Lobby.toggle`): STATS & PAINT (the stat bars over the customize
 rows, key E), PLUNDERBOTS (the robot cards and tagline, key C), LOADOUT (L), STASH (S). The row
 "Stats & paint" is the mockup's "Loadout & stats": the skill loadout is the Skills row. The heading,

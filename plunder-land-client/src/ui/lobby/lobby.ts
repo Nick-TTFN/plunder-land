@@ -22,7 +22,7 @@ import { type BringPair, STASH, markStashSeen, newStashCount, stashCount } from 
 import { loadoutOf } from '../../net/loadout'
 import { SKILL_LIST, loadoutSlotsAt } from '../../utils/skills'
 import { Sfx } from '../../audio/sfx'
-import { PORTAL } from '../../config'
+import { BUILD, PORTAL } from '../../config'
 import { invitesShown, privacyUrl } from '../../net/portal'
 import {
   type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
@@ -544,7 +544,10 @@ export default class Lobby extends Container {
     right.append(progress, journey, rows, this.season)
     main.append(left, right)
     this.content.append(main)
-    this.root.append(top, this.content, this.customize, this.picker, this.loadout.root, this.stash.root)
+    // Which build this is (Nick, 2026-11-09): the commit, so a deploy can be checked by eye.
+    const build = el('div', 'lb-build', BUILD)
+    build.title = `Build ${BUILD}`
+    this.root.append(top, this.content, this.customize, this.picker, this.loadout.root, this.stash.root, build)
     this.content.addEventListener('scroll', this.onScroll)
     document.body.append(this.root)
     // The account is announced on connect, which may be before or after this.

@@ -7,9 +7,14 @@
 import { type Portal, portalFrom } from './net/portal'
 
 declare const __SERVER_URL__: string
+/** The commit the host built (WORKERS_CI_COMMIT_SHA, set by hand for the itch zip), or '' outside one. */
+declare const __RELEASE__: string
 
 export const SERVER_URL: string =
   new URLSearchParams(window.location.search).get('server') ?? __SERVER_URL__
 
 /** Where this client runs (`net/portal.ts`): `web`, `itch`, ... */
 export const PORTAL: Portal = portalFrom(window.location.hostname, window.location.search)
+
+/** The build's short commit, shown in the lobby's corner; `dev` for a local build. */
+export const BUILD: string = __RELEASE__ === '' ? 'dev' : __RELEASE__.slice(0, 7)
