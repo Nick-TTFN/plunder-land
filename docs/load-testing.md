@@ -66,8 +66,8 @@ agrees; measured that way 49-2 cost +0.094 ms a tick (+3.1%, accepted by Nick, #
 still per tick of the loop, and its counts are summed over the open worlds (`worlds` is the
 number open). It reads each world's own lists: with `World.strict` on, a static `World.X`
 outside `World.run` throws, which is the point, so anything added to the probe must do the
-same. **The probe reads `Worlds.worlds` only** (`counts()`), so since #60 it misses every
-private and first-run world: its players and mobs undercount once runs are private (not fixed).
+same. The probe's counts sum `Worlds.worlds`, `privates` and `firstRuns` (since private-11;
+`worlds` in its line is the shared ones, `privates` and `firstRuns` beside it).
 
 ## Private worlds (decision #60)
 
@@ -106,3 +106,52 @@ it first, so it shows up amortised. An N=100 after-snapshot is ~30 MB (run 2026-
 Measured 2026-11-07 (private-10, `MODE=real N=100 MAP=2000`, one run): `BLOCKED` 1.55 KB per world
 (56.3 when it was copied per world: Archie's run at `d47fad2` with `MOBSCALE=0.25`, a different
 configuration), ~125 KB attributed per world in all.
+
+### Private worlds over real sockets (private-11, 2026-11-09)
+
+`ramp.sh` against `dbcaded` (every run shared, the baseline) and `dbdc9bc` (every start opens a
+private world: map 1400, layer 01 on a 1000 square), M4 Max (macOS, not the Linux container),
+`PRIVATE_CAP=0`, `NODE_OPTIONS=--max-semi-space-size=4`, steps 0 / 100 / 400 / 1000 bots, 60 s each,
+settle 20. CPU and bandwidth: two runs each, alternated. Memory: one more run each with
+`PROBE_GC=1` (below), because without it heap and RSS read live set plus garbage. The bots never
+ask for the first run and get in-memory accounts, so every start is a private world (the probe saw
+~980 at the 1000 step). None took a pad (they walk at random); none was refused.
+
+| per step | shared, 1000 | private, 1000 |
+|---|---|---|
+| world ms per tick | 19.6 / 21.2 | 77.9 / 79.2 |
+| flush ms per tick | 3.3 / 3.5 | 2.2 / 2.1 |
+| cpu % of one core | 34 / 36 | 61 / 61 |
+| payload per client, B/s (before deflate) | 236 / 237 | 156 / 158 |
+| bot deaths per minute | 81 / 86 | 1101 / 1146 |
+
+Memory per player with `PROBE_GC=1`:
+
+| | RSS 100→400 | RSS 400→1000 | live heap | external |
+|---|---|---|---|---|
+| shared (`dbcaded`) | 0.13 MB | 0.19 MB | ~0.03 MB | ~16 KB |
+| private (`dbdc9bc`) | 0.35 MB | 0.36 MB | 0.105 MB | ~24 KB |
+| private, `WS_DEFLATE=0` | 0.19 MB | 0.26 MB | 0.105 MB | ~11 KB |
+| privatebench `MODE=real`, no sockets | 0.195 MB | 0.215 MB | 0.053-0.065 MB | |
+
+**The split per private human (~0.36 MB RSS): ~0.2 MB the world, ~0.15 MB the socket, most of it
+deflate's zlib state** (0.1-0.17 MB, consistent with the ~140 KB of 2026-09-27). CPU, not RAM, is
+the binding cost: 1000 private humans take ~80 ms of the 250 ms tick against ~20 ms shared. Egress
+(~160 B/s payload a client, ~415 GB a month per 1000 concurrent before deflate) costs more than RAM
+(~0.36 GB per 1000, ~$3.60 a month at $10/GB-month). So private-12 (shared gates, ~8 KB per human
+since layer 01 has one portal down, estimate) and private-14 (fixed loot spots, ~25 KB) were
+deferred (`decisions.md`, 2026-11-09).
+
+Caveats: **the bots die about once a minute in a private world** (they stand among NPCs and
+private bots), so sockets and worlds churn far more than with real players; without a forced GC
+that churn shows as 0.63-0.87 MB RSS per human. The bytes are what socket.io hands the client,
+after inflate: the wire carries less with deflate on. With `WS_DEFLATE=0`, `flush` rises from
+~1.3 to ~5.4 ms at 400 (the write becomes synchronous; deflate runs on libuv's pool).
+
+Tools: the probe counts `privates` and `firstRuns` too (it read `Worlds.worlds` only before),
+reports `heapTotalMB`, `externalMB` and `arrayBuffersMB`, and with `PROBE_GC=1` (and
+`--expose-gc` in `NODE_OPTIONS`) runs a full GC before each sample: memory runs only, it costs a
+major GC every window. `loadbot.mjs` follows a pad's `handoff` (forgets its own id until the next
+world's `create_own`) and counts and retries `start_refused`/`full`. `analyse.py` prints a second
+table: clients, shared and private worlds, rss, heap, external, arrayBuffers, and egress by
+connected clients (its old `egress` multiplies by `players`, which counts the server's own bots).

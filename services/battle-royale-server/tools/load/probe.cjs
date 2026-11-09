@@ -90,13 +90,31 @@ const mean = (arr) => arr.length ? +(arr.reduce((a, b) => a + b, 0) / arr.length
 let worldsInstance
 function counts () {
   if (World === undefined) return {}
-  const list = worldsInstance !== undefined ? worldsInstance.worlds : undefined
-  if (list === undefined) {
+  const shared = worldsInstance !== undefined ? worldsInstance.worlds : undefined
+  if (shared === undefined) {
     if (World.strict) return {}
     return { players: World.PLAYERS.length, mobs: World.MOBS.length, obstacles: World.OBSTACLES.length, consumables: World.CONSUMABLES.length }
   }
+  // Since #60 a world lives in exactly one of `worlds` (shared), `privates`
+  // and `firstRuns`; a server from before them has only `worlds`.
+  const privates = worldsInstance.privates ?? []
+  const firstRuns = worldsInstance.firstRuns ?? []
+  const list = [...shared, ...privates, ...firstRuns]
   const sum = (key) => list.reduce((n, w) => n + w[key].length, 0)
-  return { worlds: list.length, players: sum('PLAYERS'), mobs: sum('MOBS'), obstacles: sum('OBSTACLES'), consumables: sum('CONSUMABLES') }
+  return { worlds: shared.length, privates: privates.length, firstRuns: firstRuns.length, players: sum('PLAYERS'), mobs: sum('MOBS'), obstacles: sum('OBSTACLES'), consumables: sum('CONSUMABLES') }
+}
+
+// Process memory, MB: `external` holds Buffers and zlib state outside the V8
+// heap, `arrayBuffers` the part of it in ArrayBuffers (socket frames).
+// PROBE_GC=1 (with --expose-gc in NODE_OPTIONS) runs a full GC before each
+// sample, so heap is the live set, not live plus garbage not yet collected.
+// It costs a major GC every window: use it for memory runs, not CPU ones.
+const GC_FIRST = process.env.PROBE_GC === '1' && typeof global.gc === 'function'
+function memory () {
+  if (GC_FIRST) global.gc()
+  const m = process.memoryUsage()
+  const mb = (n) => +(n / 1048576).toFixed(1)
+  return { rssMB: mb(m.rss), heapMB: mb(m.heapUsed), heapTotalMB: mb(m.heapTotal), externalMB: mb(m.external), arrayBuffersMB: mb(m.arrayBuffers) }
 }
 
 let elu = performance.eventLoopUtilization()
@@ -126,8 +144,7 @@ setInterval(() => {
     elu: +e2.utilization.toFixed(3),
     cpuPctOneCore: +(((c2.user + c2.system) / 1000) / wall * 100).toFixed(1),
     cpuSysPct: +((c2.system / 1000) / wall * 100).toFixed(1),
-    rssMB: +(process.memoryUsage().rss / 1048576).toFixed(0),
-    heapMB: +(process.memoryUsage().heapUsed / 1048576).toFixed(0),
+    ...memory(),
     ...(detail !== undefined ? detail.take(a.world.length, wrapNs) : {})
   }
   fs.appendFileSync(out, JSON.stringify(line) + '\n')

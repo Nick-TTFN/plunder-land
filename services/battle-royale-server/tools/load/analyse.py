@@ -59,6 +59,13 @@ for i, (t0, label) in enumerate(steps):
     deaths = sum(x['deaths'] for x in b)
     windows = len(set(x['t'] // 5000 for x in b)) or 1
     players = round(st.mean(x['players'] for x in s))
+    # Sockets: the bots connected, summed over processes per window. `players`
+    # also counts the server's own bots (no socket; several per private world).
+    by_window = {}
+    for x in b:
+        by_window[x['t'] // 5000] = by_window.get(x['t'] // 5000, 0) + x['connected']
+    clients = round(st.mean(by_window.values())) if by_window else None
+    om = lambda k: round(st.mean([x[k] for x in s if x.get(k) is not None]), 1) if any(x.get(k) is not None for x in s) else None
     rows.append(dict(
         ccu=label, players=players,
         world_ms=mm('worldMs', 'mean'), world_p95=mm('worldMs', 'p95'), world_max=mx('worldMs', 'max'),
@@ -71,6 +78,9 @@ for i, (t0, label) in enumerate(steps):
         admit_ms=round(st.mean([x['admitMsMean'] for x in s if x['admitMsMean']] or [0]), 2),
         bot_Bps=round(bw) if bw else None, events=ev,
         egress_MBps=round(bw * players / 1e6, 2) if bw else None,
+        clients=clients, privates=om('privates'), shared_worlds=om('worlds'),
+        heap=om('heapMB'), external=om('externalMB'), array_buffers=om('arrayBuffersMB'),
+        egress_clients_MBps=round(bw * clients / 1e6, 2) if bw and clients else None,
         join_kb=join_kb,
         # None for bots from before the retry, which did not count failures.
         connect_fails=sum(x['connectFails'] for x in b) if b and all('connectFails' in x for x in b) else None,
@@ -90,3 +100,9 @@ else:
         print(f"| {r['ccu']} | {r['players']} | {r['world_ms']} | {r['mpupdate_ms']} | {r['world_p95']} | {r['flush_ms']} "
               f"| {r['interval_p95']} | {r['cpu']} | {r['elu']} | {kb(r['bot_Bps'])} | {kb(r['events'].get('standings'))} "
               f"| {dash(r['egress_MBps'])} | {dash(r['join_kb'])} | {dash(r['connect_fails'])} | {dash(r['deaths_per_min'])} |")
+    print()
+    print('| bots | clients | shared worlds | private worlds | rss MB | heap MB | external MB | arrayBuffers MB | client egress MB/s |')
+    print('|---|---|---|---|---|---|---|---|---|')
+    for r in rows:
+        print(f"| {r['ccu']} | {dash(r['clients'])} | {dash(r['shared_worlds'])} | {dash(r['privates'])} | {dash(r['rss'])} | {dash(r['heap'])} "
+              f"| {dash(r['external'])} | {dash(r['array_buffers'])} | {dash(r['egress_clients_MBps'])} |")

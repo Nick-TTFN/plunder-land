@@ -128,7 +128,7 @@ function splitRecords (b, start) {
 }
 
 const stats = fresh()
-function fresh () { return { bytes: {}, msgs: {}, joins: 0, connectFails: 0, deaths: 0, gaps: [], joinBytes: [] } }
+function fresh () { return { bytes: {}, msgs: {}, joins: 0, connectFails: 0, deaths: 0, handoffs: 0, refused: 0, gaps: [], joinBytes: [] } }
 const hex = (n) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('')
 const rand = (a, b) => a + Math.random() * (b - a)
 
@@ -156,6 +156,16 @@ class Bot {
       if (!this.stopped) setTimeout(() => this.join(), backoff)
     })
     s.on('hello', (h) => tally('hello', h))
+    // A pad (#58, #60) moves the run into another world on the same socket:
+    // `handoff` comes before that world's hello and create_own, and ids from
+    // the two worlds collide, so forget our own id and position until the new
+    // create_own. Counted, so a ramp shows how many runs reached the pad.
+    s.on('handoff', () => { stats.handoffs++; this.ownId = undefined; this.pos = undefined; this.route = []; this.sentRoute = undefined })
+    // A start the server turns down (energy, a cap): counted and retried, or
+    // the bot would sit connected with no run for the rest of the ramp.
+    const refused = () => { stats.refused++; setTimeout(() => this.restart(), rand(1500, 3000)) }
+    s.on('start_refused', refused)
+    s.on('full', refused)
     s.on('create', (raw) => tally('create', raw))
     s.on('effect', (raw) => tally('effect', raw))
     s.on('standings', (raw) => tally('standings', raw))
@@ -233,7 +243,7 @@ setInterval(() => {
   const connected = bots.filter((b) => b.socket.connected).length; const withPos = bots.filter((b) => b.pos !== undefined).length
   const total = Object.values(s.bytes).reduce((a, b) => a + b, 0)
   fs.appendFileSync(outFile, JSON.stringify({
-    t: Date.now(), prefix, bots: COUNT, connected, withPos, joins: s.joins, connectFails: s.connectFails, deaths: s.deaths,
+    t: Date.now(), prefix, bots: COUNT, connected, withPos, joins: s.joins, connectFails: s.connectFails, deaths: s.deaths, handoffs: s.handoffs, refused: s.refused,
     bytesPerBotPerSec: connected ? Math.round(total / connected / (WINDOW_MS / 1000)) : null,
     byEventPerBotPerSec: Object.fromEntries(Object.entries(s.bytes).map(([k, v]) => [k, connected ? Math.round(v / connected / (WINDOW_MS / 1000)) : null])),
     updateGapMs: { p50: p(0.5), p95: p(0.95), p99: p(0.99), max: p(1) },
