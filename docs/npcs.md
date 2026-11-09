@@ -353,6 +353,42 @@ absolutely):
 - Specs: `buffs/freeze.spec.ts` (every NPC's gates, frozen 15 ticks then attacking after the thaw,
   wind-ups landing on time, mid-step claims, boss stacks, window and lockout).
 
+## Private worlds: sleeping NPCs (#60, private-13)
+
+In a private world (`WorldOptions.sleepFar`, set only by `Worlds.openPrivate`) an idle mob beyond
+every viewpoint's reach **sleeps**: `World.update` skips its `update`, and it stays in `MOBS` and
+every index, findable and hittable. Nick's Q-C (2026-11-07): nothing happens out of sight, so
+off-screen bots no longer thin out mobs and off-screen packs stop wandering. `World.canSleep`
+needs all of:
+
+- idle: no target, not frozen, not mid-step, no buff, armor full, and no routine `busy()` (a
+  guard with a target, a `UseSkillOnTarget` or Compactor hold, a Coil charge, a planted Reactor,
+  a Brood release pending or held; a Broodling's fuse is always busy, so a Broodling never sleeps);
+- not inside an area effect, and held by no connection (`knownBy` empty);
+- far (`World.isFar`): on another layer than every viewpoint, or more than the viewpoint's leave
+  radius (`Multiplayer.leaveRings`) + the mob's largest `noticeRings` (a guard's `acquire`) +
+  `World.WAKE_MARGIN_RINGS` (2) rings from it.
+
+Viewpoints are the world's connections' (`Multiplayer.viewpoints`: a spectator's watched bot too,
+a dead player's own robot until the sweep), gathered at the start of the tick for the bots and
+again before the mob loop. No connection (the prefill): everything far. It wakes on the first
+tick any condition fails: a hit provokes it (a target) or dents its armor, a viewer comes within
+reach. Nothing is replayed; its `Timers` run on (it sleeps only when idle, so none is an attack).
+**One-tick edge:** a viewpoint that changes after the mob loop (a spectated bot dies and the
+spectator is moved to another, inside the same tick) was judged from where the old one stood, so a
+mob near the new one can be asleep for that tick and be sent in its create standing still; it
+wakes on the next tick (`knownBy` is then set).
+`World.sleepingMobs` counts the last tick's sleepers. At today's numbers a viewer's reach plus
+the margin (~10 rings) is wider than every guard's acquire, so the notice term never decides; it
+is there for a future long-sighted NPC (`sleepfar.spec.ts` checks it with a stretched one).
+
+Measured 2026-11-09 (privatebench `MODE=real`, two runs each, against `dbdc9bc`): ~78% of a
+private world's ~14 mobs sleep; ms per tick per private human 0.055 → 0.031 at 100 and
+0.058 → 0.032 at 500 (-44%), heap unchanged; with every human on layer 02 (`DESCEND=1`, 500)
+0.0715 → 0.0532 (-26%). Shared worlds sleep nothing (tickbench at 400 within noise). Not yet
+played: whether packs in view ever look frozen, and whether bots still reach the player (the far
+bots' half is in `docs/bots-and-spectate.md`).
+
 ## Client: rigs and sprites (l1-8, l1-9, #52)
 
 NPCs are drawn by **`NpcSprite`/`NpcRig`** (`plunder-land-client/src/npcs/`), siblings of

@@ -57,6 +57,16 @@ one rowless item in the bag, given in `BotFill.spawn` after
 A bot never picks gear up (`Player.gearRoom`, decision #57), keeps its cargo in the bag and never casts gear; it drops it all on death like a
 player, and its extraction loses found gear and deletes stash rows it carried (`discardGear`).
 
+### Far bots in private worlds (#60, private-13)
+
+In a private world (`sleepFar`) a bot beyond every viewpoint's reach plus its own engage rings
+(`World.isFar` with the brain's `engageRings`) thinks `World.FAR_THINK_FACTOR` (4) times less
+often: its next think is `reactionMs` x 4 (the jitter draw is unchanged). It keeps walking its
+route, so bots still roam into the player (Nick's Q-D, 2026-11-07). A far bot whose viewer comes
+near thinks at once instead of waiting the long interval out. `World.farBots` counts the bots
+that were far on the last tick. A bot near a viewer, and every bot in a shared world, is
+unchanged. See `docs/npcs.md` "Private worlds: sleeping NPCs" for the reach and the numbers.
+
 ## Spectate
 
 **A dead player watches its killer, then whoever is nearest** (decision #47). The server keeps

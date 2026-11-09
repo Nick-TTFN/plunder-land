@@ -130,6 +130,9 @@ Old clients stay open across releases and other code reads these formats, so:
   `Unit.addBuff`, which stacks duplicates and compounds the effect each tick.
 - **A mob's freeze is `Unit.frozen`, never `maxVelocity`**: `GuardPosition` assigns a mob's speed
   absolutely, so a speed change on a mob silently never holds. A new mob action checks `frozen`.
+- **A mob routine with work in flight implements `busy()`** (`IAIRoutine`): in a private world
+  an idle mob out of every viewer's reach skips its `update` (`World.canSleep`, `docs/npcs.md`
+  "Private worlds: sleeping NPCs"), and one without `busy()` is put to sleep mid-attack.
 - **Delayed world work goes through `Timers`, never `setTimeout`** (which runs outside the
   tick's error boundary). Give a timer the object whose state it changes as owner.
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`**: an unhandled
