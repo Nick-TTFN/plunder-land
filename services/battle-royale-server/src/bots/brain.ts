@@ -286,6 +286,8 @@ export default class BotBrain implements IAIRoutine {
   readonly lootGoal: number
   readonly deadline: number
   private nextThinkAt = 0
+  /** Its last think found it far from every viewpoint (`World.isFar`, private-13). */
+  private thoughtFar = false
   /** The cell its current route was asked for, so an unchanged order isn't searched again. */
   private target: Vector | undefined
 
@@ -304,16 +306,33 @@ export default class BotBrain implements IAIRoutine {
 
   update (): void {
     const now = Date.now()
-    if (now < this.nextThinkAt) return
     const me = this.owner
+    if (now < this.nextThinkAt) {
+      // A far bot (private-13) waits out its longer interval only while it
+      // stays far: one a viewer comes near thinks at once.
+      if (!this.thoughtFar) return
+      if (World.current.isFar(me.cell, me.tag, this.engageRings(botLayer(me.tag)))) {
+        World.current.farBots++
+        return
+      }
+    }
     if (me.destroyed || me.exited) return
     const skill = botLayer(me.tag)
     // A route re-planned since the last think (a stone dropped on it) may now
     // end on a portal into a layer this robot is kept out of.
     if (this.routeLeavesRange()) this.halt()
+    // Beyond every viewpoint's reach in a private world it thinks
+    // `FAR_THINK_FACTOR` times less often, and keeps walking its route (Q-D).
+    this.thoughtFar = World.current.isFar(me.cell, me.tag, this.engageRings(skill))
+    if (this.thoughtFar) World.current.farBots++
     // A little jitter, so bots that spawned together don't act in lockstep.
-    this.nextThinkAt = now + skill.reactionMs * (0.8 + this.random() * 0.4)
+    this.nextThinkAt = now + skill.reactionMs * (0.8 + this.random() * 0.4) * (this.thoughtFar ? World.FAR_THINK_FACTOR : 1)
     this.think(now, skill)
+  }
+
+  /** How far it looks for an enemy (`think`'s `enemy` call): its layer's and temperament's engage rings. */
+  private engageRings (skill: BotLayer): number {
+    return Math.max(2, skill.engageRings + this.spec.engage)
   }
 
   private think (now: number, skill: BotLayer): void {
@@ -326,7 +345,7 @@ export default class BotBrain implements IAIRoutine {
     const out = this.leaving || me.loot >= this.lootGoal || now >= this.deadline ||
       (health < this.spec.fleeAt && (me.inventory[MEDKIT] ?? 0) === 0)
 
-    const enemy = this.enemy(cell, Math.max(2, skill.engageRings + this.spec.engage))
+    const enemy = this.enemy(cell, this.engageRings(skill))
     if (enemy !== undefined) {
       const distance = Hex.distance(cell, enemy.cell)
       // On the way out, it shoots back at what is close and keeps going.

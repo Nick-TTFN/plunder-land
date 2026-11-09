@@ -195,6 +195,10 @@ async function run (n) {
     })
   }
   for (const c of clients) if (c.player !== undefined && !c.player.destroyed && !c.player.exited) inRun++
+  // private-13: mobs that slept and bots that thought far on the last tick
+  // (absent on a build from before it).
+  const sleeping = worlds.privates.reduce((s, w) => s + (w.sleepingMobs ?? 0), 0)
+  const farBots = worlds.privates.reduce((s, w) => s + (w.farBots ?? 0), 0)
   const ms = total / 300
   return {
     mode: MODE,
@@ -218,7 +222,9 @@ async function run (n) {
     firstBuildMs: firstBuildMs === undefined ? undefined : +firstBuildMs.toFixed(2),
     bots,
     mobs,
-    humansInRun: inRun
+    humansInRun: inRun,
+    sleepingMobs: sleeping,
+    farBots
   }
 }
 

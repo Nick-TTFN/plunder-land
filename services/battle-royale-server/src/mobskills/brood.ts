@@ -107,6 +107,11 @@ export default class BroodRelease implements IAIRoutine {
     this.arm()
   }
 
+  /** private-13: a release waiting for rest, or the hold after one. */
+  busy (): boolean {
+    return this.pending || this.holding
+  }
+
   private arm (): void {
     this.clock = Timers.schedule(this.spec.intervalMs, () => { this.beat() }, this.owner)
   }

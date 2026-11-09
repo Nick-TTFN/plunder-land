@@ -375,7 +375,7 @@ export default class Worlds {
    * due for `padHandoff`.
    */
   private openPrivate (run: OwnRun): World {
-    const world = World.build(PRIVATE_MAP_SIZE, { multiplayer: this.multiplayer(), layers: this.privateTags, map: PRIVATE_MAP })
+    const world = World.build(PRIVATE_MAP_SIZE, { multiplayer: this.multiplayer(), layers: this.privateTags, map: PRIVATE_MAP, sleepFar: true })
     world.gearExpired = (item) => { this.discard([item]) }
     world.handoff = (player) => {
       const state = this.privateOf.get(world)

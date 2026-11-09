@@ -192,6 +192,11 @@ export class ShockwaveRoutine implements IAIRoutine {
     readonly holdMs: number
   ) {}
 
+  /** private-13: winding up, or holding after a slam. */
+  busy (): boolean {
+    return this.skill.windingUp || this.holding
+  }
+
   update (dt: number): void {
     if (!this.skill.windingUp && !this.holding) {
       const target = this.owner.target

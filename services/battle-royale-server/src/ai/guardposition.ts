@@ -99,6 +99,16 @@ export default class GuardPosition implements IAIRoutine {
     this.owner.maxVelocity = this.spec.chaseSpeed
   }
 
+  /** private-13: chasing (a target) is work a sleep would cut short. */
+  busy (): boolean {
+    return this.owner.target != null
+  }
+
+  /** private-13: it notices players within `spec.acquire` rings. */
+  get noticeRings (): number {
+    return this.spec.acquire
+  }
+
   private release (): void {
     this.owner.target = undefined
     this.loseRings = this.spec.lose

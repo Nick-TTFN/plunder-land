@@ -101,6 +101,15 @@ export interface WorldOptions {
    * a new random map.
    */
   map?: PrivateMap
+  /**
+   * Nothing happens out of sight (decision #60, private-13; Nick's Q-C/Q-D,
+   * 2026-11-07): an idle mob beyond every viewpoint's reach sleeps (its
+   * `update` is skipped; it stays in `MOBS` and every index), and a bot
+   * beyond it thinks `FAR_THINK_FACTOR` times less often. Private worlds
+   * only (`Worlds.openPrivate`); default false, so shared, default and
+   * first-run worlds tick every mob and bot as before.
+   */
+  sleepFar?: boolean
 }
 
 /**
@@ -247,6 +256,34 @@ export default class World {
    * (`Player.hpFloor`), no Redis kill stats (`Player.onKill`).
    */
   firstRun = false
+  /** `WorldOptions.sleepFar` (private-13): see there and `canSleep`. */
+  sleepFar = false
+  /**
+   * The mobs that slept (`canSleep`) and the bots that thought far
+   * (`BotBrain`) in the last `update`, for specs and privatebench: a guard
+   * whose branch can't be seen reads like a working one.
+   */
+  sleepingMobs = 0
+  farBots = 0
+  /**
+   * This tick's viewpoints (`Multiplayer.viewpoints`), as layer, cell and
+   * reach in rings (`Multiplayer.leaveRings`), gathered at the start of
+   * `update` when `sleepFar`. Reused arrays: nothing allocated per tick.
+   */
+  private readonly viewTags: number[] = []
+  private readonly viewCells: Vector[] = []
+  private readonly viewRings: number[] = []
+  private readonly _viewers: Player[] = []
+  /**
+   * Rings beyond a viewpoint's leave radius and a mob's notice range (a
+   * guard's `acquire`) or a bot's engage range at which it may go quiet
+   * (private-13's `WAKE_MARGIN`). Two: a viewer covers at most about a cell a
+   * tick (a dash three), and everything is re-checked every tick before the
+   * flush, so a mob is awake well before anyone could see or reach it.
+   */
+  static WAKE_MARGIN_RINGS = 2
+  /** A far bot's think interval, times its layer's `reactionMs` (Q-D, private-13). */
+  static FAR_THINK_FACTOR = 4
   /**
    * The cell every human joins on, instead of a random `spawnCell`: a
    * first-run world's start (its scenario sets it). Undefined elsewhere.
@@ -595,6 +632,60 @@ export default class World {
    * promise continuation, a callback) runs after this returns, under another
    * world or none: capture what it needs before it is queued.
    */
+  /** Fills the view arrays from this world's connections (`sleepFar` only). */
+  private gatherViews (): void {
+    this.viewTags.length = 0
+    this.viewCells.length = 0
+    this.viewRings.length = 0
+    const viewers = this.multiplayer?.viewpoints(this._viewers) ?? []
+    for (const viewer of viewers) {
+      this.viewTags.push(viewer.tag)
+      this.viewCells.push(Hex.toCell(viewer.position))
+      this.viewRings.push(Multiplayer.leaveRings(viewer))
+    }
+  }
+
+  /**
+   * Whether `cell` on layer `tag` is beyond every viewpoint's reach plus
+   * `extra` rings (a mob's notice range, a bot's engage range) and
+   * `WAKE_MARGIN_RINGS`. Always false unless `sleepFar`: nothing in a shared
+   * world is ever far. True with no viewpoint at all (the prefill, a world
+   * about to close): nobody can see anything.
+   */
+  isFar (cell: Vector, tag: number, extra: number): boolean {
+    if (!this.sleepFar) return false
+    for (let i = 0; i < this.viewTags.length; i++) {
+      if (this.viewTags[i] !== tag) continue
+      if (Hex.distance(this.viewCells[i], cell) <= this.viewRings[i] + extra + World.WAKE_MARGIN_RINGS) return false
+    }
+    return true
+  }
+
+  /**
+   * private-13: `mob` may skip this tick's `update`. All of: idle (no
+   * target, not frozen, not mid-step, no buff, armor full, no routine busy:
+   * `IAIRoutine.busy`; a Broodling's fuse always is), not inside an area
+   * effect, held by no connection (`knownBy`, so it can never go quiet while
+   * drawn), and far (`isFar`, by its routines' `noticeRings`). It wakes the
+   * first tick any of them fails: a hit provokes it (a target) or dents its
+   * armor, a viewer comes within reach. Its `Timers` still run; it sleeps
+   * only when idle, so none of them is an attack in flight.
+   */
+  private canSleep (mob: Unit): boolean {
+    if (mob.target != null || mob.frozen || mob.stepTo !== undefined || mob.buffs.length > 0) return false
+    if (mob.armor < mob.maxArmor || mob.knownBy.size > 0) return false
+    let notice = 0
+    for (const routine of mob.routines) {
+      if (routine.busy?.() === true) return false
+      const rings = routine.noticeRings ?? 0
+      if (rings > notice) notice = rings
+    }
+    for (const area of World.AREA_EFFECT) {
+      if (area.tag === mob.tag && area.target !== mob && area.overlaps(mob.position, mob)) return false
+    }
+    return this.isFar(mob.cell, mob.tag, notice)
+  }
+
   static run<T> (world: World, fn: () => T): T {
     const previous = World._current
     World.enter(world)
@@ -763,6 +854,7 @@ export default class World {
       this.firstRun = true
       return
     }
+    if (options.sleepFar === true) this.sleepFar = true
 
     // A shared map (`WorldOptions.map`, private-5): taken from its template
     // if there is one, else generated below from its seed and left on it.
@@ -1107,6 +1199,9 @@ export default class World {
     // exactly where a setTimeout firing between ticks used to leave it.
     Timers.run(Date.now())
     World.evictFinished(Date.now())
+    this.sleepingMobs = 0
+    this.farBots = 0
+    if (this.sleepFar) this.gatherViews()
 
     for (let i = World.PLAYERS.length - 1; i >= 0; i--) {
       const player = World.PLAYERS[i]
@@ -1155,6 +1250,9 @@ export default class World {
       area.update(dt)
     }
 
+    // Again, now the players have moved: the bots above judged by where the
+    // viewers stood at the start of the tick, the mobs judge by where they are.
+    if (this.sleepFar) this.gatherViews()
     for (let i = World.MOBS.length - 1; i >= 0; i--) {
       const mob = World.MOBS[i]
       if (mob.destroyed) {
@@ -1162,6 +1260,10 @@ export default class World {
         // No gear in a first run: what it carries out is loot and kills only.
         if (!this.firstRun) this.createGearFrom(mob)
         World.removeUnitAt(World.MOBS, i)
+        continue
+      }
+      if (this.sleepFar && this.canSleep(mob)) {
+        this.sleepingMobs++
         continue
       }
       mob.update(dt)

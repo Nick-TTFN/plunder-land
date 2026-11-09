@@ -978,6 +978,36 @@ export default class Multiplayer {
   private static readonly _viewersUpdate: Connection[] = []
   private static readonly _viewersEffect: Connection[] = []
 
+  /**
+   * Every connection's viewpoint (`viewpoint`), into `into`, cleared first.
+   * A dead one still in the world counts: failing towards awake. Read-only;
+   * `World.gatherViews` (private-13) reads it once a tick.
+   */
+  viewpoints (into: Player[]): Player[] {
+    into.length = 0
+    for (const connection of this._connections) {
+      const viewer = Multiplayer.viewpoint(connection)
+      if (viewer !== undefined) into.push(viewer)
+    }
+    return into
+  }
+
+  /**
+   * How far `viewer` sees, in rings: its leave radius (`viewOf`: vision +
+   * `VIEW_MARGIN_RINGS` + `VIEW_EXIT_RINGS`), or for a viewer with no vision
+   * enough rings to cover the box's corner (`INTEREST_RADIUS` +
+   * `EXIT_MARGIN`, times sqrt 2, over a row's height of `Hex.SIZE` x
+   * sqrt 3 / 2), plus one. Derived from the same values, never a literal
+   * (private-13).
+   */
+  static leaveRings (viewer: Player): number {
+    const vision = viewer.archetype?.vision
+    if (vision === undefined || vision === null) {
+      return Math.ceil((Multiplayer.INTEREST_RADIUS + Multiplayer.EXIT_MARGIN) * Math.SQRT2 / (Hex.SIZE * Math.sqrt(3) / 2)) + 1
+    }
+    return vision + Multiplayer.VIEW_MARGIN_RINGS + Multiplayer.VIEW_EXIT_RINGS
+  }
+
   /** Where a connection sees from: the player it spectates, else its own. */
   static viewpoint (connection: Connection): Player | undefined {
     return connection.spectating ?? connection.player

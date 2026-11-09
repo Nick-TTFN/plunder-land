@@ -94,6 +94,11 @@ export default class CoilField implements IAIRoutine {
     Multiplayer.Instance.effectAt(NPC_EFFECT.coilPulse, this.owner.id, spec.tellMs + spec.holdMs, this.cell, this.owner.tag)
   }
 
+  /** private-13: a charge under way (tell, hold, cool). */
+  busy (): boolean {
+    return this.chargeAt !== undefined
+  }
+
   /** One tick of the hold: slow every live player on the field until `until`. */
   private pulse (until: number, now: number): void {
     const cell = this.cell

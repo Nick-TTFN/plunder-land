@@ -114,6 +114,11 @@ export default class BroodlingFuse implements IAIRoutine {
     ;(owner as HitHooked).onHit = (value) => this.onHit(value)
   }
 
+  /** private-13: a Broodling never sleeps; its fuse is always burning. */
+  busy (): boolean {
+    return true
+  }
+
   /** What is left of the fuse, in ms, never below 0. */
   get remainingMs (): number {
     return Math.max(0, this.fuseEndsAt - Date.now())

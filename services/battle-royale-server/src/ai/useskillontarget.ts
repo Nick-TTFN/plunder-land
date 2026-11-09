@@ -62,6 +62,11 @@ export default class UseSkillOnTarget implements IAIRoutine {
     }
   }
 
+  /** private-13: holding after a cast. */
+  busy (): boolean {
+    return this.holding
+  }
+
   private hold (holdMs: number): void {
     this.holding = true
     this.owner.stepGoal = undefined

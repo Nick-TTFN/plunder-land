@@ -77,6 +77,11 @@ export default class ReactorBurst implements IAIRoutine {
     return this.phase === 'activate' || this.phase === 'release' || this.phase === 'settle'
   }
 
+  /** private-13: planted (activate, release, settle). */
+  busy (): boolean {
+    return this.planted
+  }
+
   update (dt: number): void {
     const owner = this.owner
     if (this.planted) {
