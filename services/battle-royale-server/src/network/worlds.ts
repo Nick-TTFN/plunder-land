@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import { type Socket } from 'socket.io'
 import type Redis from 'ioredis'
 import Multiplayer, { type Connection, type Join, type Start, ThrottledLog } from './multiplayer'
@@ -78,6 +79,12 @@ export interface WorldsOptions {
    * its last value. Absent, empty or all 0: no bots.
    */
   privateBots?: readonly number[]
+  /** Starts let through to private worlds per tick (`PRIVATE_OPENS_PER_TICK`); absent: `PRIVATE_OPENS_PER_TICK_DEFAULT`. */
+  privateOpensPerTick?: number
+  /** A queued start's longest wait before `full` (`PRIVATE_QUEUE_MAX_MS`); absent: `PRIVATE_QUEUE_MAX_MS_DEFAULT`. */
+  privateQueueMaxMs?: number
+  /** The clock `tickAll` times itself with, in ms (the load signal); absent: `performance.now`. Specs pass their own. */
+  tickClock?: () => number
   /**
    * `false`: no layer is private, so every run plays in a shared world holding
    * every layer, as before decision #60 (`privateRuns`). For specs of the
@@ -100,8 +107,55 @@ export const FIRST_RUN_CAP_DEFAULT = 50
  */
 export const HANDOFF_CLEARANCE = 6
 
-/** `PRIVATE_CAP` when unset (decision #60 Q11; provisional). */
-export const PRIVATE_CAP_DEFAULT = 500
+/**
+ * `PRIVATE_OPENS_PER_TICK` when unset (private-15): starts let through to a
+ * private world per tick; the rest wait in the queue. See `Worlds.admitOrQueue`.
+ */
+export const PRIVATE_OPENS_PER_TICK_DEFAULT = 150
+
+/** `PRIVATE_QUEUE_MAX_MS` when unset (private-15, Q-E): a queued start waits this long at most, then gets `full`. */
+export const PRIVATE_QUEUE_MAX_MS_DEFAULT = 5000
+
+/**
+ * The load levels (private-15, Nick's Q-E 2026-11-07): the smoothed share of
+ * the tick `tickAll` takes. Warm from `LOAD_WARM_AT`, hot from `LOAD_HOT_AT`,
+ * each falling back only `LOAD_HYSTERESIS` lower. Simulation time only:
+ * sending, GC and I/O share the thread, hence the low thresholds.
+ */
+export const LOAD_COOL = 0
+export const LOAD_WARM = 1
+export const LOAD_HOT = 2
+export const LOAD_WARM_AT = 0.4
+export const LOAD_HOT_AT = 0.6
+export const LOAD_HYSTERESIS = 0.1
+/** The moving average's weight on the newest tick (about five ticks' memory). */
+export const LOAD_SMOOTHING = 0.2
+/**
+ * Ticks a level holds before it may step down (10 s); stepping up is at
+ * once. Shedding takes more off the tick than `LOAD_HYSTERESIS`, so without
+ * it a world at the edge flapped warm/hot every few ticks (measured at 3000
+ * private humans, 2026-11-09), each flip sending bots out and back in.
+ */
+export const LOAD_HOLD_TICKS = 40
+
+/** A start waiting for a private world (private-15): nothing spent yet. */
+interface QueuedStart {
+  readonly connection: Connection
+  readonly start: Start
+  readonly data: unknown
+  readonly at: number
+}
+
+/**
+ * `PRIVATE_CAP` when unset: an emergency stop, not a planning number (#60 Q11,
+ * then Q-F and private-15, 2026-11-09). Measured with privatebench
+ * `MODE=real` on an M4 Max: with load shedding at hot, the tick reached 89% of
+ * 250 ms at ~4900 private humans (223 ms; 293 ms at ~6800). Halved for
+ * Railway's slower vCPUs (an assumption, not measured), which also has to
+ * cover sending, not in that bench. Below it, a spike waits in the start
+ * queue instead of being refused.
+ */
+export const PRIVATE_CAP_DEFAULT = 2500
 
 /**
  * `PRIVATE_BOTS` when unset (decision #60 addendum 2026-11-07, Nick: "a
@@ -286,6 +340,24 @@ export default class Worlds {
   private readonly sharedTags: readonly number[]
   /** The store's first-run half (`firstRunStoreOf`); undefined: no first runs at all. */
   private readonly firstRunStore: (AccountStore & FirstRunStore) | undefined
+  /**
+   * Starts waiting for a private world, oldest first (private-15): before
+   * `admit`, so nothing is spent while one waits. See `admitOrQueue`.
+   */
+  private readonly queue: QueuedStart[] = []
+  private readonly opensPerTick: number
+  private readonly queueMaxMs: number
+  /** Private starts let through this tick (reset by `tickAll`). */
+  private admittedThisTick = 0
+  private readonly tickClock: () => number
+  /** The smoothed share of the tick `tickAll` took (`LOAD_SMOOTHING`). */
+  private tickShare = 0
+  /** `LOAD_COOL`, `LOAD_WARM` or `LOAD_HOT`; see `setLoad`. */
+  load = LOAD_COOL
+  /** The tick the level last changed (`LOAD_HOLD_TICKS`). */
+  private loadSince = 0
+  /** Counters for specs and benches: starts queued, refused after the wait, and the longest wait let through, in ms. */
+  readonly queueStats = { queued: 0, refused: 0, longestWaitMs: 0 }
 
   /** Account store failures, throttled; the store is a side channel, like Redis. */
   static ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000)
@@ -324,6 +396,9 @@ export default class Worlds {
     this.firstRunStore = firstRunStoreOf(this.accounts)
     this.privateCap = options.privateCap ?? PRIVATE_CAP_DEFAULT
     this.privateBots = options.privateBots ?? []
+    this.opensPerTick = Math.max(1, options.privateOpensPerTick ?? PRIVATE_OPENS_PER_TICK_DEFAULT)
+    this.queueMaxMs = options.privateQueueMaxMs ?? PRIVATE_QUEUE_MAX_MS_DEFAULT
+    this.tickClock = options.tickClock ?? (() => performance.now())
     // Read here, not at import: a bench may cut `World.LAYERS` first.
     this.privateTags = options.privateRuns === false ? [] : World.LAYERS.filter((layer) => layer.owned === true).map((layer) => layer.tag)
     this.sharedTags = World.TAGS.filter((tag) => !this.privateTags.includes(tag))
@@ -376,6 +451,7 @@ export default class Worlds {
    */
   private openPrivate (run: OwnRun): World {
     const world = World.build(PRIVATE_MAP_SIZE, { multiplayer: this.multiplayer(), layers: this.privateTags, map: PRIVATE_MAP, sleepFar: true })
+    this.shed(world)
     world.gearExpired = (item) => { this.discard([item]) }
     world.handoff = (player) => {
       const state = this.privateOf.get(world)
@@ -969,7 +1045,7 @@ export default class Worlds {
       return
     }
     if (connection.account?.persisted === true) {
-      this.admit(connection, start, data)
+      this.admitOrQueue(connection, start, data)
       return
     }
     connection.starting = true
@@ -983,12 +1059,124 @@ export default class Worlds {
           Worlds.redirect(connection)
           return
         }
-        this.admit(connection, start, data)
+        this.admitOrQueue(connection, start, data)
       })
     }).catch((e) => {
       connection.starting = false
       reportError('accounts', e)
     })
+  }
+
+  /**
+   * private-15: a start bound for a private world (not a first run, which
+   * opens its own kind of world) is let through to `admit` while fewer than
+   * `opensPerTick` have been this tick and nobody is queued ahead of it;
+   * otherwise it waits in `queue`, with `starting` set so a repeat start is
+   * ignored, and nothing spent: no energy, no carry, no hello. `releaseQueue`
+   * lets the queue through at the start of each tick, in order. A first
+   * run's pad handoff never comes here (`beginPrivate` with a `join`): that
+   * player is mid-run.
+   *
+   * It bounds the starts let through a tick, not the opens themselves: a
+   * persisted account's world opens when its spend comes back, a moment
+   * later, so with a slow store the opens of one tick's starts spread out.
+   */
+  private admitOrQueue (connection: Connection, start: Start, data: unknown): void {
+    if (!this.privateRuns || this.firstRunFor(connection, start)) {
+      this.admit(connection, start, data)
+      return
+    }
+    if (this.queue.length === 0 && this.admittedThisTick < this.opensPerTick) {
+      this.admittedThisTick++
+      this.admit(connection, start, data)
+      return
+    }
+    connection.starting = true
+    this.queue.push({ connection, start, data, at: this.now() })
+    this.queueStats.queued++
+  }
+
+  /**
+   * Lets queued starts through, oldest first, up to `opensPerTick` a tick.
+   * A closed connection is dropped; one waiting past `queueMaxMs`, or one
+   * that reaches the front with `privateCap` reached, is sent `full` as
+   * today (nothing was spent); a drain redirects every one.
+   */
+  private releaseQueue (): void {
+    const now = this.now()
+    while (this.queue.length > 0) {
+      const entry = this.queue[0]
+      const connection = entry.connection
+      if (connection.closed) {
+        this.queue.shift()
+        continue
+      }
+      if (this.draining) {
+        this.queue.shift()
+        connection.starting = false
+        Worlds.redirect(connection)
+        continue
+      }
+      if (now - entry.at > this.queueMaxMs || this.privateFull) {
+        this.queue.shift()
+        connection.starting = false
+        this.queueStats.refused++
+        Worlds.refuseFull(connection)
+        continue
+      }
+      if (this.admittedThisTick >= this.opensPerTick) break
+      this.queue.shift()
+      connection.starting = false
+      this.admittedThisTick++
+      this.queueStats.longestWaitMs = Math.max(this.queueStats.longestWaitMs, now - entry.at)
+      Multiplayer.guarded(() => { this.admit(connection, entry.start, entry.data) })
+    }
+  }
+
+  /** Starts waiting for a private world now (closed ones not yet dropped included). */
+  get queued (): number {
+    return this.queue.length
+  }
+
+  /**
+   * The load level from this tick's share of `tickLengthMs`: smoothed, then
+   * up a level from `LOAD_WARM_AT`/`LOAD_HOT_AT`, down only below them minus
+   * `LOAD_HYSTERESIS`.
+   */
+  private measureLoad (ms: number): void {
+    this.tickShare += LOAD_SMOOTHING * (ms / this.tickLengthMs - this.tickShare)
+    const share = this.tickShare
+    const up = share >= LOAD_HOT_AT ? LOAD_HOT : share >= LOAD_WARM_AT ? LOAD_WARM : LOAD_COOL
+    const down = share >= LOAD_HOT_AT - LOAD_HYSTERESIS ? LOAD_HOT : share >= LOAD_WARM_AT - LOAD_HYSTERESIS ? LOAD_WARM : LOAD_COOL
+    const held = this.tick - this.loadSince >= LOAD_HOLD_TICKS
+    const next = up > this.load ? up : down < this.load && held ? down : this.load
+    if (next !== this.load) this.setLoad(next)
+  }
+
+  /**
+   * Sheds private-world work by level (private-15, Q-E's order after the
+   * queue): warm and hot, far bots think `FAR_THINK_FACTOR` x 2; hot, one
+   * private bot fewer per layer (`privateBotsFor`; the extra ones leave by
+   * the fill's usual path) and the wake margin at 0. Each knob goes back as
+   * the level falls. Shared worlds are never touched. One log line and a
+   * Sentry breadcrumb per change.
+   */
+  setLoad (level: number): void {
+    if (level === this.load) return
+    const from = this.load
+    this.load = level
+    this.loadSince = this.tick
+    for (const world of this.privates) this.shed(world)
+    const names = ['cool', 'warm', 'hot']
+    const message = `load: ${names[from]} -> ${names[level]} (tick ${Math.round(this.tickShare * 100)}% of ${this.tickLengthMs} ms, ${this.privates.length} private worlds, ${this.queue.length} queued)`
+    console.log(message)
+    Sentry.addBreadcrumb({ category: 'load', message, level: level === LOAD_HOT ? 'warning' : 'info' })
+  }
+
+  /** `world`'s knobs at the current load level (`setLoad`). */
+  private shed (world: World): void {
+    world.farThinkFactor = World.FAR_THINK_FACTOR * (this.load >= LOAD_WARM ? 2 : 1)
+    world.wakeMargin = this.load >= LOAD_HOT ? 0 : World.WAKE_MARGIN_RINGS
   }
 
   /**
@@ -1501,7 +1689,10 @@ export default class Worlds {
    * world's tick), then the idle check.
    */
   tickAll (dtMs: number): void {
+    const startedAt = this.tickClock()
     this.tick++
+    this.admittedThisTick = 0
+    this.releaseQueue()
     const dt = dtMs / 1000
     for (const world of this.worlds) {
       World.run(world, () => {
@@ -1555,6 +1746,7 @@ export default class Worlds {
       else if (Worlds.activePlayers(world) === 0) Multiplayer.guarded(() => { this.close(world) })
     }
     this.closeIdle()
+    this.measureLoad(this.tickClock() - startedAt)
   }
 
   /** Close every world idle for `idleMs`, newest first, keeping at least one open. */
@@ -1660,7 +1852,9 @@ export default class Worlds {
     const human = world.PLAYERS.find((p) => p.bot === undefined && !p.destroyed && !p.exited)
     if (human === undefined || this.privateBots.length === 0) return 0
     const i = this.privateTags.indexOf(human.tag)
-    return this.privateBots[Math.min(Math.max(i, 0), this.privateBots.length - 1)]
+    const bots = this.privateBots[Math.min(Math.max(i, 0), this.privateBots.length - 1)]
+    // Hot (private-15): one fewer per layer, 2/3 -> 1/2.
+    return this.load >= LOAD_HOT ? Math.max(0, bots - 1) : bots
   }
 
   /** `world`'s bot fill, made at `target` on first use: `botTarget` for a shared world; a private world's is set every tick (`privateBotsFor`). */

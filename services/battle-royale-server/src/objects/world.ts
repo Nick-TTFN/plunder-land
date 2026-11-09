@@ -285,6 +285,14 @@ export default class World {
   /** A far bot's think interval, times its layer's `reactionMs` (Q-D, private-13). */
   static FAR_THINK_FACTOR = 4
   /**
+   * This world's far-bot factor and wake margin: `FAR_THINK_FACTOR` and
+   * `WAKE_MARGIN_RINGS` unless `Worlds` sheds load (private-15: warm doubles
+   * the factor; hot puts the margin at 0, never below, so a mob still sleeps
+   * only beyond what could see it or be noticed by it).
+   */
+  farThinkFactor = World.FAR_THINK_FACTOR
+  wakeMargin = World.WAKE_MARGIN_RINGS
+  /**
    * The cell every human joins on, instead of a random `spawnCell`: a
    * first-run world's start (its scenario sets it). Undefined elsewhere.
    */
@@ -656,7 +664,7 @@ export default class World {
     if (!this.sleepFar) return false
     for (let i = 0; i < this.viewTags.length; i++) {
       if (this.viewTags[i] !== tag) continue
-      if (Hex.distance(this.viewCells[i], cell) <= this.viewRings[i] + extra + World.WAKE_MARGIN_RINGS) return false
+      if (Hex.distance(this.viewCells[i], cell) <= this.viewRings[i] + extra + Math.max(0, this.wakeMargin)) return false
     }
     return true
   }

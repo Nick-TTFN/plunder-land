@@ -5,7 +5,7 @@ import type Redis from 'ioredis'
 import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
-import Worlds, { PRIVATE_BOTS_DEFAULT } from './worlds'
+import Worlds, { LOAD_HOT, PRIVATE_BOTS_DEFAULT } from './worlds'
 import World from '../objects/world'
 import Mob from '../objects/mob'
 import { ARCHETYPES } from '../archetypes/archetypes'
@@ -244,6 +244,19 @@ test('a private world: what the viewer could see or be noticed by is always awak
   const mobs = world.MOBS.filter((mob) => !mob.destroyed).length
   assert.ok(slept > 0, 'no mob ever slept: the sleep branch never fired')
   assert.ok(slept < mobs * ticks, 'every mob slept every tick')
+})
+
+test('hot (private-15: wake margin 0): still nothing the viewer could see or be noticed by sleeps', async () => {
+  const { worlds, world, player } = await privateRun()
+  worlds.setLoad(LOAD_HOT)
+  assert.equal(world.wakeMargin, 0)
+  const random = seeded(31)
+  let slept = 0
+  for (let hop = 0; hop < 12; hop++) {
+    moveTo(world, player, random)
+    for (let i = 0; i < 8; i++) slept += checkTick(worlds, world, player)
+  }
+  assert.ok(slept > 0, 'no mob ever slept at hot')
 })
 
 test('a hit wakes a sleeping mob and it turns on the attacker; its pack wakes with it', async () => {

@@ -76,12 +76,17 @@ function startGame (): void {
     firstRunCap: Number.isInteger(parseInt(process.env.FIRST_RUN_CAP ?? '')) ? Math.max(0, parseInt(process.env.FIRST_RUN_CAP ?? '')) : undefined,
     // Every run starts in a private world of its own (decision #60); over
     // this many open at once a start is sent `full`. Unset or not a number:
-    // PRIVATE_CAP_DEFAULT (500); 0: no cap.
+    // PRIVATE_CAP_DEFAULT (2500, an emergency stop; private-15); 0: no cap.
     privateCap: Number.isInteger(parseInt(process.env.PRIVATE_CAP ?? '')) ? Math.max(0, parseInt(process.env.PRIVATE_CAP ?? '')) : undefined,
     // Bots in a private world by the layer its human is on, top first, as a
     // comma list (#60 addendum 2026-11-07: "2,3"); "0" turns them off. Unset,
     // or any entry not a number: PRIVATE_BOTS_DEFAULT.
-    privateBots: privateBotsFrom(process.env.PRIVATE_BOTS)
+    privateBots: privateBotsFrom(process.env.PRIVATE_BOTS),
+    // Starts let through to private worlds per tick; the rest wait, nothing
+    // spent (private-15). Unset or not a positive number: the default (150).
+    privateOpensPerTick: (parseInt(process.env.PRIVATE_OPENS_PER_TICK ?? '') || 0) > 0 ? parseInt(process.env.PRIVATE_OPENS_PER_TICK ?? '') : undefined,
+    // How long a start waits in that queue before `full` (private-15). Unset or not a positive number: 5000 ms.
+    privateQueueMaxMs: (parseInt(process.env.PRIVATE_QUEUE_MAX_MS ?? '') || 0) > 0 ? parseInt(process.env.PRIVATE_QUEUE_MAX_MS ?? '') : undefined
   })
 
   // A deploy (decision #46): the host starts the new server, routes new

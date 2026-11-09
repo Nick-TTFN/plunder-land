@@ -326,7 +326,7 @@ export default class BotBrain implements IAIRoutine {
     this.thoughtFar = World.current.isFar(me.cell, me.tag, this.engageRings(skill))
     if (this.thoughtFar) World.current.farBots++
     // A little jitter, so bots that spawned together don't act in lockstep.
-    this.nextThinkAt = now + skill.reactionMs * (0.8 + this.random() * 0.4) * (this.thoughtFar ? World.FAR_THINK_FACTOR : 1)
+    this.nextThinkAt = now + skill.reactionMs * (0.8 + this.random() * 0.4) * (this.thoughtFar ? World.current.farThinkFactor : 1)
     this.think(now, skill)
   }
 

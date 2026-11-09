@@ -63,6 +63,12 @@ const MODE = process.env.MODE ?? 'private'
 const BOTS = Number(process.env.BOTS ?? 8)
 const PRIVATE_BOTS = req('network/worlds.js').privateBotsFrom(process.env.PRIVATE_BOTS)
 const DESCEND = process.env.DESCEND === '1'
+// BURST=n (MODE=real, private-15): after the warm-up, n more clients press
+// start in one go (connected beforehand); every tick from then is timed with
+// the world opens that follow it (the spends resolve between ticks, as on a
+// server), until the queue is empty and every one has started, plus 20 ticks.
+const BURST = Number(process.env.BURST ?? 0)
+const OPENS = process.env.PRIVATE_OPENS_PER_TICK === undefined ? undefined : Number(process.env.PRIVATE_OPENS_PER_TICK)
 const MAP = Number(process.env.MAP ?? 4000)
 const LAYER_COUNT = Number(process.env.LAYERS ?? World.LAYERS.length)
 const MOBSCALE = Number(process.env.MOBSCALE ?? 1)
@@ -113,7 +119,7 @@ async function run (n) {
     accounts: store,
     bots: BOTS,
     mapSize: MAP,
-    ...(MODE === 'real' ? { privateBots: PRIVATE_BOTS, privateCap: 0 } : { privateRuns: false })
+    ...(MODE === 'real' ? { privateBots: PRIVATE_BOTS, privateCap: 0, privateOpensPerTick: OPENS } : { privateRuns: false })
   })
   // Every world a run is in: shared, and (MODE=real) private.
   const all = () => [...worlds.worlds, ...worlds.privates]
@@ -132,10 +138,13 @@ async function run (n) {
     await settle()
     h.start_requested({ name: 'p' + i })
     await settle()
+    // Over the start queue's budget (private-15) a start waits for a tick.
+    for (let k = 0; k < 5 && connection.player === undefined; k++) { tick(); await settle() }
     if (connection.player === undefined) throw new Error(`client ${i} got no player`)
     clients.push(connection)
   }
-  if (MODE === 'real' && worlds.privates.length !== n) throw new Error(`${worlds.privates.length} private worlds for ${n} clients`)
+  // A few may die during the warm-up's ticks (humans are healed only from the loop below).
+  if (MODE === 'real' && worlds.privates.length < n * 0.99) throw new Error(`${worlds.privates.length} private worlds for ${n} clients`)
   const heal = () => {
     for (const connection of clients) {
       const player = connection.player
@@ -170,9 +179,45 @@ async function run (n) {
       })
     }
   }
+  // The burst's clients, connected (accounts made) but not started yet.
+  const burst = []
+  for (let i = 0; i < BURST; i++) {
+    const { token } = await store.create()
+    const h = {}
+    const socket = { id: 'b' + i, handshake: { query: { frames: '1' }, auth: { token } }, on: (e, cb) => { h[e] = cb }, emit: (e) => { if (e === 'full') burstRefused++; return true }, conn: { write: () => {}, close: () => {} } }
+    burst.push({ connection: worlds.onConnection(socket), h })
+  }
+  let burstRefused = 0
+  await settle()
+  const timeline = []
+  const levels = []
+  let peak = { heapMB: 0, rssMB: 0 }
+  let drainedAt
   let total = 0
   let maxBots = 0
   for (let t = 0; t < 400; t++) {
+    if (BURST > 0 && t === 100) {
+      for (const b of burst) b.h.start_requested({ name: b.connection.socket.id })
+      for (const b of burst) clients.push(b.connection)
+      await settle()
+    }
+    if (BURST > 0 && t >= 100) {
+      walk()
+      for (const w of all()) World.run(w, heal)
+      const at = performance.now()
+      tick()
+      const tickMs = performance.now() - at
+      await settle()
+      const cycleMs = performance.now() - at
+      const startedNow = burst.filter((b) => b.connection.started).length
+      timeline.push({ t, tickMs: +tickMs.toFixed(1), cycleMs: +cycleMs.toFixed(1), queued: worlds.queued, started: startedNow, privates: worlds.privates.length, load: worlds.load })
+      if (levels.length === 0 || levels[levels.length - 1].load !== worlds.load) levels.push({ t, load: worlds.load })
+      const m = process.memoryUsage()
+      if (m.heapUsed / 2 ** 20 > peak.heapMB) peak = { heapMB: m.heapUsed / 2 ** 20, rssMB: m.rss / 2 ** 20 }
+      if (drainedAt === undefined && worlds.queued === 0 && startedNow + burstRefused >= BURST) drainedAt = t
+      if (drainedAt !== undefined && t >= drainedAt + 20) break
+      continue
+    }
     if (DESCEND && t === 100) descend()
     walk()
     for (const w of all()) World.run(w, heal)
@@ -200,7 +245,22 @@ async function run (n) {
   const sleeping = worlds.privates.reduce((s, w) => s + (w.sleepingMobs ?? 0), 0)
   const farBots = worlds.privates.reduce((s, w) => s + (w.farBots ?? 0), 0)
   const ms = total / 300
+  const burstReport = BURST > 0
+    ? {
+        burst: BURST,
+        burstRefused,
+        queueStats: worlds.queueStats,
+        drainTicks: drainedAt === undefined ? null : drainedAt - 100,
+        worstTickMs: Math.max(...timeline.map((x) => x.tickMs)),
+        worstCycleMs: Math.max(...timeline.map((x) => x.cycleMs)),
+        levels,
+        peakHeapMB: +peak.heapMB.toFixed(1),
+        peakRssMB: +peak.rssMB.toFixed(1),
+        timeline: process.env.TIMELINE === '1' ? timeline : undefined
+      }
+    : {}
   return {
+    ...burstReport,
     mode: MODE,
     map: MAP,
     layers: LAYER_COUNT,
@@ -224,6 +284,8 @@ async function run (n) {
     mobs,
     humansInRun: inRun,
     sleepingMobs: sleeping,
+    // private-15: the load level at the end (0 cool, 1 warm, 2 hot; absent before it).
+    load: worlds.load,
     farBots
   }
 }
