@@ -148,6 +148,27 @@ that churn shows as 0.63-0.87 MB RSS per human. The bytes are what socket.io han
 after inflate: the wire carries less with deflate on. With `WS_DEFLATE=0`, `flush` rises from
 ~1.3 to ~5.4 ms at 400 (the write becomes synchronous; deflate runs on libuv's pool).
 
+### Private worlds under a burst (private-15, 2026-11-09)
+
+privatebench `MODE=real BURST=n` (M4 Max, semi-space 4, after private-13; no sockets): 500 private
+humans running, then n starts in one tick. "cycle" is a tick plus the world opens its released
+starts trigger before the next one (the spends resolve between ticks, as on the server).
+
+| burst | opens/tick | refused | queue drained | longest wait | worst tick | worst cycle | levels |
+|---|---|---|---|---|---|---|---|
+| 500 | 100 | 0 / 0 | 4 ticks | 1.0 s | 104.6 / 38.2 ms | 205.8 / 82.8 ms | cool |
+| 2000 | 100 | 0 / 0 | 19 ticks | 4.75 s / 4.75 s | 106.3 / 94.6 ms | 142.1 / 118.1 ms | cool |
+| 2000 | 150 | 0 / 0 | 13 ticks | 3.25 s / 3.25 s | 250.3 / 134.3 ms | 250.7 / 245.8 ms | warm, hot / cool |
+
+A world now opens in ~0.45 ms (it was ~1.1 ms: the prefill's mobs sleep since private-13). At 100
+opens a tick a 2000-start burst waits 4.75 s of the 5 s; 150 (the default) leaves a margin and
+costs a heavier tick while it drains. The wait depends only on the count, not on the CPU, so on
+Railway the same budget costs more tick time. Steady state at hot (`N=3000,5000,7000`, one run):
+150 ms a tick at ~2940 private humans, 223 ms (89%) at ~4880, 293 ms at ~6830; so `PRIVATE_CAP`'s
+default of 2500 is the ~90% point halved for Railway (assumed, not measured; it also has to cover
+sending, which the bench leaves out). At 3000 the level moved between warm and hot every ~10 s
+(the hold, `LOAD_HOLD_TICKS`); before the hold it flipped every few ticks.
+
 Tools: the probe counts `privates` and `firstRuns` too (it read `Worlds.worlds` only before),
 reports `heapTotalMB`, `externalMB` and `arrayBuffersMB`, and with `PROBE_GC=1` (and
 `--expose-gc` in `NODE_OPTIONS`) runs a full GC before each sample: memory runs only, it costs a

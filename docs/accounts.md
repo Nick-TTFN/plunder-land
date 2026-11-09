@@ -112,7 +112,9 @@ spent at the start moves to the shared world's player at the pad (`paid`, `padHa
 run's extraction refunds it wherever it happens (layers 01-02 or deeper) and its death or the
 player's own disconnect keeps it spent, as for any run. A pad whose join throws refunds the play
 and redirects. At `PRIVATE_CAP` a start is sent `full` before the account and the play, so
-nothing is spent.
+nothing is spent. Below it, a start over the tick's budget waits in the start queue **before**
+the play is spent (private-15; `docs/world.md`, "Under load"): a queued start that disconnects
+or times out to `full` has spent nothing.
 
 **First run** (decision #58 and addenda 5-6; tasks retest-3/4; the world: `docs/world.md`,
 "First-run worlds"; `Worlds`: `docs/server-invariants.md`). **Once per account.** Migration 8,

@@ -57,9 +57,8 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   - the disconnect handler closes a private or first-run world at once (`privateOf`/`firstRunOf`).
   Neither private nor first-run worlds count against `WORLD_CAP`. `FIRST_RUN_CAP` (env, default
   `FIRST_RUN_CAP_DEFAULT` 50, provisional): over it a start plays a normal run and the account
-  stays not done. `PRIVATE_CAP` (env, default 500): over it a start is sent `full`. **Outside
-  `worlds.ts`, `tools/load/probe.cjs` reads `worlds` only**, so it undercounts players and mobs
-  once runs are private (not fixed).
+  stays not done. `PRIVATE_CAP` (env, default 2500, an emergency stop since private-15): over it a start is sent `full`; below it a start over `PRIVATE_OPENS_PER_TICK` waits in the start queue (`docs/world.md`, "Under load"). `tools/load/probe.cjs`
+  sums all three since private-11.
 - **A first run, and a private world's pad, end the old player with `runOver` set before
   anything destroys it.**
   `Multiplayer.destroy` runs a run's end (gear settle, Redis stats, GA `run_end`, XP grant, the

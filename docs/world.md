@@ -213,11 +213,34 @@ lives in `Worlds.privates`, never in `worlds` (readers: `docs/server-invariants.
   Closing discards every gear instance still in the world (pickups, and the gear of every player
   still listed, destroyed ones included), which is why the pad takes the gear off the old player
   first.
-- **`PRIVATE_CAP`** (env, default `PRIVATE_CAP_DEFAULT` 500 per process, Q11, provisional; 0 or
-  less: no cap): at that many open private worlds a start is sent `full` with nothing spent
+- **`PRIVATE_CAP`** (env, default `PRIVATE_CAP_DEFAULT` 2500 per process since private-15, an
+  emergency stop, see "Under load"; 0 or less: no cap): at that many open private worlds a start
+  is sent `full` with nothing spent
   (`privateFull`, checked before the first-run test, so a first-run start is refused too). A first
   run's pad opens one over it, so nobody is left on a pad.
 - **A drain** plays private runs out: `drained` counts them, and a pad hands off during a drain.
+- **Under load** (private-15, Nick's Q-E/Q-F 2026-11-07; `Worlds.admitOrQueue`, `releaseQueue`,
+  `measureLoad`, `setLoad`): a spike is absorbed without refusing anyone below `PRIVATE_CAP`.
+  - **Start queue.** At most `PRIVATE_OPENS_PER_TICK` (env, default 150) starts bound for a private
+    world are let through a tick; the rest wait in a FIFO **before `admit`**, so nothing is spent
+    (no energy, no carry, no hello), with `starting` set so a repeat start is ignored. Let through
+    in order at the start of each tick; a closed connection is dropped; one waiting past
+    `PRIVATE_QUEUE_MAX_MS` (env, default 5000), or reaching the front with `PRIVATE_CAP` reached, is
+    sent `full` as before; a drain redirects them. A first-run start is never queued, and neither
+    is a first run's pad handoff (that player is mid-run). It bounds the starts let through, not
+    the opens: a persisted account's world opens when its spend comes back. The client waits for
+    its `hello` with no timeout, so no contract change.
+  - **Load level.** `tickAll` times itself (`tickClock`); a moving average of its share of the
+    tick (`LOAD_SMOOTHING` 0.2) sets **cool / warm (from 40%) / hot (from 60%)**, each falling
+    only `LOAD_HYSTERESIS` (10 points) lower and only after holding `LOAD_HOLD_TICKS` (40, 10 s);
+    rising is at once. Without the hold a process at the edge flapped warm/hot every few ticks,
+    each flip sending bots out and back. One log line and a Sentry breadcrumb per change.
+  - **Shedding**, private worlds only, reversed as the level falls: warm and hot, far bots think
+    `FAR_THINK_FACTOR` x 2 (`World.farThinkFactor`); hot, one private bot fewer per layer
+    (`privateBotsFor`: 2/3 -> 1/2; the extra ones leave by `BotFill`'s usual walk out) and the wake
+    margin at 0 (`World.wakeMargin`; a mob still sleeps only beyond what could see it or be
+    noticed by it). A world opened while hot starts shed.
+  - Numbers: `docs/load-testing.md`, "Private worlds under a burst".
 - **`privateRuns: false`** (a `Worlds` option; specs of the shared-world rules and the load tools'
   old modes): no layer is private and every run plays in a shared world holding every layer, as
   before #60. Production (`index.ts`) never passes it.
