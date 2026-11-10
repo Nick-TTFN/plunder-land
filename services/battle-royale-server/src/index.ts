@@ -11,6 +11,7 @@ import { runPrimary } from './cluster'
 import { GearLedger } from './gear/ledger'
 import { gearStoreOf } from './gear/stash'
 import { Admin } from './network/admin'
+import { resetRedisOnce } from './resetredis'
 // The environment is the whole config: Railway and docker compose inject it.
 // Locally without docker: node --env-file=.env dist/index.js
 
@@ -30,6 +31,8 @@ function startGame (): void {
 
   // One Redis client for every world: stats only.
   const redis = Multiplayer.connectRedis()
+  // The 2026-11-10 userbase reset's Redis half: once per Redis (resetredis.ts).
+  resetRedisOnce(redis).catch((e: unknown) => { console.error('reset: Redis reset failed', e) })
 
   // Guest accounts (decision #48): Postgres when DATABASE_URL is set, migrated
   // in the background (boot never waits for it), else in memory.

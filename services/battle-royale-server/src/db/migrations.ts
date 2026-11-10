@@ -216,5 +216,33 @@ export const MIGRATIONS: readonly Migration[] = [
         done_at    timestamptz NOT NULL
       )
     `
+  },
+  {
+    version: 9,
+    name: 'userbase reset 2026-11-10',
+    // **A one-time data reset, not a schema change** (Nick 2026-11-10: "remove
+    // melee, reset userbase, rebalance progression"; he chose to wipe
+    // everything, accounts included). Every player table is copied to a
+    // reset_20261110_* table first (Railway Hobby keeps no backups), then
+    // emptied, in this migration's one transaction. Account ids are not
+    // restarted, so no new account reuses an old id (Redis keys, GA ids).
+    // The schema is unchanged, so a draining older server keeps running; its
+    // writes for accounts that are gone fail and are logged. A client whose
+    // stored token no longer resolves gets a new guest account on its next
+    // start (`Worlds.lookup`). The Redis half is `resetRedisOnce`.
+    // Drop the copies once nobody needs them.
+    sql: `
+      CREATE TABLE reset_20261110_accounts AS TABLE accounts;
+      CREATE TABLE reset_20261110_account_progress AS TABLE account_progress;
+      CREATE TABLE reset_20261110_loadouts AS TABLE loadouts;
+      CREATE TABLE reset_20261110_season_entries AS TABLE season_entries;
+      CREATE TABLE reset_20261110_seasons AS TABLE seasons;
+      CREATE TABLE reset_20261110_season_payouts AS TABLE season_payouts;
+      CREATE TABLE reset_20261110_energy AS TABLE energy;
+      CREATE TABLE reset_20261110_stash_items AS TABLE stash_items;
+      CREATE TABLE reset_20261110_gear_holders AS TABLE gear_holders;
+      CREATE TABLE reset_20261110_first_runs AS TABLE first_runs;
+      TRUNCATE accounts, account_progress, loadouts, season_entries, seasons, season_payouts, energy, stash_items, gear_holders, first_runs;
+    `
   }
 ]

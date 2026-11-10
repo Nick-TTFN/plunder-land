@@ -29,7 +29,12 @@ Sentry hears of account failures once per stretch (`Worlds.accountFailure`: the 
 success, then one per `ACCOUNTS_REPORT_MS`, 10 min), and of a failing migration runner once per
 run of failures (`db/open.ts`), which also covers not-migrated. Migrations are
 TypeScript strings in `db/migrations.ts` (a `.sql` file would not reach `dist`), **additive
-only** (overlap and drain run the old server on the new schema for up to 10 min), applied at
+only** (overlap and drain run the old server on the new schema for up to 10 min); the one
+deliberate exception is migration 9, **the userbase reset of 2026-11-10** (Nick: "reset userbase",
+everything): it copies every player table to `reset_20261110_*` and empties it, schema unchanged,
+and `resetRedisOnce` (`src/resetredis.ts`, marker key `reset-20261110`) deletes `stats-*` and
+`player-*` once at boot. Old tokens no longer resolve, so a returning client is a new guest on its
+next start. Drop the copies once nobody needs them. Migrations are applied at
 boot in the background under an advisory lock, retried every 30 s; boot never waits. Without
 `DATABASE_URL` the store is in memory (never evicts) and logs `accounts: in memory (no
 DATABASE_URL)`, reported to Sentry once on Railway (`RAILWAY_ENVIRONMENT_NAME` set). The token is never stored, logged or reported;
@@ -143,7 +148,7 @@ first run equips no stash gear. **XP:** the first run's kills are carried (`carr
 the shared run's end with its loot; nothing is granted at the handoff. With the strip's content the
 kill credit is 9 XP (3 rocks at `mobDefault` 2, Crawler 1, Compactor 2; Dez's estimate was ~5, open
 for Dez/Nick: a `rock` key in `PROGRESSION.kills.mob` would change it), and everything carryable
-banked at once is 23 XP, below level 2's 40, so the first run alone doesn't open Melee (spec'd).
+banked at once is 23 XP, below level 2's 40, so the first run alone doesn't open level 2 (Defend since 2026-11-10; spec'd).
 Redis `stats-lootCollected` gets the carried loot at the shared run's end. Two tabs on one account can
 each play a first run (the in-memory flag is per connection); accepted. An invite link opened by a
 new account plays the first run first, then its private world, then hands off at the pad into the

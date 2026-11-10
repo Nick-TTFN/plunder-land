@@ -209,7 +209,8 @@ test('pg: a merge to Legendary before migration 7 answers store and keeps its in
     const admin = new PgClient({ connectionString: url })
     await admin.connect()
     try {
-      assert.deepEqual(await migrate(admin), [7])
+      // Only the schema: migration 9 (the 2026-11-10 reset) would empty the stash.
+      assert.deepEqual(await migrate(admin, MIGRATIONS.filter((m) => m.version <= 8)), [7])
     } finally {
       await admin.end()
     }
