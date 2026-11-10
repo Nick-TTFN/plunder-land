@@ -75,7 +75,9 @@ test('BOT_SKILL: Dez\'s table and addendum 4, top layer first', () => {
     return [r.reactionMs, r.aimMiss, r.engageRings, r.descend, [...r.robots], [...r.temperaments], { ...r.cargo }]
   }
   assert.deepEqual(row(0), [900, 0.6, 5, 0.25, ['peep', 'magnet', 'periscope'], ['steady', 'looter', 'diver'], { chance: 0.25, tier: 1 }])
-  assert.deepEqual(row(1), [450, 0.25, 6, 0.15, ['peep', 'magnet', 'periscope', 'hopper'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.25, tier: 1 }])
+  // DELIBERATE CHANGE (Nick 2026-11-10, "level 2 bots are too strong"): 450 ms
+  // and 25% -> 650 ms and 40%, halfway to layer 01.
+  assert.deepEqual(row(1), [650, 0.4, 6, 0.15, ['peep', 'magnet', 'periscope', 'hopper'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.25, tier: 1 }])
   assert.deepEqual(row(2), [300, 0.12, 6, 0, ['magnet', 'periscope', 'hopper', 'waddle'], ['steady', 'brawler', 'looter', 'diver'], { chance: 0.4, tier: 2 }])
   // Layers 04 and 05 (tags -3, -4): Dez's section 3 (`ideas/private-layers-numbers.md`,
   // accepted 2026-11-06, task private-8).
@@ -292,9 +294,9 @@ test('a brawler whose route to a player was refused does not Dash: a standing da
 
 // --- layer 0 is slower and less accurate (addendum 4) -----------------------------
 
-test('a bot on layer 0 thinks every 900 ms (before jitter), on -1 every 450 ms', (t: TestContext) => {
+test('a bot on layer 0 thinks every 900 ms (before jitter), on -1 every 650 ms (450 until 2026-11-10)', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
-  for (const [tag, ms] of [[TOP, 900], [MIDDLE, 450], [BOTTOM, 300]] as const) {
+  for (const [tag, ms] of [[TOP, 900], [MIDDLE, 650], [BOTTOM, 300]] as const) {
     const world = quietWorld()
     World.PLAYERS.length = 0
     // random 0.5: the jitter is x1.0.

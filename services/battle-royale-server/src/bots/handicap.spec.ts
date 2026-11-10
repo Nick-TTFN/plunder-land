@@ -77,8 +77,10 @@ const keyOf = (p: Player): keyof typeof ARCHETYPES => (p.archetype as { key: key
 
 // --- the table -------------------------------------------------------------------
 
-test('BOT_SKILL handicap: x0.5 on layer 01, x0.75 on 02, x1 from 03 down (04, 05 since private-8), HP (and armor) and damage alike', () => {
-  assert.deepEqual(BOT_SKILL.map((r) => [r.hpScale, r.damageScale]), [[0.5, 0.5], [0.75, 0.75], [1, 1], [1, 1], [1, 1]])
+// DELIBERATE CHANGE (Nick 2026-11-10, "level 2 bots are too strong ... cap
+// bots at 50%"): 02 is x0.5 (was x0.75).
+test('BOT_SKILL handicap: x0.5 on layers 01 and 02, x1 from 03 down (04, 05 since private-8), HP (and armor) and damage alike', () => {
+  assert.deepEqual(BOT_SKILL.map((r) => [r.hpScale, r.damageScale]), [[0.5, 0.5], [0.5, 0.5], [1, 1], [1, 1], [1, 1]])
 })
 
 // --- HP and armor ----------------------------------------------------------------
@@ -245,8 +247,8 @@ test('a lone human who goes from layer 01 to 02 has the bots on 02 within the sp
   while (Date.now() - from <= LEAVE_GRACE_MS + fill.spawnEveryMs) step()
   assert.equal(present(TOP).length, 0, 'a bot is still on 01 after the grace')
   assert.equal(staying(MIDDLE).length, 3)
-  // The bots that followed are 02's: three quarters.
-  for (const bot of staying(MIDDLE)) assert.equal(bot.botDamage, 0.75)
+  // The bots that followed are 02's: half (three quarters until 2026-11-10).
+  for (const bot of staying(MIDDLE)) assert.equal(bot.botDamage, BOT_SKILL[1].damageScale)
   world.close()
 })
 

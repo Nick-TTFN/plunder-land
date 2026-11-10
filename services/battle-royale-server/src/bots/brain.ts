@@ -65,7 +65,8 @@ export interface BotLayer {
  * table (`ideas/retest-onboarding.md`, #58 addendum 2 Q6): no Hopper or
  * Waddle and no brawler on layer 0, no Peep on layer -2, a richer cargo on -2.
  * The handicap (`hpScale`, `damageScale`) is Nick's (#60, Q7): x0.5 on layer
- * 01, x0.75 on 02, full strength from 03; a row added below -2 takes 1.
+ * 01, x0.5 on 02 (x0.75 until 2026-11-10), full strength from 03; a row added
+ * below -2 takes 1.
  * Layers 04 and 05 (tags -3, -4) are Dez's (`ideas/private-layers-numbers.md`
  * section 3, accepted 2026-11-06): reaction 250 / 200 ms, 8% / 5% miss,
  * engage 6 / 7, cargo 50% T2 / 40% T3. A bot thinks at most once a 250 ms
@@ -84,16 +85,19 @@ export const BOT_SKILL: readonly BotLayer[] = Object.freeze([
     hpScale: 0.5,
     damageScale: 0.5
   }),
+  // HP and damage x0.75 -> x0.5, reaction 450 -> 650 ms, miss 25% -> 40%
+  // (Nick 2026-11-10: "level 2 bots are too strong, instant kill"; measured
+  // 9-16 s to kill a passive Peep, mostly from aim; "cap bots at 50%").
   Object.freeze({
-    reactionMs: 450,
-    aimMiss: 0.25,
+    reactionMs: 650,
+    aimMiss: 0.4,
     engageRings: 6,
     descend: 0.15,
     robots: Object.freeze(['peep', 'magnet', 'periscope', 'hopper'] as const),
     temperaments: Object.freeze(['steady', 'brawler', 'looter', 'diver'] as const),
     cargo: Object.freeze({ chance: 0.25, tier: 1 as const }),
-    hpScale: 0.75,
-    damageScale: 0.75
+    hpScale: 0.5,
+    damageScale: 0.5
   }),
   Object.freeze({
     reactionMs: 300,
