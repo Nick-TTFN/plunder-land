@@ -25,9 +25,9 @@ tenth of the old ×1 / ×1.75, so real loot, XP from loot and season credit star
 where humans meet. **Every
 per-layer number lives in one table, `LAYERS` in `src/archetypes/archetypes.ts`**: tag, loot
 multiplier (×0.1 / ×0.175 / ×3 / ×5 / ×7 on natural pickups and on every mob's loot, not on what a dead
-player drops), the void share (1/3 each, the valleys), natural loot cap (10 / 10 / 150 / 150 / 150, death drops
-uncapped), portals up and down, exits (2 / 2 / 4 / 4 / 3), extraction time (5 / 7 / 9 / 11 / 13 s),
-medkits (3 / 3 / 12 / 14 / 16), bombs (1 / 1 / 7 / 9 / 11), gear caches (1 / 1 / 2 / 2 / 3) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
+player drops), the void share (1/3 each, the valleys), natural loot cap (5 / 10 / 150 / 150 / 150, death drops
+uncapped), portals up and down, exits (1 / 2 / 4 / 4 / 3), extraction time (5 / 7 / 9 / 11 / 13 s),
+medkits (1 / 3 / 12 / 14 / 16; 01's loot cap, medkits and exit cut 2026-11-10, Nick: "too much loot", "the map is tiny"), bombs (1 / 1 / 7 / 9 / 11), gear caches (1 / 1 / 2 / 2 / 3), mob respawn delay (`mobRespawnMs`, 45 / 30 / 20 / 20 / 20 s) and the mobs kept alive: the NPC roster (#51, L1; `docs/npcs.md`),
 Crawler packs and single NPCs per layer, built by `npcPopulation` from `NPC_NUMBERS.layers`.
 Gates, items and caches are Dez's rows (`ideas/private-layers-numbers.md`, task private-8): the
 private layers' "config C", the shared ones at the shared map's density.
@@ -288,7 +288,7 @@ lives in `Worlds.privates`, never in `worlds` (readers: `docs/server-invariants.
   `World.placeGate`, `getUnobstructedPosition`) or a changed `LAYERS` row the map reads
   (`voidShare`, `wallShare`, gate counts) changes the map for every player. `privatemap.spec.ts`
   pins its `DIGEST` (hello voids and walls plus gate sites); update it only on purpose. Since
-  2026-11-08 it has 10 gates (01: 1 down, 2 exits; 02: 2 up, 3 pads, 2 exits). The key does not
+  2026-11-08 it has 10 gates (01: 1 down, 2 exits; 02: 2 up, 3 pads, 2 exits); since 2026-11-10, 9 (01 has 1 exit; Nick: "the map is tiny"). The key does not
   include the `LAYERS` rows, so code that edits `LAYERS` after the first build gets the old map.
 - A world built with `firstRun` or `empty` ignores `map`.
 

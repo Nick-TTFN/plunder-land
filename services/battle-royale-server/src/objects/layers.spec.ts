@@ -76,7 +76,8 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
     }
   }
   assert.equal(LAYERS.length, 5)
-  assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 10, mobs: ['1 crawler packs, no escort 0', 'compactor 1'] })
+  // Natural loot 10 -> 5 on 01 (Nick 2026-11-10, "too much loot").
+  assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 5, mobs: ['1 crawler packs, no escort 0', 'compactor 1'] })
   assert.deepEqual(row(1), {
     tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['1 crawler packs, coil escort 0.6', 'compactor 1', 'kiln 1']
   })
@@ -97,7 +98,9 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
 // [5, 5, 4], [10, 0, 4]). The private layers 01-02 (map 2000) take config C;
 // 03 has no way back up (#60 Q3) and 10 down; 05 has 3 exits.
 test('gates: up, down and exits per layer as Dez\'s rows, chained in order', () => {
-  assert.deepEqual(LAYERS.map((l) => [l.portalsUp, l.portalsDown, l.exits]), [[0, 1, 2], [2, 3, 2], [0, 10, 4], [5, 5, 4], [5, 0, 3]])
+  // DELIBERATE CHANGE (Nick 2026-11-10, "the map is tiny, we need only one
+  // extract"): 01 has 1 exit (was 2).
+  assert.deepEqual(LAYERS.map((l) => [l.portalsUp, l.portalsDown, l.exits]), [[0, 1, 1], [2, 3, 2], [0, 10, 4], [5, 5, 4], [5, 0, 3]])
 })
 
 // --- the map --------------------------------------------------------------------
@@ -128,7 +131,7 @@ test('a new world puts each layer\'s portals and exits on it, leading only to th
   // Nothing else: no portal skips a layer, none leads to its own layer.
   assert.equal(gates().filter((g) => g instanceof Portal).length, portalCount)
   assert.equal(gates().length, gateCount)
-  assert.equal(gateCount, 46)
+  assert.equal(gateCount, 45) // 46 until 01 lost an exit (2026-11-10)
 })
 
 test('no gate lies within GATE_SPACING of another a player could meet on the same layer', () => {

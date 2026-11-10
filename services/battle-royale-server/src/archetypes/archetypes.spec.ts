@@ -1,4 +1,4 @@
-import test, { beforeEach } from 'node:test'
+import test, { beforeEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -273,7 +273,11 @@ test('an NPC kill writes mobKills and its rarity key, and never bossKills', asyn
 // them: single entries are counted by archetype as before, pack entries by
 // packs (roster.spec.ts holds the population over two simulated minutes).
 // The by-archetype replacement it checked still holds.
-test('the spawner keeps each layer\'s mobs by archetype, as LAYERS says', () => {
+test('the spawner keeps each layer\'s mobs by archetype, as LAYERS says', (t: TestContext) => {
+  // The refill itself, at once: the delay has its own spec (respawn.spec.ts).
+  const before = World.LAYERS
+  World.LAYERS = LAYERS.map((layer) => ({ ...layer, mobRespawnMs: 0 }))
+  t.after(() => { World.LAYERS = before })
   const world = new World(4000)
   // See "Things that are deliberate": no gates to carry anyone anywhere.
   World.OBSTACLES.length = 0

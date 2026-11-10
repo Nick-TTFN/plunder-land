@@ -1,4 +1,4 @@
-import test, { beforeEach } from 'node:test'
+import test, { beforeEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer from '../network/multiplayer'
@@ -60,7 +60,20 @@ function wanted (tag: number): number[] {
   return (LAYERS.find((l) => l.tag === tag)?.mobs ?? []).map((entry) => entry.count)
 }
 
-test('two simulated minutes: every layer holds its LAYERS population of NPCs, packs 2-4 with at most one Coil', () => {
+
+/**
+ * Run a refill test with every layer's `mobRespawnMs` at 0 (2026-11-10): it
+ * tests the refill itself, which once came back the next tick. The delay and
+ * the keep-out from humans have their own spec (`respawn.spec.ts`).
+ */
+function instantRespawn (t: TestContext): void {
+  const before = World.LAYERS
+  World.LAYERS = LAYERS.map((layer) => ({ ...layer, mobRespawnMs: 0 }))
+  t.after(() => { World.LAYERS = before })
+}
+
+test('two simulated minutes: every layer holds its LAYERS population of NPCs, packs 2-4 with at most one Coil', (t: TestContext) => {
+  instantRespawn(t)
   const world = new World(4000)
   const TICKS = 480 // two minutes at 250 ms
   const full: Record<number, number> = {}
@@ -200,7 +213,8 @@ test('a pack with no room is not spawned partly: nothing at all, until there is 
   assert.equal(pack.members.length, 3)
 })
 
-test('a pack is replaced only once every member is dead', () => {
+test('a pack is replaced only once every member is dead', (t: TestContext) => {
+  instantRespawn(t)
   const world = new World(4000)
   World.OBSTACLES.length = 0
   World.BLOCKED.clear()

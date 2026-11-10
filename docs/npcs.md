@@ -53,6 +53,13 @@ a `SkillClass` gets only its owner; `SkillSpec`/`buildSkill` stay as they were.
 
 `LAYERS[].mobs` is built by `npcPopulation(i)` from `NPC_NUMBERS.layers` (top first, five layers):
 Crawler packs 1/1/7/8/9; Compactors 1/1/4/5/6; Kilns 0/1/6/7/8; Reactors 0/0/2/3/4; Brood 0/0/1/2/3.
+**Respawn** (Nick 2026-11-10: "instant mob respawn, you get him straight away on the same spot"):
+`World.refillLayer` fills a layer at once, then a short entry waits `LayerSpec.mobRespawnMs` (01 45 s,
+02 30 s, 03-05 20 s; `World.respawnDue`, one delay per slot, so two killed together come back a
+delay apart), and no mob or pack centre spawns within `World.SPAWN_CLEAR_OF_HUMANS` (8) rings of a
+live human (vision 6 + the fog margin); bots don't count. Specs that test the refill itself run
+with `mobRespawnMs: 0` (`World.LAYERS` swapped for the test); `objects/respawn.spec.ts` covers the
+delay and the keep-out.
 Layer 02 was halved and lost its Reactor on 2026-11-09 (Nick: "too hard, maybe too dense"; ~2.8
 mobs per million px² against 01's ~3.9 and 03's ~2.5). Layers 01-02 were area-scaled for the private map at 2000 (a quarter of the area; kept when it shrank
 to 01 at 1000 and 02 at 1400 on 2026-11-08, `docs/world.md`; #60 addendum

@@ -33,11 +33,12 @@ const HELD = [TOP, MIDDLE]
  * the private map changed**: a seed, generator (`valleys.ts`, `walls.ts`,
  * `World.placeGate`) or `LAYERS` row change. That is a new map for every
  * player and so a release; update the digest only if that was the intent.
- * Last changed 2026-11-08 (Nick): one down portal on 01 (was 4). Before that,
+ * Last changed 2026-11-10 (Nick): one exit on 01 (was 2). Before that,
+ * 2026-11-08: one down portal on 01 (was 4). Before that,
  * the same day: map 1400 (was 2000), 01 on the square 0..1000
  * (`PRIVATE_SIDES`), portal sites drawn where both ends can be ground.
  */
-const DIGEST = 'bc805ea2c62f8b149e881775663843fcc14b02f82043281cc80f43789b2d9bd3'
+const DIGEST = '45abde806d325d710b4825eeffb2d43ebedcaad5f3f20cfa4721182feb7ac7eb'
 
 function redisStub (): Redis {
   const redis = { on: () => redis, hincrby: async () => 0 } as unknown as Redis

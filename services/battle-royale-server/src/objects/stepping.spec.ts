@@ -98,6 +98,11 @@ function assertOnePerCell (when: string): void {
 
 test('no two mobs ever stand on or hold one cell, and none stands on a gate, an arrival cell or a rock, over a long random run', (t: TestContext) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  // Refills at once (2026-11-10's delay and keep-out have respawn.spec.ts):
+  // the population check below counts on it.
+  const before = World.LAYERS
+  World.LAYERS = LAYERS.map((layer) => ({ ...layer, mobRespawnMs: 0 }))
+  t.after(() => { World.LAYERS = before })
   const world = new World(4000)
   world.update(DT) // first fill: rocks, and the first mob of each kind
 

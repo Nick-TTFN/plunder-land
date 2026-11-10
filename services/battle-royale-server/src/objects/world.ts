@@ -10,7 +10,7 @@ import Portal from './portal'
 import HandoffGate from '../firstrun/gate'
 import { GameObject, IdPool, ObjectType } from './gameobject'
 import Mob, { MobPack } from './mob'
-import { type Archetype, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, rollGear } from '../archetypes/archetypes'
+import { type Archetype, type LayerMobs, type LayerPack, type LayerSpec, ARCHETYPES, LAYERS, type Item, isPackEntry, rollGear } from '../archetypes/archetypes'
 import { type GearInstance, type GearTier } from '../utils/gear'
 import { ARCHETYPE_INFO, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { type Unit } from './unit'
@@ -316,6 +316,15 @@ export default class World {
    * random sites are drawn inside it (`sideOf`). Empty in every other world.
    */
   private sides: ReadonlyMap<number, number> = NO_SIDES
+
+  /**
+   * Each mob entry's refill state (`respawnDue`), by entry (one object per
+   * `LayerSpec.mobs` row): whether the entry has been full once, and when a
+   * short slot may refill. Bounded by the rows of the layers this world holds.
+   * Made on first use (`respawnDue`): specs build a World without its
+   * constructor (`Object.create(World.prototype)`) and still update it.
+   */
+  private respawns: Map<LayerMobs, { filled: boolean, readyAt: number | undefined }> | undefined
   PLAYERS: Player[] = []
   MOBS: Unit[] = []
   AREA_EFFECT: Area[] = []
@@ -1348,17 +1357,21 @@ export default class World {
     }
 
     // Mobs never change layer (portals move players only, #26), so a mob
-    // counts where it spawned.
+    // counts where it spawned. A short entry refills at once until it has
+    // been full, then after the layer's `mobRespawnMs` (`respawnDue`), and
+    // never within `SPAWN_CLEAR_OF_HUMANS` of a human (`farFromHumans`).
+    const now = Date.now()
     for (const entry of layer.mobs) {
       if (isPackEntry(entry)) {
-        if (World.packsAlive(entry, tag) < entry.count) this.spawnPack(entry, layer)
+        const short = World.packsAlive(entry, tag) < entry.count
+        if (this.respawnDue(entry, layer, short, now) && this.spawnPack(entry, layer) !== undefined) this.respawned(entry)
         continue
       }
       let alive = 0
       for (const mob of World.MOBS) {
         if (mob.tag === tag && mob.archetype === entry.archetype && !mob.destroyed && (mob as Mob).pack === undefined) alive++
       }
-      if (alive < entry.count) this.spawnMob(entry.archetype, layer)
+      if (this.respawnDue(entry, layer, alive < entry.count, now) && this.spawnMob(entry.archetype, layer)) this.respawned(entry)
     }
 
     // Natural item pickups, one of each short kind a tick, like loot. A death
@@ -1513,16 +1526,65 @@ export default class World {
    * Nothing pushes units apart any more (hex-cells P2), so a mob placed
    * on a gate or on another mob would stay there.
    */
-  private spawnMob (archetype: Archetype, layer: LayerSpec): void {
+  /** True if it spawned one (it may find no room this tick, and tries again on the next). */
+  private spawnMob (archetype: Archetype, layer: LayerSpec): boolean {
     let pos: Vector | undefined
     for (let attempt = 0; attempt < 10 && pos === undefined; attempt++) {
       const candidate = this.getUnobstructedPosition(layer.tag)
-      if (candidate === undefined) return
+      if (candidate === undefined) return false
       const cell = Hex.toCell(candidate)
-      if (World.mobFits(cell.x, cell.y, layer.tag, archetype.bodyRings ?? 0)) pos = candidate
+      if (World.mobFits(cell.x, cell.y, layer.tag, archetype.bodyRings ?? 0) && World.farFromHumans(cell, layer.tag)) pos = candidate
     }
-    if (pos === undefined) return
+    if (pos === undefined) return false
     this.placeMob(archetype, pos, layer)
+    return true
+  }
+
+  /**
+   * How close to a human a mob may spawn, in rings: never closer than this
+   * (Nick 2026-11-10: "sometimes you get him straight away on the same spot
+   * you just killed him"). The robots' vision (6) plus the server's fog margin
+   * (+2, `docs/wire-format.md` "Who gets what"), so a spawn is out of sight.
+   */
+  static SPAWN_CLEAR_OF_HUMANS = 8
+
+  /** True if no live human on `tag` is within `SPAWN_CLEAR_OF_HUMANS` rings of `cell`. Bots don't count. */
+  static farFromHumans (cell: Vector, tag: number): boolean {
+    for (const p of World.PLAYERS) {
+      if (p.tag !== tag || p.bot !== undefined || p.destroyed || p.exited) continue
+      if (Hex.distance(p.cell, cell) <= World.SPAWN_CLEAR_OF_HUMANS) return false
+    }
+    return true
+  }
+
+  /**
+   * Whether a short mob `entry` may refill now: at once while it has never
+   * been full (the layer's first fill), then only `layer.mobRespawnMs` after
+   * it was first seen short (Nick 2026-11-10). Each slot waits its own delay:
+   * two killed together come back one delay apart. `respawned` clears the
+   * wait once one spawns; a spawn that found no room keeps it.
+   */
+  private respawnDue (entry: LayerMobs, layer: LayerSpec, short: boolean, now: number): boolean {
+    this.respawns ??= new Map()
+    let slot = this.respawns.get(entry)
+    if (slot === undefined) {
+      slot = { filled: false, readyAt: undefined }
+      this.respawns.set(entry, slot)
+    }
+    if (!short) {
+      slot.filled = true
+      slot.readyAt = undefined
+      return false
+    }
+    if (!slot.filled) return true
+    slot.readyAt ??= now + (layer.mobRespawnMs ?? 0)
+    return now >= slot.readyAt
+  }
+
+  /** One of `entry`'s slots refilled: the next short one waits a fresh delay. */
+  private respawned (entry: LayerMobs): void {
+    const slot = this.respawns?.get(entry)
+    if (slot !== undefined) slot.readyAt = undefined
   }
 
   /** A new mob of `archetype` at `pos`, carrying the layer's loot and handicap, added to `MOBS`. */
@@ -1573,7 +1635,7 @@ export default class World {
       const candidate = this.getUnobstructedPosition(tag)
       if (candidate === undefined) return undefined
       const centre = Hex.toCell(candidate)
-      if (!World.mobCellFree(centre.x, centre.y, tag)) continue
+      if (!World.mobCellFree(centre.x, centre.y, tag) || !World.farFromHumans(centre, tag)) continue
       const cells: Vector[] = [centre]
       const around = Hex.DIRECTIONS.map((d) => new Vector(centre.x + d.x, centre.y + d.y))
         .filter((c) => World.mobCellFree(c.x, c.y, tag))

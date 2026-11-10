@@ -139,11 +139,13 @@ test('values are the balance pass section 1 "Items"', () => {
 // accepted 2026-11-06): was #26's medkits 8/10/12 and bombs 3/5/7. The
 // private layers 01-02 (map 2000) hold 3 medkits and 1 bomb; 04 and 05
 // continue the +2 / +2 steps.
-test('layers keep Dez\'s item counts: medkits 3/3/12/14/16, bombs 1/1/7/9/11', () => {
+// DELIBERATE CHANGE (Nick 2026-11-10, "too much loot, halve the medkits at
+// least"): layer 01 holds 1 medkit (was 3).
+test('layers keep Dez\'s item counts: medkits 1/3/12/14/16, bombs 1/1/7/9/11', () => {
   assert.deepEqual(
     LAYERS.map((l) => l.items.map(({ item, count }) => [item.key, count])),
     [
-      [['medkit', 3], ['bomb', 1]],
+      [['medkit', 1], ['bomb', 1]],
       [['medkit', 3], ['bomb', 1]],
       [['medkit', 12], ['bomb', 7]],
       [['medkit', 14], ['bomb', 9]],

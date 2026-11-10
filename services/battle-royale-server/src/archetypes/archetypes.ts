@@ -1014,6 +1014,13 @@ export interface LayerSpec {
    * are untouched. Absent: 1. As the bots' (`BOT_SKILL`'s `hpScale`).
    */
   mobHandicap?: number
+  /**
+   * How long a killed mob's slot waits before it refills, in ms (Nick
+   * 2026-11-10: "instant mob respawn, sometimes you get him straight away on
+   * the same spot"; `World.respawnDue`). The layer's first fill is at once.
+   * Absent: 0, the next tick.
+   */
+  mobRespawnMs?: number
 }
 
 /**
@@ -1052,18 +1059,22 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     tag: 0,
     owned: true,
     mobHandicap: 0.5,
+    mobRespawnMs: 45000,
     lootMultiplier: 0.1,
     voidShare: 1 / 3,
     wallShare: 0.06,
-    naturalLoot: 10,
-    exits: 2,
+    // 10 -> 5 and medkits 3 -> 1 (Nick 2026-11-10: "too much loot, halve the
+    // medkits at least"); exits 2 -> 1 ("since the map is tiny we need only one
+    // extract and one portal down").
+    naturalLoot: 5,
+    exits: 1,
     extractMs: 5000,
     portalsUp: 0,
     // One way down (Nick 2026-11-08: "layer one needs only one portal down"); was 4 (Dez's private-3).
     portalsDown: 1,
     mobs: npcPopulation(0),
     items: [
-      { item: ITEMS.medkit, count: 3 },
+      { item: ITEMS.medkit, count: 1 },
       { item: ITEMS.bomb, count: 1 }
     ],
     gear: {
@@ -1079,6 +1090,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
     tag: -1,
     owned: true,
     mobHandicap: 0.75,
+    mobRespawnMs: 30000,
     lootMultiplier: 0.175,
     voidShare: 1 / 3,
     wallShare: 0.06,
@@ -1103,6 +1115,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   },
   {
     tag: -2,
+    mobRespawnMs: 20000,
     lootMultiplier: 3,
     voidShare: 1 / 3,
     wallShare: 0.06,
@@ -1129,6 +1142,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   },
   {
     tag: -3,
+    mobRespawnMs: 20000,
     lootMultiplier: 5,
     voidShare: 1 / 3,
     wallShare: 0.06,
@@ -1153,6 +1167,7 @@ export const LAYERS: readonly LayerSpec[] = Object.freeze([
   },
   {
     tag: -4,
+    mobRespawnMs: 20000,
     lootMultiplier: 7,
     voidShare: 1 / 3,
     wallShare: 0.06,
