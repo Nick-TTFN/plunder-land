@@ -20,7 +20,7 @@ import BroodRelease, { type BroodSpec } from '../mobskills/brood'
 import BroodlingFuse, { type BroodlingSpec } from '../mobskills/broodling'
 import { ARCHETYPE_INFO, type ArchetypeInfo, type Rarity } from '../utils/archetypes'
 import { ITEM_INFO, type ItemInfo } from '../utils/items'
-import { type SkillKey, skillById, SKILL_LIST } from '../utils/skills'
+import { type SkillKey, skillById, PLAYER_SKILLS } from '../utils/skills'
 import { type GearInstance, type GearRoll, type GearTier, GEAR_STAT_LIST, Q_MAX, rollCount } from '../utils/gear'
 
 /**
@@ -1227,7 +1227,7 @@ export function buildSkillById (owner: Unit, id: number): Skill {
 /**
  * A fresh gear instance (decision #49, spec section 1), pure but for
  * `random` (0 <= r < 1, e.g. `Math.random`). A part has skill 0 and no
- * rolls. A skill item's skill is uniform over every `SKILL_LIST` id (level
+ * rolls. A skill item's skill is uniform over every `PLAYER_SKILLS` id, retired ones never (level
  * locks don't apply: a found skill above your level is a tease, spec Q3); it
  * has `rollCount(tier)` rolls on different stats, drawn without repeats from
  * those rollable at the tier (so reach only at T3), each with q uniform over
@@ -1236,7 +1236,7 @@ export function buildSkillById (owner: Unit, id: number): Skill {
 export function rollGear (tier: GearTier, kind: 'part' | 'skill', random: () => number): GearInstance {
   if (kind === 'part') return Object.freeze({ tier, skill: 0, rolls: Object.freeze([]) })
   const pick = (n: number): number => Math.min(n - 1, Math.floor(random() * n))
-  const skill = SKILL_LIST[pick(SKILL_LIST.length)].id
+  const skill = PLAYER_SKILLS[pick(PLAYER_SKILLS.length)].id
   const pool = GEAR_STAT_LIST.filter((stat) => stat.ranges[tier - 1] !== null).map((stat) => stat.id)
   const rolls: GearRoll[] = []
   const count = Math.min(rollCount(tier), pool.length)

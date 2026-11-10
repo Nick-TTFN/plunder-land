@@ -5,10 +5,14 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
 ## Skills
 
 **Skills unlock by account level; a player equips 4 on Q W E R** (decision #48 step 4, shipped
-2026-10-04). The skill ids, labels, unlock levels (Dez v1, with #58 addendum 2 Q7: Dash and
-Ranged 1, Melee 2, Defend 3, Fireball 4, StoneWall 6, Icicle 9, IceBreath 11), `START_KIT`
-`[1,3,0,0]` (Dash on Q, Ranged on W, E and R empty; #58 took Melee out of #48's kit so a new
-player learns ranged and Dash first), `LOADOUT_SLOTS` (1/2/3/4
+2026-10-04). The skill ids, labels, unlock levels (since 2026-11-10: Dash and Ranged 1, Defend 2,
+Fireball 3, StoneWall 5, Icicle 8, IceBreath 10; robots Peep 1, Magnet 3, Periscope 4, Hopper 7,
+Waddle 11), `START_KIT` `[3,1,0,0]` (Ranged on Q, Dash on W, E and R empty),
+**Melee retired for players 2026-11-10** (Nick: "remove melee, reset userbase, rebalance
+progression"; every unlock after it moved one level earlier): `SkillInfo.retired`, so it never
+unlocks, `checkLoadout` refuses it at any level, and `PLAYER_SKILLS` (what the loadout grid, the
+journey strip and `rollGear` use) leaves it out; id 2 stays reserved and `MeleeAttack` still serves
+mobs, and no bot carries it either (`BOT_KIT_BASE`). PROTOCOL 11 for it. `LOADOUT_SLOTS` (1/2/3/4
 loadouts per robot at levels 1/10/15/20) and `checkLoadout` are in the mirrored `utils/skills.ts`.
 **Ids are append-only and are not slot indices.** A join plays `kitFor(account, robot,
 start.loadout)` (`progress/loadouts.ts`): the stored row, checked against `levelOf(account.xp)`

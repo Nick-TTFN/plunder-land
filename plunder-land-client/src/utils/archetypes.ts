@@ -160,7 +160,7 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
     stats: Object.freeze({ maxHp: 100, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   periscope: Object.freeze({
-    id: 2, key: 'periscope', kind: 'robot', unlockLevel: 5, rarity: null, bodyRings: 0, passesObstacles: false, vision: 10, rangedCells: 6,
+    id: 2, key: 'periscope', kind: 'robot', unlockLevel: 4, rarity: null, bodyRings: 0, passesObstacles: false, vision: 10, rangedCells: 6,
     stats: Object.freeze({ maxHp: 80, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   magnet: Object.freeze({
@@ -169,12 +169,12 @@ export const ARCHETYPE_INFO: Readonly<Record<ArchetypeKey, ArchetypeInfo>> = Obj
   }),
   // Its trait, passing through obstacle cells (#15), is flagged but not built.
   hopper: Object.freeze({
-    id: 4, key: 'hopper', kind: 'robot', unlockLevel: 8, rarity: null, bodyRings: 0, passesObstacles: true, vision: 6, rangedCells: 6,
+    id: 4, key: 'hopper', kind: 'robot', unlockLevel: 7, rarity: null, bodyRings: 0, passesObstacles: true, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 90, armor: 50, speed: 140, pickupReach: 1, damageScale: 1 })
   }),
   // HP and armor paid for in speed (#16).
   waddle: Object.freeze({
-    id: 5, key: 'waddle', kind: 'robot', unlockLevel: 12, rarity: null, bodyRings: 0, passesObstacles: false, vision: 6, rangedCells: 6,
+    id: 5, key: 'waddle', kind: 'robot', unlockLevel: 11, rarity: null, bodyRings: 0, passesObstacles: false, vision: 6, rangedCells: 6,
     stats: Object.freeze({ maxHp: 130, armor: 100, speed: 120, pickupReach: 1, damageScale: 1 })
   }),
   // Retired (#51): kept, ids reserved, spawned by no layer.

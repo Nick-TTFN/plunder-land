@@ -83,10 +83,10 @@ export function tabLabel (index: number, level: number): string {
   return tabLocked(index, level) ? `LV ${loadoutLevel(index) ?? '?'}` : String(index + 1)
 }
 
-/** Whether skill `id` is still locked for an account of `level`. */
+/** Whether skill `id` is still locked for an account of `level`; a retired skill (Melee, 2026-11-10) always is, as `checkLoadout` says. */
 export function skillLocked (id: number, level: number): boolean {
   const info = skillById(id)
-  return info === undefined || info.unlockLevel > level
+  return info === undefined || info.retired === true || info.unlockLevel > level
 }
 
 /**

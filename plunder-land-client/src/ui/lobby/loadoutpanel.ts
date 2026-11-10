@@ -5,7 +5,7 @@ import {
   LOADOUT_KEY, SKILL_KEYS, type Loadouts, canClear, clear, loadoutOf, mergeSaved, parseRemembered,
   parseSaved, rememberedIndex, skillLocked, swap, tabLabel, tabLocked, withLoadout
 } from '../../net/loadout'
-import { LOADOUT_SIZE, MAX_LOADOUTS, SKILL_LIST, skillById } from '../../utils/skills'
+import { LOADOUT_SIZE, MAX_LOADOUTS, PLAYER_SKILLS, SKILL_LIST, skillById } from '../../utils/skills'
 import { iconTexture } from '../../skills/catalog'
 
 /** How long after the last change a loadout saves itself. */
@@ -265,7 +265,8 @@ export class LoadoutPanel {
     }
 
     this.grid.replaceChildren()
-    for (const info of SKILL_LIST) {
+    // Retired skills (Melee, 2026-11-10) are never offered.
+    for (const info of PLAYER_SKILLS) {
       const locked = skillLocked(info.id, level)
       const at = current.indexOf(info.id)
       const b = el('button', locked ? 'lb-lo-skill lb-lo-locked' : 'lb-lo-skill')

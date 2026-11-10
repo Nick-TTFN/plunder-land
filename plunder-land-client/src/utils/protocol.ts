@@ -54,5 +54,8 @@
  * and its layer-02 pad sends `handoff` before the shared world's `hello`; a
  * client older than the handler (2026-11-03) keeps the private world's
  * objects and collides ids. Five layers in `hello.layers` too.
+ * 11: Melee retired for players and every unlock one level earlier
+ * (2026-11-10): an older client's lobby offers Melee and the old levels, and
+ * this server refuses those saves without the lobby knowing why.
  */
-export const PROTOCOL = 10
+export const PROTOCOL = 11

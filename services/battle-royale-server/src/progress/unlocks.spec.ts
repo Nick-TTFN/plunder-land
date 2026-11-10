@@ -41,9 +41,10 @@ const preset = (key: string): Finish => (FINISH_PRESETS.find((p) => p.key === ke
 
 // --- 1. the table ------------------------------------------------------------------
 
-test('the unlock table is Dez\'s section 3 v1', () => {
+test('the unlock table is Dez\'s section 3 v1, robots one step earlier: Periscope 4, Hopper 7, Waddle 11', () => {
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was Periscope 5, Hopper 8, Waddle 12
   assert.deepEqual(Object.values(ARCHETYPE_INFO).map((a) => [a.key, a.unlockLevel]), [
-    ['peep', 1], ['periscope', 5], ['magnet', 3], ['hopper', 8], ['waddle', 12],
+    ['peep', 1], ['periscope', 4], ['magnet', 3], ['hopper', 7], ['waddle', 11],
     ['grunt', null], ['boss', null], ['gunner', null],
     ['crawler', null], ['kiln', null], ['reactor', null], ['coil', null], ['compactor', null], ['brood', null], ['broodling', null], ['rock', null]
   ])
@@ -73,8 +74,9 @@ test('robotUnlocked: selectable robots at their level; mobs and anything else ne
   assert.ok(robotUnlocked('peep', 1))
   assert.ok(!robotUnlocked('magnet', 2))
   assert.ok(robotUnlocked('magnet', 3))
-  assert.ok(!robotUnlocked('waddle', 11))
-  assert.ok(robotUnlocked('waddle', 12))
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was locked at 11, open at 12
+  assert.ok(!robotUnlocked('waddle', 10))
+  assert.ok(robotUnlocked('waddle', 11))
   for (const key of ['grunt', 'boss', 'gunner', 'Peep', 7, null, undefined]) assert.ok(!robotUnlocked(key, Infinity), String(key))
 })
 
@@ -200,7 +202,9 @@ test('a join plays the robot and finish the account\'s level allows, and is neve
   assert.deepEqual(sunset, [8, 1, 7, 3, 7, 3])
 
   assert.equal((await join(worlds, await accountAt(store, 1), { robot: 'periscope' })).archetype, id('peep'), 'Periscope at level 1')
-  assert.equal((await join(worlds, await accountAt(store, 5), { robot: 'periscope' })).archetype, id('periscope'), 'Periscope at level 5')
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): Periscope opened at 5
+  assert.equal((await join(worlds, await accountAt(store, 3), { robot: 'periscope' })).archetype, id('peep'), 'Periscope at level 3')
+  assert.equal((await join(worlds, await accountAt(store, 4), { robot: 'periscope' })).archetype, id('periscope'), 'Periscope at level 4')
   assert.equal((await join(worlds, await accountAt(store, 4), { robot: 'magnet' })).archetype, id('magnet'), 'Magnet at level 4')
   assert.deepEqual((await join(worlds, await accountAt(store, 1), { finish: sunset })).finish, [2, 0, 1, 0, 1, 0], 'SUNSET at level 1')
   assert.deepEqual((await join(worlds, await accountAt(store, 7), { finish: sunset })).finish, [8, 0, 7, 3, 7, 3], 'SUNSET at level 7: all but the ZEBRA')
@@ -222,7 +226,9 @@ test('a locked Waddle with a stored Waddle row plays Peep, with Peep\'s loadout'
   const store = new Store()
   const worlds = makeWorlds(store)
   // A row valid at level 1, saved before locks existed; Peep has none.
-  const token = await accountAt(store, 1, [['waddle', 0, [3, 2, 1, 0]]])
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was [3, 2, 1, 0], which Melee
+  // alone now refuses; [1, 3, 0, 0] is valid at 1 and differs from the start kit.
+  const token = await accountAt(store, 1, [['waddle', 0, [1, 3, 0, 0]]])
   const { player } = await join(worlds, token, { robot: 'waddle', loadout: 0 })
   assert.equal(player.archetype.key, 'peep')
   assert.deepEqual([...player.skillIds], [...START_KIT])
@@ -247,7 +253,9 @@ test('bots ignore locks: World.createPlayer plays Waddle in ARCADE', () => {
 test('lobby: the shown robot is the stored wish if unlocked, else Peep; never written back unless picked', () => {
   const entry = (key: string): typeof PICKABLE[number] => PICKABLE.find((e) => e.key === key) as typeof PICKABLE[number]
   assert.equal(shownRobot('waddle', 1).key, 'peep')
-  assert.equal(shownRobot('waddle', 12).key, 'waddle')
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): Waddle opened at 12, Periscope at 5
+  assert.equal(shownRobot('waddle', 10).key, 'peep')
+  assert.equal(shownRobot('waddle', 11).key, 'waddle')
   assert.equal(shownRobot('magnet', 3).key, 'magnet')
   assert.equal(shownRobot(null, 20).key, 'peep')
   assert.equal(shownRobot('grunt', 20).key, 'peep')
@@ -258,16 +266,16 @@ test('lobby: the shown robot is the stored wish if unlocked, else Peep; never wr
   // After a level change the untouched wish is re-resolved; a pick stays.
   assert.equal(reshownRobot(undefined, 'magnet', 2).key, 'peep')
   assert.equal(reshownRobot(undefined, 'magnet', 3).key, 'magnet')
-  assert.equal(reshownRobot(entry('periscope'), 'magnet', 5).key, 'periscope')
-  assert.equal(reshownRobot(entry('periscope'), 'magnet', 4).key, 'peep', 'a pick locked by a curve change')
+  assert.equal(reshownRobot(entry('periscope'), 'magnet', 4).key, 'periscope')
+  assert.equal(reshownRobot(entry('periscope'), 'magnet', 3).key, 'peep', 'a pick locked by a curve change')
   // Left/right go over the unlocked robots only.
   assert.deepEqual(unlockedEntries(1).map((e) => e.key), ['peep'])
-  assert.deepEqual(unlockedEntries(5).map((e) => e.key), ['peep', 'periscope', 'magnet'])
+  assert.deepEqual(unlockedEntries(4).map((e) => e.key), ['peep', 'periscope', 'magnet'])
   assert.equal(stepRobot(entry('peep'), 1, 1).key, 'peep')
   assert.equal(stepRobot(entry('peep'), 1, 3).key, 'magnet')
   assert.equal(stepRobot(entry('peep'), -1, 3).key, 'magnet')
-  assert.equal(stepRobot(entry('magnet'), 1, 8).key, 'hopper')
-  assert.equal(stepRobot(entry('hopper'), 1, 8).key, 'peep')
+  assert.equal(stepRobot(entry('magnet'), 1, 7).key, 'hopper')
+  assert.equal(stepRobot(entry('hopper'), 1, 7).key, 'peep')
 })
 
 test('lobby: card and swatch lock levels are the mirrored table\'s', () => {
@@ -316,16 +324,21 @@ void Multiplayer
 // --- the run card's level-up line (unlockedBetween) ------------------------------
 
 // DELIBERATE CHANGE (#58 addendum 2, Q7): Melee opens at 2 and Defend at 3.
-test('client: a level-up names exactly what opened, robots first, from the same rows the locks read', () => {
-  assert.deepEqual(unlockedBetween(1, 2), ['MELEE ATTACK', 'OLIVE'])
-  assert.deepEqual(unlockedBetween(2, 3), ['MAGNET', 'DEFEND', 'CAMO'])
-  assert.deepEqual(unlockedBetween(4, 5), ['PERISCOPE', 'SKY'])
-  assert.deepEqual(unlockedBetween(9, 10), ['LOADOUT 2', 'BONE'])
+// DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was MELEE ATTACK + OLIVE at 2,
+// MAGNET + DEFEND + CAMO at 3, PERISCOPE + SKY at 5, LOADOUT 2 + BONE at 10. Melee is never named now.
+test('client: a level-up names exactly what opened, robots first, from the same rows the locks read; never retired Melee', () => {
+  assert.deepEqual(unlockedBetween(1, 2), ['DEFEND', 'OLIVE'])
+  assert.deepEqual(unlockedBetween(2, 3), ['MAGNET', 'THROW FIREBALL', 'CAMO'])
+  assert.deepEqual(unlockedBetween(3, 4), ['PERISCOPE', 'ICE'])
+  assert.deepEqual(unlockedBetween(4, 5), ['STONE WALL', 'SKY'])
+  assert.deepEqual(unlockedBetween(9, 10), ['ICE BREATH', 'LOADOUT 2', 'BONE'])
+  assert.deepEqual(unlockedBetween(10, 11), ['WADDLE'])
   assert.deepEqual(unlockedBetween(12, 13), ['ZEBRA'], 'ZEBRA opens after Waddle')
   assert.deepEqual(unlockedBetween(13, 14), [], 'nothing opens at 14')
   assert.deepEqual(unlockedBetween(3, 3), [], 'no level-up')
   // Two levels at once name both levels' unlocks.
-  assert.deepEqual(unlockedBetween(1, 3), ['MAGNET', 'MELEE ATTACK', 'DEFEND', 'OLIVE', 'CAMO'])
+  assert.deepEqual(unlockedBetween(1, 3), ['MAGNET', 'DEFEND', 'THROW FIREBALL', 'OLIVE', 'CAMO'])
+  assert.ok(!unlockedBetween(0, 99).includes('MELEE ATTACK'), 'retired Melee was named')
   // Level by level adds up to the whole range: nothing named twice or missed.
   const all = unlockedBetween(1, 20)
   assert.equal(new Set(all).size, all.length)
@@ -337,11 +350,15 @@ test('client: a level-up names exactly what opened, robots first, from the same 
 // --- the lobby's journey strip (journeyStop) -----------------------------------
 
 test('client: a journey stop is named after its robot, then a skill or loadout slot, then a paint', () => {
-  assert.deepEqual(journeyStop(3), { level: 3, kind: 'bot', robot: 'magnet', names: ['MAGNET', 'DEFEND', 'CAMO'] })
-  assert.equal(journeyStop(2).kind, 'skill', 'Melee beats Olive')
-  assert.equal(journeyStop(4).kind, 'skill', 'Throw Fireball beats Ice')
-  assert.equal(journeyStop(7).kind, 'reward', 'Coral and Checker only')
-  assert.equal(journeyStop(10).kind, 'skill', 'loadout 2 counts as a skill stop')
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was Magnet + Defend + Camo at 3,
+  // Melee beats Olive at 2, Fireball beats Ice at 4, Coral and Checker only at 7, loadout 2 alone at 10.
+  assert.deepEqual(journeyStop(3), { level: 3, kind: 'bot', robot: 'magnet', names: ['MAGNET', 'THROW FIREBALL', 'CAMO'] })
+  assert.equal(journeyStop(2).kind, 'skill', 'Defend beats Olive')
+  assert.equal(journeyStop(4).kind, 'bot', 'Periscope beats Ice')
+  assert.equal(journeyStop(5).kind, 'skill', 'Stone Wall beats Sky')
+  assert.equal(journeyStop(6).kind, 'reward', 'Peach only')
+  assert.equal(journeyStop(7).kind, 'bot', 'Hopper beats Coral and Checker')
+  assert.equal(journeyStop(15).kind, 'skill', 'loadout 3 counts as a skill stop')
   assert.equal(journeyStop(13).kind, 'reward', 'ZEBRA only')
   assert.deepEqual(journeyStop(13).names, ['ZEBRA'])
   assert.equal(journeyStop(14).kind, undefined)

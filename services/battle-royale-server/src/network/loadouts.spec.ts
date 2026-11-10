@@ -14,7 +14,7 @@ import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progr
 import { SKILL_SPECS } from '../archetypes/archetypes'
 import { ARCHETYPE_INFO, type ArchetypeKey, SELECTABLE_ROBOTS } from '../utils/archetypes'
 import { PROTOCOL } from '../utils/protocol'
-import { SKILL_LIST, START_KIT, loadoutSlotsAt, skillById } from '../utils/skills'
+import { PLAYER_SKILLS, START_KIT, loadoutSlotsAt, skillById } from '../utils/skills'
 import { xpToReach } from '../progress/xp'
 import { Session } from '../../../../plunder-land-client/src/net/session'
 import { slotsFor } from '../../../../plunder-land-client/src/net/loadout'
@@ -178,21 +178,25 @@ test('forged loadouts, per robot: every one plays exactly the start kit, and the
   for (const robot of SELECTABLE_ROBOTS) {
     const low = at(robot, 1)
     const L10 = at(robot, 10)
-    // The first skill still locked at the robot's lowest level, and IceBreath
-    // (11) at level 10. Waddle opens at 12, when every skill is open, so it
-    // has neither case.
-    const lockedLow = SKILL_LIST.find((info) => info.unlockLevel > low)
+    // The first player skill still locked at the robot's lowest level, and
+    // IceBreath (10) at level 9. Waddle opens at 11, when every player skill
+    // is open, so it has neither case. Retired Melee is refused at any level.
+    // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was IceBreath (11) at level 10,
+    // Waddle at 12, and rows padded with Melee (2), which would now be refused for Melee alone.
+    const L9 = at(robot, 9)
+    const lockedLow = PLAYER_SKILLS.find((info) => info.unlockLevel > low)
     const forgedRows: Array<[string, number, unknown]> = [
-      ...(lockedLow === undefined ? [] : [[`locked: ${lockedLow.key} at level ${low}`, low, [lockedLow.id, 1, 2, 3]] as [string, number, unknown]]),
-      ...(L10 >= 11 ? [] : [['locked: IceBreath at level 10', L10, [8, 1, 2, 3]] as [string, number, unknown]]),
+      ...(lockedLow === undefined ? [] : [[`locked: ${lockedLow.key} at level ${low}`, low, [lockedLow.id, 1, 3, 0]] as [string, number, unknown]]),
+      ...(L9 >= 10 ? [] : [['locked: IceBreath at level 9', L9, [8, 1, 3, 4]] as [string, number, unknown]]),
+      ['retired Melee', L10, [2, 1, 3, 0]],
       ['a duplicate', L10, [1, 1, 3, 0]],
-      ['an unknown id 9', L10, [9, 1, 2, 0]],
-      ['an unknown id 255', L10, [255, 1, 2, 0]],
-      ['3 entries', L10, [1, 2, 3]],
-      ['5 entries', L10, [1, 2, 3, 0, 0]],
-      ['a non-integer', L10, [1.5, 2, 3, 0]],
-      ['a string id', L10, ['1', 2, 3, 0]],
-      ['a negative', L10, [-1, 2, 3, 0]],
+      ['an unknown id 9', L10, [9, 1, 4, 0]],
+      ['an unknown id 255', L10, [255, 1, 4, 0]],
+      ['3 entries', L10, [1, 4, 3]],
+      ['5 entries', L10, [1, 4, 3, 0, 0]],
+      ['a non-integer', L10, [1.5, 4, 3, 0]],
+      ['a string id', L10, ['1', 4, 3, 0]],
+      ['a negative', L10, [-1, 4, 3, 0]],
       ['all empty', L10, [0, 0, 0, 0]],
       ['not an array', L10, { 0: 4 }],
       ['a string', L10, '4,1,2,3']
@@ -205,8 +209,7 @@ test('forged loadouts, per robot: every one plays exactly the start kit, and the
       expectKit(client, player, START_KIT, `${robot}: ${why}`)
     }
     // A valid row, but a forged `start.loadout`. The first index the level
-    // lacks: 1 at level 9, 2 for Waddle (12).
-    const L9 = at(robot, 9)
+    // lacks: 1 at level 9, 2 for Waddle (11).
     const forgedIndex: Array<[string, number, unknown]> = [
       [`index ${loadoutSlotsAt(L9)} at level ${L9}`, L9, loadoutSlotsAt(L9)],
       ['index -1', 20, -1],
@@ -217,7 +220,8 @@ test('forged loadouts, per robot: every one plays exactly the start kit, and the
       ['index null', 20, null]
     ]
     for (const [why, level, index] of forgedIndex) {
-      const { token } = await accountAt(store, level, [[robot, 0, [4, 1, 2, 3]], [robot, 1, [4, 1, 2, 3]], [robot, 2, [4, 1, 2, 3]]])
+      // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was [4, 1, 2, 3], now invalid for its Melee
+      const { token } = await accountAt(store, level, [[robot, 0, [4, 1, 3, 6]], [robot, 1, [4, 1, 3, 6]], [robot, 2, [4, 1, 3, 6]]])
       const { client, player } = await join(worlds, token, { robot, loadout: index })
       expectKit(client, player, START_KIT, `${robot}: ${why}`)
     }
@@ -226,11 +230,12 @@ test('forged loadouts, per robot: every one plays exactly the start kit, and the
     const { client, player } = await join(worlds, token, { robot, loadout: 0 })
     expectKit(client, player, [8, 6, 4, 1], `${robot}: a valid loadout`)
     // Loadout 1 at level 10, with no `loadout` key meaning 0.
-    const { token: token2 } = await accountAt(store, L10, [[robot, 0, [2, 0, 0, 0]], [robot, 1, [3, 6, 0, 4]]])
+    // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): loadout 0 was [2, 0, 0, 0] (Melee)
+    const { token: token2 } = await accountAt(store, L10, [[robot, 0, [4, 0, 0, 0]], [robot, 1, [3, 6, 0, 4]]])
     const second = await join(worlds, token2, { robot, loadout: 1 })
     expectKit(second.client, second.player, [3, 6, 0, 4], `${robot}: loadout 1 at level ${L10}`)
     const third = await join(worlds, token2, { robot }, 'b')
-    expectKit(third.client, third.player, [2, 0, 0, 0], `${robot}: no loadout key is loadout 0`)
+    expectKit(third.client, third.player, [4, 0, 0, 0], `${robot}: no loadout key is loadout 0`)
   }
 })
 
@@ -243,22 +248,27 @@ test('a forged robot plays Peep, with Peep\'s loadout', async () => {
   expectKit(client, player, [8, 0, 0, 1], 'a forged robot')
 })
 
-// DELIBERATE CHANGE (#58 addendum 2, Q7): Defend opens at 3, not 2.
-test('the account\'s level decides, never Unit.level: level 3 plays Defend, level 2 the start kit', async () => {
+// DELIBERATE CHANGE (#58 addendum 2, Q7): Defend opened at 3, not 2.
+// DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was level 3 plays Defend, level 2 the start kit;
+// Defend opens at 2 now, and the row lost its Melee.
+test('the account\'s level decides, never Unit.level: level 2 plays Defend, level 1 the start kit', async () => {
   const store = new SaveStore()
   const worlds = makeWorlds(store)
-  const three = await accountAt(store, 3, [['peep', 0, [4, 1, 2, 3]]])
+  const two = await accountAt(store, 2, [['peep', 0, [4, 1, 3, 0]]])
   assert.equal(xpToReach(2), 40)
-  const a = await join(worlds, three.token, { robot: 'peep', loadout: 0 })
-  expectKit(a.client, a.player, [4, 1, 2, 3], 'level 3')
+  const a = await join(worlds, two.token, { robot: 'peep', loadout: 0 })
+  expectKit(a.client, a.player, [4, 1, 3, 0], 'level 2')
   assert.equal(a.player.skills[0]?.constructor.name, 'Defend')
   assert.equal(a.player.level, 1, 'the account level reached Unit.level')
-  const two = await accountAt(store, 2, [['peep', 0, [4, 1, 2, 3]]])
-  const b = await join(worlds, two.token, { robot: 'peep', loadout: 0 }, 'b')
-  expectKit(b.client, b.player, START_KIT, 'level 2')
+  const one = await accountAt(store, 1, [['peep', 0, [4, 1, 3, 0]]])
+  const b = await join(worlds, one.token, { robot: 'peep', loadout: 0 }, 'b')
+  expectKit(b.client, b.player, START_KIT, 'level 1')
 })
 
-test('a level-1 account joins with Ranged and Dash; a stored row holding Melee plays the start kit until level 2, then itself (#58 Q7)', async () => {
+// DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was "a stored row holding Melee
+// plays the start kit until level 2, then itself", Melee saves stored at 2 and Defend at 3. Melee is now
+// refused at every level (its row still never deleted), Defend plays and saves from 2, Fireball from 3.
+test('a level-1 account joins with Ranged and Dash; a stored row holding retired Melee plays the start kit at every level and stays stored; Defend plays from level 2', async () => {
   const store = new SaveStore()
   const worlds = makeWorlds(store)
   const fresh = await accountAt(store, 1)
@@ -268,17 +278,23 @@ test('a level-1 account joins with Ranged and Dash; a stored row holding Melee p
   // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
   assert.deepEqual(a.player.skills.map((skill) => skill?.constructor.name ?? null), ['RangedAttack', 'Dash', null, null])
 
-  // A row saved when Melee was a level-1 skill: refused whole at level 1,
-  // never deleted, and played as stored from level 2 (48-4).
-  const old = await accountAt(store, 1, [['peep', 0, [1, 2, 3, 0]]])
-  const b = await join(worlds, old.token, { robot: 'peep', loadout: 0 }, 'b')
-  expectKit(b.client, b.player, START_KIT, 'Melee at level 1')
-  assert.deepEqual((await store.inner.resolve(old.token))?.loadouts, [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], 'the stored row went')
-  const later = await accountAt(store, 2, [['peep', 0, [1, 2, 3, 0]]])
-  const c = await join(worlds, later.token, { robot: 'peep', loadout: 0 }, 'c')
-  expectKit(c.client, c.player, [1, 2, 3, 0], 'Melee at level 2')
+  // A row saved when Melee was a player skill: refused whole at every level,
+  // never deleted (48-4).
+  for (const [level, name] of [[1, 'b'], [2, 'c'], [50, 'd']] as Array<[number, string]>) {
+    const old = await accountAt(store, level, [['peep', 0, [1, 2, 3, 0]]])
+    const b = await join(worlds, old.token, { robot: 'peep', loadout: 0 }, name)
+    expectKit(b.client, b.player, START_KIT, `Melee at level ${level}`)
+    assert.deepEqual((await store.inner.resolve(old.token))?.loadouts, [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], `the stored row went at level ${level}`)
+  }
+  // A row holding Defend: the start kit at level 1, itself from level 2.
+  const early = await accountAt(store, 1, [['peep', 0, [1, 4, 3, 0]]])
+  const e = await join(worlds, early.token, { robot: 'peep', loadout: 0 }, 'e')
+  expectKit(e.client, e.player, START_KIT, 'Defend at level 1')
+  const later = await accountAt(store, 2, [['peep', 0, [1, 4, 3, 0]]])
+  const f = await join(worlds, later.token, { robot: 'peep', loadout: 0 }, 'f')
+  expectKit(f.client, f.player, [1, 4, 3, 0], 'Defend at level 2')
 
-  // A save holding Melee: refused at level 1, stored at level 2.
+  // A save holding Melee: refused at level 1 and at level 2.
   const saver = new Client('saver', { token: fresh.token })
   saver.connection = worlds.onConnection(saver.socket)
   await settle()
@@ -291,18 +307,22 @@ test('a level-1 account joins with Ranged and Dash; a stored row holding Melee p
   await settle()
   two.handlers.save_loadout({ robot: 'peep', index: 0, skills: [2, 3, 1, 0] })
   await settle()
-  assert.deepEqual(two.last('loadout_saved'), { robot: 'peep', index: 0, ok: true, skills: [2, 3, 1, 0] })
-  // And Defend: refused at 2, stored at 3.
+  assert.deepEqual(two.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [1, 4, 3, 0] })
+  // Defend: stored at 2.
   two.handlers.save_loadout({ robot: 'peep', index: 0, skills: [4, 3, 1, 0] })
   await settle()
-  assert.deepEqual(two.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [2, 3, 1, 0] })
+  assert.deepEqual(two.last('loadout_saved'), { robot: 'peep', index: 0, ok: true, skills: [4, 3, 1, 0] })
+  // And Fireball: refused at 2, stored at 3.
+  two.handlers.save_loadout({ robot: 'peep', index: 0, skills: [6, 3, 1, 0] })
+  await settle()
+  assert.deepEqual(two.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [4, 3, 1, 0] })
   const third = await accountAt(store, 3)
   const three = new Client('three', { token: third.token })
   three.connection = worlds.onConnection(three.socket)
   await settle()
-  three.handlers.save_loadout({ robot: 'peep', index: 0, skills: [4, 3, 1, 0] })
+  three.handlers.save_loadout({ robot: 'peep', index: 0, skills: [6, 3, 1, 0] })
   await settle()
-  assert.deepEqual(three.last('loadout_saved'), { robot: 'peep', index: 0, ok: true, skills: [4, 3, 1, 0] })
+  assert.deepEqual(three.last('loadout_saved'), { robot: 'peep', index: 0, ok: true, skills: [6, 3, 1, 0] })
 })
 
 test('no account (a single-world join through onConnect) and an offline account play the start kit', async () => {
@@ -406,7 +426,8 @@ test('two runs in two worlds with different kits: the client sees the second kit
   Session.onHello(first.client.last('hello') as never)
   assert.deepEqual(Session.skills, [8, 6, 4, 1])
   // A new loadout, saved mid-run; it plays from the next join.
-  first.client.handlers.save_loadout({ robot: 'peep', index: 0, skills: [5, 7, 0, 2] })
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was [5, 7, 0, 2] (Melee)
+  first.client.handlers.save_loadout({ robot: 'peep', index: 0, skills: [5, 7, 0, 3] })
   await settle()
   assert.equal((first.client.last('loadout_saved') as { ok: boolean }).ok, true)
   assert.deepEqual([...first.player.skillIds], [8, 6, 4, 1], 'a save changed the run in progress')
@@ -422,7 +443,7 @@ test('two runs in two worlds with different kits: the client sees the second kit
   assert.notEqual(second, first.player)
   assert.notEqual(worlds.worldFor(first.client.connection), first.world, 'the second run is in the same world')
   Session.onHello(first.client.last('hello') as never)
-  assert.deepEqual(Session.skills, [5, 7, 0, 2])
+  assert.deepEqual(Session.skills, [5, 7, 0, 3])
   assert.deepEqual(slotsFor(Session.skills).ids, [...second.skillIds])
 })
 
@@ -436,7 +457,9 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
   const none = new Client('none')
   none.connection = worlds.onConnection(none.socket)
   await settle()
-  none.handlers.save_loadout({ robot: 'peep', index: 0, skills: [1, 2, 3, 0] })
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): every [.., 2, ..] below lost its Melee,
+  // so each row is refused for the reason it names, and the stored row is [4, 3, 0, 0], was [2, 3, 0, 0].
+  none.handlers.save_loadout({ robot: 'peep', index: 0, skills: [1, 4, 3, 0] })
   // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
   assert.deepEqual(none.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [3, 1, 0, 0] })
 
@@ -448,31 +471,32 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
   off.connection = offWorlds.onConnection(off.socket)
   await settle()
   assert.equal(off.connection.account?.persisted, false)
-  off.handlers.save_loadout({ robot: 'peep', index: 0, skills: [1, 2, 3, 0] })
+  off.handlers.save_loadout({ robot: 'peep', index: 0, skills: [1, 4, 3, 0] })
   // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
   assert.deepEqual(off.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [3, 1, 0, 0] })
   assert.deepEqual(down.saves, [])
 
-  const { token } = await accountAt(store, 9, [['peep', 0, [2, 3, 0, 0]]])
+  const { token } = await accountAt(store, 9, [['peep', 0, [4, 3, 0, 0]]])
   const client = new Client('a', { token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
   const refusals: Array<[string, unknown, unknown]> = [
     // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
-    ['an unknown robot', { robot: 'grunt', index: 0, skills: [1, 2, 3, 0] }, [3, 1, 0, 0]],
+    ['an unknown robot', { robot: 'grunt', index: 0, skills: [1, 4, 3, 0] }, [3, 1, 0, 0]],
     // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
-    ['a non-string robot', { robot: 7, index: 0, skills: [1, 2, 3, 0] }, [3, 1, 0, 0]],
+    ['a non-string robot', { robot: 7, index: 0, skills: [1, 4, 3, 0] }, [3, 1, 0, 0]],
     // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
-    ['index 1 at level 9', { robot: 'peep', index: 1, skills: [1, 2, 3, 0] }, [3, 1, 0, 0]],
-    ['a locked skill', { robot: 'peep', index: 0, skills: [8, 1, 2, 3] }, [2, 3, 0, 0]],
-    ['a duplicate', { robot: 'peep', index: 0, skills: [1, 1, 2, 3] }, [2, 3, 0, 0]],
-    ['an unknown id', { robot: 'peep', index: 0, skills: [9, 1, 2, 3] }, [2, 3, 0, 0]],
-    ['3 entries', { robot: 'peep', index: 0, skills: [1, 2, 3] }, [2, 3, 0, 0]],
-    ['5 entries', { robot: 'peep', index: 0, skills: [1, 2, 3, 0, 0] }, [2, 3, 0, 0]],
-    ['a non-integer', { robot: 'peep', index: 0, skills: [1.5, 2, 3, 0] }, [2, 3, 0, 0]],
-    ['a string id', { robot: 'peep', index: 0, skills: ['1', 2, 3, 0] }, [2, 3, 0, 0]],
-    ['a negative', { robot: 'peep', index: 0, skills: [-1, 2, 3, 0] }, [2, 3, 0, 0]],
-    ['all empty', { robot: 'peep', index: 0, skills: [0, 0, 0, 0] }, [2, 3, 0, 0]],
+    ['index 1 at level 9', { robot: 'peep', index: 1, skills: [1, 4, 3, 0] }, [3, 1, 0, 0]],
+    ['a locked skill', { robot: 'peep', index: 0, skills: [8, 1, 4, 3] }, [4, 3, 0, 0]],
+    ['retired Melee', { robot: 'peep', index: 0, skills: [2, 1, 4, 3] }, [4, 3, 0, 0]],
+    ['a duplicate', { robot: 'peep', index: 0, skills: [1, 1, 4, 3] }, [4, 3, 0, 0]],
+    ['an unknown id', { robot: 'peep', index: 0, skills: [9, 1, 4, 3] }, [4, 3, 0, 0]],
+    ['3 entries', { robot: 'peep', index: 0, skills: [1, 4, 3] }, [4, 3, 0, 0]],
+    ['5 entries', { robot: 'peep', index: 0, skills: [1, 4, 3, 0, 0] }, [4, 3, 0, 0]],
+    ['a non-integer', { robot: 'peep', index: 0, skills: [1.5, 4, 3, 0] }, [4, 3, 0, 0]],
+    ['a string id', { robot: 'peep', index: 0, skills: ['1', 4, 3, 0] }, [4, 3, 0, 0]],
+    ['a negative', { robot: 'peep', index: 0, skills: [-1, 4, 3, 0] }, [4, 3, 0, 0]],
+    ['all empty', { robot: 'peep', index: 0, skills: [0, 0, 0, 0] }, [4, 3, 0, 0]],
     // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
     ['not an object', 'peep', [3, 1, 0, 0]]
   ]
@@ -484,15 +508,16 @@ test('save_loadout: every refusal answers ok false with kitFor\'s answer and wri
     assert.deepEqual(answer.skills, skills, why)
   }
   assert.deepEqual(store.saves, [], 'a refused save reached the store')
-  assert.deepEqual((await store.inner.resolve(token))?.loadouts, [{ robot: 'peep', index: 0, skills: [2, 3, 0, 0] }])
+  assert.deepEqual((await store.inner.resolve(token))?.loadouts, [{ robot: 'peep', index: 0, skills: [4, 3, 0, 0] }])
 })
 
 test('save_loadout: a save for a locked robot is refused; a valid save is stored, answered ok, and played by the next join on that connection', async () => {
   const store = new SaveStore()
   const worlds = makeWorlds(store)
-  // Hopper opens at level 8 (#48 step 5): at 7 the same save is refused and writes nothing.
-  const seven = await accountAt(store, 7)
-  const early = new Client('early', { token: seven.token })
+  // Hopper opens at level 7 (#48 step 5): at 6 the same save is refused and writes nothing.
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was opens at 8, refused at 7
+  const six = await accountAt(store, 6)
+  const early = new Client('early', { token: six.token })
   early.connection = worlds.onConnection(early.socket)
   await settle()
   early.handlers.save_loadout({ robot: 'hopper', index: 0, skills: [5, 4, 0, 1] })
@@ -500,9 +525,9 @@ test('save_loadout: a save for a locked robot is refused; a valid save is stored
   // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
   assert.deepEqual(early.last('loadout_saved'), { robot: 'hopper', index: 0, ok: false, skills: [3, 1, 0, 0] })
   assert.deepEqual(store.saves, [], 'a save for a locked robot reached the store')
-  assert.deepEqual((await store.inner.resolve(seven.token))?.loadouts, [])
+  assert.deepEqual((await store.inner.resolve(six.token))?.loadouts, [])
 
-  const { token, publicId } = await accountAt(store, 8)
+  const { token, publicId } = await accountAt(store, 7)
   const client = new Client('a', { token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
@@ -543,19 +568,20 @@ test('save_loadout: one write in flight per connection; a second meanwhile is bu
 test('save_loadout: a store that rejects answers ok false, the account in memory is unchanged, and the next join plays the old loadout', async () => {
   const store = new SaveStore()
   const worlds = makeWorlds(store)
-  const { token } = await accountAt(store, 6, [['peep', 0, [2, 0, 0, 0]]])
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): the old loadout was [2, 0, 0, 0] (Melee)
+  const { token } = await accountAt(store, 6, [['peep', 0, [4, 0, 0, 0]]])
   const client = new Client('a', { token })
   client.connection = worlds.onConnection(client.socket)
   await settle()
   store.mode = 'throw'
   client.handlers.save_loadout({ robot: 'peep', index: 0, skills: [5, 0, 0, 0] })
   await settle()
-  assert.deepEqual(client.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [2, 0, 0, 0] })
-  assert.deepEqual(client.connection.account?.loadouts, [{ robot: 'peep', index: 0, skills: [2, 0, 0, 0] }])
+  assert.deepEqual(client.last('loadout_saved'), { robot: 'peep', index: 0, ok: false, skills: [4, 0, 0, 0] })
+  assert.deepEqual(client.connection.account?.loadouts, [{ robot: 'peep', index: 0, skills: [4, 0, 0, 0] }])
   assert.equal(reported.length, 1, 'the failure was not reported')
   client.start({ robot: 'peep', loadout: 0 })
   await settle()
-  expectKit(client, client.connection.player as Player, [2, 0, 0, 0], 'the old loadout')
+  expectKit(client, client.connection.player as Player, [4, 0, 0, 0], 'the old loadout')
 })
 
 // --- account.loadouts (criterion 7) -------------------------------------------------------
@@ -592,13 +618,15 @@ test('account carries loadoutsFor for a persisted account, none offline; the cli
 
 // --- PROTOCOL (criterion 9) ----------------------------------------------------------------
 
-test('PROTOCOL is 10, and welcome sends it', async () => {
+test('PROTOCOL is 11, and welcome sends it', async () => {
   // 7 since the L1 release (l1-2, #51): gear tier 4, NPC ids 9-15, telegraph effects 9-19.
   // 8 since pve-2: the Compactor's slam is effect 20, never drawn by an older client.
   // 9 since the re-test build (#58): Melee/Defend unlock levels and the auto-aim client.
   // 10 since the private layers (#60): every run's pad sends `handoff`.
-  assert.equal(PROTOCOL, 10)
+  // 11 since Melee retired for players and every unlock moved one level earlier.
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was 10
+  assert.equal(PROTOCOL, 11)
   const client = new Client('a')
   makeWorlds(new SaveStore()).onConnection(client.socket)
-  assert.deepEqual(client.events('welcome'), [{ protocol: 10 }])
+  assert.deepEqual(client.events('welcome'), [{ protocol: 11 }])
 })

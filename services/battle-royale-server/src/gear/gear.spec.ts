@@ -12,7 +12,7 @@ import { ObjectType } from '../objects/gameobject'
 import Slowdown from '../buffs/slowdown'
 import { Skill } from '../skills/skill'
 import { ARCHETYPES, LAYERS, buildSkillById, rollGear } from '../archetypes/archetypes'
-import { SKILL_INFO, SKILL_LIST } from '../utils/skills'
+import { SKILL_INFO, PLAYER_SKILLS } from '../utils/skills'
 import {
   BRING_LEVEL, DUPLICATE_CUTS_COOLDOWN, GEAR_BAG, GEAR_SLOTS, GEAR_STATS, GEAR_STAT_LIST, GEAR_TIERS, GEAR_TIER_NAMES,
   type GearInstance, type GearTier, STASH_MAX, STASH_SOFT, cooldownCut, decodeGear, effectiveReach,
@@ -179,7 +179,7 @@ test('the item cooldown: cut by its own roll, a duplicate never', () => {
 
 // rollGear ======
 
-test('rollGear: parts bare; skill items roll rollCount distinct stats, reach only at T3, q in 0..1000', () => {
+test('rollGear: parts bare; skill items roll a player skill (never retired Melee), rollCount distinct stats, reach only at T3, q in 0..1000', () => {
   let seed = 12345
   const random = (): number => {
     seed = (Math.imul(seed, 1103515245) + 12345) >>> 0
@@ -194,7 +194,7 @@ test('rollGear: parts bare; skill items roll rollCount distinct stats, reach onl
       assert.deepEqual(rollGear(tier, 'part', random), { tier, skill: 0, rolls: [] })
       const g = rollGear(tier, 'skill', random)
       assert.equal(g.tier, tier)
-      assert.ok(SKILL_LIST.some((s) => s.id === g.skill), `skill ${g.skill}`)
+      assert.ok(PLAYER_SKILLS.some((s) => s.id === g.skill), `skill ${g.skill}`)
       skills.add(g.skill)
       assert.equal(g.rolls.length, rollCount(tier))
       assert.equal(new Set(g.rolls.map((r) => r.stat)).size, g.rolls.length, 'a repeated stat')
@@ -207,7 +207,9 @@ test('rollGear: parts bare; skill items roll rollCount distinct stats, reach onl
       }
     }
   }
-  assert.equal(skills.size, SKILL_LIST.length, 'every skill can roll')
+  // DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was every SKILL_LIST id (eight, Melee included)
+  assert.deepEqual([...skills].sort((a, b) => a - b), PLAYER_SKILLS.map((s) => s.id), 'every player skill can roll')
+  assert.ok(!skills.has(SKILL_INFO.melee.id), 'retired Melee rolled')
   assert.deepEqual([...(stats.get(1) ?? [])].sort(), [1, 2, 3, 4, 6])
   assert.deepEqual([...(stats.get(3) ?? [])].sort(), [1, 2, 3, 4, 5, 6])
   assert.deepEqual([...(stats.get(4) ?? [])].sort(), [1, 2, 3, 4, 5, 6])
@@ -217,7 +219,7 @@ test('rollGear: parts bare; skill items roll rollCount distinct stats, reach onl
     const g = rollGear(4, 'skill', () => r)
     assert.equal(g.rolls.length, 3)
     assert.ok(g.rolls.every((x) => x.q >= 0 && x.q <= 1000))
-    assert.ok(SKILL_LIST.some((s) => s.id === g.skill))
+    assert.ok(PLAYER_SKILLS.some((s) => s.id === g.skill))
   }
 })
 

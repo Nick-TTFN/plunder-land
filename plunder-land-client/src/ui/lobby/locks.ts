@@ -2,7 +2,7 @@ import { ARCHETYPE_INFO, robotUnlocked } from '../../utils/archetypes'
 import {
   type Finish, type FinishGroup, PALETTE, PATTERNS, colourById, lockFinish, patternById, swatchLevel
 } from '../../utils/finishes'
-import { LOADOUT_SLOTS, SKILL_LIST } from '../../utils/skills'
+import { LOADOUT_SLOTS, PLAYER_SKILLS } from '../../utils/skills'
 import { PICKABLE, type RosterEntry } from './roster'
 
 /**
@@ -115,7 +115,7 @@ export function unlockedBetween (from: number, to: number): string[] {
   const opened = (level: number | null | undefined): boolean => level != null && level > from && level <= to
   const out: string[] = []
   for (const entry of PICKABLE) if (entry.robot !== undefined && opened(ARCHETYPE_INFO[entry.robot].unlockLevel)) out.push(entry.name)
-  for (const skill of SKILL_LIST) if (opened(skill.unlockLevel)) out.push(skill.label.toUpperCase())
+  for (const skill of PLAYER_SKILLS) if (opened(skill.unlockLevel)) out.push(skill.label.toUpperCase())
   for (const row of LOADOUT_SLOTS) if (opened(row.level)) out.push(`LOADOUT ${row.slots}`)
   for (const colour of PALETTE) if (opened(colour.unlockLevel)) out.push(colour.label)
   for (const pattern of PATTERNS) if (opened(pattern.unlockLevel)) out.push(pattern.label)
@@ -139,7 +139,7 @@ export interface JourneyStop {
 /** The stop for `level`, from the same mirrored rows as the locks and `unlockedBetween`. */
 export function journeyStop (level: number): JourneyStop {
   const robot = PICKABLE.find((e) => e.robot !== undefined && ARCHETYPE_INFO[e.robot].unlockLevel === level)
-  const skill = SKILL_LIST.some((s) => s.unlockLevel === level) || LOADOUT_SLOTS.some((r) => r.level === level)
+  const skill = PLAYER_SKILLS.some((s) => s.unlockLevel === level) || LOADOUT_SLOTS.some((r) => r.level === level)
   const reward = PALETTE.some((c) => c.unlockLevel === level) || PATTERNS.some((p) => p.unlockLevel === level)
   const kind = robot !== undefined ? 'bot' : skill ? 'skill' : reward ? 'reward' : undefined
   return { level, kind, robot: robot?.robot, names: unlockedBetween(level - 1, level) }
@@ -149,7 +149,7 @@ export function journeyStop (level: number): JourneyStop {
 export function journeyEnd (): number {
   let end = 1
   for (const entry of PICKABLE) if (entry.robot !== undefined) end = Math.max(end, ARCHETYPE_INFO[entry.robot].unlockLevel ?? 1)
-  for (const skill of SKILL_LIST) end = Math.max(end, skill.unlockLevel)
+  for (const skill of PLAYER_SKILLS) end = Math.max(end, skill.unlockLevel)
   for (const row of LOADOUT_SLOTS) end = Math.max(end, row.level)
   for (const colour of PALETTE) end = Math.max(end, colour.unlockLevel)
   for (const pattern of PATTERNS) end = Math.max(end, pattern.unlockLevel)

@@ -31,23 +31,36 @@ export interface SkillInfo {
   readonly label: string
   /** The account level (not `Unit.level`) at which it may be equipped. */
   readonly unlockLevel: number
+  /**
+   * No longer offered to players: never unlocks, never fits a loadout
+   * (`checkLoadout`), never rolls as a gear skill item (`PLAYER_SKILLS`). Its
+   * id stays reserved (ids are append-only), and the server's skill class may
+   * still serve mobs. Melee since 2026-11-10 (Nick: "remove melee").
+   */
+  readonly retired?: true
 }
 
 export const SKILL_INFO: Readonly<Record<SkillKey, SkillInfo>> = Object.freeze({
+  // Unlocks moved one step earlier when Melee retired (Nick 2026-11-10,
+  // "shift up one step"): Defend 3 -> 2, Fireball 4 -> 3, Stone Wall 6 -> 5,
+  // Icicle 9 -> 8, Ice Breath 11 -> 10.
   dash: Object.freeze({ id: 1, key: 'dash', label: 'Dash', unlockLevel: 1 }),
-  melee: Object.freeze({ id: 2, key: 'melee', label: 'Melee Attack', unlockLevel: 2 }),
+  melee: Object.freeze({ id: 2, key: 'melee', label: 'Melee Attack', unlockLevel: 2, retired: true }),
   ranged: Object.freeze({ id: 3, key: 'ranged', label: 'Ranged Attack', unlockLevel: 1 }),
-  defend: Object.freeze({ id: 4, key: 'defend', label: 'Defend', unlockLevel: 3 }),
-  stoneWall: Object.freeze({ id: 5, key: 'stoneWall', label: 'Stone Wall', unlockLevel: 6 }),
-  fireball: Object.freeze({ id: 6, key: 'fireball', label: 'Throw Fireball', unlockLevel: 4 }),
-  icicle: Object.freeze({ id: 7, key: 'icicle', label: 'Throw Icicle', unlockLevel: 9 }),
-  iceBreath: Object.freeze({ id: 8, key: 'iceBreath', label: 'Ice Breath', unlockLevel: 11 })
+  defend: Object.freeze({ id: 4, key: 'defend', label: 'Defend', unlockLevel: 2 }),
+  stoneWall: Object.freeze({ id: 5, key: 'stoneWall', label: 'Stone Wall', unlockLevel: 5 }),
+  fireball: Object.freeze({ id: 6, key: 'fireball', label: 'Throw Fireball', unlockLevel: 3 }),
+  icicle: Object.freeze({ id: 7, key: 'icicle', label: 'Throw Icicle', unlockLevel: 8 }),
+  iceBreath: Object.freeze({ id: 8, key: 'iceBreath', label: 'Ice Breath', unlockLevel: 10 })
 })
 
-/** Every skill, in id order. */
+/** Every skill, in id order, retired ones included (for reading old ids). */
 export const SKILL_LIST: readonly SkillInfo[] = Object.freeze(
   Object.keys(SKILL_INFO).map((key) => SKILL_INFO[key as SkillKey]).sort((a, b) => a.id - b.id)
 )
+
+/** The skills a player can have, in id order: `SKILL_LIST` without the retired ones. */
+export const PLAYER_SKILLS: readonly SkillInfo[] = Object.freeze(SKILL_LIST.filter((info) => info.retired !== true))
 
 /** Slots in a loadout: Q W E R. */
 export const LOADOUT_SIZE = 4
@@ -58,7 +71,8 @@ export const LOADOUT_SIZE = 4
  * radial's large primary at the start (#59, Nick 2026-11-05; Q Dash, W Ranged
  * before). Only a default: a saved loadout is never rewritten. Melee unlocks
  * at level 2 and Defend at 3 (#58 addendum 2, Q7: Melee left the start kit so
- * a new player learns ranged and Dash first). A newly unlocked skill is not
+ * a new player learns ranged and Dash first); Melee is retired since
+ * 2026-11-10 and Defend opens at 2. A newly unlocked skill is not
  * slotted for the player (Q8 rejected); they equip it in the loadout panel.
  */
 export const START_KIT: readonly number[] = Object.freeze([3, 1, 0, 0])
@@ -99,8 +113,8 @@ export function skillById (id: unknown): SkillInfo | undefined {
  * and by the lobby to grey things out. A fresh copy of `skills` if it is a
  * valid loadout for an account of `level`, else undefined. Valid: an array of
  * exactly `LOADOUT_SIZE` entries; each a whole number that is 0 or a known
- * id; each known id unlocked (`unlockLevel <= level`); no id twice; at least
- * one id that isn't 0.
+ * id; each known id unlocked (`unlockLevel <= level`) and not retired; no id
+ * twice; at least one id that isn't 0.
  */
 export function checkLoadout (skills: unknown, level: number): number[] | undefined {
   if (!Array.isArray(skills) || skills.length !== LOADOUT_SIZE) return undefined
@@ -110,7 +124,7 @@ export function checkLoadout (skills: unknown, level: number): number[] | undefi
     if (typeof id !== 'number' || !Number.isInteger(id)) return undefined
     if (id !== 0) {
       const info = skillById(id)
-      if (info === undefined || info.unlockLevel > level) return undefined
+      if (info === undefined || info.retired === true || info.unlockLevel > level) return undefined
       if (out.includes(id)) return undefined
       equipped++
     }

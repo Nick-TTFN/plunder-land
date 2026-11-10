@@ -5,7 +5,7 @@ import '../network/multiplayer'
 import { MERGE_INPUTS, PART_MERGE_SKILL_CHANCE, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from './merge'
 import { seeded } from '../db/storecontract'
 import { MemoryAccountStore } from '../db/accounts'
-import { SKILL_LIST } from '../utils/skills'
+import { PLAYER_SKILLS, SKILL_INFO } from '../utils/skills'
 import { GEAR_STATS, type GearInstance, type GearTier, Q_MAX, rollCount } from '../utils/gear'
 
 /**
@@ -23,7 +23,8 @@ function skillItem (tier: GearTier, skill: number, rowId?: string): GearInstance
   return { tier, skill, rolls, ...(rowId !== undefined ? { rowId } : {}) }
 }
 
-const SKILLS = SKILL_LIST.map((s) => s.id)
+// DELIBERATE CHANGE (Nick 2026-11-10, melee retired, unlocks one step earlier): was SKILL_LIST (eight, Melee included)
+const SKILLS = PLAYER_SKILLS.map((s) => s.id)
 
 /** A well-formed result: tier, rolls on distinct stats rollable at that tier, qualities in range. */
 function checkRolls (item: GearInstance): void {
@@ -122,7 +123,7 @@ test('merge rolls are drawn fresh at the result tier, never copied from the inpu
   assert.ok(!t2.some((o) => o.rolls.some((roll) => roll.stat === GEAR_STATS.reach.id)), 'a T2 result rolled reach')
 })
 
-test('parts-only odds over 100,000 seeded draws: T2 skill 15%, T3 skill 25%, T4 skill 35%, T4 parts 100%; the surprise skill uniform', () => {
+test('parts-only odds over 100,000 seeded draws: T2 skill 15%, T3 skill 25%, T4 skill 35%, T4 parts 100%; the surprise skill uniform over the player skills, never Melee', () => {
   const N = 100_000
   // Bands are about 4.4 standard deviations at N (0.0011, 0.0014 and 0.0015).
   const bands: Array<[GearTier, number, number]> = [[1, 0.15, 0.005], [2, 0.25, 0.006], [3, 0.35, 0.007], [4, 1, 0]]
@@ -140,7 +141,8 @@ test('parts-only odds over 100,000 seeded draws: T2 skill 15%, T3 skill 25%, T4 
     }
     const rate = skills / N
     assert.ok(Math.abs(rate - expected) <= band, `T${tier} parts: skill item rate ${rate}, want ${expected} +- ${band}`)
-    // Uniform over the eight: each within 10% of its share (the smallest sample, T1's ~15,000, puts a share at ~1,875 +- 41).
+    assert.ok(!bySkill.has(SKILL_INFO.melee.id), `T${tier}: retired Melee appeared`)
+    // Uniform over the seven player skills: each within 10% of its share (the smallest sample, T1's ~15,000, puts a share at ~1,875 +- 41).
     assert.deepEqual([...bySkill.keys()].sort((a, b) => a - b), [...SKILLS].sort((a, b) => a - b), `T${tier}: not every skill appeared`)
     for (const [skill, n] of bySkill) {
       const share = n / skills
