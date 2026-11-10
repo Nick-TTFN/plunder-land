@@ -168,17 +168,20 @@ export function humanOn (tag: number): boolean {
 
 /**
  * A bot's skills (decision #48 step 4, Dez's proposal accepted with the rest):
- * melee, ranged and defend, plus fireball or icicle, picked when it joins
- * (`botKit`). Bots have no account and are not checked against a level; the
+ * ranged and defend, plus fireball or icicle, picked when it joins, and an
+ * empty slot: no melee since 2026-11-10 (Nick: "remove melee from bots
+ * altogether"; melee plus the gun at close range is what killed a Magnet in
+ * 5 s); before that it was melee, ranged, defend and a throw (`botKit`).
+ * Bots have no account and are not checked against a level; the
  * throw is used only from 02 down (`fight`), so a bot on 01 is no stronger than
- * a level-3 human (Melee opens at 2 and Defend at 3, #58 addendum 2 Q7). The brain presses by skill id (`press`, `Player.slotOf`),
+ * a level-3 human (Defend opens at 3, #58 addendum 2 Q7). The brain presses by skill id (`press`, `Player.slotOf`),
  * never by a fixed slot, and never presses Dash, StoneWall or IceBreath.
  */
-export const BOT_KIT_BASE: readonly number[] = Object.freeze([SKILL_INFO.melee.id, SKILL_INFO.ranged.id, SKILL_INFO.defend.id])
+export const BOT_KIT_BASE: readonly number[] = Object.freeze([SKILL_INFO.ranged.id, SKILL_INFO.defend.id])
 
-/** A bot's kit: `BOT_KIT_BASE` plus fireball or icicle, each half the time. */
+/** A bot's kit: `BOT_KIT_BASE` plus fireball or icicle, each half the time, and an empty fourth slot. */
 export function botKit (random: () => number): number[] {
-  return [...BOT_KIT_BASE, random() < 0.5 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id]
+  return [...BOT_KIT_BASE, random() < 0.5 ? SKILL_INFO.fireball.id : SKILL_INFO.icicle.id, 0]
 }
 
 /**
@@ -188,7 +191,7 @@ export function botKit (random: () => number): number[] {
  * kit; `steady` is the bot as it was before.
  * - `brawler`: engages a ring further, scuffles with bots and mobs up to 3
  *   rings, dashes in on a player 3-6 rings away, heads out only below 15% hp,
- *   carries less out and leaves sooner. Kit: melee, ranged, dash, a throw.
+ *   carries less out and leaves sooner. Kit: ranged, dash, a throw (melee until 2026-11-10).
  * - `looter`: engages 2 rings closer, scuffles only on top of it, carries
  *   more, heads out below 45% hp, and walls off a chaser on its way out
  *   (StoneWall goes behind it). Kit: ranged, defend, stone wall, a throw.
@@ -218,10 +221,10 @@ interface TemperamentSpec {
 }
 
 export const TEMPERAMENTS: Readonly<Record<Temperament, TemperamentSpec>> = Object.freeze({
-  steady: { engage: 0, scuffle: 2, descend: 1, loot: [1500, 2500], deadlineS: [180, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t] },
-  brawler: { engage: 1, scuffle: 3, descend: 1, loot: [1000, 1500], deadlineS: [150, 240], fleeAt: 0.15, kit: (t: number) => [SKILL_INFO.melee.id, SKILL_INFO.ranged.id, SKILL_INFO.dash.id, t] },
+  steady: { engage: 0, scuffle: 2, descend: 1, loot: [1500, 2500], deadlineS: [180, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t, 0] },
+  brawler: { engage: 1, scuffle: 3, descend: 1, loot: [1000, 1500], deadlineS: [150, 240], fleeAt: 0.15, kit: (t: number) => [SKILL_INFO.ranged.id, SKILL_INFO.dash.id, t, 0] },
   looter: { engage: -2, scuffle: 1, descend: 0.6, loot: [2500, 3000], deadlineS: [200, 300], fleeAt: 0.45, kit: (t: number) => [SKILL_INFO.ranged.id, SKILL_INFO.defend.id, SKILL_INFO.stoneWall.id, t] },
-  diver: { engage: 0, scuffle: 2, descend: 2.5, loot: [2000, 2500], deadlineS: [240, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t] }
+  diver: { engage: 0, scuffle: 2, descend: 2.5, loot: [2000, 2500], deadlineS: [240, 300], fleeAt: 0.3, kit: (t: number) => [...BOT_KIT_BASE, t, 0] }
 })
 
 /** Steady counts twice, the other three once: over all four, 40% and 20% each. */
@@ -422,7 +425,7 @@ export default class BotBrain implements IAIRoutine {
     const me = this.owner
     const aim = this.aimAt(enemy.cell, skill.aimMiss)
     if (distance <= 1 && health < 0.5) this.press(SKILL_INFO.defend.id)
-    if (distance <= 2) this.press(SKILL_INFO.melee.id)
+    // No melee: bots carry none since 2026-11-10 (`BOT_KIT_BASE`).
     if (distance <= 6) this.press(SKILL_INFO.ranged.id, aim)
     const layer = World.TAGS.indexOf(me.tag)
     // The throw it carries: fireball, else icicle (its kit has one, `BOT_KIT`).

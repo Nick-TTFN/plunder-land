@@ -317,14 +317,16 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
 
 // --- the kit and the brain's presses (decision #48 step 4) -----------------------
 
-test('a bot\'s kit: melee, ranged, defend, plus fireball or icicle', () => {
-  assert.deepEqual([...BOT_KIT_BASE], [2, 3, 4])
-  assert.deepEqual(botKit(() => 0), [2, 3, 4, 6])
-  assert.deepEqual(botKit(() => 0.49), [2, 3, 4, 6])
-  assert.deepEqual(botKit(() => 0.5), [2, 3, 4, 7])
+// DELIBERATE CHANGE (Nick 2026-11-10, "remove melee from bots altogether"):
+// was melee (2), ranged, defend and a throw; now no melee, an empty slot.
+test('a bot\'s kit: ranged, defend, plus fireball or icicle, and no melee', () => {
+  assert.deepEqual([...BOT_KIT_BASE], [3, 4])
+  assert.deepEqual(botKit(() => 0), [3, 4, 6, 0])
+  assert.deepEqual(botKit(() => 0.49), [3, 4, 6, 0])
+  assert.deepEqual(botKit(() => 0.5), [3, 4, 7, 0])
 })
 
-test('the brain presses by skill: melee, ranged and defend at their slots, the throw only on 02-03, never an empty or missing slot', () => {
+test('the brain presses by skill: ranged and defend at their slots, the throw only on 02-03, never melee, never an empty or missing slot', () => {
   World.strict = false
   void new Multiplayer(250, redisStub())
   const world = new World(4000)
@@ -332,8 +334,9 @@ test('the brain presses by skill: melee, ranged and defend at their slots, the t
   World.OBSTACLES.length = 0
   // Slot orders the brain can't know, so a press by fixed slot would miss.
   const cases: Array<{ kit: number[], throws: number | undefined }> = [
-    { kit: [2, 3, 4, 6], throws: 6 },
-    { kit: [2, 3, 4, 7], throws: 7 },
+    { kit: [3, 4, 6, 0], throws: 6 },
+    { kit: [3, 4, 7, 0], throws: 7 },
+    // A kit that still holds melee (2): the brain never presses it (2026-11-10).
     { kit: [7, 4, 3, 2], throws: 7 },
     { kit: [1, 2, 3, 0], throws: undefined } // the start kit before #58: no defend, no throw
   ]
@@ -351,9 +354,9 @@ test('the brain presses by skill: melee, ranged and defend at their slots, the t
     const fight = (brain as unknown as { fight: (enemy: unknown, distance: number, skill: unknown, health: number, fleeing: boolean) => void }).fight.bind(brain)
     const enemy = { cell: Hex.neighbour(me.cell, 0), type: me.type }
 
-    // On 01, close and hurt: defend, melee, ranged; no throw.
+    // On 01, close and hurt: defend, ranged; no melee, no throw.
     fight(enemy, 1, { aimMiss: 0 }, 0.4, true)
-    assert.deepEqual(pressed, [4, 2, 3].filter((id) => kit.includes(id)), `01, kit ${kit.join()}`)
+    assert.deepEqual(pressed, [4, 3].filter((id) => kit.includes(id)), `01, kit ${kit.join()}`)
     // On 02, at range: ranged and the throw it carries.
     pressed.length = 0
     me.tag = World.TAGS[1]
@@ -369,7 +372,7 @@ test('the brain presses by skill: melee, ranged and defend at their slots, the t
 
 // --- temperaments (2026-10-04) -------------------------------------------------
 
-test('temperaments: steady 40%, the others 20% each; each kit is 4 known skills with a throw, steady\'s as before', () => {
+test('temperaments: steady 40%, the others 20% each; each kit is 4 slots with a throw and no melee, steady\'s as before', () => {
   const counts: Record<string, number> = {}
   for (let i = 0; i < 100; i++) {
     const t = pickTemperament(() => i / 100)
@@ -377,11 +380,12 @@ test('temperaments: steady 40%, the others 20% each; each kit is 4 known skills 
   }
   assert.deepEqual(counts, { steady: 40, brawler: 20, looter: 20, diver: 20 })
   assert.deepEqual(kitOf('steady', () => 0), botKit(() => 0), 'steady is the bot as it was')
-  assert.deepEqual(kitOf('brawler', () => 0.9), [2, 3, 1, 7])
+  assert.deepEqual(kitOf('brawler', () => 0.9), [3, 1, 7, 0])
   assert.deepEqual(kitOf('looter', () => 0), [3, 4, 5, 6])
   for (const t of ['steady', 'brawler', 'looter', 'diver'] as const) {
     const spec = TEMPERAMENTS[t]
     assert.equal(spec.kit(6).length, 4)
+    assert.ok(!spec.kit(6).includes(2), `${t} carries melee`)
     assert.ok(spec.loot[0] > 0 && spec.deadlineS[0] >= 150 && spec.fleeAt > 0 && spec.fleeAt < 1, t)
   }
 })
