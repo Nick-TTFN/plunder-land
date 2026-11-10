@@ -379,7 +379,8 @@ test('PRIVATE_BOTS: a comma list of bots per private layer, top first; unset or 
  */
 const PRIVATE_NPCS: ReadonlyArray<{ packs: number, escorts: boolean, singles: Record<string, number> }> = [
   { packs: 1, escorts: false, singles: { compactor: 1 } },
-  { packs: 2, escorts: true, singles: { compactor: 2, kiln: 1, reactor: 1 } }
+  // Halved, Reactor dropped (Nick 2026-11-09, "layer 2 seems too hard"); was 2 packs, 2 Compactors, a Kiln and a Reactor.
+  { packs: 1, escorts: true, singles: { compactor: 1, kiln: 1 } }
 ]
 
 test('a private world holds Dez\'s area-scaled NPC counts on each private layer over two simulated minutes', async () => {

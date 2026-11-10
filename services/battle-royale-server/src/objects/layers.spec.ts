@@ -59,6 +59,9 @@ beforeEach(() => {
 // DELIBERATE CHANGE (#60 Q19, task private-8): two new layers below 03, tags
 // -3 and -4 (Dez's section 2, accepted 2026-11-06): loot x5 / x7, natural
 // loot 150, one more of each NPC kind per layer.
+// DELIBERATE CHANGE (Nick 2026-11-09, "layer 2 seems too hard, maybe too
+// dense"): layer 02 halved for the 1400 private map, Reactor dropped: packs
+// 2 -> 1, Compactors 2 -> 1, Reactors 1 -> 0.
 test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   const row = (i: number): unknown => {
     const l = LAYERS[i]
@@ -75,7 +78,7 @@ test('LAYERS holds #26\'s numbers and the NPC roster, top layer first', () => {
   assert.equal(LAYERS.length, 5)
   assert.deepEqual(row(0), { tag: 0, loot: 0.1, voids: 1 / 3, cap: 10, mobs: ['1 crawler packs, no escort 0', 'compactor 1'] })
   assert.deepEqual(row(1), {
-    tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['2 crawler packs, coil escort 0.6', 'compactor 2', 'kiln 1', 'reactor 1']
+    tag: -1, loot: 0.175, voids: 1 / 3, cap: 10, mobs: ['1 crawler packs, coil escort 0.6', 'compactor 1', 'kiln 1']
   })
   assert.deepEqual(row(2), {
     tag: -2, loot: 3, voids: 1 / 3, cap: 150, mobs: ['7 crawler packs, coil escort 1', 'compactor 4', 'kiln 6', 'reactor 2', 'brood 1']
@@ -216,7 +219,8 @@ test('natural pickups and mobs carry their layer\'s loot multiplier', () => {
   assert.deepEqual(lootOf(ARCHETYPES.crawler, MIDDLE), [4])
   assert.deepEqual(lootOf(ARCHETYPES.compactor, MIDDLE), [9])
   assert.deepEqual(lootOf(ARCHETYPES.kiln, MIDDLE), [18])
-  assert.deepEqual(lootOf(ARCHETYPES.reactor, MIDDLE), [88])
+  // No Reactor on 02 since 2026-11-09 (was 88).
+  assert.deepEqual(lootOf(ARCHETYPES.reactor, MIDDLE), [])
   assert.deepEqual(lootOf(ARCHETYPES.crawler, BOTTOM), [75])
   assert.deepEqual(lootOf(ARCHETYPES.coil, BOTTOM), [225])
   assert.deepEqual(lootOf(ARCHETYPES.kiln, BOTTOM), [300])

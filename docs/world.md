@@ -35,8 +35,8 @@ private layers' "config C", the shared ones at the shared map's density.
 the shared 4000's area; #60 addendum 2026-11-07, Dez's `ideas/private-layers-numbers.md` section 1),
 and kept when the map shrank on 2026-11-08 (01 a 1000 square, 02 the 1400 map, below), so both are
 now about twice to four times as dense as Dez's rows assumed:
-01 one Crawler pack and one Compactor (~3.9 mobs alive), 02 two packs (Coil escort 0.6), two
-Compactors, a Kiln and a Reactor (~11). The rows are read wherever a world holds those layers: private
+01 one Crawler pack and one Compactor (~3.9 mobs alive), 02 (halved 2026-11-09, Nick: "too hard")
+one pack (Coil escort 0.6), a Compactor and a Kiln, no Reactor (~5.5 alive, ~2.8 per million px²). The rows are read wherever a world holds those layers: private
 worlds in production, and a shared world holding every layer only when `privateRuns` is
 `false` (specs, and the load tools' old modes), which then runs them sparse on a 4000 map. A
 first-run world never refills from them.

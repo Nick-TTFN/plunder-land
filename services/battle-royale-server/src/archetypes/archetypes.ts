@@ -614,13 +614,17 @@ const NPC_NUMBERS = Object.freeze({
    * area-scaled (decision #60 addendum 2026-11-07; Dez's
    * `ideas/private-layers-numbers.md` section 1): layer 01 one pack and one
    * Compactor, layer 02 two packs, two Compactors, a Kiln and a Reactor
-   * (0.5 rounded up). Layer 03 keeps the shared map's density; 04 and 05
+   * (0.5 rounded up). Layer 02 then halved, Reactor dropped (Nick
+   * 2026-11-09: "layer 2 seems too hard, maybe too dense"; the rows were
+   * scaled for a 2000 map, and the private map shrank to 1400, half the
+   * area): one pack, one Compactor, one Kiln. Layer 03 keeps the shared
+   * map's density; 04 and 05
    * (tags -3, -4, decision #60 Q19) add one of each kind per layer (Dez's
    * section 2, accepted 2026-11-06; playtest whether 05 is too dense).
    */
   layers: Object.freeze([
     { packs: 1, escortShare: 0, compactor: 1, kiln: 0, reactor: 0, brood: 0 },
-    { packs: 2, escortShare: 0.6, compactor: 2, kiln: 1, reactor: 1, brood: 0 },
+    { packs: 1, escortShare: 0.6, compactor: 1, kiln: 1, reactor: 0, brood: 0 },
     { packs: 7, escortShare: 1, compactor: 4, kiln: 6, reactor: 2, brood: 1 },
     { packs: 8, escortShare: 1, compactor: 5, kiln: 7, reactor: 3, brood: 2 },
     { packs: 9, escortShare: 1, compactor: 6, kiln: 8, reactor: 4, brood: 3 }
@@ -1031,7 +1035,8 @@ export interface LayerSpec {
  * Rocks, loot cap and multiplier are #26's list. The mobs are the NPC roster
  * (decision #51, L1), counts in `NPC_NUMBERS.layers`, area-scaled on the
  * private layers 01 and 02 (#60 addendum 2026-11-07):
- * layer 0 holds Crawler packs and Compactors only; Kiln and Reactor -1 down;
+ * layer 0 holds Crawler packs and Compactors only; Kiln -1 down, Reactor -2
+ * down (dropped from -1, Nick 2026-11-09);
  * the Brood -2 down; Coils only as pack escorts from -1 down; Broodlings never
  * (the Brood releases them, l1-7). Grunt, gunner and boss are spawned by no
  * layer.
