@@ -44,6 +44,17 @@ export const PHONE_TEXT_FLOOR = 10
  */
 const TOP_SHARE = 1 / 3
 
+/**
+ * The run header's scale on a touch phone (status panel, clock and latency,
+ * and the leaderboard opened from the clock): Nick, 2026-11-13, on the g2-4
+ * after shots, "header typography definitely can be smaller. like -30% at
+ * least", so 30% under the `PHONE_TEXT_FLOOR` scale (10/13 = 0.77). Its
+ * smallest text is about 7 px: Nick's call, overriding the floor for the
+ * header only. A desktop-mode window of phone size (CrazyGames' 800x450,
+ * 821x462 and 907x510 frames, judged for legibility at DPR 1) keeps the floor.
+ */
+export const TOUCH_PHONE_HEADER_SCALE = 0.54
+
 /** The settings button's side, CSS px, never `HUD.scale`d (mobile-4). */
 const GEAR = 40
 
@@ -310,6 +321,16 @@ export class HUD extends Container {
    * clock is tapped, and the fog legend isn't drawn, so the robot and the
    * ground round it stay in view. Touch controls, L9 (Claude's layout).
    */
+  /**
+   * The header's scale (status panel, clock, leaderboard): `scale()`, except
+   * on a touch phone, where it is `TOUCH_PHONE_HEADER_SCALE` (or more on a
+   * screen big enough for more).
+   */
+  static headerScale (): number {
+    if (!HUD.phone() || !INPUT_MODE.touch) return HUD.scale()
+    return Math.max(TOUCH_PHONE_HEADER_SCALE, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
+  }
+
   static phone (): boolean {
     return Math.min(window.innerWidth, window.innerHeight) < 520
   }
@@ -325,6 +346,8 @@ export class HUD extends Container {
 
   updateLayout (): void {
     const s = HUD.scale()
+    // The status panel, the clock and the board (`headerScale`).
+    const hs = HUD.headerScale()
     const m = HUD.MARGIN
     const W = window.innerWidth
     const H = window.innerHeight
@@ -341,9 +364,9 @@ export class HUD extends Container {
     if (this.layers !== undefined) this.layers.visible = !phone
     if (this.badge !== undefined) this.badge.visible = phone
     this.legend.renderable = !phone
-    const place = (c: Container | undefined, x: number, y: number): void => {
+    const place = (c: Container | undefined, x: number, y: number, k = s): void => {
       if (c === undefined) return
-      c.scale.set(s, s)
+      c.scale.set(k, k)
       c.x = Math.round(x)
       c.y = Math.round(y)
     }
@@ -359,19 +382,19 @@ export class HUD extends Container {
     const mapSide = Math.max(40, Math.min(MINIMAP_PHONE, Math.floor(thirdLine - T - RADIAL.GAP)))
     const fullscreenShown = inRun && INPUT_MODE.touch && fullscreenSupported()
 
-    place(this.status, L, T)
+    place(this.status, L, T, hs)
     // Top centre, unless that runs into the status panel (a phone): then the
     // top right corner, left of the settings button in a run, and the board
     // goes under the status panel below.
-    const statusRight = this.status !== undefined ? L + this.status.panelWidth * s : 0
+    const statusRight = this.status !== undefined ? L + this.status.panelWidth * hs : 0
     let clockBottom = 0
     if (this.clock !== undefined) {
-      const cw = this.clock.panelWidth * s
+      const cw = this.clock.panelWidth * hs
       const centred = (W - cw) / 2
       // Cornered, it keeps left of the settings button (and a phone's minimap).
       const reserve = inRun ? GEAR + m + (fullscreenShown ? GEAR + RADIAL.GAP : 0) + (phone && this.map !== undefined ? mapSide + RADIAL.GAP : 0) : 0
-      place(this.clock, centred >= statusRight + m ? centred : R - cw - reserve, T)
-      clockBottom = centred >= statusRight + m ? 0 : T + this.clock.panelHeight * s
+      place(this.clock, centred >= statusRight + m ? centred : R - cw - reserve, T, hs)
+      clockBottom = centred >= statusRight + m ? 0 : T + this.clock.panelHeight * hs
     }
 
     // Top right: the leaderboard, and the minimap under it. On a screen too
@@ -399,18 +422,18 @@ export class HUD extends Container {
       // cluster (placed after the cluster, `placePhoneBoard`). Mouse: under the
       // minimap, right-aligned, as before.
       if (board !== undefined && board.visible && !touchRun) {
-        board.scale.set(s, s)
-        board.x = Math.round(R - board.panelWidth * s)
+        board.scale.set(hs, hs)
+        board.x = Math.round(R - board.panelWidth * hs)
         board.y = Math.round(T + Math.max(GEAR, this.map !== undefined ? mapSide : 0) + m)
       }
     } else {
       if (board !== undefined && board.visible) {
-        const boardW = board.panelWidth * s
+        const boardW = board.panelWidth * hs
         const beside = R - boardW >= statusRight + m && clockBottom === 0
-        board.scale.set(s, s)
+        board.scale.set(hs, hs)
         board.x = Math.round(beside ? R - boardW : L)
-        board.y = Math.round(beside ? T : (this.status !== undefined ? T + this.status.panelHeight * s + m : T))
-        rightTop = beside ? board.y + board.panelHeight * s + m : rightTop
+        board.y = Math.round(beside ? T : (this.status !== undefined ? T + this.status.panelHeight * hs + m : T))
+        rightTop = beside ? board.y + board.panelHeight * hs + m : rightTop
         if (beside) gearX = board.x - m - GEAR
       }
       if (this.map !== undefined) {
@@ -437,7 +460,7 @@ export class HUD extends Container {
         this.badge.x = Math.round(this.map.x + mapSide - this.badge.panelWidth - 5)
         this.badge.y = Math.round(this.map.y + mapSide - this.badge.panelHeight - 4)
       } else {
-        const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * s : T
+        const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * hs : T
         this.badge.x = Math.round((W - this.badge.panelWidth) / 2)
         this.badge.y = Math.round(clockBelow + 8)
       }
@@ -448,7 +471,7 @@ export class HUD extends Container {
     // the safe area. Its ghost rests bottom left. Nothing pressable sits in
     // it in touch mode (the radial keeps out of it); a press on a panel would
     // hit the panel, never the stage, so it would never start the stick.
-    const statusBottom = this.status !== undefined ? T + this.status.panelHeight * s : 0
+    const statusBottom = this.status !== undefined ? T + this.status.panelHeight * hs : 0
     const top = Math.max(SAFE_AREA.top, statusBottom)
     const left = SAFE_AREA.left
     const bottom = H - SAFE_AREA.bottom
@@ -463,8 +486,8 @@ export class HUD extends Container {
     let stacked = false
     if (this.skills !== undefined) this.skills.visible = !touchRun
     if (touchRun) {
-      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? T + this.clock.panelHeight * s : 0, statusRight, zone, phone ? thirdLine : undefined)
-      if (phone && board !== undefined && board.visible) this.placePhoneBoard(board, s, L, this.status !== undefined ? T + this.status.panelHeight * s + m : T)
+      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? T + this.clock.panelHeight * hs : 0, statusRight, zone, phone ? thirdLine : undefined)
+      if (phone && board !== undefined && board.visible) this.placePhoneBoard(board, hs, L, this.status !== undefined ? T + this.status.panelHeight * hs + m : T)
     } else {
       this.radial.layout(zone, [], false)
       if (this.skills !== undefined) {
