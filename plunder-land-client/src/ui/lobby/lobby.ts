@@ -992,6 +992,7 @@ export default class Lobby extends Container {
     const short = !phone && w > h && h <= SHORT_MAX
     const style = this.root.style
     style.removeProperty('zoom')
+    style.removeProperty('--lb-z')
     style.removeProperty('width')
     style.removeProperty('height')
     this.root.classList.add('lb-measure')
@@ -1003,6 +1004,8 @@ export default class Lobby extends Container {
     this.zoom = zoom < 0.995 ? zoom : 1
     if (this.zoom === 1) return
     style.setProperty('zoom', String(this.zoom))
+    // The safe-area insets divide by it (lobbystyle.ts, --lb-sl and friends).
+    style.setProperty('--lb-z', String(this.zoom))
     style.width = `${w / this.zoom}px`
     style.height = `${h / this.zoom}px`
   }

@@ -25,8 +25,46 @@ import { PORTAL } from '../../config'
 
 const MINIMAP = 200
 
-/** The minimap's side on a phone, CSS px (mobile-4; about 80, Claude's default in #59). */
+/** The minimap's largest side on a phone, CSS px (mobile-4; about 80, Claude's default in #59). */
 const MINIMAP_PHONE = 80
+
+/**
+ * The smallest HUD text on a touch phone, CSS px (g2-4): `HUD.scale` never goes
+ * below what puts `THEME.smallSize` text at this size. 10 because it is the
+ * layer badge's size, which Nick accepted on his phone (2026-11-05), and
+ * CrazyGames' QA judges legibility at DPR 1; the old 0.5 floor put the
+ * smallest text at 6.5 px.
+ */
+export const PHONE_TEXT_FLOOR = 10
+
+/**
+ * A touch phone's right side splits by the visible height (Nick, 2026-11-13,
+ * decision #62 addendum: "minimap should use up to 1/3rd right top area while
+ * controls would take up to 2/3 bottom right"): the minimap and what sits with
+ * it in the top third, the radial cluster in the bottom two thirds, scaled
+ * down to fit them. This is the share for the top.
+ */
+const TOP_SHARE = 1 / 3
+
+/**
+ * The run header's scale on a touch phone (status panel, clock and latency,
+ * and the leaderboard opened from the clock): Nick, 2026-11-13, on the g2-4
+ * after shots, "header typography definitely can be smaller. like -30% at
+ * least", so 30% under the `PHONE_TEXT_FLOOR` scale (10/13 = 0.77). Its
+ * smallest text is about 7 px: Nick's call, overriding the floor for the
+ * header only. A desktop-mode window of phone size (CrazyGames' 800x450,
+ * 821x462 and 907x510 frames, judged for legibility at DPR 1) uses `MOUSE_PHONE_SCALE`.
+ */
+export const TOUCH_PHONE_HEADER_SCALE = 0.54
+
+/**
+ * The whole HUD's scale in a phone-size window played with a mouse, which
+ * includes CrazyGames' desktop frames 800x450, 821x462 and 907x510 (Nick,
+ * 2026-11-13, option B, decision #62 addendum): between the old 0.5 and the
+ * touch floor's 0.77, panels about 25% smaller than at 0.77 and text about
+ * 8-10 px (13 px text at 8.1, 16 px at 9.9).
+ */
+export const MOUSE_PHONE_SCALE = 0.62
 
 /** The settings button's side, CSS px, never `HUD.scale`d (mobile-4). */
 const GEAR = 40
@@ -196,9 +234,25 @@ export class HUD extends Container {
     this.updateLayout()
   }
 
-  /** 1 at 1600 x 900 and up, down to 0.5 on small screens. */
+  /**
+   * 1 at 1600 x 900 and up, down to 0.5 on small screens. On a phone never
+   * below what keeps the smallest text at `PHONE_TEXT_FLOOR` in touch mode
+   * (g2-4), or below `MOUSE_PHONE_SCALE` with a mouse.
+   */
   static scale (): number {
-    return Math.max(0.5, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
+    const s = Math.max(0.5, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
+    if (!HUD.phone()) return s
+    return Math.max(s, INPUT_MODE.touch ? Math.min(1, PHONE_TEXT_FLOOR / THEME.smallSize) : MOUSE_PHONE_SCALE)
+  }
+
+  /**
+   * The header's scale (status panel, clock, leaderboard): `scale()`, except
+   * on a touch phone, where it is `TOUCH_PHONE_HEADER_SCALE` (or more on a
+   * screen big enough for more).
+   */
+  static headerScale (): number {
+    if (!HUD.phone() || !INPUT_MODE.touch) return HUD.scale()
+    return Math.max(TOUCH_PHONE_HEADER_SCALE, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
   }
 
   setupGameUI (): void {
@@ -306,6 +360,8 @@ export class HUD extends Container {
 
   updateLayout (): void {
     const s = HUD.scale()
+    // The status panel, the clock and the board (`headerScale`).
+    const hs = HUD.headerScale()
     const m = HUD.MARGIN
     const W = window.innerWidth
     const H = window.innerHeight
@@ -324,9 +380,9 @@ export class HUD extends Container {
     if (this.layers !== undefined) this.layers.visible = !phone
     if (this.badge !== undefined) this.badge.visible = phone
     this.legend.renderable = !phone
-    const place = (c: Container | undefined, x: number, y: number): void => {
+    const place = (c: Container | undefined, x: number, y: number, k = s): void => {
       if (c === undefined) return
-      c.scale.set(s, s)
+      c.scale.set(k, k)
       c.x = Math.round(x)
       c.y = Math.round(y)
     }
@@ -335,20 +391,25 @@ export class HUD extends Container {
     const T = SAFE_AREA.top + m
     const L = SAFE_AREA.left + m
     const R = W - SAFE_AREA.right - m
+    // The visible height and, on a phone, the top third's bottom edge (`TOP_SHARE`):
+    // the minimap fits above it, the radial cluster below it.
+    const visible = Math.max(0, H - SAFE_AREA.top - SAFE_AREA.bottom)
+    const thirdLine = SAFE_AREA.top + visible * TOP_SHARE
+    const mapSide = Math.max(40, Math.min(MINIMAP_PHONE, Math.floor(thirdLine - T - RADIAL.GAP)))
 
-    place(this.status, L, T)
+    place(this.status, L, T, hs)
     // Top centre, unless that runs into the status panel (a phone): then the
     // top right corner, left of the settings button in a run, and the board
     // goes under the status panel below.
-    const statusRight = this.status !== undefined ? L + this.status.panelWidth * s : 0
+    const statusRight = this.status !== undefined ? L + this.status.panelWidth * hs : 0
     let clockBottom = 0
     if (this.clock !== undefined) {
-      const cw = this.clock.panelWidth * s
+      const cw = this.clock.panelWidth * hs
       const centred = (W - cw) / 2
       // Cornered, it keeps left of the settings and fullscreen buttons (and a phone's minimap).
-      const reserve = inRun ? GEAR + m + (fullShown ? GEAR + RADIAL.GAP : 0) + (phone && this.map !== undefined ? MINIMAP_PHONE + RADIAL.GAP : 0) : 0
-      place(this.clock, centred >= statusRight + m ? centred : R - cw - reserve, T)
-      clockBottom = centred >= statusRight + m ? 0 : T + this.clock.panelHeight * s
+      const reserve = inRun ? GEAR + m + (fullShown ? GEAR + RADIAL.GAP : 0) + (phone && this.map !== undefined ? mapSide + RADIAL.GAP : 0) : 0
+      place(this.clock, centred >= statusRight + m ? centred : R - cw - reserve, T, hs)
+      clockBottom = centred >= statusRight + m ? 0 : T + this.clock.panelHeight * hs
     }
 
     // Top right: the leaderboard, and the minimap under it. On a screen too
@@ -366,25 +427,28 @@ export class HUD extends Container {
       // button (the other way round, at 667 x 375 with insets, it had none).
       // A board opened from the clock hangs under them, right-aligned.
       if (this.map !== undefined) {
-        const k = MINIMAP_PHONE / MINIMAP
+        const k = mapSide / MINIMAP
         this.map.scale.set(k, k)
-        this.map.x = Math.round(R - MINIMAP_PHONE)
+        this.map.x = Math.round(R - mapSide)
         this.map.y = Math.round(T)
         gearX = this.map.x - RADIAL.GAP - GEAR
       }
-      if (board !== undefined && board.visible) {
-        board.scale.set(s, s)
-        board.x = Math.round(R - board.panelWidth * s)
-        board.y = Math.round(T + Math.max(GEAR, this.map !== undefined ? MINIMAP_PHONE : 0) + m)
+      // Touch: the board opens under the status panel, clear of the radial
+      // cluster (placed after the cluster, `placePhoneBoard`). Mouse: under the
+      // minimap, right-aligned, as before.
+      if (board !== undefined && board.visible && !touchRun) {
+        board.scale.set(hs, hs)
+        board.x = Math.round(R - board.panelWidth * hs)
+        board.y = Math.round(T + Math.max(GEAR, this.map !== undefined ? mapSide : 0) + m)
       }
     } else {
       if (board !== undefined && board.visible) {
-        const boardW = board.panelWidth * s
+        const boardW = board.panelWidth * hs
         const beside = R - boardW >= statusRight + m && clockBottom === 0
-        board.scale.set(s, s)
+        board.scale.set(hs, hs)
         board.x = Math.round(beside ? R - boardW : L)
-        board.y = Math.round(beside ? T : (this.status !== undefined ? T + this.status.panelHeight * s + m : T))
-        rightTop = beside ? board.y + board.panelHeight * s + m : rightTop
+        board.y = Math.round(beside ? T : (this.status !== undefined ? T + this.status.panelHeight * hs + m : T))
+        rightTop = beside ? board.y + board.panelHeight * hs + m : rightTop
         if (beside) gearX = board.x - m - GEAR
       }
       if (this.map !== undefined) {
@@ -406,10 +470,12 @@ export class HUD extends Container {
     if (phone && this.badge !== undefined) {
       this.badge.scale.set(1, 1)
       if (this.map !== undefined) {
-        this.badge.x = Math.round(this.map.x + MINIMAP_PHONE - this.badge.panelWidth - 5)
-        this.badge.y = Math.round(this.map.y + MINIMAP_PHONE - this.badge.panelHeight - 4)
+        // Inside the minimap (g2-4: its tags line stuck out 36 px to the left).
+        this.badge.fitWidth(mapSide - 10)
+        this.badge.x = Math.round(this.map.x + mapSide - this.badge.panelWidth - 5)
+        this.badge.y = Math.round(this.map.y + mapSide - this.badge.panelHeight - 4)
       } else {
-        const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * s : T
+        const clockBelow = this.clock !== undefined ? this.clock.y + this.clock.panelHeight * hs : T
         this.badge.x = Math.round((W - this.badge.panelWidth) / 2)
         this.badge.y = Math.round(clockBelow + 8)
       }
@@ -420,7 +486,7 @@ export class HUD extends Container {
     // the safe area. Its ghost rests bottom left. Nothing pressable sits in
     // it in touch mode (the radial keeps out of it); a press on a panel would
     // hit the panel, never the stage, so it would never start the stick.
-    const statusBottom = this.status !== undefined ? T + this.status.panelHeight * s : 0
+    const statusBottom = this.status !== undefined ? T + this.status.panelHeight * hs : 0
     const top = Math.max(SAFE_AREA.top, statusBottom)
     const left = SAFE_AREA.left
     const bottom = H - SAFE_AREA.bottom
@@ -435,7 +501,8 @@ export class HUD extends Container {
     let stacked = false
     if (this.skills !== undefined) this.skills.visible = !touchRun
     if (touchRun) {
-      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? T + this.clock.panelHeight * s : 0, statusRight, zone)
+      this.layoutTouch(s, m, W, H, clockBottom === 0 && this.clock !== undefined ? T + this.clock.panelHeight * hs : 0, statusRight, zone, phone ? thirdLine : undefined)
+      if (phone && board !== undefined && board.visible) this.placePhoneBoard(board, hs, L, this.status !== undefined ? T + this.status.panelHeight * hs + m : T)
     } else {
       this.radial.layout(zone, [], false)
       if (this.skills !== undefined) {
@@ -465,32 +532,61 @@ export class HUD extends Container {
    * `clockBottom` is a centred clock's bottom edge, or 0; `zone` the
    * joystick's, which the radial keeps out of.
    */
-  private layoutTouch (s: number, m: number, W: number, H: number, clockBottom: number, statusRight: number, zone: Rect): void {
+  private layoutTouch (s: number, m: number, W: number, H: number, clockBottom: number, statusRight: number, zone: Rect, thirdLine: number | undefined): void {
     const place = (c: Container, x: number, y: number): void => {
       c.scale.set(s, s)
       c.x = Math.round(x)
       c.y = Math.round(y)
     }
     const layers = this.layers?.visible === true ? this.layers : undefined
+    const board = Leaderboard.Instance
+    // A board beside the clock (a tablet) can reach the centre: the layers
+    // panel and legend keep left of it (g2-4: they overlapped by 14 px).
+    const boardLeft = board?.visible === true ? board.x - m : W
     if (layers !== undefined) {
       const lw = layers.panelWidth * s
-      place(layers, Math.max(statusRight + m, (W - lw) / 2), Math.max(SAFE_AREA.top, clockBottom) + m)
+      place(layers, Math.max(statusRight + m, Math.min((W - lw) / 2, boardLeft - lw)), Math.max(SAFE_AREA.top, clockBottom) + m)
       const legendW = this.legend.getLocalBounds().width * s
-      place(this.legend, Math.max(statusRight + m, (W - legendW) / 2), layers.y + layers.panelHeight * s + 8 * s)
+      place(this.legend, Math.max(statusRight + m, Math.min((W - legendW) / 2, boardLeft - legendW)), layers.y + layers.panelHeight * s + 8 * s)
     }
     const avoid: Rect[] = [zone]
-    const board = Leaderboard.Instance
     const badge = this.badge?.visible === true ? this.badge : undefined
     for (const c of [this.status, this.clock, this.map, layers, badge, this.settings, this.fullscreen.visible ? this.fullscreen : undefined, board?.visible === true ? board : undefined, this.legend.visible && this.legend.renderable ? this.legend : undefined]) {
       if (c === undefined) continue
       const b = c.getBounds()
       avoid.push({ x: b.x, y: b.y, width: b.width, height: b.height })
     }
+    // The cluster's top may not rise above `top`: on a phone the top third's
+    // line (Nick's split), elsewhere just under whatever sits top right. It
+    // shrinks to fit rather than overlap (`RadialCluster.layout`).
+    const bottom = H - SAFE_AREA.bottom
+    let top = thirdLine ?? SAFE_AREA.top
+    if (thirdLine === undefined) {
+      for (const c of [this.map, this.settings, board?.visible === true && board.x > W / 2 ? board : undefined]) {
+        if (c === undefined || !c.visible) continue
+        const b = c.getBounds()
+        top = Math.max(top, b.y + b.height)
+      }
+    }
     this.radial.layout(
       { x: SAFE_AREA.left, y: SAFE_AREA.top, width: W - SAFE_AREA.left - SAFE_AREA.right, height: H - SAFE_AREA.top - SAFE_AREA.bottom },
       avoid,
-      true
+      true,
+      RadialCluster.fitScale(bottom - top - RADIAL.GAP)
     )
+  }
+
+  /**
+   * A phone's board in touch mode, opened from the clock: under the status
+   * panel at the left, never over the radial cluster (g2-4: it covered the hot
+   * slot at every phone size), shrunk if it would reach it.
+   */
+  private placePhoneBoard (board: Leaderboard, s: number, left: number, top: number): void {
+    const limit = this.radial.visible ? this.radial.leftEdge() - RADIAL.GAP : window.innerWidth - SAFE_AREA.right - HUD.MARGIN
+    const k = Math.min(s, Math.max(0.3, (limit - left) / board.panelWidth))
+    board.scale.set(k, k)
+    board.x = Math.round(left)
+    board.y = Math.round(top)
   }
 
   onKeyDown (e: { key: string }): void {

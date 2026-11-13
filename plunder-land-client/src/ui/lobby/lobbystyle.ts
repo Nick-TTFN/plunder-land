@@ -25,9 +25,14 @@ export const LOBBY_CSS = `
 .lb [hidden] { display: none !important; }
 .lb-mono, .lb-eyebrow, .lb-xprow, .lb-actstatus, .lb-season-line, .lb-ready-sub, .lb-custom, .lb-name { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
 
+/* Safe-area insets in the lobby's own pixels: the root is CSS-zoomed (Lobby.fit sets --lb-z), and a zoomed
+   env() inset shrinks with it, which put the header and the right column 13-30 px into a notch (g2-4). */
+.lb { --lb-z: 1; --lb-sl: calc(env(safe-area-inset-left, 0px) / var(--lb-z)); --lb-sr: calc(env(safe-area-inset-right, 0px) / var(--lb-z));
+  --lb-sb: calc(env(safe-area-inset-bottom, 0px) / var(--lb-z)); }
+
 /* Header */
 .lb-top { position: relative; flex: 0 0 auto; min-height: 68px; display: flex; align-items: center; gap: 16px;
-  padding: 0 max(28px, env(safe-area-inset-right)) 0 max(28px, env(safe-area-inset-left));
+  padding: 0 max(28px, var(--lb-sr)) 0 max(28px, var(--lb-sl));
   border-bottom: 1px solid rgba(51,219,211,.12); background: rgba(4,8,14,.72); }
 .lb-brand { font-size: 20px; letter-spacing: .32em; font-weight: 600; display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 /* The wordmark (res/brand, cut from Nick's logo of 2026-10-12): its height sets its size. */
@@ -138,7 +143,7 @@ export const LOBBY_CSS = `
 .lb-ready-sub { text-align: center; font-size: 13px; letter-spacing: .06em; color: #c9d6e2; }
 .lb-privacy { align-self: center; font-size: 11px; letter-spacing: .12em; color: #6f8496; text-decoration: none; }
 .lb-privacy:hover { color: #33dbd3; }
-.lb-build { position: absolute; left: 8px; bottom: 4px; font-size: 10px; letter-spacing: .08em; color: #6f8496; opacity: .7;
+.lb-build { position: absolute; left: max(8px, var(--lb-sl)); bottom: max(4px, var(--lb-sb)); font-size: 10px; letter-spacing: .08em; color: #6f8496; opacity: .7;
   font-family: ui-monospace, Menlo, monospace; pointer-events: none; }
 .lb-join { display: flex; align-items: center; gap: 10px; max-width: 100%;
   padding: 6px 8px 6px 14px; font-size: 12px; letter-spacing: .08em; color: #0b1622; background: #33dbd3; border-radius: 6px; pointer-events: auto; }
@@ -269,7 +274,7 @@ export const LOBBY_CSS = `
   .lb-left { padding-right: 40px; margin-right: -20px; }
 }
 @media (max-width: 760px) and (orientation: portrait) {
-  .lb-top { min-height: 60px; padding: 0 max(12px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+  .lb-top { min-height: 60px; padding: 0 max(12px, var(--lb-sr)) 0 max(16px, var(--lb-sl)); }
   .lb-wordmark { height: 30px; }
   .lb-desk-only { display: none !important; }
   .lb-menu { display: flex !important; }
@@ -310,7 +315,7 @@ export const LOBBY_CSS = `
   .lb-actstatus { font-size: 11px; }
   .lb-actverb { min-width: 72px; padding: 6px 10px; font-size: 13px; }
   .lb-season { padding: 10px 4px 0 14px; }
-  .lb-action { position: sticky; bottom: 0; z-index: 1; width: auto; max-width: none; margin: 0 -16px; padding: 14px 16px max(12px, env(safe-area-inset-bottom));
+  .lb-action { position: sticky; bottom: 0; z-index: 1; width: auto; max-width: none; margin: 0 -16px; padding: 14px 16px max(12px, var(--lb-sb));
     background: linear-gradient(rgba(4,8,14,0), rgba(4,8,14,.92) 28%); }
   .lb-ready { min-height: 52px; font-size: 21px; }
   .lb-ready-sub { font-size: 12px; }
@@ -325,7 +330,8 @@ export const LOBBY_CSS = `
 @media (max-height: 520px) and (orientation: landscape) {
   .lb-top { min-height: 52px; }
   .lb-wordmark { height: 28px; }
-  .lb-main { padding-top: 14px; padding-bottom: 14px; row-gap: 10px; }
+  .lb-main { padding-top: 14px; padding-bottom: max(14px, var(--lb-sb)); row-gap: 10px;
+    padding-left: max(28px, var(--lb-sl)); padding-right: max(28px, var(--lb-sr)); }
   .lb-preview { min-height: 160px; }
   .lb-levelhead { font-size: 28px; margin-bottom: 8px; }
   .lb-progress { padding-bottom: 12px; }
@@ -333,7 +339,7 @@ export const LOBBY_CSS = `
   .lb-ready { min-height: 48px; font-size: 20px; }
   /* A short landscape window (a phone on its side) scrolls past the zoom floor:
      keep Start run pinned to the bottom, as the portrait phone layout does. */
-  .lb-action { position: sticky; bottom: 0; z-index: 1; padding: 12px 0 max(10px, env(safe-area-inset-bottom));
+  .lb-action { position: sticky; bottom: 0; z-index: 1; padding: 12px 0 max(10px, var(--lb-sb));
     background: linear-gradient(rgba(4,8,14,0), rgba(4,8,14,.92) 28%); }
   .lb-custom { top: 60px; bottom: 8px; max-height: none; }
 }

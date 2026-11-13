@@ -43,8 +43,13 @@ export const RADIAL = {
   /** The collapsed hot slot: straight above the primary, past slot 4. */
   HOT_ANGLE: 270,
   /** Space kept between the cluster, the bag row and anything they avoid. */
-  GAP: 8
+  GAP: 8,
+  /** The smallest a count or a countdown may read, CSS px, after the cluster's scale (`HUD`'s `PHONE_TEXT_FLOOR`). */
+  TEXT_FLOOR: 10
 }
+
+/** The cluster's height at scale 1: from the primary's bottom edge (`EDGE` above the safe bottom) to the hot slot's top. */
+export const RADIAL_HEIGHT = RADIAL.EDGE + RADIAL.PRIMARY / 2 + RADIAL.ITEM_RING + RADIAL.ITEM / 2
 
 /**
  * One round button. Its press is a **`pointerdown` on the button itself**
@@ -102,6 +107,19 @@ class RoundButton extends Container {
     sprite.anchor.set(0.5, 0.5)
     sprite.scale.set(Math.min(fit / texture.frame.width, fit / texture.frame.height))
     this.icon.addChild(sprite)
+  }
+
+  /** Keep this button's text at `RADIAL.TEXT_FLOOR` CSS px or more when the cluster is drawn at `scale`. */
+  floorText (scale: number): void {
+    for (const t of this.texts()) {
+      const size = Number(t.style.fontSize)
+      t.scale.set(Math.max(1, RADIAL.TEXT_FLOOR / (size * scale)))
+    }
+  }
+
+  /** The texts `floorText` keeps readable. */
+  protected texts (): Text[] {
+    return [this.seconds]
   }
 
   /** The sweep for `left` (0..1) and the whole seconds still to wait. */
@@ -165,6 +183,10 @@ class ItemButton extends RoundButton implements HotItem {
     this._count.anchor.set(0.5, 0)
     this._count.position.set(size / 2, size - 14)
     this.addChild(this._count)
+  }
+
+  protected texts (): Text[] {
+    return [this.seconds, this._count]
   }
 
   available (): boolean {
@@ -420,14 +442,20 @@ export class RadialCluster extends Container {
    * the top panels) is not needed any more; kept for `HUD`'s call. `shown`
    * is touch mode in a run.
    */
-  layout (safe: Rect, _avoid: readonly Rect[], shown: boolean): void {
+  layout (safe: Rect, _avoid: readonly Rect[], shown: boolean, scale = 1): void {
     this.visible = shown
     if (!shown) {
       if (this._open) this.setOpen(false)
       return
     }
-    const cx = safe.x + safe.width - RADIAL.EDGE - RADIAL.PRIMARY / 2
-    const cy = safe.y + safe.height - RADIAL.EDGE - RADIAL.PRIMARY / 2
+    // Drawn at `scale` (g2-4: it shrinks to fit the screen's bottom two thirds
+    // on a phone). Everything below is in the cluster's own unscaled pixels,
+    // so the buttons' hit circles scale with what they draw.
+    this.scale.set(scale)
+    this._scale = scale
+    for (const button of [...this._skills, ...this._items, this._toggle]) button.floorText(scale)
+    const cx = (safe.x + safe.width) / scale - RADIAL.EDGE - RADIAL.PRIMARY / 2
+    const cy = (safe.y + safe.height) / scale - RADIAL.EDGE - RADIAL.PRIMARY / 2
     const at = (button: RoundButton, ring: number, degrees: number): void => {
       const a = degrees * Math.PI / 180
       button.x = Math.round(cx + ring * Math.cos(a) - button.size / 2)
@@ -452,6 +480,24 @@ export class RadialCluster extends Container {
     this._laid = laid
     laid()
     this.placeItems(performance.now())
+  }
+
+  /** The scale `layout` last drew at. */
+  private _scale = 1
+
+  /**
+   * The scale that fits the cluster into `height` CSS px above the safe
+   * bottom edge: 1 when it fits, smaller (proportionally) when it doesn't.
+   */
+  static fitScale (height: number): number {
+    return Math.max(0.1, Math.min(1, height / RADIAL_HEIGHT))
+  }
+
+  /** The cluster's left edge on screen, open fan included (its 180-degree item), CSS px. */
+  leftEdge (): number {
+    const fan = Math.max(...RADIAL.ITEM_ANGLES.map((a) => -Math.cos(a * Math.PI / 180))) * RADIAL.ITEM_RING + RADIAL.ITEM / 2
+    const skills = RADIAL.SKILL_RING + RADIAL.SKILL / 2
+    return (this._centre.x - Math.max(fan, skills, RADIAL.PRIMARY / 2)) * this._scale
   }
 
   update (now: number): void {
