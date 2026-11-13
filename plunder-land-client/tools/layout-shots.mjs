@@ -27,7 +27,7 @@
  *
  *   ADMIN_KEY_FILE=/path/to/key node tools/layout-shots.mjs \
  *     --client http://localhost:3093 --server http://localhost:8093 \
- *     --out outputs/layout-g2 [--modes desktop,touch] [--only 844x390,750x340]
+ *     --out outputs/layout-g2 [--modes desktop,touch] [--only 844x390,750x340] [--lobby-only] [--portal crazygames]
  *
  * The server must run with ADMIN_KEY (32+ chars, the same as the file's
  * content) and FIRST_RUN_CAP=0 (a fresh account otherwise gets the first run,
@@ -331,7 +331,10 @@ function pageHelpers () {
         const st = getComputedStyle(e)
         return (st.overflowY === 'auto' || st.overflowY === 'scroll') && e.scrollHeight > e.clientHeight + 1 && e.clientHeight > 0
       }).map((e) => ({ el: e.className.toString().split(' ')[0] || e.tagName, hidden: e.scrollHeight - e.clientHeight }))
-      return { zoom: root !== null && root !== undefined ? getComputedStyle(root).zoom : null, scrollers, pageX: document.documentElement.scrollWidth - innerWidth, pageY: document.documentElement.scrollHeight - innerHeight }
+      // The lobby's own scroll box: how much of it is out of view (0 = it fits).
+      const content = document.querySelector('.lb-content')
+      const lobbyScroll = content !== null && content.getBoundingClientRect().height > 0 ? content.scrollHeight - content.clientHeight : null
+      return { lobbyScroll, zoom: root !== null && root !== undefined ? getComputedStyle(root).zoom : null, scrollers, pageX: document.documentElement.scrollWidth - innerWidth, pageY: document.documentElement.scrollHeight - innerHeight }
     },
 
     smallDomText (min) {
@@ -369,7 +372,8 @@ const BY_DESIGN = [
   ['layer badge', 'minimap'], // the badge is drawn in the minimap's corner (Nick, 2026-11-05)
   ['status inventory', 'status panel'], // the inventory is inside the panel
   ['header actions', 'header'], ['wordmark', 'header'], ['menu button', 'header'], ['menu button', 'header actions'],
-  ['plays line', 'READY'], ['choose plunderbot', 'robot plate']
+  ['plays line', 'READY'], ['choose plunderbot', 'robot plate'],
+  ['build tag', 'header'] // on a touch phone on its side the build tag sits in the header's middle
 ]
 const designed = (a, b) => BY_DESIGN.some(([x, y]) => (a === x && b === y) || (a === y && b === x)) ||
   // A header button sits inside the header and its actions row.
@@ -485,6 +489,7 @@ async function shoot (page, cdp, mode, sizes, screen, opts = {}) {
     }
     const overflow = await page.evaluate(() => window.__ls.domOverflow())
     for (const s of overflow.scrollers) rows.push({ screen, size: size.name, kind: 'scrolls', a: s.el, b: '(own scroll box)', px: `${s.hidden} hidden` })
+    if (overflow.lobbyScroll !== null && dom.some((r) => r.name === 'READY')) rows.push({ screen, size: size.name, kind: 'lobby scrolls', a: '.lb-content', b: `zoom ${overflow.zoom}`, px: `${overflow.lobbyScroll}` })
     if (overflow.pageX > 0) rows.push({ screen, size: size.name, kind: 'page scrolls sideways', a: 'document', b: '', px: `${overflow.pageX}` })
     report.push({ screen, size, file, rects, small, rows })
     for (const r of rows) r.file = file
@@ -541,6 +546,9 @@ async function runMode (browser, mode, account, sizes) {
   await shoot(page, cdp, mode, sizes, `${mode}-lobby-settings`, { landscapeOnly: true })
   await page.keyboard.press('Escape')
   await sleep(300)
+
+  // `--lobby-only`: stop here (a quick lobby check).
+  if (args['lobby-only'] !== undefined) { await context.close(); return }
 
   // A run, from the lobby's READY at the first landscape size.
   await emulate(page, cdp, first)

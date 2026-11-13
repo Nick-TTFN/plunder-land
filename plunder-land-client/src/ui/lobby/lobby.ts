@@ -1,5 +1,6 @@
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen'
 import { Container, Graphics, Sprite, Texture } from 'pixi.js'
+import { INPUT_MODE } from '../../input/inputmode'
 import { inviteUrl, type Invite, JOIN_KEY, makeCode, parseStoredInvite, PARTY_KEY, readInvite, withoutInvite } from './party'
 import { RobotSprite } from '../../robots/robotsprite'
 import { ROBOT_RIGS } from '../../robots/robotrig'
@@ -564,6 +565,8 @@ export default class Lobby extends Container {
     this.fitObserver.observe(this.main)
     window.addEventListener('keydown', this.onKey, true)
     window.addEventListener('resize', this.onResize)
+    // A touch phone on its side gets its own unzoomed layout (`fit`, `lb-land`).
+    INPUT_MODE.listeners.add(this.onResize)
     window.addEventListener('pointermove', this.onMove)
     // Every way out: removed from the popups (READY, a reconnect's
     // removeChildren), and `destroy`, which emits no `removed` when the lobby
@@ -990,6 +993,13 @@ export default class Lobby extends Container {
     // The one-column phone layout is portrait only (`lobbystyle.ts`).
     const phone = w <= PHONE_MAX && h >= w
     const short = !phone && w > h && h <= SHORT_MAX
+    // A touch phone held sideways (g2-4, Nick: "ideally no scrolling ... i
+    // expect it to fit on fullscreen landscape"): a compact layout of its own
+    // (`.lb-land` in lobbystyle.ts) at zoom 1, so its text stays 10 px or more.
+    // A mouse in the same window size (CrazyGames' small desktop frames)
+    // keeps the zoomed desktop grid.
+    const land = short && INPUT_MODE.touch
+    this.root.classList.toggle('lb-land', land)
     const style = this.root.style
     style.removeProperty('zoom')
     style.removeProperty('--lb-z')
@@ -1001,7 +1011,7 @@ export default class Lobby extends Container {
     // A few px of slack: zoomed sizes round, and a 3 px scroll is still a scroll.
     let zoom = Math.min(1, need > 0 ? h / (need + 8) : 1, phone ? 1 : w / FIT_WIDTH)
     zoom = Math.max(phone ? FIT_MIN.phone : short ? FIT_MIN.landscape : FIT_MIN.desktop, zoom)
-    this.zoom = zoom < 0.995 ? zoom : 1
+    this.zoom = land || zoom >= 0.995 ? 1 : zoom
     if (this.zoom === 1) return
     style.setProperty('zoom', String(this.zoom))
     // The safe-area insets divide by it (lobbystyle.ts, --lb-sl and friends).
@@ -1280,6 +1290,7 @@ export default class Lobby extends Container {
     this.stash.dispose()
     window.removeEventListener('keydown', this.onKey, true)
     window.removeEventListener('resize', this.onResize)
+    INPUT_MODE.listeners.delete(this.onResize)
     window.removeEventListener('pointermove', this.onMove)
     this.layoutObserver.disconnect()
     this.fitObserver.disconnect()

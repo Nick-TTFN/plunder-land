@@ -379,7 +379,9 @@ export class HUD extends Container {
     this.status?.setInventoryShown(!touchRun)
     if (this.layers !== undefined) this.layers.visible = !phone
     if (this.badge !== undefined) this.badge.visible = phone
-    this.legend.renderable = !phone
+    // Only with the layers panel it sits by: placed only then, it kept its last
+    // in-run spot on the run card, 40 px off a 1024 px screen (g2-4).
+    this.legend.renderable = !phone && this.layers !== undefined
     const place = (c: Container | undefined, x: number, y: number, k = s): void => {
       if (c === undefined) return
       c.scale.set(k, k)

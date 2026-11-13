@@ -343,4 +343,78 @@ export const LOBBY_CSS = `
     background: linear-gradient(rgba(4,8,14,0), rgba(4,8,14,.92) 28%); }
   .lb-custom { top: 60px; bottom: 8px; max-height: none; }
 }
+
+/* A touch phone on its side (Lobby.fit sets .lb-land; g2-4, Nick: "ideally no scrolling"): the same two
+   columns (left: name, robot, Choose, Start run; right: progress, unlocks, the three rows, season) at zoom 1,
+   tightened to fit 340-430 px of height with no text under 10 px. The decorative "Progress" eyebrow goes;
+   the robot preview takes what height is left. */
+.lb-land .lb-top { min-height: 40px; gap: 10px; }
+.lb-land .lb-wordmark { height: 22px; }
+.lb-land .lb-topactions { gap: 8px; }
+.lb-land .lb-invite { min-height: 32px; padding: 0 12px; font-size: 13px; gap: 6px; }
+.lb-land .lb-settings { padding: 0 8px; }
+.lb-land .lb-settings svg { width: 16px; height: 16px; }
+.lb-land .lb-main { padding: 6px max(16px, var(--lb-sr)) max(6px, var(--lb-sb)) max(16px, var(--lb-sl)); row-gap: 0; column-gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+.lb-land .lb-left { gap: 4px; padding-right: 20px; margin-right: -12px; }
+.lb-land .lb-right { gap: 6px; justify-content: space-between; }
+.lb-land .lb-callsign { padding: 2px 10px; gap: 8px; }
+.lb-land .lb-dot { width: 8px; height: 8px; }
+.lb-land .lb-name { width: 140px; font-size: 12px; }
+.lb-land .lb-pencil { font-size: 11px; }
+.lb-land .lb-preview { min-height: 50px; }
+.lb-land .lb-plate { gap: 1px; padding: 0 0 2px; }
+.lb-land .lb-robot { font-size: 18px; line-height: 1.1; }
+.lb-land .lb-kind { font-size: 10px; letter-spacing: .2em; }
+.lb-land .lb-change { margin-top: 3px; min-height: 28px; padding: 0 12px; font-size: 12px; gap: 6px; }
+.lb-land .lb-change svg { width: 14px; height: 14px; }
+.lb-land .lb-action { position: static; gap: 2px; padding: 2px 0 0; background: none; max-width: 340px; }
+.lb-land .lb-ready { min-height: 38px; font-size: 18px; gap: 8px; border-radius: 8px; }
+.lb-land .lb-ready svg { width: 18px; height: 18px; }
+.lb-land .lb-ready-sub { font-size: 11px; }
+.lb-land .lb-privacy { font-size: 10px; }
+.lb-land .lb-progress .lb-eyebrow { display: none; }
+.lb-land .lb-eyebrow { font-size: 10px; margin-bottom: 2px; }
+.lb-land .lb-progress { padding-bottom: 5px; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: baseline; }
+/* The level and the XP line share a row, the bar under them. */
+.lb-land .lb-levelhead { grid-column: 1; grid-row: 1; font-size: 20px; margin: 0; }
+.lb-land .lb-xprow { grid-column: 2; grid-row: 1; margin: 0; justify-content: flex-end; font-size: 11px; }
+.lb-land .lb-xpbar { grid-column: 1 / -1; grid-row: 2; height: 7px; margin-top: 3px; }
+.lb-land .lb-jstrip { gap: 4px; }
+.lb-land .lb-jarrow { width: 26px; height: 26px; margin-top: 2px; font-size: 15px; }
+.lb-land .lb-jring { width: 30px; height: 30px; font-size: 12px; }
+.lb-land .lb-jring svg { width: 15px; height: 15px; }
+.lb-land .lb-jring img { max-width: 22px; max-height: 22px; }
+.lb-land .lb-jlock { width: 14px; height: 14px; top: -3px; right: -3px; }
+.lb-land .lb-jlock svg { width: 9px; height: 9px; }
+.lb-land .lb-jstops::before { top: 15px; }
+.lb-land .lb-jstop { gap: 0; }
+.lb-land .lb-jlevel { font-size: 10px; }
+.lb-land .lb-jkind { font-size: 10px; min-height: 12px; }
+.lb-land .lb-acts { gap: 5px; }
+.lb-land .lb-act { min-height: 36px; gap: 10px; padding: 3px 8px 3px 12px; }
+.lb-land .lb-acticon svg { width: 18px; height: 18px; }
+.lb-land .lb-actwords { gap: 0; }
+.lb-land .lb-actlabel { font-size: 13px; }
+.lb-land .lb-actstatus { font-size: 11px; }
+.lb-land .lb-actverb { min-width: 64px; padding: 3px 10px; font-size: 12px; }
+.lb-land .lb-actchev svg { width: 16px; height: 16px; }
+.lb-land .lb-season { gap: 10px; padding: 5px 4px 0 12px; }
+.lb-land .lb-seasonwords { gap: 0; }
+.lb-land .lb-seasonwords .lb-actlabel { font-size: 12px; }
+.lb-land .lb-season-line { font-size: 10px; line-height: 1.3; }
+.lb-land .lb-season-notice { font-size: 10px; padding: 1px 8px; }
+/* Shorter than 370 px (a phone in its browser with the bars showing): the unlocks' heading goes, rows tighten. */
+@media (max-height: 370px) {
+  .lb-land .lb-journey .lb-eyebrow { display: none; }
+  .lb-land .lb-top { min-height: 36px; }
+  .lb-land .lb-act { min-height: 32px; padding-top: 2px; padding-bottom: 2px; }
+  .lb-land .lb-right { gap: 4px; }
+  .lb-land .lb-preview { min-height: 40px; }
+}
+/* The build tag moves into the header's middle: bottom left it sat on Start run's plays line. */
+.lb-land .lb-build { left: 50%; bottom: auto; top: 4px; transform: translateX(-50%); }
+/* The panels open over the grid under the header; their small labels at 10 px. */
+.lb-land .lb-custom { top: 44px; bottom: max(6px, var(--lb-sb)); }
+.lb-land .lb-lock, .lb-land .lb-small .lb-lock, .lb-land .lb-lo-name, .lb-land .lb-lo-badge, .lb-land .lb-st-mslot .lb-st-tier { font-size: 10px; }
 `
