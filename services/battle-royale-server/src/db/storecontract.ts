@@ -11,6 +11,7 @@ import '../network/multiplayer'
 import { mergeOutcome } from '../gear/merge'
 import { PAYOUT_DELAY_MS, type SeasonCredit, seasonEndMs, seasonStart, seasonView } from '../progress/seasons'
 import { type GearInstance, STASH_MAX } from '../utils/gear'
+import { ENERGY } from '../progress/xp'
 
 /**
  * What every `AccountStore` must do (decision #48), run against the memory
@@ -104,7 +105,7 @@ async function firstRunContract (plain: AccountStore): Promise<void> {
 }
 
 /**
- * Energy (decision #48 step 7): a new account reads as no record (6), a spend
+ * Energy (decision #48 step 7): a new account reads as no record (`ENERGY.start`), a spend
  * is one atomic check-and-spend (two at once with one play left: one run),
  * refunds add back, and resolve reads the stock back.
  */
@@ -114,34 +115,37 @@ async function energyContract (store: AccountStore): Promise<void> {
   const { account, token } = await store.create()
   assert.equal(account.energy, null, 'a new account has an energy record')
   assert.equal((await store.resolve(token))?.energy, null, 'a new account resolves with an energy record')
-  for (let i = 1; i <= 6; i++) {
+  const S = ENERGY.start
+  // The spend that takes the stock below the cap (to cap - 1) starts the clock.
+  const clockAt = S - ENERGY.cap + 1
+  for (let i = 1; i <= S; i++) {
     const spent = await store.spend(account.publicId, t + i)
     // At or above the cap the record is as of the spend; the spend that takes
-    // it below the cap (the 4th, to 2) starts the clock, which later ones keep.
-    assert.deepEqual(spent, { ok: true, energy: { stock: 6 - i, asOfMs: t + Math.min(i, 4) } }, `spend ${i}`)
+    // it below the cap starts the clock, which later ones keep.
+    assert.deepEqual(spent, { ok: true, energy: { stock: S - i, asOfMs: t + Math.min(i, clockAt) } }, `spend ${i}`)
   }
   const refused = await store.spend(account.publicId, t + 10 * min)
-  assert.deepEqual(refused, { ok: false, energy: { stock: 0, asOfMs: t + 4 } }, 'a seventh spend')
-  assert.deepEqual((await store.resolve(token))?.energy, { stock: 0, asOfMs: t + 4 }, 'a refused spend wrote')
+  assert.deepEqual(refused, { ok: false, energy: { stock: 0, asOfMs: t + clockAt } }, 'a spend past the start stock')
+  assert.deepEqual((await store.resolve(token))?.energy, { stock: 0, asOfMs: t + clockAt }, 'a refused spend wrote')
   // 30 minutes after the clock started, one play is back.
-  assert.equal((await store.spend(account.publicId, t + 4 + 30 * min - 1)).ok, false)
-  assert.deepEqual(await store.spend(account.publicId, t + 4 + 30 * min), { ok: true, energy: { stock: 0, asOfMs: t + 4 + 30 * min } })
-  assert.deepEqual(await store.refund(account.publicId, t + 4 + 40 * min), { stock: 1, asOfMs: t + 4 + 30 * min })
-  assert.deepEqual((await store.resolve(token))?.energy, { stock: 1, asOfMs: t + 4 + 30 * min })
+  assert.equal((await store.spend(account.publicId, t + clockAt + 30 * min - 1)).ok, false)
+  assert.deepEqual(await store.spend(account.publicId, t + clockAt + 30 * min), { ok: true, energy: { stock: 0, asOfMs: t + clockAt + 30 * min } })
+  assert.deepEqual(await store.refund(account.publicId, t + clockAt + 40 * min), { stock: 1, asOfMs: t + clockAt + 30 * min })
+  assert.deepEqual((await store.resolve(token))?.energy, { stock: 1, asOfMs: t + clockAt + 30 * min })
 
   // Two spends at once with one play left: exactly one run.
   const race = await Promise.all([store.spend(account.publicId, t + 41 * min), store.spend(account.publicId, t + 41 * min)])
   assert.deepEqual(race.map((r) => r.ok).sort(), [false, true], 'two concurrent spends of the last play')
   assert.equal((await store.resolve(token))?.energy?.stock, 0)
-  // Many at once on a new account (no row yet): exactly 6.
+  // Many at once on a new account (no row yet): exactly the start stock.
   const fresh = await store.create()
-  const many = await Promise.all(Array.from({ length: 9 }, async () => await store.spend(fresh.account.publicId, t)))
-  assert.equal(many.filter((r) => r.ok).length, 6, 'nine concurrent spends on a new account')
+  const many = await Promise.all(Array.from({ length: S + 3 }, async () => await store.spend(fresh.account.publicId, t)))
+  assert.equal(many.filter((r) => r.ok).length, S, 'start + 3 concurrent spends on a new account')
   assert.equal((await store.resolve(fresh.token))?.energy?.stock, 0)
-  // A refund on a new account (no row): 6 + 1. Concurrent refunds all count.
+  // A refund on a new account (no row): start + 1. Concurrent refunds all count.
   const other = await store.create()
   await Promise.all(Array.from({ length: 4 }, async () => await store.refund(other.account.publicId, t)))
-  assert.equal((await store.resolve(other.token))?.energy?.stock, 10, 'concurrent refunds')
+  assert.equal((await store.resolve(other.token))?.energy?.stock, S + 4, 'concurrent refunds')
   assert.equal((await store.resolve(token))?.energy?.stock, 0, 'another account\'s stock moved')
 
   await assert.rejects(store.spend('0123456789abcdef', t), 'a spend for an unknown account')
@@ -610,7 +614,7 @@ async function carrying (store: GearTestStore, hooks: GearHooks): Promise<void> 
 
   // A refused spend carries nothing.
   const poor = await stocked(store, [T1])
-  for (let i = 0; i < 6; i++) assert.equal((await store.spend(poor.publicId, Date.now())).ok, true)
+  for (let i = 0; i < ENERGY.start; i++) assert.equal((await store.spend(poor.publicId, Date.now())).ok, true)
   const refused = await store.spend(poor.publicId, Date.now(), { ids: [poor.rows[0].rowId], holder })
   assert.deepEqual([refused.ok, refused.carried], [false, []])
   assert.deepEqual(carriedIds(await store.loadStash(poor.publicId)), [], 'a refused spend carried')

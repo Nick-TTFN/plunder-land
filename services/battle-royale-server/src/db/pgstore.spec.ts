@@ -9,6 +9,7 @@ import { PAYOUT_DELAY_MS, seasonEndMs, seasonStart } from '../progress/seasons'
 import { MIGRATIONS, type Migration } from './migrations'
 import { adminContract, gearContract, type GearHooks, PART, seeded, storeContract, T1, T2 } from './storecontract'
 import { mergeOutcome } from '../gear/merge'
+import { ENERGY } from '../progress/xp'
 import { type GearInstance } from '../utils/gear'
 
 /**
@@ -463,10 +464,10 @@ pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\
     const resolved = await store.pool.query(V6_RESOLVE, [hashToken(made[0].token)])
     assert.deepEqual(resolved.rows.map((r) => [r.public_id, Number(r.xp)]), [[made[0].publicId, 10]])
     assert.equal(await store.grant(made[0].publicId, 5, { season: seasonStart(at), atMs: at + 1, banked: 0, extracted: false, xp: 5, name: 'OLD' }), 15)
-    // An account from before energy: no row, 6 plays.
+    // An account from before energy: no row, `ENERGY.start` plays.
     assert.equal((await store.resolve(made[1].token))?.energy, null)
-    assert.deepEqual(await store.spend(made[1].publicId, at), { ok: true, energy: { stock: 5, asOfMs: at } })
-    assert.deepEqual((await store.resolve(made[1].token))?.energy, { stock: 5, asOfMs: at }, 'the stock read back, to the millisecond')
+    assert.deepEqual(await store.spend(made[1].publicId, at), { ok: true, energy: { stock: ENERGY.start - 1, asOfMs: at } })
+    assert.deepEqual((await store.resolve(made[1].token))?.energy, { stock: ENERGY.start - 1, asOfMs: at }, 'the stock read back, to the millisecond')
     // The CHECK backs the arithmetic.
     await assert.rejects(store.pool.query('UPDATE energy SET stock = -1'), /check/i, 'a negative stock')
   } finally {
@@ -622,11 +623,11 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
   try {
     store.ready = true
     const resolved = await store.resolve(made[0].token)
-    assert.deepEqual(resolved, { publicId: made[0].publicId, persisted: true, xp: 10, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], energy: { stock: 5, asOfMs: at }, firstRunDone: false })
+    assert.deepEqual(resolved, { publicId: made[0].publicId, persisted: true, xp: 10, loadouts: [{ robot: 'peep', index: 0, skills: [1, 2, 3, 0] }], energy: { stock: ENERGY.start - 1, asOfMs: at }, firstRunDone: false })
     assert.equal(await store.grant(made[0].publicId, 5, { season: seasonStart(at), atMs: at + 1, banked: 0, extracted: false, xp: 5, name: 'OLD' }), 15)
     await store.saveLoadout(made[1].publicId, 'peep', 1, [1, 2, 3, 0])
-    assert.deepEqual(await store.spend(made[1].publicId, at), { ok: true, energy: { stock: 4, asOfMs: at } })
-    assert.deepEqual(await store.refund(made[1].publicId, at), { stock: 5, asOfMs: at })
+    assert.deepEqual(await store.spend(made[1].publicId, at), { ok: true, energy: { stock: ENERGY.start - 2, asOfMs: at } })
+    assert.deepEqual(await store.refund(made[1].publicId, at), { stock: ENERGY.start - 1, asOfMs: at })
     // An account from before the stash has none.
     assert.deepEqual(await store.loadStash(made[1].publicId), [])
 
@@ -760,7 +761,7 @@ pgTest('first runs (migration 8): added to a v7 database with rows it keeps ever
     store.ready = true
     // The previous release's resolve, as the old server runs it during overlap and drain.
     const resolved = await store.pool.query(V7_RESOLVE, [hashToken(made[0].token)])
-    assert.deepEqual(resolved.rows.map((r) => [r.public_id, Number(r.xp), Number(r.stock)]), [[made[0].publicId, 10, 5]])
+    assert.deepEqual(resolved.rows.map((r) => [r.public_id, Number(r.xp), Number(r.stock)]), [[made[0].publicId, 10, ENERGY.start - 1]])
     // This release's, on accounts from before it: not done.
     for (const m of made) assert.equal((await store.resolve(m.token))?.firstRunDone, false, 'an existing account read as done')
     await store.finishFirstRun(made[0].publicId, at)

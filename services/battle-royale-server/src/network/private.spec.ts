@@ -17,6 +17,7 @@ import type Player from '../objects/player'
 import { type Account, MemoryAccountStore } from '../db/accounts'
 import { type SeasonCredit } from '../progress/seasons'
 import { energyAt } from '../progress/energy'
+import { ENERGY } from '../progress/xp'
 import { runResultOf } from '../progress/run'
 import { ARCHETYPES } from '../archetypes/archetypes'
 import Analytics from '../analytics'
@@ -439,7 +440,7 @@ test('the pad: a shared world\'s top layer, loot, kills and kill credit carried,
   const { client, token, player: first } = started
   let priv: World | undefined = started.world
   ;(started as { world?: World }).world = undefined
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
   killAndLoot(priv, first, 75)
   worlds.tickAll(250)
   await settle()
@@ -483,7 +484,7 @@ test('the pad: a shared world\'s top layer, loot, kills and kill credit carried,
   assert.deepEqual(redis.writes, [])
   assert.equal(sent.filter((e) => e.name === 'run_end').length, 0)
   assert.equal(store.refunds, 0)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
   // One run: one `run_start` (the private one), one `private_done`, no first-run event.
   assert.equal(sent.filter((e) => e.name === 'run_start').length, 1)
   const done = sent.filter((e) => e.name === 'private_done')
@@ -503,7 +504,7 @@ test('the pad: a shared world\'s top layer, loot, kills and kill credit carried,
   assert.equal(end[0].params.loot, Math.floor(first.loot))
   assert.equal(store.grants[0].xp, end[0].params.xp_gained)
   assert.equal(store.refunds, 1)
-  assert.equal(await store.stock(token), 6, 'the extraction did not give the play back')
+  assert.equal(await store.stock(token), ENERGY.start, 'the extraction did not give the play back')
 
   assert.ok(await collected(ref), 'the closed private world was never collected')
 })
@@ -521,7 +522,7 @@ test('after the pad a death in the shared world keeps the play spent', async () 
   worlds.tickAll(250)
   await settle()
   assert.equal(store.refunds, 0)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
   assert.equal(sent.filter((e) => e.name === 'run_end').length, 1)
 })
 
@@ -579,7 +580,7 @@ test('a death inside a private world ends the run normally (stats, run_end, XP, 
   assert.equal(store.grants[0].xp, end[0].params.xp_gained)
   assert.ok(redis.writes.length > 0, 'no Redis stats for a private run')
   assert.equal(store.refunds, 0)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
   // Watched a bot at the death (#47), then nobody once the world closed (#60 Q9).
   const spectates = client.events('spectate') as Array<{ id: number | null }>
   assert.ok(spectates.some((s) => s.id !== null), 'the death watched nobody')
@@ -608,7 +609,7 @@ test('an extraction inside a private world ends the run normally, gives the play
   assert.equal(end[0].params.loot, 40)
   assert.equal(store.grants.length, 1)
   assert.equal(store.refunds, 1)
-  assert.equal(await store.stock(token), 6)
+  assert.equal(await store.stock(token), ENERGY.start)
   assert.equal(sent.filter((e) => e.name === 'private_done').length, 0, 'private_done for a run that never took the pad')
   assert.equal(world.closed, true)
   assert.equal(worlds.privates.length, 0)
@@ -627,7 +628,7 @@ test('a disconnect inside a private world ends the run as left (play kept spent)
   assert.equal(end.length, 1)
   assert.equal(end[0].params.outcome, 'left')
   assert.equal(store.refunds, 0)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
 })
 
 // The cap ======
@@ -649,7 +650,7 @@ test('at PRIVATE_CAP open private worlds a start is sent full with nothing spent
   assert.equal(client.closed, true)
   assert.equal(client.events('hello').length, 0)
   assert.equal(client.events('energy').length, 0)
-  assert.equal(await store.stock(token), 6, 'a refused start spent a play')
+  assert.equal(await store.stock(token), ENERGY.start, 'a refused start spent a play')
   assert.equal(worlds.privates.length, 1)
   assert.equal(worlds.worlds.length, 1)
 
@@ -705,7 +706,7 @@ test('a drain\'s cut-off inside a private world refunds once and closes it', asy
   worlds.closeAll()
   await settle()
   assert.equal(store.refunds, 1)
-  assert.equal(await store.stock(token), 6)
+  assert.equal(await store.stock(token), ENERGY.start)
   assert.equal(world.closed, true)
   assert.equal(worlds.privates.length, 0)
 })
@@ -742,7 +743,7 @@ test('activeRuns and full count a private run', async () => {
   client.start()
   await settle()
   assert.equal(client.events('full').length, 1, 'a burst cap undercounted a private run')
-  assert.equal(await store.stock(token), 6)
+  assert.equal(await store.stock(token), ENERGY.start)
 })
 
 test('tickAll ticks a private world: its human walks', async () => {

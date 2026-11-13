@@ -157,6 +157,10 @@ export const ENERGY = Object.freeze({
   regenMs: 30 * 60_000,
   /** ... while the stock is below this; nothing regenerates above it. */
   cap: 3,
-  /** A new account's stock (above the cap, so it doesn't regenerate until it falls below). */
-  start: 6
+  /**
+   * A new account's stock (above the cap, so it doesn't regenerate until it falls below).
+   * 10 since 2026-11-13 (Nick, #62: a newcomer's whole first session while CrazyGames'
+   * Basic Launch has ads off; Dez's simulation in `ideas/energy-and-rewarded-ads.md`).
+   */
+  start: 10
 })

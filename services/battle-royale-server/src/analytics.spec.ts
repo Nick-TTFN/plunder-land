@@ -11,7 +11,7 @@ import Mob from './objects/mob'
 import { ARCHETYPES } from './archetypes/archetypes'
 import Analytics, { payload } from './analytics'
 import { MemoryAccountStore } from './db/accounts'
-import { xpToReach } from './progress/xp'
+import { ENERGY, xpToReach } from './progress/xp'
 import { portalOf } from './network/visits'
 
 /**
@@ -249,7 +249,7 @@ test('a new player\'s visit starts under a one-off id and ends under the account
 test('READY with no plays left sends energy_out, and visit_end counts it', async () => {
   const accounts = new MemoryAccountStore()
   const { account, token } = await accounts.create()
-  for (let i = 0; i < 6; i++) assert.equal((await accounts.spend(account.publicId, 0)).ok, true)
+  for (let i = 0; i < ENERGY.start; i++) assert.equal((await accounts.spend(account.publicId, 0)).ok, true)
   const worlds = new Worlds({ tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), now: () => 0, accounts })
   const a = client(worlds, 'a', token)
   await settle()

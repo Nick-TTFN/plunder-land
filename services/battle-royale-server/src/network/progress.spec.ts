@@ -13,7 +13,7 @@ import Analytics from '../analytics'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
 import type { EnergyRecord } from '../progress/energy'
 import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
-import { runXp, standingOf } from '../progress/xp'
+import { ENERGY, runXp, standingOf } from '../progress/xp'
 import { earnedXp } from '../progress/run'
 import { applyProgress, onAccount, onProgress, PROGRESS_WAIT_MS, setAccountInfo, ACCOUNT, standingOf as clientStanding, xpLine } from '../../../../plunder-land-client/src/net/account'
 
@@ -463,7 +463,7 @@ test('the account event carries the standing of a known account', async () => {
   client.connection = worlds.onConnection(client.socket)
   await settle()
   // DELIBERATE CHANGE (#59, 2026-11-05): was Q Dash, W Ranged
-  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[3, 1, 0, 0]], periscope: [[3, 1, 0, 0]], magnet: [[3, 1, 0, 0]], hopper: [[3, 1, 0, 0]], waddle: [[3, 1, 0, 0]] }, energy: { stock: 6, cap: 3, nextInMs: null, regenMs: 1_800_000 } }])
+  assert.deepEqual(client.events('account'), [{ id: known.account.publicId, xp: 600, level: 4, levelAt: 540, nextAt: 1000, loadouts: { peep: [[3, 1, 0, 0]], periscope: [[3, 1, 0, 0]], magnet: [[3, 1, 0, 0]], hopper: [[3, 1, 0, 0]], waddle: [[3, 1, 0, 0]] }, energy: { stock: ENERGY.start, cap: 3, nextInMs: null, regenMs: 1_800_000 } }])
 })
 
 // Multiplayer must be imported for the module graph (see world.spec.ts).
