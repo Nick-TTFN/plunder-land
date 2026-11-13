@@ -94,8 +94,12 @@ function setup (tickMs = 250, intervalMs = 1000): { multiplayer: Multiplayer, wo
 function join (multiplayer: Multiplayer, socketId: string, name: string): { player: Player, sent: Recorded[] } {
   const s = fakeSocket(socketId)
   multiplayer.onConnect(s.socket)
-  s.fire('start_requested', { id: Buffer.from(socketId).toString('hex').padStart(6, '0'), name })
+  s.fire('start_requested', { id: Buffer.from(socketId).toString('hex').padStart(6, '0') })
   const player = World.PLAYERS[World.PLAYERS.length - 1]
+  // The server names every run itself (decision #62, g2-9: a callsign) and
+  // ignores a sent name; these specs are about ranking, so they name the
+  // player directly to read the rows by.
+  player.name = name
   s.sent.length = 0 // drop the join's own traffic
   return { player, sent: s.sent }
 }
@@ -417,7 +421,8 @@ test('the own row carries the id the client got in create_own', () => {
   const { multiplayer } = setup()
   const s = fakeSocket('me')
   multiplayer.onConnect(s.socket)
-  s.fire('start_requested', { id: 'abcdef', name: 'SAME' })
+  s.fire('start_requested', { id: 'abcdef' })
+  World.PLAYERS[World.PLAYERS.length - 1].name = 'SAME' // as `join` does
   join(multiplayer, 'other', 'SAME') // same name: only the id tells them apart
 
   const own = s.sent.find((e) => e.event === 'create_own')

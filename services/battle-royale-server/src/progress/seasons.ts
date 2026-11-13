@@ -42,9 +42,10 @@ export interface SeasonCredit {
   /** The run's XP: the payout's cap. */
   xp: number
   /**
-   * The name the run played under: `Player.name`, already sanitised
-   * (`Player.displayName`: `sanitiseName`, or the id's callsign). Never a raw
-   * name. The entry keeps the name of the run that last credited it, and the
+   * The name the run played under: `Player.name`, the server's choice
+   * (`displayNameFor`, network/displayname.ts: the id's callsign since decision #62, g2-9;
+   * entries from before it keep the sanitised typed name of their last run).
+   * Never a raw name. The entry keeps the name of the run that last credited it, and the
    * public board shows it (decision #48, 2026-10-04).
    */
   name: string

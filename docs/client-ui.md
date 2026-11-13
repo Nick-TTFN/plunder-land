@@ -91,12 +91,18 @@ The minimal sound pass before the itch soft launch (#56). Effects only, no music
 **The lobby replaced the enter popup** (lobby-rework, #42; mockup in the project memory,
 `ideas/lobby-mockup-2026-09-30.png`). `ui/lobby/lobby.ts`: pixi draws the backdrop, the platform
 and the robots (the chosen one large, aiming at the pointer, the next one dimmed); DOM over the
-canvas (`lobbystyle.ts`, all `lb-` classes, placeholder chrome) carries the name pill, robot cards
+canvas (`lobbystyle.ts`, all `lb-` classes, placeholder chrome) carries the callsign pill, robot cards
 (stills rendered from the rigs; pickable from their unlock level since 2026-10-01, `ui/lobby/roster.ts`,
 whose class lines and taglines other than Peep's are placeholder copy), stat bars read from the
 mirrored `stats`, CUSTOMIZE (head/body/limbs rows of the presets' swatches, or MIX for any colour
-and pattern) and START RUN. Keys: left/right, E, Enter. It remembers robot, finish and name
-(`plunderland_player_robot`, `_finish`, `_name`). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art). The
+and pattern) and START RUN. Keys: left/right, E, Enter. It remembers robot and finish
+(`plunderland_player_robot`, `_finish`). **The callsign pill is read-only** (decision #62, g2-9: no
+typed names): the player's own callsign, `callsignLine(ACCOUNT.info)`, the mirrored
+`utils/callsign.ts` over the announced account id, which is the name the server gives the run
+(docs/accounts.md, "Names: callsigns"); hidden until the account is announced (a new player's
+comes with the first run). The lobby sends no `name` and removes the old `plunderland_player_name`
+on sight. INVITE's `from` is the callsign. Once g2-6b/6c land, a CrazyGames player's run shows
+their CG username instead, and the pill must then show that too (g2-6c). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art). The
 header has no tabs: the LOBBY / COLLECTION stub was removed (Nick, 2026-10-15). The game is called **Plunderbots** (Nick, 2026-10-12): the wordmark, the
 picker's heading and its button ("Choose Plunderbot") say so; see "Player-facing copy" below. `assets/index.html`
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the

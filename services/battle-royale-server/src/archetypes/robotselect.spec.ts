@@ -134,8 +134,9 @@ test('anything but a selectable robot joins as peep, and never refuses the join'
 })
 
 test('parseStart passes the robot on raw, and leaves it out when none was sent', () => {
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N', robot: 'magnet' }), { id: 'abc123', name: 'N', robot: 'magnet' })
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N' }), { id: 'abc123', name: 'N' })
+  // A sent name is dropped (decision #62, g2-9).
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N', robot: 'magnet' }), { id: 'abc123', robot: 'magnet' })
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N' }), { id: 'abc123' })
 })
 
 test('a magnet takes loot three rings away, not four', () => {

@@ -453,7 +453,7 @@ export class Game extends Container {
     this.LOOKUP = {}
   }
 
-  async onStartRequested (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring?: BringPair): Promise<void> {
+  async onStartRequested (playerId: string, finish: number[], robot: string, party: string, loadout: number, bring?: BringPair): Promise<void> {
     Game.socket.on('hello', this.onHello.bind(this))
     Game.socket.on('create', this.onObjectsCreated.bind(this))
     Game.socket.on('create_own', this.onOwnObjectsCreated.bind(this))
@@ -468,13 +468,14 @@ export class Game extends Container {
     // Server full (burst-capacity): the transport closes next, socket.io
     // reconnects, and the lobby that comes back retries (net/full.ts).
     Game.socket.on('full', (data: unknown) => { onFull(data, performance.now()) })
-    // `{ id, name, finish }`: the server plays under this connection's guest
+    // `{ id, finish }`: the server plays under this connection's guest
     // account (decision #48, net/account.ts) and ignores `id`, which is sent
     // for one more release only because an older server refuses a start
-    // without one; remove it in the release after. The name and the robot's
-    // finish are only what others see. The server
-    // sanitises and caps the name, gives an empty one a callsign made from the
-    // id, and replaces anything unreadable in the finish with the default.
+    // without one; remove it in the release after. No `name` (decision #62,
+    // g2-9): the server names the run (the account id's callsign, which the
+    // lobby shows), and an older server gives a start without one the id's
+    // callsign too. The robot's finish is only what others see; the server
+    // replaces anything unreadable in it with the default.
     // `robot` is the key of the robot picked in the lobby (robot-select); the
     // server plays peep for anything it doesn't offer.
     // `party`: the invite code (decision #47); a server from before it ignores it.
@@ -486,8 +487,8 @@ export class Game extends Container {
     // `firstRun`: this client can play the safe first run (decision #58); the
     // server decides who gets one, and a server from before it drops the key.
     Game.socket.emit('start_requested', bring === undefined
-      ? { id: playerId, name, finish, robot, party, loadout, firstRun: true }
-      : { id: playerId, name, finish, robot, party, loadout, bring, firstRun: true })
+      ? { id: playerId, finish, robot, party, loadout, firstRun: true }
+      : { id: playerId, finish, robot, party, loadout, bring, firstRun: true })
 
     Game.hud.setupGameUI()
   }

@@ -60,7 +60,7 @@ for (const [how, end] of [
     const { multiplayer, world, fire } = setup()
     fire('start_requested', { id: 'abcdef', name: 'ONE' })
     const first = World.PLAYERS[World.PLAYERS.length - 1]
-    assert.equal(first.name, 'ONE')
+    assert.equal(first.playerId, 'abcdef')
 
     end(first as any)
     world.update(0.25)
@@ -69,7 +69,7 @@ for (const [how, end] of [
     fire('start_requested', { id: 'abcdef', name: 'TWO' })
     const second = World.PLAYERS[World.PLAYERS.length - 1]
     assert.notEqual(second, first, 'the second start was ignored')
-    assert.equal(second.name, 'TWO')
+    assert.equal(second.playerId, 'abcdef')
     assert.equal(second.destroyed, false)
   })
 }
@@ -77,7 +77,8 @@ for (const [how, end] of [
 test('a second start while the first run is alive is still ignored', () => {
   const { fire } = setup()
   fire('start_requested', { id: 'abcdef', name: 'ONE' })
+  const first = World.PLAYERS[0]
   fire('start_requested', { id: 'abcdef', name: 'TWO' })
   assert.equal(World.PLAYERS.length, 1)
-  assert.equal(World.PLAYERS[0].name, 'ONE')
+  assert.ok(World.PLAYERS[0] === first, 'the second start replaced the first run')
 })

@@ -133,8 +133,9 @@ test('a join without a finish (a client from before finishes) gets the default',
 })
 
 test('parseStart passes the finish on raw, and leaves it out when none was sent', () => {
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N', finish: [1, 2, 3, 4, 5, 6] }), { id: 'abc123', name: 'N', finish: [1, 2, 3, 4, 5, 6] })
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N' }), { id: 'abc123', name: 'N' })
+  // A sent name is dropped (decision #62, g2-9).
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N', finish: [1, 2, 3, 4, 5, 6] }), { id: 'abc123', finish: [1, 2, 3, 4, 5, 6] })
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'N' }), { id: 'abc123' })
 })
 
 test('junk never refuses a join; the unreadable becomes the default', () => {

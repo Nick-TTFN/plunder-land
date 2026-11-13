@@ -2,6 +2,7 @@ import { type Socket } from 'socket.io'
 import { type GameObject, ObjectType } from '../objects/gameobject'
 import { type Unit } from '../objects/unit'
 import type Player from '../objects/player'
+import { displayNameFor } from './displayname'
 import World, { Standing } from '../objects/world'
 import { Vector } from '../utils/vector'
 import { Hex } from '../utils/hex'
@@ -25,7 +26,6 @@ const ID_ONLY: ReadonlySet<string> = new Set(['id'])
 /** A `start_requested` as `Multiplayer.parseStart` keeps it: known keys only. */
 export interface Start {
   id?: string
-  name?: unknown
   finish?: unknown
   robot?: unknown
   loadout?: unknown
@@ -442,7 +442,8 @@ export default class Multiplayer {
     // start without `loadout` (a client from before loadouts) is loadout 0; no
     // account (single-world specs) is the start kit.
     const kit = kitFor(connection.account, robot, 'loadout' in start ? start.loadout : 0)
-    this.onStart(connection, playerId, start.name, finish, robot, kit, gear, join)
+    // The run's name is the server's (decision #62, g2-9): never the client's.
+    this.onStart(connection, playerId, displayNameFor(playerId, connection), finish, robot, kit, gear, join)
   }
 
   onConnect (socket: Socket): void {
@@ -796,18 +797,20 @@ export default class Multiplayer {
   }
 
   /**
-   * `start_requested` is `{ id, name, finish, robot, loadout, party }`: `id` is the
+   * `start_requested` is `{ id, finish, robot, loadout, party }` (and a `name`, ignored): `id` is the
    * id an older client made for itself, which this server no longer plays
    * under (the account's is used, decision #48; `startRequested`). It is kept
    * in the result only when it has `ID_SHAPE`, for the spec-only fallback, and
    * a start is never refused for it: the client still sends it for one
-   * release because an older server refuses a start without one. Then
-   * the name it typed, which may be missing or empty, and the robot's finish
+   * release because an older server refuses a start without one. **`name`
+   * is dropped** (decision #62, g2-9): nobody types a name any more, an old
+   * tab still sends the one it typed, and the run's name is the server's
+   * (`displayNameFor`). Then the robot's finish
    * (robot-finishes, #41), `[colour, pattern]` for head, body and limbs, which
    * a client from before finishes doesn't send, and `robot`, the key of the
-   * robot picked in the lobby (robot-select, #42). `name`, `finish` and
+   * robot picked in the lobby (robot-select, #42). `finish` and
    * `robot` are passed on raw and cleaned where they are used
-   * (`Player.sanitiseName`, `finishFromBytes`, `World.robotFor`), so their
+   * (`finishFromBytes`, `World.robotFor`), so their
    * type and content are not checked here. `finish` and `robot` are only in
    * the result when they were sent.
    *
@@ -817,8 +820,8 @@ export default class Multiplayer {
    */
   static parseStart (data: unknown): Start | undefined {
     if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined
-    const { id, name, finish, robot, loadout, party, bring, firstRun } = data as { id?: unknown, name?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown, bring?: unknown, firstRun?: unknown }
-    const start: Start = { name }
+    const { id, finish, robot, loadout, party, bring, firstRun } = data as { id?: unknown, finish?: unknown, robot?: unknown, loadout?: unknown, party?: unknown, bring?: unknown, firstRun?: unknown }
+    const start: Start = {}
     // The client can play a first run (decision #58, retest-4): only a
     // literal true. The server decides whether it gets one (`Worlds`); a
     // client from before it never asks, and a server from before it drops

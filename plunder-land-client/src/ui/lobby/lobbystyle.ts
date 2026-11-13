@@ -70,12 +70,9 @@ export const LOBBY_CSS = `
 .lb-change svg { width: 18px; height: 18px; }
 
 .lb-callsign { grid-area: name; justify-self: center; align-self: center; display: flex; align-items: center; gap: 10px; max-width: 100%;
-  padding: 6px 14px; border-radius: 20px; background: rgba(11,18,32,.6); border: 1px solid #1f3646; cursor: text; }
+  padding: 6px 14px; border-radius: 20px; background: rgba(11,18,32,.6); border: 1px solid #1f3646; cursor: default; }
 .lb-dot { width: 10px; height: 10px; border-radius: 50%; background: #39E08A; box-shadow: 0 0 8px #39E08A; flex-shrink: 0; }
-.lb-name { width: 170px; min-width: 0; background: transparent; border: 0; outline: none; color: #fff; font-size: 14px;
-  letter-spacing: .12em; text-transform: uppercase; }
-.lb-name::placeholder { color: #6b7d8f; }
-.lb-pencil { color: #8FA3B5; font-size: 13px; }
+.lb-name { min-width: 0; color: #fff; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
 
 .lb-eyebrow { font-size: 13px; color: #a9bccd; margin-bottom: 8px; }
 .lb-progress { grid-area: prog; padding-bottom: 20px; border-bottom: 1px solid rgba(51,219,211,.12); }
@@ -360,8 +357,7 @@ export const LOBBY_CSS = `
 .lb-land .lb-right { gap: 6px; justify-content: space-between; }
 .lb-land .lb-callsign { padding: 2px 10px; gap: 8px; }
 .lb-land .lb-dot { width: 8px; height: 8px; }
-.lb-land .lb-name { width: 140px; font-size: 12px; }
-.lb-land .lb-pencil { font-size: 11px; }
+.lb-land .lb-name { font-size: 12px; }
 .lb-land .lb-preview { min-height: 50px; }
 .lb-land .lb-plate { gap: 1px; padding: 0 0 2px; }
 .lb-land .lb-robot { font-size: 18px; line-height: 1.1; }

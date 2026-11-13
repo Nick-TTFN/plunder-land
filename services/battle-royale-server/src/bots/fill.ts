@@ -1,6 +1,7 @@
 import World from '../objects/world'
 import type Player from '../objects/player'
 import { FINISH_GROUPS, FINISH_PRESETS, type Finish, PALETTE, PATTERNS, finishToBytes } from '../utils/finishes'
+import { callsignOf } from '../utils/callsign'
 import BotBrain, { botCargo, botLayer, humanOn, kitOf, pickTemperament } from './brain'
 
 /**
@@ -14,13 +15,6 @@ import BotBrain, { botCargo, botLayer, humanOn, kitOf, pickTemperament } from '.
  * turns bots off).
  */
 export const LEAVE_GRACE_MS = 90_000
-
-/** Names a player might pick. Not callsigns: those mark an empty or refused name. */
-const NAMES = [
-  'Zed', 'mira', 'KOBALT', 'tinker', 'ghostbyte', 'Nyx', 'pixelfox', 'Juno', 'scrapjack', 'Vex',
-  'orbit', 'Kip', 'ash', 'Wisp', 'Rivet', 'Moss', 'Tango', 'Sprocket', 'Dune', 'Fable',
-  'bitwise', 'Loki', 'nimbus', 'Pip', 'ferrous', 'Echo7', 'quark', 'Sol', 'Bramble', 'Vanta'
-]
 
 export default class BotFill {
   private lastSpawnAt = -Infinity
@@ -140,8 +134,10 @@ export default class BotFill {
   spawn (now: number = Date.now(), tag: number = BotFill.layerFor() ?? World.current.topLayer): Player {
     const pick = <T>(list: readonly T[]): T => list[Math.floor(this.random() * list.length)]
     const row = botLayer(tag)
-    let name = pick(NAMES)
-    if (this.random() < 0.4) name += String(10 + Math.floor(this.random() * 90))
+    // A callsign, as every human has (decision #62, g2-9), so a name never
+    // tells a bot from a human. Drawn, not from the id: `bot-1` would be the
+    // same callsign in every world.
+    const name = callsignOf(Math.floor(this.random() * 0x100000000))
     // Not hex, so never a real player's id (Multiplayer.ID_SHAPE); bots write no stats anyway.
     const id = `bot-${++this.seq}`
     // A temperament (brain.ts) sets its kit and how it plays; a preset finish,

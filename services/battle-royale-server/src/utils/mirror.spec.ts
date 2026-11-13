@@ -30,7 +30,9 @@ import { join } from 'node:path'
 // gear.ts: gear stat ids, roll ranges and caps, the duplicate cooldown rule
 // and the instance bytes (#49). A drifted range prints one number on the card
 // and plays another; a drifted layout reads every item as garbage.
-const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts', 'protocol.ts', 'skills.ts', 'gear.ts']
+// callsign.ts: the callsign generator (decision #62, g2-9). A drifted copy
+// shows the player one callsign in the lobby and everyone else another.
+const MIRRORED = ['hex.ts', 'path.ts', 'archetypes.ts', 'items.ts', 'finishes.ts', 'protocol.ts', 'skills.ts', 'gear.ts', 'callsign.ts']
 
 const SERVER = __dirname
 const CLIENT = join(__dirname, '..', '..', '..', '..', 'plunder-land-client', 'src', 'utils')

@@ -21,6 +21,7 @@ import Analytics from '../analytics'
 import type BotBrain from '../bots/brain'
 import { countKill } from '../progress/run'
 import { englishDataset, englishRecommendedTransformers, RegExpMatcher } from 'obscenity'
+import { CALLSIGN_WORDS, callsign } from '../utils/callsign'
 
 export class Stats {
   kills?: number
@@ -141,10 +142,12 @@ export default class Player extends Unit {
   /**
    * Every player is a peep until `robot-type-on-join` lets them choose.
    *
-   * `name` is what the player typed, unsanitised: it is cleaned here, before
-   * `Multiplayer.create` serialises it into everyone's create record, and an
-   * empty or unusable one becomes the id's callsign. `playerId` stays the
-   * identity - stats are keyed by it, never by the name.
+   * `name` is the name the server chose for the run, never one a client
+   * typed (decision #62, g2-9): `displayNameFor` (network/displayname.ts) for a human, a callsign for
+   * a bot (`BotFill.spawn`). It still goes through `displayName` before
+   * `Multiplayer.create` serialises it into everyone's create record, as a
+   * backstop: an empty or unusable one becomes the id's callsign. `playerId`
+   * stays the identity - stats are keyed by it, never by the name.
    *
    * `finish` is the client's, unchecked; anything unreadable in it becomes
    * the default finish (`finishFromBytes`) rather than refusing the join.
@@ -1005,8 +1008,10 @@ export default class Player extends Unit {
   private static readonly _MARKUP = /[<>&"'`]/g
 
   /**
-   * The display name a player gets: their own name made safe to show, or, when
-   * nothing usable is left, a callsign derived from their id.
+   * A name made safe to show, or '' when nothing usable is left. No client's
+   * typed name reaches it any more (decision #62, g2-9: network/displayname.ts);
+   * it stays as the backstop every run's name passes (`displayName`), and
+   * g2-6b runs CrazyGames usernames through it.
    *
    * In order: NFKC first, so compatibility forms are folded before anything is
    * tested (full-width U+FF1C becomes <, and is then stripped; full-width
@@ -1051,30 +1056,15 @@ export default class Player extends Unit {
     return name !== '' ? name : Player.callsign(playerId)
   }
 
-  static CALLSIGNS = [
-    'NOVA', 'ROOK', 'VOLT', 'ECHO', 'FLUX', 'GRIT', 'HAWK', 'JINX',
-    'KITE', 'LYNX', 'MOTH', 'ONYX', 'PIKE', 'QUILL', 'RUST', 'SABLE',
-    'TALON', 'UMBRA', 'VIPER', 'WREN', 'ZINC', 'BOLT', 'COG', 'DRIFT',
-    'EMBER', 'FANG', 'GEAR', 'HEX', 'IRON', 'JOLT', 'KNOX', 'LUMEN'
-  ]
+  /** The callsign words (the mirrored `utils/callsign.ts`). */
+  static readonly CALLSIGNS: readonly string[] = CALLSIGN_WORDS
 
   /**
-   * A name for a player who gave none: a word and a number, e.g. `ROOK-42`,
-   * both taken from a 32-bit FNV-1a hash of the id. Deterministic, so the same
-   * id always gets the same callsign - and the id is kept in the client's
-   * localStorage, so a reconnect or a new run keeps it too. 32 words x 90
-   * numbers is 2,880 callsigns; two players sharing one is possible and only
-   * cosmetic, since nothing identifies a player by name.
+   * The id's callsign, e.g. `ROOK-421` (the mirrored `utils/callsign.ts`):
+   * deterministic, so the same account always gets the same one - and the
+   * client's lobby shows it from the account id without asking.
    */
   static callsign (playerId: string): string {
-    let hash = 0x811c9dc5
-    const id = String(playerId)
-    for (let i = 0; i < id.length; i++) {
-      hash ^= id.charCodeAt(i)
-      hash = Math.imul(hash, 0x01000193) >>> 0
-    }
-    const word = Player.CALLSIGNS[hash % Player.CALLSIGNS.length]
-    const number = 10 + Math.floor(hash / Player.CALLSIGNS.length) % 90
-    return `${word}-${number}`
+    return callsign(playerId)
   }
 }

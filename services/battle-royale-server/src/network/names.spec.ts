@@ -7,13 +7,19 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import { GameObject } from '../objects/gameobject'
 import Player from '../objects/player'
+import { displayNameFor } from './displayname'
+import BotFill from '../bots/fill'
+import { CALLSIGN_NUMBERS, CALLSIGN_WORDS, callsign, callsignOf } from '../utils/callsign'
 import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 
 /**
- * player-names: `start_requested` carries `{ id, name }`, the server keeps a
- * sanitised, capped copy of the name (or a callsign from the id), and the name
- * goes to other clients in the `name` field of the player's create record.
+ * player-names, then decision #62 (g2-9): nobody types a name. The server
+ * ignores any `name` a `start_requested` still carries (an old tab), names
+ * every run with its id's callsign (`displayNameFor`), and the name goes to
+ * other clients in the `name` field of the player's create record. The name
+ * filter (`sanitiseName`) stays: every run's name passes it as a backstop,
+ * and g2-6b runs CrazyGames usernames through it.
  *
  * Special characters are built with String.fromCodePoint rather than written as
  * escapes or literals, so what each case tests is visible and survives editors.
@@ -124,7 +130,7 @@ test('"YOU" is reserved, in any case, because every client labels its own robot 
 test('a profane name is no name, so the player gets a callsign; innocent words that contain one survive', () => {
   for (const name of ['fuck', 'sh1t', 'a55hole', 'fuuuck', 'Fück', 'ｆｕｃｋ', 'fu ck', 'motherfucker', 'wh0re']) {
     assert.equal(Player.sanitiseName(name), '', name)
-    assert.match(Player.displayName(name, 'abc123'), /^[A-Z]+-\d{2}$/, name)
+    assert.equal(Player.displayName(name, 'abc123'), Player.callsign('abc123'), name)
   }
   for (const name of ['Cassandra', 'Scunthorpe', 'assassin', 'Dickens', 'Hancock', 'cocktail', 'Sussex', 'arsenal', 'Peep']) {
     assert.equal(Player.sanitiseName(name), name, name)
@@ -162,30 +168,64 @@ test('fuzz: whatever goes in, what comes out is short, trimmed and free of every
 
 // ---------------------------------------------------------------- callsigns
 
-test('a callsign is a word and a two-digit number, and the same id always gets the same one', () => {
+/** Every callsign shape: a listed word, a dash, three digits from 100. */
+const CALLSIGN = /^[A-Z]+-[1-9][0-9]{2}$/
+
+test('a callsign is a word and a three-digit number, and the same id always gets the same one', () => {
   for (const id of ['a1b2c3', 'ffffff', '000000', '', 'x'.repeat(500)]) {
     const first = Player.callsign(id)
-    assert.match(first, /^[A-Z]+-[1-9][0-9]$/)
+    assert.match(first, CALLSIGN)
     assert.equal(Player.callsign(id), first)
+    assert.equal(callsign(id), first)
     assert.ok(Player.CALLSIGNS.includes(first.split('-')[0]))
   }
   // Pinned (values computed independently, in Python, from the FNV-1a
-  // definition), so a change to the hash that would rename every returning
-  // player without a name shows up here.
-  assert.equal(Player.callsign('a1b2c3'), 'JOLT-37')
-  assert.equal(Player.callsign('ffffff'), 'JOLT-57')
+  // definition and the 64-word list), so a change to the hash or the list,
+  // which renames every player, shows up here.
+  assert.equal(Player.callsign('a1b2c3'), 'HERON-338')
+  assert.equal(Player.callsign('ffffff'), 'HERON-528')
+  assert.equal(Player.callsign('abc123'), 'GRIT-452')
+})
+
+test('the generator is widened (g2-9): 64 distinct words x 900 numbers, every one of them 100-999', () => {
+  assert.equal(CALLSIGN_WORDS.length, 64)
+  assert.equal(new Set(CALLSIGN_WORDS).size, 64)
+  assert.equal(CALLSIGN_NUMBERS, 900)
+  const numbers = new Set<number>()
+  for (let h = 0; h < 64 * 900; h += 64) numbers.add(Number(callsignOf(h).split('-')[1]))
+  assert.equal(numbers.size, 900)
+  assert.equal(Math.min(...numbers), 100)
+  assert.equal(Math.max(...numbers), 999)
+  assert.equal(callsignOf(0xFFFFFFFF), callsignOf(-1), 'any number is read as 32 bits')
+})
+
+test('every callsign passes the name filter unchanged and fits NAME_MAX', () => {
+  for (const word of CALLSIGN_WORDS) {
+    assert.match(word, /^[A-Z]+$/)
+    for (const n of [100, 420, 666, 999]) {
+      const c = `${word}-${n}`
+      assert.equal(Player.sanitiseName(c), c, c)
+      assert.ok(c.length <= Player.NAME_MAX, c)
+    }
+  }
 })
 
 test('callsigns spread across ids rather than piling onto a few', () => {
   const seen = new Set<string>()
   const words = new Set<string>()
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 2000; i++) {
     const c = Player.callsign(i.toString(16).padStart(6, '0'))
     seen.add(c)
     words.add(c.split('-')[0])
   }
-  assert.ok(seen.size > 250, `only ${seen.size} distinct callsigns for 300 ids`)
+  // 2000 ids over 57,600 callsigns: about 35 shared ones expected by chance.
+  assert.ok(seen.size > 1900, `only ${seen.size} distinct callsigns for 2000 ids`)
   assert.equal(words.size, Player.CALLSIGNS.length)
+})
+
+test('displayNameFor: the id\'s callsign, whatever else is about', () => {
+  assert.equal(displayNameFor('abc123'), Player.callsign('abc123'))
+  assert.equal(displayNameFor('fedcba'), Player.callsign('fedcba'))
 })
 
 test('displayName: the sanitised name, or the callsign when nothing is left', () => {
@@ -198,11 +238,10 @@ test('displayName: the sanitised name, or the callsign when nothing is left', ()
 
 // ---------------------------------------------------------------- the payload
 
-test('parseStart: the object form', () => {
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'NOVA' }), { id: 'abc123', name: 'NOVA' })
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123' }), { id: 'abc123', name: undefined })
-  // The name is passed on raw; Player cleans it.
-  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 7 }), { id: 'abc123', name: 7 })
+test('parseStart: the object form drops any name (decision #62, g2-9)', () => {
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 'NOVA' }), { id: 'abc123' })
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123' }), { id: 'abc123' })
+  assert.deepEqual(Multiplayer.parseStart({ id: 'abc123', name: 7 }), { id: 'abc123' })
 })
 
 test('parseStart: the bare-string form is gone (decision #48), and so is any non-object', () => {
@@ -343,13 +382,13 @@ function connect (multiplayer: Multiplayer, socketId: string): ReturnType<typeof
 
 const lastPlayer = (): Player => World.PLAYERS[World.PLAYERS.length - 1] as Player
 
-test('a join with a name: the player carries the sanitised name, keyed by its id', () => {
+test('a join with a name: the name is ignored, the player carries its id\'s callsign', () => {
   const multiplayer = setup()
   const a = connect(multiplayer, 's1')
   a.fire('start_requested', { id: 'abc123', name: '  <i>NOVA</i>  ' })
   const player = lastPlayer()
   assert.equal(player.playerId, 'abc123')
-  assert.equal(player.name, 'iNOVA/i')
+  assert.equal(player.name, Player.callsign('abc123'))
 })
 
 test('a join in the old bare-string form is ignored; one without a name gets the id\'s callsign', () => {
@@ -363,10 +402,10 @@ test('a join in the old bare-string form is ignored; one without a name gets the
   assert.equal(lastPlayer().name, Player.callsign('abc123'))
 })
 
-test('a join with an empty or blank name gets the callsign, the same one on every reconnect', () => {
+test('whatever name is sent, the callsign is the same on every reconnect', () => {
   const multiplayer = setup()
   const names: string[] = []
-  for (const [i, name] of ['', '    ', undefined, ZWSP + RLO].entries()) {
+  for (const [i, name] of ['', '    ', undefined, ZWSP + RLO, 'NOVA', 'fuck', 'YOU', 7].entries()) {
     const fake = connect(multiplayer, `s${i}`)
     fake.fire('start_requested', { id: 'abc123', name })
     names.push(lastPlayer().name)
@@ -383,33 +422,64 @@ test('a malformed start is ignored and does not latch the connection: a good one
   assert.equal(World.PLAYERS.length, 0)
   a.fire('start_requested', { id: 'abc123', name: 'NOVA' })
   assert.equal(World.PLAYERS.length, 1)
-  assert.equal(lastPlayer().name, 'NOVA')
+  assert.equal(lastPlayer().name, Player.callsign('abc123'))
   // And a second start on the same connection is still refused.
   a.fire('start_requested', { id: 'fedcba', name: 'ROOK' })
   assert.equal(World.PLAYERS.length, 1)
 })
 
-test('the name reaches a client already in the world, in the newcomer\'s create record', () => {
+/** The standings rows a socket was sent last, decoded far enough for names. */
+function lastStandings (sent: Recorded[]): Array<{ id: number, name: string }> {
+  const frames = sent.filter((e) => e.event === 'standings')
+  assert.ok(frames.length > 0, 'no standings sent')
+  return unpack(frames[frames.length - 1].data as Buffer).map((record) => {
+    const end = record.indexOf(0, 7)
+    return { id: record.readUInt16BE(0), name: record.subarray(7, end).toString('utf8') }
+  })
+}
+
+test('two players who typed names: each is sent the other\'s callsign, and its own row carries its own callsign', () => {
   const multiplayer = setup()
   const a = connect(multiplayer, 's1')
-  a.fire('start_requested', { id: 'aaaaaa', name: 'ROOK' })
+  a.fire('start_requested', { id: 'aaaaaa', name: 'Typed1' })
+  const first = lastPlayer()
   multiplayer.flushAll(1)
 
   const b = connect(multiplayer, 's2')
   b.fire('start_requested', { id: 'bbbbbb', name: 'Zo' + cp(0xEB) + ' <3' })
-  const newcomer = lastPlayer()
-  multiplayer.flushAll(2)
+  const second = lastPlayer()
+  for (let tick = 2; tick <= 14; tick++) multiplayer.flushAll(tick, 250)
 
-  const records = recordsFor(a.sent, 'create', newcomer.id)
-  assert.equal(records.length, 1)
-  assert.ok(records[0].includes(nameField('Zo' + cp(0xEB) + ' 3')), records[0].toString('hex'))
-  assert.equal(nameIn(records[0]), 'Zo' + cp(0xEB) + ' 3')
+  // The other's create record: a newcomer's to the player already in, and
+  // the player already in in the newcomer's join snapshot.
+  const toA = recordsFor(a.sent, 'create', second.id)
+  assert.equal(toA.length, 1)
+  assert.ok(toA[0].includes(nameField(Player.callsign('bbbbbb'))), toA[0].toString('hex'))
+  assert.equal(nameIn(toA[0]), Player.callsign('bbbbbb'))
+  const toB = recordsFor(b.sent, 'create', first.id)
+  assert.equal(toB.length, 1)
+  assert.equal(nameIn(toB[0]), Player.callsign('aaaaaa'))
+  // No typed name anywhere in what either was sent.
+  for (const sent of [a.sent, b.sent]) {
+    for (const e of sent) {
+      if (!Buffer.isBuffer(e.data)) continue
+      assert.ok(!e.data.includes(Buffer.from('Typed1')) && !e.data.includes(Buffer.from('Zo' + cp(0xEB))), e.event)
+    }
+  }
+  // Each one's own row on the board is its own callsign (its own client
+  // draws YOU over its robot; create_own carries no name).
+  for (const [fake, own, other] of [[a, first, second], [b, second, first]] as const) {
+    const rows = lastStandings(fake.sent)
+    assert.equal(rows.find((r) => r.id === own.id)?.name, own.name)
+    assert.equal(rows.find((r) => r.id === other.id)?.name, other.name)
+  }
+  assert.deepEqual([first.name, second.name], [Player.callsign('aaaaaa'), Player.callsign('bbbbbb')])
 })
 
 test('a newcomer gets every existing player\'s name in its join snapshot', () => {
   const multiplayer = setup()
   const a = connect(multiplayer, 's1')
-  a.fire('start_requested', { id: 'aaaaaa', name: 'ROOK' })
+  a.fire('start_requested', { id: 'aaaaaa' })
   const first = lastPlayer()
   multiplayer.flushAll(1)
 
@@ -418,13 +488,13 @@ test('a newcomer gets every existing player\'s name in its join snapshot', () =>
 
   const records = recordsFor(b.sent, 'create', first.id)
   assert.equal(records.length, 1)
-  assert.equal(nameIn(records[0]), 'ROOK')
+  assert.equal(nameIn(records[0]), Player.callsign('aaaaaa'))
 })
 
-test('a player without a name is sent as its callsign, not its id', () => {
+test('a player is sent as its callsign, not its id', () => {
   const multiplayer = setup()
   const a = connect(multiplayer, 's1')
-  a.fire('start_requested', { id: 'aaaaaa', name: 'ROOK' })
+  a.fire('start_requested', { id: 'aaaaaa' })
   multiplayer.flushAll(1)
 
   const b = connect(multiplayer, 's2')
@@ -435,6 +505,27 @@ test('a player without a name is sent as its callsign, not its id', () => {
   const name = nameIn(recordsFor(a.sent, 'create', newcomer.id)[0])
   assert.equal(name, Player.callsign('bbbbbb'))
   assert.notEqual(name, 'bbbbbb')
+})
+
+test('bots carry callsigns from the same generator, drawn, not one per bot number', () => {
+  const multiplayer = setup()
+  void multiplayer
+  const names: string[] = []
+  for (let seed = 0; seed < 3; seed++) {
+    let state = 1000 + seed
+    const random = (): number => { state = (Math.imul(state, 1103515245) + 12345) >>> 0; return state / 2 ** 32 }
+    const fill = new BotFill(10, 0, random)
+    for (let i = 0; i < 4; i++) names.push(fill.spawn(1_000_000).name)
+  }
+  for (const name of names) {
+    assert.match(name, CALLSIGN, name)
+    assert.ok(CALLSIGN_WORDS.includes(name.split('-')[0]), name)
+  }
+  // Three fills' first bots are all `bot-1`: a callsign from the id would
+  // name them alike in every world.
+  assert.notEqual(names[0], names[4])
+  assert.notEqual(names[4], names[8])
+  assert.ok(new Set(names).size >= 11, names.join(' '))
 })
 
 test('stats stay keyed by id, never by the chosen name', async () => {

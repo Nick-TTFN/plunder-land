@@ -11,7 +11,8 @@ import {
 } from '../../utils/finishes'
 import { PICKABLE, ROSTER, STAT_BARS, type RosterEntry } from './roster'
 import { LOBBY_CSS } from './lobbystyle'
-import { ACCOUNT, TOKEN_KEY, localTokenStorage } from '../../net/account'
+import { ACCOUNT, type AccountInfo, TOKEN_KEY, localTokenStorage } from '../../net/account'
+import { callsign } from '../../utils/callsign'
 import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
 import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
 import { SettingsPanel } from '../settings/settingspanel'
@@ -30,12 +31,10 @@ import {
 } from './locks'
 
 const ID_KEY = 'plunderland_player_id'
+/** Where the lobby kept the name it used to send; removed on sight (decision #62, g2-9: no typed names). */
 const NAME_KEY = 'plunderland_player_name'
 const FINISH_KEY = 'plunderland_player_finish'
 const ROBOT_KEY = 'plunderland_player_robot'
-
-/** The server's cap (`Player.NAME_MAX`), as a typing limit; the server cuts whatever arrives. */
-const NAME_MAX = 16
 
 /** localStorage can throw (private windows, blocked site data); a failure means "not remembered". */
 function readStorage (key: string): string | null {
@@ -51,6 +50,14 @@ function writeStorage (key: string, value: string): void {
     localStorage.setItem(key, value)
   } catch (e) {
     // Not remembered past this page; the join goes ahead.
+  }
+}
+
+function removeStorage (key: string): void {
+  try {
+    localStorage.removeItem(key)
+  } catch (e) {
+    // Nothing to do: unreadable storage holds nothing we can reach.
   }
 }
 
@@ -72,13 +79,23 @@ function writeSession (key: string, value: string | null): void {
   }
 }
 
+/**
+ * The player's own callsign as the server names the run (decision #62, g2-9;
+ * the mirrored `utils/callsign.ts`): the account id's, offline too, since the
+ * server plays an offline account under the id it announced. Undefined until
+ * the account is announced.
+ */
+export function callsignLine (info: AccountInfo | undefined): string | undefined {
+  return info === undefined ? undefined : callsign(info.id)
+}
+
 /** The id when storage is unavailable, kept for the page so a reconnect keeps the callsign. */
 let _pageId: string | undefined
 
 const genRanHex = (size: number): string => [...Array(size)].map(() => Math.floor(Math.random() * 16).toString(16)).join('')
 
 /** `finish` as its wire bytes, `robot` an archetype key, `bring` the stash rows for keys 3 and 4 (49-4), undefined for none. */
-export type LobbyStart = (playerId: string, name: string, finish: number[], robot: string, party: string, loadout: number, bring: BringPair | undefined) => Promise<void>
+export type LobbyStart = (playerId: string, finish: number[], robot: string, party: string, loadout: number, bring: BringPair | undefined) => Promise<void>
 
 /** The lobby's phone layout starts at this width or under (`lobbystyle.ts`'s 760 px query). */
 const PHONE_MAX = 760
@@ -244,7 +261,9 @@ export default class Lobby extends Container {
   private readonly onScroll = (): void => { this.layoutPreview() }
 
   private readonly root: HTMLDivElement
-  private readonly nameInput: HTMLInputElement
+  /** The player's own callsign, as everyone else sees it (`callsignLine`). */
+  private readonly callsign: HTMLLabelElement
+  private readonly callsignText: HTMLSpanElement
   private readonly kindLine: HTMLDivElement
   private readonly nameLine: HTMLDivElement
   private readonly tagline: HTMLDivElement
@@ -274,7 +293,7 @@ export default class Lobby extends Container {
   private readonly onKey = (e: KeyboardEvent): void => { this.key(e) }
   private readonly onResize = (): void => { this.fit(); this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
-  private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel(); this.renderRows() }
+  private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel(); this.renderRows(); this.renderCallsign() }
   /** `teardown` ran: it can be reached twice (`destroy` also emits `removed`). */
   private tornDown = false
   /** The progression block (decision #48 step 3): level heading, XP bar and its two lines. */
@@ -371,17 +390,14 @@ export default class Lobby extends Container {
     plate.append(this.nameLine, this.kindLine, change)
     hero.append(this.preview, plate)
 
-    // The callsign, sent with READY and remembered.
-    const callsign = el('label', 'lb-callsign')
-    callsign.append(el('span', 'lb-dot'))
-    this.nameInput = el('input', 'lb-name')
-    this.nameInput.maxLength = NAME_MAX
-    this.nameInput.placeholder = 'NAME'
-    this.nameInput.autocomplete = 'off'
-    this.nameInput.spellcheck = false
-    this.nameInput.value = readStorage(NAME_KEY) ?? ''
-    this.nameInput.setAttribute('aria-label', 'Your name')
-    callsign.append(this.nameInput, el('span', 'lb-pencil', '\u270E'))
+    // The callsign everyone sees (decision #62, g2-9): read-only, from the
+    // account id. Nobody types a name; the one this lobby used to remember goes.
+    removeStorage(NAME_KEY)
+    const callsign = this.callsign = el('label', 'lb-callsign')
+    this.callsignText = el('span', 'lb-name')
+    callsign.append(el('span', 'lb-dot'), this.callsignText)
+    callsign.title = 'Your callsign: what other players see'
+    this.renderCallsign()
 
     // Progression: the account's level and XP (decision #48 step 3).
     const progress = el('section', 'lb-progress')
@@ -532,10 +548,6 @@ export default class Lobby extends Container {
       return loadoutOf(ACCOUNT.info?.loadouts, robot, this.loadout.indexFor(robot))
     })
 
-    this.nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.ready()
-    })
-
     // One grid: the hero spans the left column on desktop; under 760 px it all
     // stacks (progression, journey, hero, rows) and READY sticks to the bottom.
     this.content = el('div', 'lb-content')
@@ -679,7 +691,7 @@ export default class Lobby extends Container {
   }
 
   private copyInvite (): void {
-    const url = inviteUrl(window.location.origin, window.location.pathname, window.location.search, this.party, this.nameInput.value.trim())
+    const url = inviteUrl(window.location.origin, window.location.pathname, window.location.search, this.party, callsignLine(ACCOUNT.info) ?? '')
     const done = (label: string): void => {
       this.inviteButton.textContent = label
       setTimeout(() => { this.inviteButton.textContent = 'INVITE' }, 2000)
@@ -829,9 +841,6 @@ export default class Lobby extends Container {
     }
     this.started = true
     Sfx.play('ready')
-    const name = this.nameInput.value.trim()
-    // An empty name is remembered too, so clearing the field sticks.
-    writeStorage(NAME_KEY, name)
     // The wishes are stored; what is sent is what is shown (#48 step 5). The
     // robot is stored only if picked here, so a fallback to Peep (an outage,
     // the account not yet announced) never overwrites a stored Waddle.
@@ -849,7 +858,7 @@ export default class Lobby extends Container {
     void this.loadout.settle().then(() => {
       // Taken down meanwhile (a reconnect clears the popups): no start.
       if (this.tornDown) return
-      void this.start(this.playerId, name, sent, robot, this.party, loadout, bring)
+      void this.start(this.playerId, sent, robot, this.party, loadout, bring)
       this.parent?.removeChild(this)
     })
   }
@@ -857,10 +866,8 @@ export default class Lobby extends Container {
   private key (e: KeyboardEvent): void {
     // The settings panel takes every key while it is open.
     if (this.started || !this.visible || SettingsPanel.open !== undefined) return
-    const typing = e.target === this.nameInput
     let handled = true
     if (e.key === 'Enter') this.ready()
-    else if (typing) handled = false
     else if (e.key === 'ArrowLeft') this.step(-1)
     else if (e.key === 'ArrowRight') this.step(1)
     else if (e.key === 'e' || e.key === 'E') this.toggle('paint')
@@ -1114,6 +1121,16 @@ export default class Lobby extends Container {
       host.destroy()
     }
     if (!this.tornDown) this.renderJourney()
+  }
+
+  /**
+   * The callsign pill: the account's callsign, or hidden until the server has
+   * announced the account (a new player's comes with the first run).
+   */
+  private renderCallsign (): void {
+    const line = callsignLine(ACCOUNT.info)
+    this.callsign.hidden = line === undefined
+    this.callsignText.textContent = line ?? ''
   }
 
   /**

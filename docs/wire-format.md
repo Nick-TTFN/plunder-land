@@ -368,11 +368,11 @@ draw as the old mob sprite, but no older client ever gets one.
 `[0-9a-z]` (`Multiplayer.PARTY_SHAPE`; anything else is dropped). The server puts that run in the
 world of a human in a run with the same code, if it is under the cap, else fill-first
 (`Worlds.choose`). Every browser has its own random code (`plunderland_party`, never the player
-id); the lobby's INVITE copies `?join=<code>&from=<name>`, and a tab opened from it sends the
+id); the lobby's INVITE copies `?join=<code>&from=<callsign>` (the inviter's own, empty before the account is announced), and a tab opened from it sends the
 inviter's code (sessionStorage `plunderland_join`; `ui/lobby/party.ts`, pixi-free and run by
 `party.spec.ts`). Free-for-all all the same. Additive: an old server ignores it.
 
-**Client → server `start_requested` is `{ id, name, finish, robot, party, loadout, bring }`** (`loadout` the robot's loadout index, raw; `kitFor` checks it; absent = 0) (`bring`, #49: up to 2 stash row ids as decimal strings, entry 0 for key 3 and entry 1 for key 4, so `[null, "7"]` brings row 7 into key 4; junk, repeats and entries past 2 are empty slots (`gear/stash.ts` `parseBring`); ignored offline, below `BRING_LEVEL` 3 and before the server's gear ledger has heartbeated; a row that doesn't come back, merged or already carried by another tab, leaves its slot empty; never refuses a join; the client sends it only when something is picked) (`robot` the picked
+**Client → server `start_requested` is `{ id, finish, robot, party, loadout, bring }`** (`loadout` the robot's loadout index, raw; `kitFor` checks it; absent = 0) (`bring`, #49: up to 2 stash row ids as decimal strings, entry 0 for key 3 and entry 1 for key 4, so `[null, "7"]` brings row 7 into key 4; junk, repeats and entries past 2 are empty slots (`gear/stash.ts` `parseBring`); ignored offline, below `BRING_LEVEL` 3 and before the server's gear ledger has heartbeated; a row that doesn't come back, merged or already carried by another tab, leaves its slot empty; never refuses a join; the client sends it only when something is picked) (`robot` the picked
 robot's key; anything not selectable, or not yet opened by the account's level, plays Peep with Peep's loadout; a locked colour or pattern plays as the group's default; never refused; no account (non-strict specs only) has no locks, an offline account has level 1's; until the lobby, the client sends `?robot=` or
 `peep`) (`Multiplayer.parseStart`;
 `finish` is the robot's finish as bytes, see `finish` (23), and anything unreadable in it becomes
@@ -389,12 +389,18 @@ Without an account `startRequested` falls back to the start's `id` only while `W
 off (single-world specs joining through `Multiplayer.onConnect`; they must use hex ids);
 production and every `Worlds` spec ignore such a start. **Redis stats are keyed by id, never
 by name**.
-The raw name is cut to `Player.NAME_RAW_MAX` (256 UTF-16 units) first, so a huge name costs
-nothing, and then sanitised by `Player.sanitiseName`: NFKC, no control, zero-width, bidi, private-use
-or blank-looking characters, no `< > & " '` or backtick, at most 16 code points, and "YOU" is
-reserved (every client labels its own robot YOU). An empty result becomes a callsign hashed
-from the player id (`Player.callsign`, for example `ROOK-42`), so a returning player keeps it. It travels
-in the existing `name` field, NUL-terminated UTF-8.
+**A `name` in the start is ignored** (decision #62, g2-9: nobody types a name; `parseStart` drops
+it, and a client since g2-9 sends none, while an old tab still sends what it typed). The run's name
+is the server's, chosen in one place, `displayNameFor` (`network/displayname.ts`): the id's
+callsign, hashed from the player id by the mirrored `utils/callsign.ts` (for example `ROOK-421`;
+64 words x 900 numbers), so a returning player keeps it and the lobby can show it from the account
+id; g2-6b adds a verified CrazyGames username there. Every run's name still passes
+`Player.sanitiseName` as a backstop (`Player.displayName`): cut to `Player.NAME_RAW_MAX` (256
+UTF-16 units), NFKC, no control, zero-width, bidi, private-use or blank-looking characters, no
+`< > & " '` or backtick, at most 16 code points, "YOU" reserved (every client labels its own robot
+YOU), the English profanity set; an empty result becomes the callsign. Bots draw a callsign of
+their own (docs/bots-and-spectate.md). It travels in the existing `name` field, NUL-terminated
+UTF-8; no wire change and no PROTOCOL bump: an older client shows whatever the field holds.
 
 Each record is a sequence of `[field index][payload]`, indexed into `GameObject.fieldOrder`
 (server) / `allFields` (client). **These two tables must stay identical and are

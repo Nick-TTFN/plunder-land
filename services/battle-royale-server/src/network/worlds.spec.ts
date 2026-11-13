@@ -290,6 +290,12 @@ test('two worlds ticked together share no object, id, timer, standings row, crea
   // A and B's players, all close together, so each sees the others' work.
   for (const client of clients) await client.start(client.id.toUpperCase())
   for (const client of clients) assert.equal(worlds.worldFor(client.connection), worldOf(client))
+  // The server names every run itself (decision #62, g2-9: a callsign); name
+  // each by its client so a standings row tells which world it came from.
+  for (const client of clients) {
+    const player = client.player
+    if (player !== undefined) World.run(worldOf(client), () => { player.name = client.id.toUpperCase() })
+  }
   const centre = new Vector(40, 40)
   for (const world of [a, b]) {
     World.run(world, () => {

@@ -151,7 +151,7 @@ async function view (store: SeasonStore, publicId: string, at: number): Promise<
   return await store.season(publicId, at)
 }
 
-test('an extraction credits its capped banked loot, a run, an extraction and the run\'s XP, under the sanitised name', async () => {
+test('an extraction credits its capped banked loot, a run, an extraction and the run\'s XP, under the callsign, never a typed name', async () => {
   const store = new SeasonStore()
   const clock = { now: WEDNESDAY }
   const worlds = makeWorlds(store, clock)
@@ -166,13 +166,15 @@ test('an extraction credits its capped banked loot, a run, an extraction and the
   assert.equal(credit?.extracted, true)
   assert.equal(credit?.season, '2026-10-05')
   assert.equal(credit?.atMs, WEDNESDAY)
-  assert.equal(credit?.name, Player.displayName(raw, player.playerId))
+  // Decision #62 (g2-9): the season entry carries the run's callsign; the
+  // name the client sent is ignored, raw or sanitised.
+  assert.equal(credit?.name, Player.callsign(player.playerId))
   assert.equal(credit?.name, player.name)
-  assert.ok(credit !== undefined && !/[<>​]/.test(credit.name) && credit.name !== raw, `a raw name stored: ${JSON.stringify(credit?.name)}`)
+  assert.ok(credit !== undefined && credit.name !== Player.sanitiseName(raw) && credit.name !== raw, `a sent name stored: ${JSON.stringify(credit?.name)}`)
   const v = await view(store, player.playerId, WEDNESDAY)
   assert.deepEqual([v.banked, v.runs, v.extractions, v.xp > 0], [6000, 1, 1, true])
 
-  // A name that sanitises to nothing is stored as the id's callsign.
+  // A name that sanitises to nothing: the callsign too.
   const next = await inRun(worlds, client, '​​')
   await extract(worlds, next.world, next.player, 10)
   assert.equal(store.credits[1][1]?.name, Player.callsign(next.player.playerId))
@@ -285,7 +287,7 @@ test('bots never appear: minutes of play with 8 bots credit only the human; the 
   assert.equal(store.credits.length, 3, 'the human\'s three runs')
   for (const [id] of store.credits) assert.equal(id, humanId, `a credit to ${id}`)
   const board = await store.seasonBoard(WEDNESDAY, 10)
-  assert.deepEqual(board.top.map((row) => [row.id, row.name]), [[humanId, 'human']], `the board: ${JSON.stringify(board.top)}`)
+  assert.deepEqual(board.top.map((row) => [row.id, row.name]), [[humanId, Player.callsign(humanId)]], `the board: ${JSON.stringify(board.top)}`)
   assert.equal(board.ranked, 1, 'ranked counts a bot')
   const v = await view(store, humanId, WEDNESDAY)
   assert.equal(v.ranked, board.ranked)

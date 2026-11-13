@@ -43,6 +43,22 @@ provisioned 2026-10-03), and the server's `DATABASE_URL` is `${{Postgres.DATABAS
 compose and the pg spec's container use `postgres:18-alpine` to match (see "Running it
 locally").
 
+**Names: callsigns** (decision #62, task g2-9; Nick 2026-11-13, "drop name entirely for now"). Nobody
+types a name: the lobby has no name field, and every player, the viewer included, and every bot is
+shown as a callsign, a word and a three-digit number (`ROOK-421`; the mirrored `utils/callsign.ts`,
+64 words x 900 numbers = 57,600; two players sharing one is possible and only cosmetic). A human's
+is the account `publicId`'s, so it is the same in every run, world and season, and the lobby shows
+it from `account.id` with no wire change; a bot's is drawn from the fill's RNG. The server ignores
+any `name` a start carries (an old tab still sends one) and picks the run's name in one function,
+`displayNameFor` (`network/displayname.ts`), which g2-6b extends: a player with a verified
+CrazyGames token shows their CG username (Nick 2026-11-14), through `Player.sanitiseName`, the
+callsign on a hit. `sanitiseName` stays for that and as every name's backstop. Where the name is
+read, all of them now a callsign: the create record to other clients, standings, `spectate`,
+`World.FINISHED`, the season credit (`season_entries.name`, public on `/season`). Why: PEGI 12 on
+CrazyGames against free-text names that the filter (English only) can't police. Nothing stores the
+typed names old tabs still send. The callsign generator is a consumed format in effect: a change to
+its words, numbers or hash renames every player (`names.spec.ts` pins three).
+
 **Loadouts** (#48 step 4): migration 3, table `loadouts (account_id, robot key, slot_index,
 skills smallint[4])` keyed by (account, robot, index), CHECKs as a backstop; written by one upsert
 (`saveLoadout`, which `close` waits for), read by `resolve` in the same round trip (`json_agg`).
@@ -71,7 +87,7 @@ loot banked. Ties go to whoever reached the score first (`banked_at`, the run's 
 then the older account (`compareEntries` = pg `RANK_ORDER`, held equal by the store contract). Paid
 at end + 10 min: the top `max(1, floor(0.01 N))` / `floor(0.10 N)` / `floor(0.25 N)` places
 (cumulative, `tierPlaces`) get 1,000 / 500 / 250 XP, each at most the season's run XP. Migration 4
-adds `season_entries` (with `name`, the sanitised name of the run that last credited it), `seasons`
+adds `season_entries` (with `name`, the name of the run that last credited it: its callsign since g2-9, "Names" below), `seasons`
 (a row only once paid) and `season_payouts`. The credit rides in the run's grant statement, so it
 lands exactly when the XP does: once per run, never offline, never for a bot (a bot has no
 connection, so it never reaches `grant`); a paid season takes no more entries. Each server's
@@ -81,12 +97,13 @@ ways: `payAll` lists only unpaid seasons, `pg_try_advisory_xact_lock(SEASON_LOCK
 inside the lock, the `seasons` primary key (a 23505 there is logged, `seasons: … already paid`, and
 counts as paid) and `season_payouts`' key; `close` waits for one in flight, and a killed one rolls
 back whole. The client hears `season` (`SeasonView`, relative `endsInMs`) after `account` and after
-each grant; the lobby shows a line under the name pill and the last payout once per season
+each grant; the lobby shows a line under the callsign pill and the last payout once per season
 (`plunderland_season_seen`). A payout's XP shows at the next connect or after the next run, not live.
 `GET /season`: the top 10 as `{ rank, name, id, banked }`, the ranked count and places, cached 30 s;
-names are sanitised and public, and the ids link them to `/stats` (disclosed on the privacy page,
-Nick 2026-10-04). **Deleting a player's season data** (privacy requests, by hand through `railway
-connect`): find the account by `season_entries.name` (names aren't unique: confirm by id or dates),
+names are callsigns (sanitised typed names in entries from before g2-9) and public, and the ids
+link them to `/stats` (disclosed on the privacy page, Nick 2026-10-04). **Deleting a player's season data** (privacy requests, by hand through `railway
+connect`): find the account by `season_entries.name` (a callsign is the account id's, but callsigns
+aren't unique: confirm by id or dates),
 then `DELETE FROM season_payouts WHERE account_id = $1; DELETE FROM season_entries WHERE account_id =
 $1;` (both reference `accounts`, so they go before any account row; so do `energy`, `loadouts`,
 `account_progress` and, since #49, `stash_items`: add `DELETE FROM stash_items WHERE account_id = $1;`;
