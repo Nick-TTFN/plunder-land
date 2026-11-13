@@ -86,6 +86,14 @@ const LEVEL_GAIN = [0, 0.35, 0.65, 1]
 export const SOUND_KEY = 'plunderland_sound'
 const DEFAULT_LEVEL: SoundLevel = 2
 
+/**
+ * The master gain: the player's level, or silence while the portal mutes the
+ * game (CrazyGames' `muteAudio`, g2-6a), which outranks the level.
+ */
+export function masterGain (level: SoundLevel, portalMuted: boolean): number {
+  return portalMuted ? 0 : LEVEL_GAIN[level]
+}
+
 /** What `SOUND_KEY` holds, read back; anything else is the default. */
 export function parseLevel (raw: string | null): SoundLevel {
   const n = Number(raw)
@@ -135,8 +143,20 @@ export class Sfx {
   private static readonly lastAt = new Map<SfxName, number>()
   private static readonly lastFile = new Map<SfxName, string>()
   private static _level: SoundLevel = DEFAULT_LEVEL
+  /** The portal's mute (`portal/adapter.ts` `onMute`): silent whatever the level; never stored. */
+  private static _portalMuted = false
 
   static get level (): SoundLevel { return Sfx._level }
+
+  /**
+   * The portal mutes or unmutes the game (g2-6a). Silences the master while
+   * muted and restores the player's level after; `SOUND_KEY` is not written,
+   * and a level chosen while muted waits for the unmute.
+   */
+  static setPortalMuted (muted: boolean): void {
+    Sfx._portalMuted = muted
+    if (Sfx.master !== undefined) Sfx.master.gain.value = masterGain(Sfx._level, muted)
+  }
 
   /** Reads the stored volume and waits for the first gesture to start audio. Once, at boot. */
   static init (): void {
@@ -165,7 +185,7 @@ export class Sfx {
 
   static setLevel (level: SoundLevel): void {
     Sfx._level = level
-    if (Sfx.master !== undefined) Sfx.master.gain.value = LEVEL_GAIN[level]
+    if (Sfx.master !== undefined) Sfx.master.gain.value = masterGain(level, Sfx._portalMuted)
     try {
       storage()?.setItem(SOUND_KEY, String(level))
     } catch {
@@ -183,7 +203,7 @@ export class Sfx {
     if (Ctor === undefined) return
     const ctx = Sfx.ctx = new Ctor()
     const master = Sfx.master = ctx.createGain()
-    master.gain.value = LEVEL_GAIN[Sfx._level]
+    master.gain.value = masterGain(Sfx._level, Sfx._portalMuted)
     master.connect(ctx.destination)
     void Sfx.load(ctx)
   }
@@ -213,7 +233,7 @@ export class Sfx {
   static play (name: SfxName, options: PlayOptions = {}): Voice {
     const ctx = Sfx.ctx
     const master = Sfx.master
-    if (ctx === undefined || master === undefined || ctx.state !== 'running' || Sfx._level === 0) return SILENT
+    if (ctx === undefined || master === undefined || ctx.state !== 'running' || masterGain(Sfx._level, Sfx._portalMuted) === 0) return SILENT
     const slot = BANK[name]
 
     let gain = slot.gain * (options.gain ?? 1)

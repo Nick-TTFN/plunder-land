@@ -68,6 +68,7 @@ import { SETTINGS } from './net/settings'
 import { clearFull, onFull } from './net/full'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
+import { PORTAL_SDK } from './portal'
 import { Handoff } from './net/handoff'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
 import { SpectateBar } from './ui/popups/spectatebar'
@@ -360,6 +361,9 @@ export class Game extends Container {
 
   start (): void {
     this.runCard = undefined
+    // The lobby is a break in play (portal SDK, g2-6a): also after a
+    // reconnect that drops a run back here. Only a change reaches the portal.
+    PORTAL_SDK.gameplayStop()
     // A run from the lobby continues nothing (net/handoff.ts).
     Handoff.reset()
     this.resetRun()
@@ -513,6 +517,9 @@ export class Game extends Container {
    */
   onHello (data: Parameters<typeof Session.onHello>[0]): void {
     Session.onHello(data)
+    // Play begins (portal SDK, g2-6a). A handoff's `hello` is the same run:
+    // the adapter passes on only a change, so it sends nothing.
+    PORTAL_SDK.gameplayStart()
     // A run began: no server-full retry is pending any more.
     clearFull()
     Game.MAP.setVoids(Session.layers, Session.voids)
@@ -1304,6 +1311,8 @@ export class Game extends Container {
         // restart: the next run starts when the player asks for it. A destroy
         // with hp 0 is a death; without hp, an extraction.
         Game.RUN.finish((obj as Unit).loot ?? 0)
+        // The run's end is a break in play (portal SDK, g2-6a), spectating included.
+        PORTAL_SDK.gameplayStop()
         const dead = data.hp === 0
         GameSfx.ownGone(dead)
         const card = this.runCard = new RunSummaryCard(dead ? 'dead' : 'extracted', Game.RUN, this.start.bind(this),

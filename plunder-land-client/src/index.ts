@@ -23,6 +23,7 @@ import { Sfx } from './audio/sfx'
 import { INTERVAL_MS, TIMEOUT_MS } from './net/latency'
 import { INPUT_MODE, installInputMode } from './input/inputmode'
 import { STICK_DEAD_ZONE, StickSteer, steer } from './input/stick'
+import { PORTAL_SDK } from './portal'
 
 initErrorReporting()
 // Touch mode (decision #59): from the pointer type, then from every press.
@@ -32,6 +33,8 @@ loadSettings(localTokenStorage())
 // Audio starts on the first press (browsers' rule); the menus click by delegation.
 Sfx.init()
 Sfx.bindDom(document)
+// A portal's mute outranks the volume setting (CrazyGames' muteAudio, g2-6a); the setting is kept.
+PORTAL_SDK.onMute((muted) => { Sfx.setPortalMuted(muted) })
 
 // The stats.js developer overlay (fps, socket bytes), with ?stats=1 or the
 // settings' PERFORMANCE OVERLAY. It sat on top of the HUD's status panel for
@@ -305,6 +308,8 @@ function onConnect (): void {
   app.stage.addChild(Game.popups)
 
   Game.Instance.start()
+  // The lobby is up: loading is over (portal SDK, g2-6a; once a page).
+  PORTAL_SDK.loadingStop()
 
   onResize()
 }
