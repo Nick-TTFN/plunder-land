@@ -382,6 +382,9 @@ function findings (rects, size, screen) {
       if (a.name.startsWith('fan ') && b.name.startsWith('fan ')) continue
       const o = overlap(a, b)
       if (o === undefined) continue
+      // Two round buttons overlap only if their circles do, not their boxes.
+      const round = (r) => r.name.startsWith('radial') || r.name.startsWith('hot slot') || r.name.startsWith('fan ')
+      if (round(a) && round(b) && Math.hypot(a.x + a.w / 2 - b.x - b.w / 2, a.y + a.h / 2 - b.y - b.h / 2) >= (a.w + b.w) / 2) continue
       const modal = isPanel(a.name) || isPanel(b.name)
       rows.push({ kind: modal ? 'covered by modal' : 'overlap', a: a.name, b: b.name, px: `${o.w}x${o.h}` })
     }
@@ -459,7 +462,9 @@ async function shoot (page, cdp, mode, sizes, screen, opts = {}) {
     await page.screenshot({ path: join(OUT, file), type: 'jpeg', quality: 82 })
     const dom = await page.evaluate(() => window.__ls.domRects())
     const prompt = dom.some((r) => r.name === 'rotate prompt')
-    const hud = prompt ? [] : await page.evaluate(() => { try { return window.__ls.hudRects() } catch { return [] } })
+    // The lobby's DOM covers the canvas: pixi objects left on the stage under it (the leaderboard) aren't seen.
+    const lobby = dom.some((r) => r.name === 'READY')
+    const hud = prompt || lobby ? [] : await page.evaluate(() => { try { return window.__ls.hudRects() } catch { return [] } })
     const rects = [...dom, ...hud]
     const rows = findings(rects, size, screen)
     const smallDom = await page.evaluate(() => window.__ls.smallDomText(10))
