@@ -125,6 +125,13 @@ the arrows beside the robot and the key-hints line are gone (left/right still sw
   observers watch, which is a "ResizeObserver loop" error on window.onerror; the grid's observer
   schedules it for the next frame. Measured overflow before → after (Chrome): 1366x625 274 → 0
   (zoom 0.69), 1536x730 169 → 0, 390x844 171 → 0; a 390x664 phone still scrolls 112 at 0.75.
+- **Safe-area insets are zoom-aware** (g2-4): a zoomed `env(safe-area-inset-*)` shrinks with the
+  zoom, which put the header and the right column 13-30 px into an iPhone's notch. `fit` sets
+  `--lb-z` (the zoom) on the root, and `lobbystyle.ts` defines `--lb-sl`/`--lb-sr`/`--lb-sb` as
+  `env(...) / var(--lb-z)`; the header, the short-landscape grid, the build tag and READY's bar
+  pad with those, never with `env()` directly. Verified in Chromium only; if WebKit doesn't zoom
+  an env() inside calc, the padding comes out 1/zoom too big (never into the notch).
+  Not fixed: lobby text on a landscape phone is 4.9-6.7 px at the zoom floor (a design call).
 - **No skill points exist**: the rows' status lines are facts (the kit READY plays, the first three
   stats, `stashCount` and "N new"); only the Stash row's dot lights.
 - **The journey** is `journeyStop(level)` in `locks.ts` (pixi-free, `unlocks.spec.ts`): a stop is
@@ -281,7 +288,7 @@ auto-aim target or along the movement direction. A tap or click on an enemy targ
 moving. Mouse aim and touch's arm-then-tap (`skills/touchaim.ts`, TAP TARGET) are deleted, with
 no flag (#58 addendum 5); the pointer no longer aims anything in a run. **Phone HUD**
 (`HUD.phone()`, either side under 520 px): the leaderboard opens and closes from the clock, the fog
-legend isn't drawn. **Lobby under 520 px tall** (a phone held sideways): the desktop grid, tightened; under 760 px
+legend isn't drawn; the layout is in "Phone HUD" below. **Lobby under 520 px tall** (a phone held sideways): the desktop grid, tightened; under 760 px
 wide the one-column layout (see "Lobby").
 
 **Aim line** (`vfx/aimline.ts`, #58: "a line from you to the target, with a crosshair or similar at
@@ -313,3 +320,37 @@ Defend stays on arrival: its protection starts at the server.
 `GameObject.DEBUG_COLLIDERS` is off. It draws a magenta disc the size of the collider under
 every object; the `// return` that used to switch it off had been commented out, so the
 shipping game had one under everything.
+
+## Phone HUD
+
+Built in g2-4 (2026-11-13) after Nick's iPhone play ("inventory carousel was big overlapping with
+minimap": the touch hot slot and its fan on the minimap, up to 41 px in Safari with its bars).
+All in `ui/components/hud.ts` and `radial.ts`; `tools/layout-shots.mjs` measures it.
+
+- **The split** (Nick, #62 addendum: "minimap should use up to 1/3rd right top area while controls
+  would take up to 2/3 bottom right"): on a phone, the visible height after the safe-area insets
+  splits at one third (`TOP_SHARE`). The minimap (80 px, smaller only if the third is shorter), the
+  layer badge inside it, and the settings and fullscreen buttons left of it sit above the line.
+- **The radial cluster scales into the rest** (touch): `RadialCluster.layout(..., scale)` draws the
+  container at `fitScale(space under the line - 8) = min(1, space / RADIAL_HEIGHT)`, where
+  `RADIAL_HEIGHT` 264 is the primary's bottom edge (24 above the safe bottom) to the hot slot's top.
+  Buttons are placed in the cluster's own unscaled px, so their `Circle` hit areas scale with the
+  drawing. Measured: 0.775 at 750x340 with insets (skills and items 47 px, primary 71, + toggle 23);
+  about 0.74 at the shortest listed viewport (iPhone 13 mini with bars). Counts and countdowns
+  keep 10 px (`floorText`). Off a phone (a tablet in touch mode) the ceiling is the bottom of the
+  minimap, settings button or a right-side board instead.
+- **Scales:** `HUD.scale()` (everything but the header) floors at 10/13 = 0.77 on a touch phone
+  (`PHONE_TEXT_FLOOR` 10 px for `THEME.smallSize` text). **The header** (status panel, clock and
+  latency, the phone leaderboard; `HUD.headerScale()`) is 0.54 on a touch phone
+  (`TOUCH_PHONE_HEADER_SCALE`; Nick: "header typography definitely can be smaller. like -30% at
+  least"; its smallest text is about 7 px). **Mouse play in a phone-size window** (CrazyGames'
+  800x450, 821x462, 907x510 frames are phones by size) uses `MOUSE_PHONE_SCALE` 0.62 for all of it
+  (Nick, option B: text 8-10 px, panels ~25% under 0.77). Elsewhere 0.5..1 by window size, as before.
+- **Layer badge** (`LayerBadge.fitWidth`): its tags go one per line when the joined line is wider
+  than the minimap less 10 px, so it stays inside the minimap's corner at its 10 px font (it
+  stuck out 36 px).
+- **The phone leaderboard** opened from the clock: in touch mode under the status panel at the
+  left, never over the cluster (`placePhoneBoard` shrinks it if it would reach `leftEdge()`; it
+  never does at the listed sizes); with a mouse under the minimap, right-aligned, as before. On a
+  tablet the layers panel and fog legend keep left of a board beside the clock.
+- The cornered clock reserves room for the fullscreen button as well as settings and the minimap.

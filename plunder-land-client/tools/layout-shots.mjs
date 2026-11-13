@@ -59,6 +59,8 @@ const SERVER = args.server ?? 'http://localhost:8093'
 const OUT = resolve(args.out ?? 'outputs/layout-g2')
 const MODES = (args.modes ?? 'desktop,touch').split(',')
 const ONLY = args.only !== undefined ? new Set(args.only.split(',')) : undefined
+/** `--portal crazygames` (or any `?portal=` value) loads the client as that portal would. */
+const PORTAL_ARG = args.portal
 const KEY_FILE = process.env.ADMIN_KEY_FILE
 if (KEY_FILE === undefined) throw new Error('ADMIN_KEY_FILE must name a file holding the server\'s ADMIN_KEY')
 const ADMIN_KEY = readFileSync(KEY_FILE, 'utf8').trim()
@@ -95,6 +97,8 @@ const SIZES = {
     { name: 'cg-desktop-1216x684', w: 1216, h: 684, dpr: 1 },
     { name: 'cg-desktop-1077x606', w: 1077, h: 606, dpr: 1 },
     { name: 'cg-desktop-821x462', w: 821, h: 462, dpr: 1 },
+    // Not a CG frame: the narrowest common laptop width, for the clock against the fullscreen button.
+    { name: 'desktop-1024x576', w: 1024, h: 576, dpr: 1 },
     { name: 'cg-full-1366x768', w: 1366, h: 768, dpr: 1 },
     { name: 'cg-full-1920x1080', w: 1920, h: 1080, dpr: 1 },
     { name: 'cg-full-1536x864', w: 1536, h: 864, dpr: 1 },
@@ -302,6 +306,8 @@ function pageHelpers () {
       rect('header', q('.lb-top'))
       rect('wordmark', q('.lb-wordmark'))
       rect('header actions', q('.lb-topactions'))
+      // Which header buttons show (INVITE and fullscreen are portal-dependent).
+      qa('.lb-topactions .lb-invite').forEach((e) => { rect(`header button ${e.textContent.trim() || e.getAttribute('aria-label') || '?'}`, e) })
       rect('menu button', q('.lb-menu'))
       rect('callsign', q('.lb-callsign'))
       rect('robot plate', q('.lb-plate'))
@@ -365,7 +371,9 @@ const BY_DESIGN = [
   ['header actions', 'header'], ['wordmark', 'header'], ['menu button', 'header'], ['menu button', 'header actions'],
   ['plays line', 'READY'], ['choose plunderbot', 'robot plate']
 ]
-const designed = (a, b) => BY_DESIGN.some(([x, y]) => (a === x && b === y) || (a === y && b === x))
+const designed = (a, b) => BY_DESIGN.some(([x, y]) => (a === x && b === y) || (a === y && b === x)) ||
+  // A header button sits inside the header and its actions row.
+  (a.startsWith('header button') && ['header', 'header actions', 'menu button'].includes(b)) || (b.startsWith('header button') && ['header', 'header actions', 'menu button'].includes(a))
 const isPanel = (n) => n.startsWith('panel') || n === 'settings panel' || n === 'rotate prompt' || n === 'run card'
 
 function findings (rects, size, screen) {
@@ -515,7 +523,7 @@ async function runMode (browser, mode, account, sizes) {
   const errors = []
   page.on('pageerror', (e) => { errors.push(e.message) })
   const cdp = await context.newCDPSession(page)
-  await page.goto(`${CLIENT}/?server=${encodeURIComponent(SERVER)}`)
+  await page.goto(`${CLIENT}/?server=${encodeURIComponent(SERVER)}${PORTAL_ARG !== undefined ? `&portal=${encodeURIComponent(PORTAL_ARG)}` : ''}`)
   await waitFor(page, () => document.querySelector('.lb-ready') !== null && /Level 1[0-9]/.test(document.querySelector('.lb-levelhead')?.textContent ?? ''), 20000, 'the lobby with the account')
   await sleep(800)
 

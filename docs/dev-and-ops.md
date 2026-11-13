@@ -156,6 +156,24 @@ re-measured since.) The whole-world counts (per layer: the void share, the natur
 numbers in `LAYERS`) are checked by the world specs, not by a join. Reaching a shared world takes
 walking to a pad on layer 02, so a join-only smoke test sees only a private world.
 
+**Layout screenshots and audit** (`plunder-land-client/tools/layout-shots.mjs`, g2-4; reused by
+g2-7's visual QA). Against a **development** client (it reaches the game's modules through the
+webpack chunk array) and a local server on spare ports started with `ADMIN_KEY` (32+ chars) and
+`FIRST_RUN_CAP=0`:
+
+```
+ADMIN_KEY_FILE=<file with the key> node tools/layout-shots.mjs --client http://localhost:3093 \
+  --server http://localhost:8093 --out outputs/layout-xyz [--modes desktop,touch] \
+  [--only <size name or WxH>,...] [--portal crazygames]
+```
+
+It makes a guest account and levels it through the admin endpoints, then per input mode and DPR
+shoots the lobby and its panels, a run (fan opened by a real tap, phone leaderboard, settings) and
+the run card at CrazyGames' ten frames (desktop, DPR 1) and phone sizes (touch, emulated insets),
+and writes `report.tsv` (overlaps, off-screen, outside the safe area, text under 10 px, blocked
+taps) and `report.json`. Chromium only; Playwright comes from `PLAYWRIGHT_DIR` or the npx cache.
+It refuses ports 6379 and 8000. `outputs/` is not gitignored: keep shots out of commits.
+
 ## Bundle size
 
 Main JS, 2026-10-02 with Sentry: **847 KB** parsed, 254 KB gzipped (Sentry is +89 / +30 of that;
