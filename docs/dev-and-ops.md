@@ -203,7 +203,7 @@ server picks the id, so record the id the `account` event gives the smoke test.
 
 **Visits and portals (#56, for the itch soft launch and the CrazyGames gate).** The client says
 where it runs in the handshake (`auth.portal`, `net/portal.ts`: `itch` on `*.itch.zone`/`*.itch.io`,
-else `web`, `?portal=` overrides); the server reads it through an allowlist (`network/visits.ts`
+`crazygames` on `crazygames.com` and its subdomains (g2-2), else `web`, `?portal=` overrides); the server reads it through an allowlist (`network/visits.ts`
 `portalOf`: anything else `other`, none `web`) and puts `portal` on every run event and on three
 visit events, one visit per connection: `visit_start` (`new_player`; `days_since_first` for an
 account with a first run), `visit_end` (`seconds`, `runs`, `ended_in` run/lobby/drain,

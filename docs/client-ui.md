@@ -14,13 +14,47 @@ ROBOT SHADOWS (`RobotSprite`'s cast pass) from the next run. VOLUME (OFF/LOW/MID
 sound module's own setting, not a `Settings` field (see Sound). The old S key toggled an unused
 `Game.simulate`: removed.
 
-## Portals (itch)
+## Portals (itch, CrazyGames)
 
-`net/portal.ts` (#56): `PORTAL` (`config.ts`) is `itch` inside itch's embed. There the lobby hides
-INVITE (a link is built from the page's own address, which in the embed is the bare game on
-itch.zone; Nick: hide for now) and Privacy links to our own site (`SITE_URL`). Every asset path is
-relative (`res/...`), because itch serves the build from a subfolder; the Worker serves the game only
-at `/`, so that is safe there. `SITE_URL` changes with a custom domain.
+`net/portal.ts` (#56): `PORTAL` (`config.ts`) is `itch` inside itch's embed (`*.itch.zone`,
+`*.itch.io`) and `crazygames` on `crazygames.com` and its subdomains (#62, g2-2: their file host
+`<slug>.game-files.crazygames.com`, and `games.crazygames.com`, the frame their iOS app runs; the
+host of their QA preview is unchecked). `?portal=` overrides it. On both the lobby hides INVITE (a
+link is built from the page's own address, which there is the bare game on the portal's file host;
+CrazyGames' own invite links are an SDK feature) and Privacy links to our own site (`SITE_URL`).
+Every asset path is relative (`res/...`), because itch serves the build from a subfolder; the Worker
+serves the game only at `/`, so that is safe there. `SITE_URL` changes with a custom domain.
+
+Page hygiene for an iframe (CrazyGames' requirements and common fixes, g2-2; `assets/index.html`):
+no text selection on `body` (inputs stay editable), no context menu on the canvas (`index.ts`), and
+arrow keys, Space, PageUp/PageDown and the wheel over the canvas don't scroll the host page (keys
+pass through on a focused input, button or link; the wheel elsewhere still scrolls the lobby's
+panels). Escape still opens settings in a run (CrazyGames only recommends avoiding it).
+
+**Fullscreen** (g2-1, #62): a button in the lobby header (in the header menu under 760 px, as
+Settings) and beside the settings cog in a run, on every device, whatever the input mode, wherever
+`fullscreenButtonShown(PORTAL, fullscreenSupported())` holds: not on CrazyGames (their gameplay
+rules prohibit a custom fullscreen button; their page has its own), and not where the browser has no
+Fullscreen API for a page, which is iPhone Safari (no special case: `fullscreenSupported()` is false
+there). Inside an iframe it also needs the host's `allowfullscreen`. Both buttons redraw on every
+`fullscreenchange` (Esc included): corners out to enter, in to leave.
+
+**Portal SDK** (g2-6a, #62: "go full in with adapter"): `src/portal/`. `adapter.ts` is the one
+interface (`PortalSdk`: `ready`, `loadingStop`, `gameplayStart`, `gameplayStop`, `onMute`; the user,
+link, rewarded-ad members are declared and answer null/false/`'unavailable'` until g2-6b..d);
+`withGameplayState` passes on `loadingStop` once and `gameplayStart`/`gameplayStop` only on a
+change. `none.ts` is the no-op (our site, itch, anything else); `crazygames.ts` adds CrazyGames'
+SDK v3 script at run time, only on `crazygames`, awaits `init()` for at most 5 s
+(`INIT_TIMEOUT_MS`), and uses it only in the `crazygames` or `local` environment (`disabled`, our own
+site with `?portal=crazygames`, throws on every call); every call goes through one guard (never
+throws, warns once per method), and calls made before init are replayed in order. `pick.ts` chooses
+from the portal; `index.ts` holds `PORTAL_SDK`. Wiring: `loadingStart` as soon as init resolves,
+`loadingStop` when the lobby is up (`index.ts` `onConnect`), `gameplayStart` on a run's `hello` (a
+handoff's second `hello` sends nothing), `gameplayStop` at the own destroy (run card) and in
+`Game.start` (the lobby, a reconnect); none on a hidden tab (CrazyGames: the platform handles it).
+In the `local` environment (localhost) each call is logged as `portal sdk: <name>`.
+`portaladapter.spec.ts` drives it with fake SDKs. Unverified: whether CrazyGames' QA accepts the
+runtime script tag instead of the static `<head>` one their docs show.
 
 ## Sound
 
@@ -35,6 +69,9 @@ The minimal sound pass before the itch soft launch (#56). Effects only, no music
   the files load then; a play before that is dropped, not queued. A hidden tab suspends it.
 - **Volume**: localStorage `plunderland_sound`, 0-3, default MID (2). Kept out of `Settings` so the
   settings shape and its spec stay as they are.
+- **A portal's mute outranks it** (CrazyGames' `muteAudio`, g2-6a): `Sfx.setPortalMuted` silences
+  the master (`masterGain`) and restores the level after, without writing `plunderland_sound`; a
+  level picked while muted waits for the unmute.
 - **Placed by distance only**: full within 200 world px of the listener (your robot, or the one you
   spectate), silent from 800, no panning. An effect whose unit or cell is unknown is not played.
 - **`audio/gamesfx.ts`** holds the game logic, called from `Game` with plain values: effect types
