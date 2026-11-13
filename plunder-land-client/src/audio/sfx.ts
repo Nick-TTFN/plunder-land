@@ -47,11 +47,12 @@ const BANK: Record<SfxName, Slot> = {
   melee_swing: { files: ['impactPunch_heavy_004', 'impactPunch_heavy_000'], gain: 0.5, gapMs: 60, vary: 0.05 },
   hit_landed: { files: ['impactPlate_light_001', 'impactPlate_light_002', 'impactPlate_light_000'], gain: 0.6, gapMs: 70, vary: 0.08 },
   damage_taken: { files: ['impactPlate_heavy_001', 'impactPlate_heavy_004'], gain: 0.6, gapMs: 120, vary: 0.05 },
-  // Sonniss GDC 2026 (Federico Soler, Effective Trailer Booms Vol. 2, 011), Nick's blind picks 2026-11-14: crunch 004 was harsh and cheap. Gains keep the old loudness (files at -20 LUFS).
+  // Kill, death, blast, kiln_land, broodling_blast and reactor_windup are Sonniss GDC 2026 files (LICENSE.txt), Nick's blind picks 2026-11-14:
+  // Kenney's explosionCrunch was harsh and cheap. Files at -20 LUFS; gains keep the old loudness, except the Reactor's drone, 6 dB under the old hum.
   kill: { files: ['boom011_short'], gain: 0.41, gapMs: 80 },
   death: { files: ['boom011_long'], gain: 0.52 },
   death_sting: { files: ['jingles_HIT11'], gain: 0.7 },
-  blast: { files: ['explosionCrunch_000', 'explosionCrunch_004'], gain: 0.45, gapMs: 80, vary: 0.06 },
+  blast: { files: ['boom011_thump'], gain: 0.56, gapMs: 80, vary: 0.06 },
   loot_pickup: { files: ['chips-stack-4', 'chips-stack-5', 'chips-handle-1', 'chips-stack-1'], gain: 0.8, gapMs: 60 },
   gear_pickup: { files: ['glass_002'], gain: 0.7, gapMs: 60 },
   extract_loop: { files: ['forceField_001'], gain: 0.3 },
@@ -62,10 +63,10 @@ const BANK: Record<SfxName, Slot> = {
   compactor_windup: { files: ['spaceEngineLow_000'], gain: 0.3 },
   compactor_slam: { files: ['impactPlate_heavy_001'], gain: 0.7, vary: 0.04 },
   kiln_launch: { files: ['thrusterFire_001'], gain: 0.5 },
-  kiln_land: { files: ['explosionCrunch_004'], gain: 0.6, gapMs: 60, vary: 0.05 },
+  kiln_land: { files: ['woosh_debris'], gain: 0.45, gapMs: 60, vary: 0.05 },
   broodling_fuse: { files: ['slime_000'], gain: 0.9, gapMs: 80 },
-  broodling_blast: { files: ['explosionCrunch_000'], gain: 0.6, gapMs: 60, vary: 0.06 },
-  reactor_windup: { files: ['spaceEngineLarge_002'], gain: 0.3 },
+  broodling_blast: { files: ['cartoon_bubbles'], gain: 0.84, gapMs: 60, vary: 0.06 },
+  reactor_windup: { files: ['tension_drone_loop'], gain: 0.5 },
   coil_pulse: { files: ['forceField_003'], gain: 0.3, gapMs: 200 },
   level_up: { files: ['jingles_STEEL08'], gain: 0.7 },
   ready: { files: ['confirmation_001'], gain: 0.5 },

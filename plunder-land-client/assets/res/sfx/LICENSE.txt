@@ -10,3 +10,10 @@ boom011_short and boom011_long are cut from EffectiveTrailer_Booms_Vol2_011
 as they come or used to train AI. Cut from the first transient (0.6 s and
 1.4 s, faded out), stereo (the source's channels partly cancel in mono),
 levelled to -20 LUFS.
+
+Also from the Sonniss #GameAudioGDC 2026 bundle, under the same terms:
+boom011_thump (boom 011, low-passed at 800 Hz, 0.6 s); woosh_debris ("Woosh
+Debris", Cinematic Sound Design - Colossal Impacts, 0.7 s); cartoon_bubbles
+("Cartoon Bubbles Short", 0.48 s); tension_drone_loop ("magic, drone, tension,
+spellbound, evanescence-002", 3 s from 0.63 s, its last 0.4 s crossfaded into
+its start so it loops without a seam). All stereo, -20 LUFS.
