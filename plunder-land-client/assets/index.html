@@ -36,7 +36,9 @@
         // Inside a portal's iframe (CrazyGames, itch) a page that cannot scroll
         // hands arrow, space and wheel scrolling to the host page around it
         // (CrazyGames' common fixes, #62). Not on a focused control; the wheel only
-        // over the canvas, so the lobby's panels still scroll.
+        // over the canvas, so the lobby's panels still scroll. The key listener is
+        // capture phase and registered first: the lobby and settings panel capture
+        // keys too and stop them, so a bubble-phase one would never see them there.
         (function () {
           var keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'PageUp', 'PageDown']
           window.addEventListener('keydown', function (e) {
@@ -44,7 +46,7 @@
             // A focused control keeps its own keys (space presses a button).
             var control = t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(t.tagName))
             if (!control && keys.indexOf(e.key) >= 0) e.preventDefault()
-          })
+          }, true)
           window.addEventListener('wheel', function (e) {
             if (e.target instanceof HTMLCanvasElement) e.preventDefault()
           }, { passive: false })

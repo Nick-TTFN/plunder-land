@@ -29,7 +29,9 @@ Page hygiene for an iframe (CrazyGames' requirements and common fixes, g2-2; `as
 no text selection on `body` (inputs stay editable), no context menu on the canvas (`index.ts`), and
 arrow keys, Space, PageUp/PageDown and the wheel over the canvas don't scroll the host page (keys
 pass through on a focused input, button or link; the wheel elsewhere still scrolls the lobby's
-panels). Escape still opens settings in a run (CrazyGames only recommends avoiding it).
+panels). The key guard is a capture-phase listener registered before any other: the lobby and the
+settings panel capture keys and `stopImmediatePropagation`, so a bubble-phase guard never ran there.
+Escape still opens settings in a run (CrazyGames only recommends avoiding it).
 
 **Fullscreen** (g2-1, #62): a button in the lobby header (in the header menu under 760 px, as
 Settings) and beside the settings cog in a run, on every device, whatever the input mode, wherever
