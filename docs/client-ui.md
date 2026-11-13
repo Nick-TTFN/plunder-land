@@ -131,7 +131,15 @@ the arrows beside the robot and the key-hints line are gone (left/right still sw
   `env(...) / var(--lb-z)`; the header, the short-landscape grid, the build tag and READY's bar
   pad with those, never with `env()` directly. Verified in Chromium only; if WebKit doesn't zoom
   an env() inside calc, the padding comes out 1/zoom too big (never into the notch).
-  Not fixed: lobby text on a landscape phone is 4.9-6.7 px at the zoom floor (a design call).
+- **A touch phone held sideways gets its own layout** (`.lb-land`, set by `fit` when the window is
+  landscape, at most 520 tall, and `INPUT_MODE.touch`; Nick 2026-11-13: "ideally no scrolling ... i
+  expect it to fit on fullscreen landscape"): the same two columns at **zoom 1**, tightened in
+  `lobbystyle.ts` (40 px header, smaller hero and Start run, the level and XP line on one row, no
+  "Progress" eyebrow, 36 px rows; under 370 px tall also no "Upcoming unlocks" heading, 32 px rows),
+  so no text is under 10 px. Measured: no lobby scroll from 340 to 430 tall, Safari's bars and notch
+  insets included. The build tag sits in the header's middle there. The panels (loadout, stash,
+  paint, robots) open over the grid and scroll inside (up to ~370 px at 340 tall). A mouse in the
+  same window size (CrazyGames' small desktop frames) keeps the zoomed desktop grid.
 - **No skill points exist**: the rows' status lines are facts (the kit READY plays, the first three
   stats, `stashCount` and "N new"); only the Stash row's dot lights.
 - **The journey** is `journeyStop(level)` in `locks.ts` (pixi-free, `unlocks.spec.ts`): a stop is
