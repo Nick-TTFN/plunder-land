@@ -27,7 +27,7 @@ const MINIMAP = 200
 const MINIMAP_PHONE = 80
 
 /**
- * The smallest HUD text on a phone, CSS px (g2-4): `HUD.scale` never goes
+ * The smallest HUD text on a touch phone, CSS px (g2-4): `HUD.scale` never goes
  * below what puts `THEME.smallSize` text at this size. 10 because it is the
  * layer badge's size, which Nick accepted on his phone (2026-11-05), and
  * CrazyGames' QA judges legibility at DPR 1; the old 0.5 floor put the
@@ -51,9 +51,18 @@ const TOP_SHARE = 1 / 3
  * least", so 30% under the `PHONE_TEXT_FLOOR` scale (10/13 = 0.77). Its
  * smallest text is about 7 px: Nick's call, overriding the floor for the
  * header only. A desktop-mode window of phone size (CrazyGames' 800x450,
- * 821x462 and 907x510 frames, judged for legibility at DPR 1) keeps the floor.
+ * 821x462 and 907x510 frames, judged for legibility at DPR 1) uses `MOUSE_PHONE_SCALE`.
  */
 export const TOUCH_PHONE_HEADER_SCALE = 0.54
+
+/**
+ * The whole HUD's scale in a phone-size window played with a mouse, which
+ * includes CrazyGames' desktop frames 800x450, 821x462 and 907x510 (Nick,
+ * 2026-11-13, option B, decision #62 addendum): between the old 0.5 and the
+ * touch floor's 0.77, panels about 25% smaller than at 0.77 and text about
+ * 8-10 px (13 px text at 8.1, 16 px at 9.9).
+ */
+export const MOUSE_PHONE_SCALE = 0.62
 
 /** The settings button's side, CSS px, never `HUD.scale`d (mobile-4). */
 const GEAR = 40
@@ -223,12 +232,24 @@ export class HUD extends Container {
   }
 
   /**
-   * 1 at 1600 x 900 and up, down to 0.5 on small screens; on a phone never
-   * below what keeps the smallest text at `PHONE_TEXT_FLOOR` (g2-4).
+   * 1 at 1600 x 900 and up, down to 0.5 on small screens. On a phone never
+   * below what keeps the smallest text at `PHONE_TEXT_FLOOR` in touch mode
+   * (g2-4), or below `MOUSE_PHONE_SCALE` with a mouse.
    */
   static scale (): number {
     const s = Math.max(0.5, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
-    return HUD.phone() ? Math.max(s, Math.min(1, PHONE_TEXT_FLOOR / THEME.smallSize)) : s
+    if (!HUD.phone()) return s
+    return Math.max(s, INPUT_MODE.touch ? Math.min(1, PHONE_TEXT_FLOOR / THEME.smallSize) : MOUSE_PHONE_SCALE)
+  }
+
+  /**
+   * The header's scale (status panel, clock, leaderboard): `scale()`, except
+   * on a touch phone, where it is `TOUCH_PHONE_HEADER_SCALE` (or more on a
+   * screen big enough for more).
+   */
+  static headerScale (): number {
+    if (!HUD.phone() || !INPUT_MODE.touch) return HUD.scale()
+    return Math.max(TOUCH_PHONE_HEADER_SCALE, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
   }
 
   setupGameUI (): void {
@@ -321,16 +342,6 @@ export class HUD extends Container {
    * clock is tapped, and the fog legend isn't drawn, so the robot and the
    * ground round it stay in view. Touch controls, L9 (Claude's layout).
    */
-  /**
-   * The header's scale (status panel, clock, leaderboard): `scale()`, except
-   * on a touch phone, where it is `TOUCH_PHONE_HEADER_SCALE` (or more on a
-   * screen big enough for more).
-   */
-  static headerScale (): number {
-    if (!HUD.phone() || !INPUT_MODE.touch) return HUD.scale()
-    return Math.max(TOUCH_PHONE_HEADER_SCALE, Math.min(1, window.innerWidth / 1600, window.innerHeight / 900))
-  }
-
   static phone (): boolean {
     return Math.min(window.innerWidth, window.innerHeight) < 520
   }
