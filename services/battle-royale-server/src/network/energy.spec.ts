@@ -10,6 +10,7 @@ import World from '../objects/world'
 import type Player from '../objects/player'
 import { type Account, type AccountStore, MemoryAccountStore } from '../db/accounts'
 import { energyAt, type EnergyRecord } from '../progress/energy'
+import { ENERGY } from '../progress/xp'
 import type { PaidSeason, SeasonBoard, SeasonCredit, SeasonView } from '../progress/seasons'
 import { energyLine, onEnergy, onRefused, projectEnergy } from '../../../../plunder-land-client/src/net/energy'
 
@@ -117,12 +118,12 @@ class EnergyStore implements AccountStore {
   /** The account's stock as the store holds it now. */
   async stock (token: string, nowMs: number): Promise<number> {
     const record = (await this.inner.resolve(token))?.energy ?? null
-    // No record: a new account's 6.
+    // No record: a new account's `ENERGY.start`.
     return energyAt(record, nowMs).stock
   }
 }
 
-const ENERGY_START = 6
+const ENERGY_START = ENERGY.start
 const MIN = 60_000
 
 async function settle (): Promise<void> {
@@ -181,8 +182,8 @@ test('a first play (a new account) spends too: 6 becomes 5', async () => {
   await settle()
   assert.ok(client.connection.player !== undefined)
   const [account] = client.events('account') as Array<{ energy: { stock: number } }>
-  assert.equal(account.energy.stock, 6, 'the new account is announced with 6')
-  assert.deepEqual(client.events('energy').map((e) => (e as { stock: number }).stock), [5])
+  assert.equal(account.energy.stock, ENERGY_START, 'the new account is announced with the start stock')
+  assert.deepEqual(client.events('energy').map((e) => (e as { stock: number }).stock), [ENERGY_START - 1])
 })
 
 test('an extraction gives the play back, once', async () => {

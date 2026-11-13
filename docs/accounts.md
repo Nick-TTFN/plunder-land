@@ -93,7 +93,7 @@ $1;` (both reference `accounts`, so they go before any account row; so do `energ
 since #58, `first_runs` too: `DELETE FROM first_runs WHERE account_id = $1;`).
 
 **Energy** (#48 step 7, `progress/energy.ts`; numbers are `ENERGY` in `progress/xp.ts`, Nick's #48:
-1 play per 30 min, cap 3, a new account starts with 6, nothing regenerates above the cap). A run
+1 play per 30 min, cap 3, a new account starts with 10 (6 until 2026-11-13, #62), nothing regenerates above the cap). A run
 costs a play, spent in `Worlds.admit` before the run begins by one atomic check-and-spend
 (`AccountStore.spend`; pg: a transaction holding the `energy` row `FOR UPDATE`, after an `INSERT …
 ON CONFLICT DO NOTHING` of the start stock, so two starts at once with one play left get one run).

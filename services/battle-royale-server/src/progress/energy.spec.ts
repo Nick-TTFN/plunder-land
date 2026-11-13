@@ -5,23 +5,23 @@ import { energyAt, energyView, refundAt, spendAt } from './energy'
 
 /**
  * Energy's arithmetic (decision #48 step 7): 1 play per 30 min, a cap of 3,
- * new accounts start with 6, nothing regenerates above the cap, a run costs 1
+ * new accounts start with 10, nothing regenerates above the cap, a run costs 1
  * and an extraction gives it back.
  */
 
 const MIN = 60_000
 const T = 1_000_000_000
 
-test('the numbers are #48\'s: 1 per 30 min, cap 3, start 6', () => {
-  assert.deepEqual({ ...ENERGY }, { regenMs: 30 * MIN, cap: 3, start: 6 })
+test('the numbers are #48\'s: 1 per 30 min, cap 3, start 10 (#62)', () => {
+  assert.deepEqual({ ...ENERGY }, { regenMs: 30 * MIN, cap: 3, start: 10 })
 })
 
-test('a new account (no record) has 6, and nothing regenerates above the cap', () => {
-  assert.deepEqual(energyAt(null, T), { stock: 6, asOfMs: T })
-  assert.deepEqual(energyView(null, T), { stock: 6, cap: 3, nextInMs: null, regenMs: 30 * MIN })
-  // Six runs lost, and only from the fourth does the clock run.
+test('a new account (no record) has the start stock, and nothing regenerates above the cap', () => {
+  assert.deepEqual(energyAt(null, T), { stock: ENERGY.start, asOfMs: T })
+  assert.deepEqual(energyView(null, T), { stock: ENERGY.start, cap: 3, nextInMs: null, regenMs: 30 * MIN })
+  // Runs lost down to the cap; only below it does the clock run.
   let record = null as ReturnType<typeof energyAt> | null
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < ENERGY.start - ENERGY.cap; i++) {
     const spent = spendAt(record, T + i * 60 * MIN)
     assert.equal(spent.ok, true)
     record = spent.record
@@ -59,9 +59,9 @@ test('at 0 a spend is refused, and the view says when the next play comes', () =
   assert.equal(spendAt(empty, T + 30 * MIN).ok, true, 'refused only until the play has come back')
 })
 
-test('a refund gives the play back: from 6 back to 6, from the cap back to the cap', () => {
+test('a refund gives the play back: from the start stock back to it, from the cap back to the cap', () => {
   const six = spendAt(null, T).record
-  assert.deepEqual(refundAt(six, T + 5 * MIN), { stock: 6, asOfMs: T + 5 * MIN })
+  assert.deepEqual(refundAt(six, T + 5 * MIN), { stock: ENERGY.start, asOfMs: T + 5 * MIN })
   const three = spendAt({ stock: 3, asOfMs: T }, T).record
   const back = refundAt(three, T + 5 * MIN)
   assert.equal(back.stock, 3)

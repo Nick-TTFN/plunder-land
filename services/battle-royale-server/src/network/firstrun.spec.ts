@@ -16,7 +16,7 @@ import { type Account, MemoryAccountStore } from '../db/accounts'
 import { type SeasonCredit } from '../progress/seasons'
 import { energyAt } from '../progress/energy'
 import { ARCHETYPES } from '../archetypes/archetypes'
-import { PROGRESSION } from '../progress/xp'
+import { ENERGY, PROGRESSION } from '../progress/xp'
 import Analytics from '../analytics'
 import { Hex } from '../utils/hex'
 import { FIRST_RUN } from '../firstrun/scenario'
@@ -471,7 +471,7 @@ test('the play moves across the handoff: the private run\'s death keeps it spent
   const store = new Store()
   const worlds = makeWorlds(store)
   const { client, token, world, player } = await begin(worlds, store)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
   stepOnGate(worlds, world, player)
   await settle()
   const priv = worlds.worldFor(client.connection) as World
@@ -481,7 +481,7 @@ test('the play moves across the handoff: the private run\'s death keeps it spent
   worlds.tickAll(250)
   await settle()
   assert.equal(store.refunds, 0)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
 })
 
 test('a disconnect inside the first run refunds the play, leaves the account not done, and closes the world', async () => {
@@ -489,11 +489,11 @@ test('a disconnect inside the first run refunds the play, leaves the account not
   const store = new Store()
   const worlds = makeWorlds(store, { redis })
   const { client, token, world } = await begin(worlds, store)
-  assert.equal(await store.stock(token), 5)
+  assert.equal(await store.stock(token), ENERGY.start - 1)
   client.socket.conn.close()
   await settle()
   assert.equal(store.refunds, 1)
-  assert.equal(await store.stock(token), 6)
+  assert.equal(await store.stock(token), ENERGY.start)
   assert.deepEqual(store.finished, [])
   assert.equal((await store.resolve(token))?.firstRunDone, false)
   assert.deepEqual(store.grants, [], 'XP granted for a first run left halfway')
@@ -520,7 +520,7 @@ test('a drain\'s cut-off inside the first run refunds once', async () => {
   worlds.closeAll()
   await settle()
   assert.equal(store.refunds, 1)
-  assert.equal(await store.stock(token), 6)
+  assert.equal(await store.stock(token), ENERGY.start)
   assert.equal(worlds.firstRuns.length, 0)
 })
 
@@ -533,7 +533,7 @@ test('a handoff during a drain redirects, refunds and still marks the account do
   await settle()
   assert.equal(client.closed, true, 'not redirected')
   assert.equal(store.refunds, 1)
-  assert.equal(await store.stock(token), 6)
+  assert.equal(await store.stock(token), ENERGY.start)
   assert.equal(store.finished.length, 1)
   assert.equal(world.closed, true)
   assert.deepEqual(store.grants, [])
