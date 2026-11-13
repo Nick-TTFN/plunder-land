@@ -20,7 +20,7 @@ import { Sfx, type SoundLevel } from '../../audio/sfx'
 const STYLE = `
 .st { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
   background: rgba(4,7,13,.55); color: #E6EEF5; font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; user-select: none; }
-.st-panel { width: min(460px, calc(100% - 32px)); max-height: calc(100% - 32px); display: flex; flex-direction: column; padding: 18px 20px; border-radius: 10px;
+.st-panel { box-sizing: border-box; width: min(502px, calc(100% - 32px)); max-height: calc(100% - 32px); display: flex; flex-direction: column; padding: 18px 20px; border-radius: 10px;
   background: rgba(11,18,32,.96); border: 1px solid #3a6e7e; box-shadow: 0 0 24px rgba(51,219,211,.18); }
 .st-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .st-head { flex: none; display: flex; justify-content: space-between; align-items: center; font-size: 22px; letter-spacing: .18em;
@@ -32,7 +32,7 @@ const STYLE = `
 .st-keys { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .st-key { min-width: 38px; padding: 6px 8px; font: inherit; font-size: 14px; color: #E6EEF5; background: #121d2c;
   border: 1px solid #3a5266; border-radius: 5px; cursor: pointer; text-align: center; }
-.st-key small { display: block; font-size: 9px; color: #7f95a8; letter-spacing: .06em; }
+.st-key small { display: block; font-size: 10px; color: #7f95a8; letter-spacing: .06em; }
 .st-key.st-wait { border-color: #33DBD3; color: #33DBD3; }
 .st-choice { display: flex; gap: 6px; }
 .st-opt { padding: 5px 10px; font: inherit; font-size: 13px; color: #a9bccd; background: transparent; border: 1px solid #3a5266; border-radius: 5px; cursor: pointer; }

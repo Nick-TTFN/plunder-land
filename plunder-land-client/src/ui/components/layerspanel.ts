@@ -99,6 +99,8 @@ export class LayersPanel extends Panel {
 export class LayerBadge extends Container {
   private readonly _text: Text
   private _current: number | undefined = NaN
+  /** The widest the badge may be (`fitWidth`), CSS px; the tags line breaks one tag per line past it. */
+  private _maxWidth = Infinity
 
   /** Plain text (Nick, 2026-11-05), at CSS size, with a dark outline so it reads over the minimap. */
   static readonly FONT = 10
@@ -132,9 +134,27 @@ export class LayerBadge extends Container {
   setCurrent (tag: number | undefined): boolean {
     if (tag === this._current) return false
     this._current = tag
-    const tags = Session.layerTags(tag)
-    this._text.text = tags.length > 0 ? `${LayerBadge.label(tag)}\n${tags.join(' · ')}` : LayerBadge.label(tag)
+    this.relabel()
     return true
+  }
+
+  /**
+   * Keep the badge within `max` CSS px (g2-4: inside the phone's minimap, which
+   * its one-line tags overflowed by 36 px): past it the tags go one per line.
+   * The font stays at `FONT`.
+   */
+  fitWidth (max: number): void {
+    if (max === this._maxWidth) return
+    this._maxWidth = max
+    this.relabel()
+  }
+
+  private relabel (): void {
+    const tag = this._current
+    const tags = Session.layerTags(tag)
+    const label = LayerBadge.label(tag)
+    this._text.text = tags.length > 0 ? `${label}\n${tags.join(' · ')}` : label
+    if (tags.length > 1 && this._text.width > this._maxWidth) this._text.text = `${label}\n${tags.join('\n')}`
   }
 }
 
