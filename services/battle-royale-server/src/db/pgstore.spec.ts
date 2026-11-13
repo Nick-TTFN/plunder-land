@@ -432,7 +432,7 @@ const V6_RESOLVE = `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE to
                    FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
        FROM a LEFT JOIN account_progress p ON p.account_id = a.id`
 
-pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\'s queries still run, an old account starts at 6, and its CHECK holds', async () => {
+pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\'s queries still run, an old account starts at the start stock, and its CHECK holds', async () => {
   const v4 = MIGRATIONS.filter((m) => m.version <= 4)
   assert.deepEqual(await withClient(async (client) => await migrate(client, v4)), [1, 2, 3, 4])
   const old = new PgAccountStore({ connectionString: URL as string, migrations: v4 })

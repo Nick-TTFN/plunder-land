@@ -105,7 +105,7 @@ doesn't start (the socket closed or a drain began during the spend, the join thr
 `accountTimeoutMs`, plays free and refunds nothing; a spend the timeout gave up on may still land, so
 that play is lost (needs a 3 s database stall; accepted like a lost grant). Bots never spend (they
 never reach `Worlds.start`). Migration 5, `energy (account_id, stock, as_of)`: regeneration is lazy
-(`energyAt`), never a timer; no row reads as 6, so accounts from before it start full. **Kept on
+(`energyAt`), never a timer; no row reads as `ENERGY.start` (10), so accounts from before it start full. **Kept on
 purpose (Nick, 2026-10-04: "greedy baseline with occasional fair surprise"):** a refund is +1 whatever the stock, so a run spent at the cap and extracted after more
 than 30 minutes ends at cap + 1 (never higher: above the cap no clock runs). The lobby shows the
 plays under READY (`net/energy.ts` `energyLine`, counted forward on the client) and disables READY

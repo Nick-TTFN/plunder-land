@@ -8,8 +8,8 @@ import { ENERGY } from './xp'
  * lazily on every read: below the cap, one play per whole `regenMs` since
  * `asOfMs`, never past the cap; at or above the cap, nothing, and the clock
  * starts again from the moment the stock falls below it. A new account has
- * no row: it reads as `ENERGY.start` (6) from now, so accounts made before
- * energy shipped start at 6 too.
+ * no row: it reads as `ENERGY.start` from now, so accounts made before
+ * energy shipped start full too.
  *
  * A run costs one play (`spendAt`), refused at 0. An extraction or a run the
  * server cut short gives it back (`refundAt`, `Worlds`). A refund is +1

@@ -172,7 +172,7 @@ test('a start spends one play before the run, and account and energy say so', as
   assert.equal(await store.stock(known.token, clock.now), 5)
 })
 
-test('a first play (a new account) spends too: 6 becomes 5', async () => {
+test('a first play (a new account) spends too: the start stock loses one', async () => {
   const clock = { now: 1_000_000_000 }
   const store = new EnergyStore()
   const worlds = makeWorlds(store, clock)
