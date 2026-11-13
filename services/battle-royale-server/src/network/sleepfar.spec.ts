@@ -36,6 +36,15 @@ const savedReport = Worlds.accountReport
 const realPost = Analytics.post
 const realUpdate = Mob.prototype.update
 const realNow = Date.now
+const realRandom = Math.random
+/**
+ * Every test runs on a seeded `Math.random` (restored after it): the world's
+ * mobs, its bots, their spawns and every bot decision draw from it. Unseeded,
+ * the far-bot test failed about 1 run in 10 (both of layer 01's bots stayed
+ * within reach of every spot the viewer was put on) and the first test about 1
+ * in 50 (sleepfar-flake). `SPEC_SEED` overrides it, to try other draws.
+ */
+const SEED = Number(process.env.SPEC_SEED ?? 1)
 /** The world's clock: bots join and think on it (as private.spec.ts). */
 let clock = 0
 /** The mobs whose `update` ran since the last `clear`. */
@@ -48,6 +57,7 @@ beforeEach(() => {
   Worlds.accountSuccess()
   Analytics.post = async () => {}
   updated.clear()
+  Math.random = seeded(SEED)
   clock = realNow()
   Date.now = () => clock
   Mob.prototype.update = function (this: Mob, dt: number) {
@@ -64,6 +74,7 @@ afterEach(() => {
   Analytics.post = realPost
   Mob.prototype.update = realUpdate
   Date.now = realNow
+  Math.random = realRandom
 })
 
 function redisStub (): Redis {
@@ -144,6 +155,26 @@ function seeded (seed: number): () => number {
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32 }
 }
 
+type Spot = { at: ReturnType<World['getUnobstructedPosition']>, rings: number }
+
+/**
+ * Of 300 free cells drawn on `player`'s layer, the furthest from where it
+ * stands, or with `nearest` the nearest other than its own; and how many rings away.
+ */
+function farthest (world: World, player: Player, random: () => number, nearest = false): Spot {
+  const from = Hex.toCell(player.position)
+  let best: Spot = { at: undefined, rings: nearest ? Infinity : -1 }
+  World.run(world, () => {
+    for (let i = 0; i < 300; i++) {
+      const at = world.getUnobstructedPosition(player.tag, random)
+      if (at === undefined) continue
+      const rings = Hex.distance(from, Hex.toCell(at))
+      if (nearest ? rings > 0 && rings < best.rings : rings > best.rings) best = { at, rings }
+    }
+  })
+  return best
+}
+
 /** A guard's acquire rings, or 0 for a mob with no guard. */
 function acquireOf (mob: Unit): number {
   let rings = 0
@@ -208,16 +239,7 @@ function sleeper (worlds: Worlds, world: World, player: Player, random: () => nu
     const found = (pack ? asleep.find((mob) => ((mob as Mob).pack?.members.length ?? 0) > 1) : undefined) ?? asleep[0]
     if (found !== undefined) return found
   }
-  const from = Hex.toCell(player.position)
-  let far: { at: ReturnType<World['getUnobstructedPosition']>, rings: number } = { at: undefined, rings: -1 }
-  World.run(world, () => {
-    for (let i = 0; i < 300; i++) {
-      const at = world.getUnobstructedPosition(player.tag, random)
-      if (at === undefined) continue
-      const rings = Hex.distance(from, Hex.toCell(at))
-      if (rings > far.rings) far = { at, rings }
-    }
-  })
+  const far = farthest(world, player, random)
   const at = far.at
   assert.ok(at !== undefined, 'no ground cell on the viewer\'s layer')
   const mob = World.run(world, () => {
@@ -236,17 +258,18 @@ test('a private world: what the viewer could see or be noticed by is always awak
   const { worlds, world, player } = await privateRun()
   const random = seeded(13)
   let slept = 0
-  let ticks = 0
+  // Mob-ticks: the mobs alive before each tick, summed. Bots kill mobs as it
+  // runs, so the count at the end times the ticks is no bound on `slept`.
+  let mobTicks = 0
   for (let hop = 0; hop < 12; hop++) {
     moveTo(world, player, random)
     for (let i = 0; i < 8; i++) {
+      mobTicks += world.MOBS.filter((mob) => !mob.destroyed).length
       slept += checkTick(worlds, world, player)
-      ticks++
     }
   }
-  const mobs = world.MOBS.filter((mob) => !mob.destroyed).length
   assert.ok(slept > 0, 'no mob ever slept: the sleep branch never fired')
-  assert.ok(slept < mobs * ticks, 'every mob slept every tick')
+  assert.ok(slept < mobTicks, 'every mob slept every tick')
 })
 
 test('hot (private-15: wake margin 0): still nothing the viewer could see or be noticed by sleeps', async () => {
@@ -313,18 +336,31 @@ test('a spectated bot is a viewpoint: what is around it wakes', async () => {
 
 test('far bots think less often in a private world, and a bot beside the viewer never counts as far', async () => {
   const { worlds, world, player } = await privateRun()
+  // Layer 01 is small and holds two bots: left to wander, both stayed within
+  // reach of every spot the viewer is put on in about 1 run in 8, and in the
+  // run checked neither ever came beside it. So each time one bot is put on the furthest
+  // free cell from the viewer and the other on the nearest.
+  const random = seeded(41)
   let far = 0
+  let beside = 0
   for (let i = 0; i < 40; i++) {
     moveTo(world, player, seeded(100 + i))
+    const bots = world.PLAYERS.filter((p) => p.bot !== undefined && !p.destroyed && !p.exited && p.tag === player.tag)
+    for (const [bot, nearest] of [[bots[0], false], [bots[1], true]] as const) {
+      const at = farthest(world, player, random, nearest).at
+      if (bot !== undefined && at !== undefined) World.run(world, () => { bot.stop(); bot.position = at })
+    }
     tick(worlds, world)
     far += world.farBots
     for (const bot of world.PLAYERS) {
       if (bot.bot === undefined || bot.destroyed || bot.tag !== player.tag) continue
       if (Hex.distance(bot.cell, Hex.toCell(player.position)) > 2) continue
+      beside++
       assert.equal(World.run(world, () => world.isFar(bot.cell, bot.tag, 0)), false, 'a bot beside the viewer counts as far')
     }
   }
   assert.ok(far > 0, 'no bot ever thought far: the far branch never fired')
+  assert.ok(beside > 0, 'no bot was ever beside the viewer: the check checks nothing')
 })
 
 test('a shared world sleeps nothing and slows no bot', () => {
