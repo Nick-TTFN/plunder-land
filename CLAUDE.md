@@ -109,7 +109,7 @@ Old clients stay open across releases and other code reads these formats, so:
   sides), item/skill/finish/gear-stat ids, Redis `stats-*` keys, projectile kinds, `Standing`
   statuses, stash `source` values, GA4 event names and params (`src/analytics.ts`), Postgres migrations (`db/migrations.ts`: additive, because the old
   server runs on the new schema during a drain). **Renames are removals.**
-- `utils/{hex,path,archetypes,items,finishes,protocol,skills,gear}.ts` are **byte-identical in
+- `utils/{hex,path,archetypes,items,finishes,protocol,skills,gear,callsign}.ts` are **byte-identical in
   both packages** (`mirror.spec.ts`). Change both.
 - A uint8/uint16 wire field fed by an unbounded value can throw inside `World.update`, skip
   `flushAll` and freeze the world every tick. Saturate or clamp at the encoder.

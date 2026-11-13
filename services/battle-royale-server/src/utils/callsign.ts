@@ -3,7 +3,7 @@
  * bot is shown as a word and a three-digit number, e.g. `ROOK-421`.
  *
  * Mirrored byte for byte in both packages (`mirror.spec.ts`): the server names
- * every run with it (`Player.displayNameFor`, `BotFill.spawn`), and the
+ * every run with it (`displayNameFor`, network/displayname.ts; `BotFill.spawn`), and the
  * client's lobby shows the player their own from the account id without
  * asking the server. A drifted copy shows the player one callsign in the lobby
  * and everyone else another in the run.
