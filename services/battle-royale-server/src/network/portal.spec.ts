@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { invitesShown, portalFrom, privacyUrl, SITE_URL } from '../../../../plunder-land-client/src/net/portal'
+import { fullscreenButtonShown, invitesShown, portalFrom, privacyUrl, SITE_URL } from '../../../../plunder-land-client/src/net/portal'
 import { handshakeAuth } from '../../../../plunder-land-client/src/net/account'
 import { portalOf } from './visits'
 
@@ -15,11 +15,33 @@ test('client: itch\'s embed reads itch, our own site web, ?portal= overrides', (
   assert.equal(portalFrom('plunder-land.nick-ttfn.workers.dev', '?portal=itch&server=x'), 'itch')
 })
 
-test('client: invites hidden on itch only; the privacy link leaves itch for our site', () => {
+test('client: CrazyGames\' file host, iOS frame and apex read crazygames; a lookalike reads web', () => {
+  assert.equal(portalFrom('x.game-files.crazygames.com', ''), 'crazygames')
+  assert.equal(portalFrom('games.crazygames.com', ''), 'crazygames')
+  assert.equal(portalFrom('crazygames.com', ''), 'crazygames')
+  assert.equal(portalFrom('crazygames.com.evil.io', ''), 'web')
+  assert.equal(portalFrom('notcrazygames.com', ''), 'web', 'only crazygames.com and its subdomains')
+  assert.equal(portalFrom('plunder-land.nick-ttfn.workers.dev', '?portal=crazygames'), 'crazygames')
+  assert.equal(portalFrom('x.game-files.crazygames.com', '?portal=web'), 'web', '?portal= still overrides')
+})
+
+test('client: invites hidden on itch and CrazyGames; the privacy link leaves both for our site', () => {
   assert.equal(invitesShown('itch'), false)
+  assert.equal(invitesShown('crazygames'), false)
   assert.equal(invitesShown('web'), true)
   assert.equal(privacyUrl('web'), '/privacy')
   assert.equal(privacyUrl('itch'), `${SITE_URL}/privacy`)
+  assert.equal(privacyUrl('crazygames'), `${SITE_URL}/privacy`)
+})
+
+test('client: no own fullscreen button on CrazyGames (their rules), shown elsewhere', () => {
+  assert.equal(fullscreenButtonShown('crazygames'), false)
+  assert.equal(fullscreenButtonShown('web'), true)
+  assert.equal(fullscreenButtonShown('itch'), true)
+})
+
+test('the server takes crazygames as a portal of its own, not other', () => {
+  assert.equal(portalOf({ portal: portalFrom('x.game-files.crazygames.com', '') }), 'crazygames')
 })
 
 test('the handshake carries the portal beside the token, and the server reads it', () => {

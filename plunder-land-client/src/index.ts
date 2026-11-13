@@ -108,6 +108,8 @@ function start (): void {
   Game.socketBytes = 0
 
   document.body.appendChild(app.view as any)
+  // No browser menu on a right click or a long press over the game (CrazyGames' common fixes, #62).
+  app.view.addEventListener?.('contextmenu', (e: Event) => { e.preventDefault() })
 
   if (app.view.style !== undefined) {
     app.view.style.width = '100%'

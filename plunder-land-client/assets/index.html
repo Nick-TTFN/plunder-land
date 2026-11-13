@@ -27,9 +27,29 @@
 
         /* The game takes every touch: no double-tap zoom, pull-to-refresh or page scroll under a finger. */
         html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+        /* No text selection on a long press or a drag (CrazyGames' mobile requirements, #62); inputs stay editable. */
+        body { -webkit-user-select: none; user-select: none; }
         canvas { touch-action: none; display: block; }
         
         </style>
+        <script>
+        // Inside a portal's iframe (CrazyGames, itch) a page that cannot scroll
+        // hands arrow, space and wheel scrolling to the host page around it
+        // (CrazyGames' common fixes, #62). Not on a focused control; the wheel only
+        // over the canvas, so the lobby's panels still scroll.
+        (function () {
+          var keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'PageUp', 'PageDown']
+          window.addEventListener('keydown', function (e) {
+            var t = e.target
+            // A focused control keeps its own keys (space presses a button).
+            var control = t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(t.tagName))
+            if (!control && keys.indexOf(e.key) >= 0) e.preventDefault()
+          })
+          window.addEventListener('wheel', function (e) {
+            if (e.target instanceof HTMLCanvasElement) e.preventDefault()
+          }, { passive: false })
+        })()
+        </script>
     </head>
 
 </html>
