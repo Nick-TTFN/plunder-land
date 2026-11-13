@@ -4,3 +4,5 @@ dist
 **/.DS_Store
 # Art drops from Codex: sources for tools/bake-*.py, too big to commit
 codex_output/
+# Screenshots from tools/layout-shots.mjs: local only
+outputs/
