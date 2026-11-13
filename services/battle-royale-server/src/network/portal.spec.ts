@@ -34,10 +34,17 @@ test('client: invites hidden on itch and CrazyGames; the privacy link leaves bot
   assert.equal(privacyUrl('crazygames'), `${SITE_URL}/privacy`)
 })
 
-test('client: no own fullscreen button on CrazyGames (their rules), shown elsewhere', () => {
-  assert.equal(fullscreenButtonShown('crazygames'), false)
-  assert.equal(fullscreenButtonShown('web'), true)
-  assert.equal(fullscreenButtonShown('itch'), true)
+test('client: a fullscreen button wherever the browser can (no input mode in the rule), except on CrazyGames', () => {
+  // g2-1: desktop and touch alike; the rule takes no touch flag at all.
+  assert.equal(fullscreenButtonShown('web', true), true)
+  assert.equal(fullscreenButtonShown('itch', true), true)
+  assert.equal(fullscreenButtonShown('other', true), true)
+  // #62: CrazyGames' rules prohibit a custom fullscreen button.
+  assert.equal(fullscreenButtonShown('crazygames', true), false)
+  // iPhone Safari: no Fullscreen API for a page (`fullscreenSupported` false), so none anywhere.
+  assert.equal(fullscreenButtonShown('web', false), false)
+  assert.equal(fullscreenButtonShown('itch', false), false)
+  assert.equal(fullscreenButtonShown('crazygames', false), false)
 })
 
 test('the server takes crazygames as a portal of its own, not other', () => {

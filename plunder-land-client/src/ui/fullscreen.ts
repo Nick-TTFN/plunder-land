@@ -1,9 +1,12 @@
 /**
  * Fullscreen for the whole page (Nick, 2026-11-05: a fullscreen button for
- * mobile). The standard API with Safari's `webkit` prefix. iPhone Safari has
- * neither for anything but video, so `fullscreenSupported` is false there and
- * no button is shown; iPad Safari, Android Chrome and desktop browsers have
- * it. Inside an iframe (itch's embed) it works only if the frame allows it.
+ * mobile; on every device since g2-1). The standard API with Safari's
+ * `webkit` prefix. iPhone Safari has neither for anything but video, so
+ * `fullscreenSupported` is false there and no button is shown (decision #62:
+ * hidden on iPhone, which needs no case beyond this check); iPad Safari,
+ * Android Chrome and desktop browsers have it. Inside an iframe (itch's
+ * embed) it works only if the frame allows it. Whether a button is offered
+ * at all: `fullscreenButtonShown` (`net/portal.ts`).
  */
 interface WebkitDocument {
   webkitFullscreenEnabled?: boolean
@@ -41,8 +44,12 @@ export function toggleFullscreen (): void {
   }
 }
 
-/** Call `listener` whenever fullscreen is entered or left. */
-export function onFullscreenChange (listener: () => void): void {
+/** Call `listener` whenever fullscreen is entered or left (Esc included); returns its removal. */
+export function onFullscreenChange (listener: () => void): () => void {
   document.addEventListener('fullscreenchange', listener)
   document.addEventListener('webkitfullscreenchange', listener)
+  return () => {
+    document.removeEventListener('fullscreenchange', listener)
+    document.removeEventListener('webkitfullscreenchange', listener)
+  }
 }

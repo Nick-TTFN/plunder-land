@@ -20,6 +20,8 @@ import { RadialCluster, RADIAL } from './radial'
 import { THEME } from '../theme'
 import { installRotatePrompt } from '../rotateprompt'
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen'
+import { fullscreenButtonShown } from '../../net/portal'
+import { PORTAL } from '../../config'
 
 const MINIMAP = 200
 
@@ -75,8 +77,9 @@ export class SettingsButton extends Container {
 
 /**
  * The fullscreen button (Nick, 2026-11-05): beside the settings cog, in a run,
- * in touch mode, where the browser can do it (`ui/fullscreen.ts`; never on an
- * iPhone, whose Safari can't). Corners pointing out to enter, in to leave.
+ * on every device where it is offered (`fullscreenButtonShown`: the browser
+ * can, so never on an iPhone, and not on CrazyGames; g2-1). Corners pointing
+ * out to enter, in to leave.
  */
 export class FullscreenButton extends Container {
   private readonly _icon = new Graphics()
@@ -312,6 +315,8 @@ export class HUD extends Container {
     // inventory, so the skill row is hidden and the status panel drops its
     // inventory (both stay alive: they do the casting and hold the keys).
     const touchRun = INPUT_MODE.touch && inRun
+    // The fullscreen button, left of the settings button in a run (g2-1).
+    const fullShown = inRun && fullscreenButtonShown(PORTAL, fullscreenSupported())
     // A phone (mobile-4): the status panel is the bars only, and the layers
     // panel is the one-line badge.
     this.status?.setCompact(phone)
@@ -340,8 +345,8 @@ export class HUD extends Container {
     if (this.clock !== undefined) {
       const cw = this.clock.panelWidth * s
       const centred = (W - cw) / 2
-      // Cornered, it keeps left of the settings button (and a phone's minimap).
-      const reserve = inRun ? GEAR + m + (phone && this.map !== undefined ? MINIMAP_PHONE + RADIAL.GAP : 0) : 0
+      // Cornered, it keeps left of the settings and fullscreen buttons (and a phone's minimap).
+      const reserve = inRun ? GEAR + m + (fullShown ? GEAR + RADIAL.GAP : 0) + (phone && this.map !== undefined ? MINIMAP_PHONE + RADIAL.GAP : 0) : 0
       place(this.clock, centred >= statusRight + m ? centred : R - cw - reserve, T)
       clockBottom = centred >= statusRight + m ? 0 : T + this.clock.panelHeight * s
     }
@@ -391,7 +396,7 @@ export class HUD extends Container {
     this.settings.visible = inRun
     this.settings.x = Math.round(gearX)
     this.settings.y = Math.round(T)
-    this.fullscreen.visible = inRun && INPUT_MODE.touch && fullscreenSupported()
+    this.fullscreen.visible = fullShown
     this.fullscreen.x = Math.round(gearX - RADIAL.GAP - GEAR)
     this.fullscreen.y = Math.round(T)
 

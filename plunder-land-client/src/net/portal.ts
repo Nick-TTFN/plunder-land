@@ -48,13 +48,14 @@ export function invitesShown (portal: Portal): boolean {
 }
 
 /**
- * Whether the game offers its own fullscreen button. Not on CrazyGames: their
+ * Whether the game offers its own fullscreen button, in the lobby and in runs
+ * (g2-1): wherever the browser can (`supported`, `fullscreenSupported` in
+ * `ui/fullscreen.ts`: false on iPhone Safari, which has no Fullscreen API for
+ * a page), on every device, whatever the input mode. Not on CrazyGames: their
  * gameplay rules prohibit custom fullscreen buttons and their page provides
  * fullscreen itself (docs.crazygames.com/requirements/gameplay, read
- * 2026-11-13; decision #62). Where the browser has no Fullscreen API (iPhone
- * Safari) the button is hidden by `fullscreenSupported` (`ui/fullscreen.ts`)
- * as well.
+ * 2026-11-13; decision #62).
  */
-export function fullscreenButtonShown (portal: Portal): boolean {
-  return portal !== 'crazygames'
+export function fullscreenButtonShown (portal: Portal, supported: boolean): boolean {
+  return supported && portal !== 'crazygames'
 }
