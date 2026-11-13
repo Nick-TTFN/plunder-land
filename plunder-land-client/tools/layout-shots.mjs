@@ -667,5 +667,5 @@ try {
 }
 const rows = report.flatMap((r) => r.rows)
 writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 1))
-writeFileSync(join(OUT, 'report.tsv'), ['screen\tsize\tkind\telement A\telement B\tpx\tfile', ...rows.map((r) => [r.screen, r.size, r.kind, r.a, r.b, r.px, r.file].join('\t'))].join('\n') + '\n')
+writeFileSync(join(OUT, 'report.tsv'), ['screen\tsize\tkind\telement A\telement B\tpx\tfile', ...rows.map((r) => [r.screen, r.size, r.kind, r.a, r.b, r.px, r.file].map((v) => String(v ?? '').replace(/[\t\n]+/g, ' ')).join('\t'))].join('\n') + '\n')
 console.log(`${report.length} shots, ${rows.length} rows: ${join(OUT, 'report.tsv')}`)
