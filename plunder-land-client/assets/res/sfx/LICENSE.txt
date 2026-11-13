@@ -3,3 +3,10 @@ Creative Commons Zero (CC0): Sci-Fi Sounds, Impact Sounds, UI Audio,
 Interface Sounds, Casino Audio and Music Jingles. File names keep the packs'
 own names; each is converted to Ogg Vorbis and MP3 (mono, except the jingles).
 Which sound plays when is src/audio/sfx.ts (BANK).
+
+boom011_short and boom011_long are cut from EffectiveTrailer_Booms_Vol2_011
+(Federico Soler, Effective Trailer Booms Vol. 2) in the Sonniss #GameAudioGDC
+2026 bundle: royalty-free, commercial use without attribution, may not be sold
+as they come or used to train AI. Cut from the first transient (0.6 s and
+1.4 s, faded out), stereo (the source's channels partly cancel in mono),
+levelled to -20 LUFS.

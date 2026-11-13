@@ -63,7 +63,7 @@ runtime script tag instead of the static `<head>` one their docs show.
 The minimal sound pass before the itch soft launch (#56). Effects only, no music.
 
 - **`audio/sfx.ts`**: Web Audio, no library. `BANK` maps each slot name to its files in
-  `assets/res/sfx/` (Nick's picks from Kenney's CC0 packs, `LICENSE.txt` there), a gain, an
+  `assets/res/sfx/` (Nick's picks from Kenney's CC0 packs and the Sonniss GDC 2026 bundle, `LICENSE.txt` there; Sonniss files may not ship as a standalone pack or feed AI training), a gain, an
   optional minimum gap and a pitch variety; a slot with several files never repeats the last one.
   Swapping a sound is a `BANK` edit. Files ship as Ogg Vorbis and MP3; the browser fetches one.
   Paths are relative (`./res/sfx/`).

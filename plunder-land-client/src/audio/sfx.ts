@@ -1,7 +1,7 @@
 /**
  * Sound effects (L3, the minimal pass before the itch soft launch, #56).
  * Every sound is a named slot; the files behind a slot are Nick's picks from
- * Kenney's CC0 packs (`assets/res/sfx/LICENSE.txt`), and swapping a sound is
+ * Kenney's CC0 packs and the Sonniss GDC bundle (`assets/res/sfx/LICENSE.txt`), and swapping a sound is
  * a change to `BANK` only. A slot with several files plays one at random,
  * never the same twice running, so repeats don't sound mechanical.
  *
@@ -47,8 +47,9 @@ const BANK: Record<SfxName, Slot> = {
   melee_swing: { files: ['impactPunch_heavy_004', 'impactPunch_heavy_000'], gain: 0.5, gapMs: 60, vary: 0.05 },
   hit_landed: { files: ['impactPlate_light_001', 'impactPlate_light_002', 'impactPlate_light_000'], gain: 0.6, gapMs: 70, vary: 0.08 },
   damage_taken: { files: ['impactPlate_heavy_001', 'impactPlate_heavy_004'], gain: 0.6, gapMs: 120, vary: 0.05 },
-  kill: { files: ['explosionCrunch_004'], gain: 0.55, gapMs: 80 },
-  death: { files: ['explosionCrunch_004'], gain: 0.7 },
+  // Sonniss GDC 2026 (Federico Soler, Effective Trailer Booms Vol. 2, 011), Nick's blind picks 2026-11-14: crunch 004 was harsh and cheap. Gains keep the old loudness (files at -20 LUFS).
+  kill: { files: ['boom011_short'], gain: 0.41, gapMs: 80 },
+  death: { files: ['boom011_long'], gain: 0.52 },
   death_sting: { files: ['jingles_HIT11'], gain: 0.7 },
   blast: { files: ['explosionCrunch_000', 'explosionCrunch_004'], gain: 0.45, gapMs: 80, vary: 0.06 },
   loot_pickup: { files: ['chips-stack-4', 'chips-stack-5', 'chips-handle-1', 'chips-stack-1'], gain: 0.8, gapMs: 60 },
