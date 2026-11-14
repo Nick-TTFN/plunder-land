@@ -113,12 +113,73 @@ test('the client\'s invite links: made, read, cleaned out of the address', async
   const { makeCode, readInvite, inviteUrl, withoutInvite, parseStoredInvite } = await import('../../../../plunder-land-client/src/ui/lobby/party')
   const code = makeCode()
   assert.ok(Multiplayer.PARTY_SHAPE.test(code), `the server accepts ${code}`)
-  const url = inviteUrl('https://x.dev', '/', '?server=http://localhost:8000', code, 'Zoë & co')
+  const url = inviteUrl('https://x.dev', '/', '?server=http://localhost:8000', code, 'ROOK-421')
   const search = url.slice(url.indexOf('?'))
-  assert.deepEqual(readInvite(search), { code, from: 'Zoë & co' })
+  assert.deepEqual(readInvite(search), { code, from: 'ROOK-421' })
   assert.equal(withoutInvite(search), '?server=http%3A%2F%2Flocalhost%3A8000', 'other params stay')
   assert.equal(readInvite('?join=NOPE!'), undefined)
-  assert.equal(readInvite('?join=abcdef&from=' + 'x'.repeat(40))?.from.length, 16, 'the name is cut to the server\'s length')
   assert.equal(parseStoredInvite('{"code":"abcdef","from":"A"}')?.code, 'abcdef')
   assert.equal(parseStoredInvite('garbage'), undefined)
+})
+
+/**
+ * g2-9b (decision #62): a link is anyone's to craft, and the lobby shows its
+ * `from` as JOIN <FROM>'S WORLD, so only a callsign is shown; anything else
+ * reads A FRIEND (from ''), and the party code still works.
+ */
+test('an invite\'s from is shown only if it is a callsign', async () => {
+  const { readInvite, inviteUrl, parseStoredInvite } = await import('../../../../plunder-land-client/src/ui/lobby/party')
+  const { callsign, callsignOf, CALLSIGN_WORDS, CALLSIGN_NUMBERS } = await import('../../../../plunder-land-client/src/utils/callsign')
+  const from = (value: string): string | undefined => readInvite('?join=abcdef&from=' + encodeURIComponent(value))?.from
+
+  // Whatever the generator makes is shown, first and last word and number included.
+  for (const name of [callsign('2579647bb7fd95c6'), 'ROOK-421', `${CALLSIGN_WORDS[0]}-100`, `${CALLSIGN_WORDS[CALLSIGN_WORDS.length - 1]}-999`]) {
+    assert.equal(from(name), name, `${name} is shown`)
+  }
+  for (let i = 0; i < 2000; i++) {
+    const name = callsignOf(Math.floor(Math.random() * 2 ** 32))
+    assert.equal(from(name), name, `${name} (generated) is shown`)
+  }
+  assert.equal(CALLSIGN_NUMBERS, 900, 'test setup: numbers run 100 to 999')
+  const made = inviteUrl('https://x.dev', '/', '', 'abcdef', 'HERON-338')
+  assert.deepEqual(readInvite(made.slice(made.indexOf('?'))), { code: 'abcdef', from: 'HERON-338' }, 'the link INVITE copies reads back')
+
+  const refused: Array<[string, string]> = [
+    ['wrong word', 'PIRATE-421'],
+    ['a word with its letters changed', 'ROOKS-421'],
+    ['two digits', 'ROOK-42'],
+    ['four digits', 'ROOK-4210'],
+    ['below 100', 'ROOK-042'],
+    ['lowercase', 'rook-421'],
+    ['mixed case', 'Rook-421'],
+    ['no dash', 'ROOK421'],
+    ['a space for the dash', 'ROOK 421'],
+    ['leading space', ' ROOK-421'],
+    ['trailing newline', 'ROOK-421\n'],
+    ['text after', 'ROOK-421 is a cheat'],
+    ['two callsigns', 'ROOK-421-ROOK-421'],
+    ['long string', 'X'.repeat(500)],
+    ['a callsign inside a long string', 'ROOK-421'.repeat(20)],
+    ['HTML', '<b>ROOK-421</b>'],
+    ['script', '<img src=x onerror=alert(1)>'],
+    ['emoji', 'ROOK-421\u{1F4A9}'],
+    ['emoji alone', '\u{1F4A9}\u{1F4A9}'],
+    ['fullwidth digits', 'ROOK-\uFF14\uFF12\uFF11'],
+    ['free text', 'Zoë & co'],
+    ['empty', '']
+  ]
+  for (const [why, value] of refused) {
+    const invite = readInvite('?join=abcdef&from=' + encodeURIComponent(value))
+    assert.deepEqual(invite, { code: 'abcdef', from: '' }, `${why}: A FRIEND, and the code still joins`)
+  }
+  assert.deepEqual(readInvite('?join=abcdef'), { code: 'abcdef', from: '' }, 'missing: A FRIEND, and the code still joins')
+  assert.deepEqual(readInvite('?join=abcdef&from=ROOK-421&from=evil'), { code: 'abcdef', from: 'ROOK-421' }, 'the first from is the one read')
+  assert.equal(readInvite('?join=NOPE!&from=ROOK-421'), undefined, 'a callsign does not rescue a bad code')
+
+  // A stored invite (sessionStorage, maybe written by an older build) gets the same check.
+  assert.deepEqual(parseStoredInvite('{"code":"abcdef","from":"ROOK-421"}'), { code: 'abcdef', from: 'ROOK-421' })
+  assert.deepEqual(parseStoredInvite('{"code":"abcdef","from":"Zoë & co"}'), { code: 'abcdef', from: '' })
+  assert.deepEqual(parseStoredInvite('{"code":"abcdef","from":42}'), { code: 'abcdef', from: '' })
+  assert.deepEqual(parseStoredInvite('{"code":"abcdef"}'), { code: 'abcdef', from: '' })
+  assert.equal(parseStoredInvite('{"code":"NOPE!","from":"ROOK-421"}'), undefined)
 })

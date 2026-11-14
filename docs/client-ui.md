@@ -101,7 +101,11 @@ typed names): the player's own callsign, `callsignLine(ACCOUNT.info)`, the mirro
 `utils/callsign.ts` over the announced account id, which is the name the server gives the run
 (docs/accounts.md, "Names: callsigns"); hidden until the account is announced (a new player's
 comes with the first run). The lobby sends no `name` and removes the old `plunderland_player_name`
-on sight. INVITE's `from` is the callsign. Once g2-6b/6c land, a CrazyGames player's run shows
+on sight. INVITE's `from` is the callsign, and an opened link's `from` is shown (`JOIN <FROM>'S WORLD`)
+only if it is one exactly as the generator makes it (a listed word, '-', 100 to 999; `party.ts`
+`fromShown`, g2-9b), also for an invite stored by an older build; anything else reads A FRIEND and
+the party code still joins. A CrazyGames username in `from` is not accepted (g2-6b would have to
+widen `fromShown` with a verified name, never one taken from the URL). Once g2-6b/6c land, a CrazyGames player's run shows
 their CG username instead, and the pill must then show that too (g2-6c). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art). The
 header has no tabs: the LOBBY / COLLECTION stub was removed (Nick, 2026-10-15). The game is called **Plunderbots** (Nick, 2026-10-12): the wordmark, the
 picker's heading and its button ("Choose Plunderbot") say so; see "Player-facing copy" below. `assets/index.html`

@@ -678,7 +678,7 @@ export default class Lobby extends Container {
     this.joinBanner.style.display = this.invite === undefined ? 'none' : ''
     if (this.invite === undefined) return
     const who = this.invite.from === '' ? 'A FRIEND' : this.invite.from
-    // textContent: the name came from a link.
+    // A callsign or '' (party.ts `fromShown`); textContent all the same, it came from a link.
     this.joinBanner.append(el('span', 'lb-join-text', `JOIN ${who.toUpperCase()}'S WORLD`))
     const cancel = el('button', 'lb-join-x', '\u2715')
     cancel.title = 'Play in any world instead'
