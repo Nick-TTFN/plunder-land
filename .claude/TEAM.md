@@ -153,7 +153,12 @@ both sides in the same task (details in `docs/wire-format.md`):
   `handshakeAuth`); `account.portal` (a linked account, and then **never** `account.token`) and
   `account.linkable: true` (the rule 4b offer; nothing set until the answer); the client event
   `portal_link { accept: boolean }` (READY first is a decline); server `network/worlds.ts`
-  `lookup`/`portalLookup`/`portalLink`/`accountMessage`, client the `account` handler in `index.ts`.
+  `lookup`/`portalLookup`/`portalLink`/`accountMessage`, client the `account` handler in `index.ts`
+  and `portal/identity.ts` (`answerLinkOffer`; `LINK.declined`: a re-offer of an id this page
+  declined is answered `accept: false` without the modal). `account.name` (g2-6c; only beside
+  `portal`, on connect, creation, link and the grant's mid-run `account`): exactly the name the
+  connection's next run gets (server `Worlds.runName` = `Player.displayName(displayNameFor(...))`,
+  client `onAccount`/`shownName`); the lobby pill shows it, never CG's raw username.
   Additive, no PROTOCOL bump: an old client sends neither key and sees neither field; a new client
   on an old server gets guest play, so it **never waits for `linkable`**. Store: `PortalStore`
   (`db/accounts.ts`, memory and pg; `portalContract` in `db/storecontract.ts`) and **migration 10
