@@ -10,6 +10,7 @@ import { MIGRATIONS, type Migration } from './migrations'
 import { adminContract, gearContract, type GearHooks, PART, seeded, storeContract, T1, T2 } from './storecontract'
 import { mergeOutcome } from '../gear/merge'
 import { ENERGY } from '../progress/xp'
+import { AD_REFILL } from '../progress/energy'
 import { type GearInstance } from '../utils/gear'
 
 /**
@@ -923,6 +924,41 @@ pgTest('ad refills (migration 11): added to a database with energy rows it keeps
     assert.deepEqual((await store.resolve(made[0].token))?.adRefill, { lastAtMs: at + 60_000, day: '2026-11-14', count: 1 })
     const idOf = async (publicId: string): Promise<string> => (await store.pool.query('SELECT id FROM accounts WHERE public_id = $1', [publicId])).rows[0].id
     await assert.rejects(store.pool.query('UPDATE energy SET ad_refills_count = -1 WHERE account_id = $1', [await idOf(made[2].publicId)]), /check/i)
+  } finally {
+    await store.close()
+  }
+})
+
+// The day is read with `to_char`, never `::text`, whose form follows the
+// session's DateStyle: under a non-ISO one the stored day never equalled
+// `utcDay(now)`, so the daily cap failed open (g2-6d review).
+pgTest('ad refills under a non-ISO DateStyle (SQL, DMY): the day reads as YYYY-MM-DD and the daily cap holds', async () => {
+  const setup = await readyStore()
+  await setup.close()
+  const dmy = `${URL as string}${(URL as string).includes('?') ? '&' : '?'}options=${encodeURIComponent('-c DateStyle=SQL,DMY')}`
+  const store = new PgAccountStore({ connectionString: dmy })
+  try {
+    store.ready = true
+    // The setting bites on the store's own sessions: `::text` would read 14/11/2026.
+    const probe = (await store.pool.query("SHOW DateStyle")).rows[0].DateStyle as string
+    assert.equal(probe, 'SQL, DMY')
+    assert.equal((await store.pool.query("SELECT '2026-11-14'::date::text AS d")).rows[0].d, '14/11/2026')
+    const at = Date.parse('2026-11-14T09:00:00.000Z')
+    const { account, token } = await store.create()
+    const drain = async (nowMs: number): Promise<void> => {
+      while ((await store.spend(account.publicId, nowMs)).ok) { /* spend every play left */ }
+    }
+    for (let i = 0; i < AD_REFILL.perDay; i++) {
+      const nowMs = at + i * AD_REFILL.cooldownMs
+      await drain(nowMs)
+      assert.equal((await store.adRefill(account.publicId, nowMs)).ok, true, `refill ${i + 1}`)
+    }
+    assert.deepEqual((await store.resolve(token))?.adRefill, { lastAtMs: at + (AD_REFILL.perDay - 1) * AD_REFILL.cooldownMs, day: '2026-11-14', count: AD_REFILL.perDay })
+    const fourth = at + AD_REFILL.perDay * AD_REFILL.cooldownMs
+    await drain(fourth)
+    const refused = await store.adRefill(account.publicId, fourth)
+    assert.deepEqual([refused.ok, refused.reason], [false, 'daily_cap'], 'the daily cap failed open under DateStyle SQL, DMY')
+    assert.equal(refused.energy.stock, 0)
   } finally {
     await store.close()
   }

@@ -275,7 +275,8 @@ only), and zipped with `index.html` at the root to `outputs/<portal>/plunderbots
 and the release, and fails, deleting the zip, over CrazyGames' limits (re-read 2026-11-14,
 docs.crazygames.com/requirements/technical: initial download <= 50 MB, <= 1500 files; the whole
 package is counted as the initial download, an upper bound); over 20 MB it warns (their mobile
-homepage). It starts no server.
+homepage). It starts no server. The build is quiet when it passes; when it fails the script prints
+its last 80 lines of output (webpack's errors included, which it writes to stdout) and exits 1.
 
 Every portal gets the same build: the client tells where it runs from its page's host
 (`net/portal.ts`), so the name only names the zip. `privacy.html` stays out because only the Worker

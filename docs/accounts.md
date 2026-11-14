@@ -211,14 +211,20 @@ persisted account (an offline one plays free), with a store that has the refill 
 (`adRefillStoreOf`; both shipped stores do): `{ offered }`, plus `nextInMs` (until the limit allows)
 when the stock is 0 and a limit is in the way. **Granted** by `energy_ad` (`Worlds.energyAd`): refused
 before the store as `off` (not offered here), `in_run` (a run started or starting: lobby only),
-`busy` (one in flight, or within `AD_REQUEST_GAP_MS` 2 s of the last); then the store's one atomic
-check-and-write (`AdRefillStore.adRefill`, `adRefillAt`; pg: one transaction holding the energy row
+`busy` (one in flight, or within `AD_REQUEST_GAP_MS` 2 s of the last), and `plays_left`/`cooldown`/
+`daily_cap` when the connection's own view (`adRefillCheck` on `Account.energy`/`Account.adRefill`)
+already refuses, so spam costs no store transaction (answered with an `energy` of that view, no GA).
+That view can lag the store only towards allowing (a refill from another tab), which the store then
+refuses, or by a play spent in another tab, which this connection's view already shows as plays
+left (no button) until its next READY refreshes it. Then the store's one atomic check-and-write (`AdRefillStore.adRefill`, `adRefillAt`; pg: one transaction holding the energy row
 `FOR UPDATE`, like a spend, so racing refills and spends don't interleave) grants or refuses
 `plays_left`/`cooldown`/`daily_cap`; a store failure or timeout is `error` and grants nothing. The
 answer is the acknowledgement, followed by an `energy` with the view as it now stands.
 **Migration 11** (`energy.ad_refill_at timestamptz NULL`, `ad_refills_day date NULL`,
 `ad_refills_count smallint NOT NULL DEFAULT 0 CHECK >= 0`; additive; the day is read as text, never
-as a JS `Date`, which would shift it by the time zone). `Account.adRefill` carries it for the view,
+as a JS `Date`, which would shift it by the time zone, and through `to_char(..., 'YYYY-MM-DD')`, never
+`::text`, whose form follows the session's DateStyle: a non-ISO one would make the daily cap fail
+open). `Account.adRefill` carries it for the view,
 absent with none ever. A refill sets the stock to the cap as of now, so no regeneration clock runs;
 a spend or refund after it keeps the refill columns. The client half is `docs/client-ui.md`
 ("Rewarded refill"); GA `ad_result`, `energy_ad_granted`, `energy_ad_refused` (`src/analytics.ts`).

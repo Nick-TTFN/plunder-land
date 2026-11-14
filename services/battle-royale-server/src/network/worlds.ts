@@ -21,7 +21,7 @@ import Player from '../objects/player'
 import { levelOf, standingOf } from '../progress/xp'
 import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
 import { creditOf } from '../progress/seasons'
-import { adRefillView, type EnergyRecord, type EnergyView, energyView } from '../progress/energy'
+import { adRefillCheck, adRefillView, type EnergyRecord, type EnergyView, energyView } from '../progress/energy'
 import { joinLevel } from '../progress/unlocks'
 import type { GearLedger } from '../gear/ledger'
 import { type GearCounts, gearStoreOf, lineageOf, stashEvent, type StashRunResult } from '../gear/stash'
@@ -1635,15 +1635,18 @@ export default class Worlds {
    * only within `AD_REFILL` (no play left, one per 30 min, three per UTC
    * day, per account; `adRefillAt`), atomically. Also refused: not offered
    * here (`adRefillOn`), in a run (lobby only: a run started or starting),
-   * one already in flight or within `AD_REQUEST_GAP_MS` of the last, and a
-   * store that fails or times out (nothing granted; the ad was watched for
-   * nothing, which the client says plainly).
+   * one already in flight or within `AD_REQUEST_GAP_MS` of the last, one
+   * the connection's own view of the account already refuses (`adRefillCheck`
+   * on `account.energy`/`account.adRefill`, no store call), and a store that
+   * fails or times out (nothing granted; the ad was watched for nothing,
+   * which the client says plainly).
    *
    * The answer is the acknowledgement (`EnergyAdAnswer`), and after any store
    * answer an `energy` event with the view as it now stands (the readout,
    * and the limit's timer on a refusal). GA: `energy_ad_granted`, or
    * `energy_ad_refused { reason }` for the store's refusals and failures
-   * (the checks before it are a misbehaving client's noise and send none).
+   * (the checks before it, the in-memory limits included, are a misbehaving
+   * client's noise and send none; the in-memory refusal still emits `energy`).
    */
   private energyAd (connection: Connection, ack: unknown): void {
     const answer = (reply: EnergyAdAnswer): void => {
@@ -1665,8 +1668,20 @@ export default class Worlds {
       answer({ ok: false, reason: 'busy' })
       return
     }
-    const request = { at: now, pending: true }
+    const request = { at: now, pending: false }
     this.adRequests.set(connection, request)
+    // Refused by the connection's own view first, so spam costs no store
+    // transaction (g2-6d review). The view can only be behind the store
+    // towards allowing a refill (refills elsewhere), except a play spent in
+    // another tab: then this connection's view shows plays and no button,
+    // and its own next READY refreshes it. The store still decides grants.
+    const early = adRefillCheck(account.energy, account.adRefill ?? null, now)
+    if (!early.ok) {
+      connection.socket.emit('energy', this.energyFor(account, account.energy, connection))
+      answer({ ok: false, reason: early.reason ?? 'plays_left' })
+      return
+    }
+    request.pending = true
     const visit = connection.visit
     this.bounded(store.adRefill(account.publicId, now)).then((result) => {
       Worlds.accountSuccess()

@@ -80,10 +80,12 @@ function stashItemOfRow (row: StashRowSql): StashItem {
 /**
  * Migration 11's columns of `energy` (alias `en`), as `AdRefillRow` reads
  * them. The day as text: node-pg would turn a `date` into a local-midnight
- * `Date`, which is the wrong day east or west of UTC.
+ * `Date`, which is the wrong day east or west of UTC. Through `to_char`, never
+ * `::text`, whose form follows the session's DateStyle: under a non-ISO one
+ * the day never equals `utcDay(now)` and the daily cap fails open.
  */
 const AD_REFILL_COLUMNS = `round(extract(epoch FROM en.ad_refill_at) * 1000)::bigint AS ad_refill_ms,
-         en.ad_refills_day::text AS ad_refills_day, en.ad_refills_count`
+         to_char(en.ad_refills_day, 'YYYY-MM-DD') AS ad_refills_day, en.ad_refills_count`
 
 interface AdRefillRow {
   ad_refill_ms: string | null

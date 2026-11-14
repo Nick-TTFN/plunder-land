@@ -62,12 +62,27 @@ fi
 
 server_url="${SERVER_URL:-$PROD_SERVER_URL}"
 echo "building $short for $portal against $server_url"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+stage="$work/stage"
+build_log="$work/build.log"
+mkdir "$stage"
+
 # webpack's output.clean empties dist first. WORKERS_CI_COMMIT_SHA is Sentry's
 # release (webpack.config.js, __RELEASE__); unset, the release is empty.
-SERVER_URL="$server_url" WORKERS_CI_COMMIT_SHA="$sha" npm run --silent build >/dev/null
+# Quiet on success; on failure the build's own output (webpack prints its
+# errors on stdout), its last BUILD_LOG_LINES lines, so the cause is visible.
+BUILD_LOG_LINES=80
+if ! SERVER_URL="$server_url" WORKERS_CI_COMMIT_SHA="$sha" npm run --silent build >"$build_log" 2>&1; then
+  lines=$(wc -l < "$build_log" | tr -d ' ')
+  if [ "$lines" -gt "$BUILD_LOG_LINES" ]; then
+    echo "... ($((lines - BUILD_LOG_LINES)) earlier lines of build output not shown)" >&2
+  fi
+  tail -n "$BUILD_LOG_LINES" "$build_log" >&2
+  echo "error: the build failed (output above)" >&2
+  exit 1
+fi
 
-stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
 cp -R dist/. "$stage/"
 find "$stage" -name '*.map' -type f -delete
 rm -f "$stage/privacy.html"

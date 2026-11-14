@@ -121,6 +121,34 @@ function accountEnergy (client: Client): Record<string, unknown> | undefined {
   return (client.events('account')[0] as { energy?: Record<string, unknown> } | undefined)?.energy
 }
 
+/**
+ * Spends every play left straight in the store, then shows the connection
+ * the stock as it now stands (0), as its own spend or `start_refused` would:
+ * the in-memory view refuses before the store (g2-6d review), so a spend it
+ * hasn't seen reads as plays left.
+ */
+async function drainSeen (store: MemoryAccountStore, client: Client, publicId: string, nowMs: number): Promise<void> {
+  for (;;) {
+    const spent = await store.spend(publicId, nowMs)
+    if (!spent.ok) {
+      assert.equal(spent.energy.stock, 0);
+      (client.connection.account as Account).energy = spent.energy
+      return
+    }
+  }
+}
+
+/** Counts the store's `adRefill` calls. */
+function spyRefills (store: MemoryAccountStore): { calls: number } {
+  const spy = { calls: 0 }
+  const real = store.adRefill.bind(store)
+  store.adRefill = async (publicId: string, nowMs: number) => {
+    spy.calls++
+    return await real(publicId, nowMs)
+  }
+  return spy
+}
+
 async function stockOf (store: MemoryAccountStore, token: string, nowMs: number): Promise<number> {
   return energyAt((await store.resolve(token))?.energy ?? null, nowMs).stock
 }
@@ -218,18 +246,23 @@ test('a guest (no token yet) on CrazyGames: counted as an account once it has on
   assert.deepEqual((client.events('account')[0] as { energy: { adRefill: unknown } }).energy.adRefill, { offered: false })
 })
 
-test('with plays left: not offered, and energy_ad is refused (plays_left) with nothing written', async (t) => {
+test('with plays left: not offered, and energy_ad is refused (plays_left) with nothing written, before the store', async (t) => {
   const sent = withGa(t)
   const clock = { now: T0 }
   const store = new MemoryAccountStore()
   const worlds = makeWorlds(store, clock, ['crazygames'])
   const known = await accountWith(store, 1, clock.now)
   const client = await connect(worlds, known.token)
+  const spy = spyRefills(store)
   assert.deepEqual((accountEnergy(client) as { adRefill: unknown }).adRefill, { offered: false })
   assert.deepEqual(await client.askRefill(), { ok: false, reason: 'plays_left' })
+  assert.equal(spy.calls, 0, 'the in-memory view refuses; the store was asked')
   assert.equal(await stockOf(store, known.token, clock.now), 1)
   assert.equal((await store.resolve(known.token))?.adRefill, undefined, 'a refused refill was counted')
-  assert.deepEqual(sent.filter((e) => e.name.startsWith('energy_ad')).map((e) => [e.name, e.params.reason]), [['energy_ad_refused', 'plays_left']])
+  // The readout as the connection sees it, as after a store refusal.
+  assert.deepEqual((client.events('energy').at(-1) as { stock: number, adRefill: unknown }).adRefill, { offered: false })
+  // An in-memory refusal is a client's noise: no GA.
+  assert.deepEqual(sent.filter((e) => e.name.startsWith('energy_ad')), [])
 })
 
 test('the 30-minute limit: a second refill is refused until 30 min after the first, with the timer', async () => {
@@ -241,7 +274,7 @@ test('the 30-minute limit: a second refill is refused until 30 min after the fir
   assert.deepEqual(await client.askRefill(), { ok: true })
   // Three runs lost: 0 again, 10 minutes later.
   clock.now += 10 * MIN
-  for (let i = 0; i < ENERGY.cap; i++) assert.equal((await store.spend(known.publicId, clock.now)).ok, true)
+  await drainSeen(store, client, known.publicId, clock.now)
   assert.deepEqual(await client.askRefill(), { ok: false, reason: 'cooldown' })
   assert.equal(await stockOf(store, known.token, clock.now), 0)
   assert.deepEqual((client.events('energy').at(-1) as { adRefill: unknown }).adRefill, { offered: false, nextInMs: 20 * MIN })
@@ -261,9 +294,7 @@ test('three per UTC day: the fourth is refused until UTC midnight, then the day 
   const worlds = makeWorlds(store, clock, ['crazygames'])
   const known = await accountWith(store, 0, clock.now)
   const client = await connect(worlds, known.token)
-  const drain = async (): Promise<void> => {
-    for (let i = 0; i < ENERGY.cap; i++) assert.equal((await store.spend(known.publicId, clock.now)).ok, true)
-  }
+  const drain = async (): Promise<void> => { await drainSeen(store, client, known.publicId, clock.now) }
   for (let i = 0; i < AD_REFILL.perDay; i++) {
     if (i > 0) {
       clock.now += 30 * MIN
@@ -284,6 +315,72 @@ test('three per UTC day: the fourth is refused until UTC midnight, then the day 
   assert.deepEqual(await client.askRefill(), { ok: true }, 'the new UTC day allowed no refill')
   const stored = (await store.resolve(known.token))?.adRefill
   assert.deepEqual(stored, { lastAtMs: clock.now, day: '2026-11-15', count: 1 })
+})
+
+test('spam is free: requests the in-memory view refuses (plays left, cooldown, daily cap) never reach the store; allowed ones do, and the store can still refuse', async (t) => {
+  const sent = withGa(t)
+  const clock = { now: T0 }
+  const store = new MemoryAccountStore()
+  const worlds = makeWorlds(store, clock, ['crazygames'])
+  const known = await accountWith(store, 0, clock.now)
+  const client = await connect(worlds, known.token)
+  const spy = spyRefills(store)
+  const ask = async (): Promise<EnergyAdAnswer | undefined> => {
+    clock.now += AD_REQUEST_GAP_MS
+    return await client.askRefill()
+  }
+  assert.deepEqual(await ask(), { ok: true })
+  assert.equal(spy.calls, 1)
+  // Plays left (the refill's): a burst of requests, none to the store.
+  for (let i = 0; i < 20; i++) assert.deepEqual(await ask(), { ok: false, reason: 'plays_left' })
+  assert.equal(spy.calls, 1, 'a plays_left refusal reached the store')
+  // At 0 inside the cooldown: refused cooldown, none to the store.
+  await drainSeen(store, client, known.publicId, clock.now)
+  for (let i = 0; i < 20; i++) assert.deepEqual(await ask(), { ok: false, reason: 'cooldown' })
+  assert.equal(spy.calls, 1, 'a cooldown refusal reached the store')
+  // Two more refills, then the day's cap: none to the store.
+  for (let i = 0; i < AD_REFILL.perDay - 1; i++) {
+    clock.now += 30 * MIN
+    await drainSeen(store, client, known.publicId, clock.now)
+    assert.deepEqual(await ask(), { ok: true })
+    await drainSeen(store, client, known.publicId, clock.now)
+  }
+  assert.equal(spy.calls, AD_REFILL.perDay)
+  clock.now += 30 * MIN
+  await drainSeen(store, client, known.publicId, clock.now)
+  for (let i = 0; i < 20; i++) assert.deepEqual(await ask(), { ok: false, reason: 'daily_cap' })
+  assert.equal(spy.calls, AD_REFILL.perDay, 'a daily_cap refusal reached the store')
+  assert.deepEqual(sent.filter((e) => e.name === 'energy_ad_refused'), [], 'GA heard an in-memory refusal')
+
+  // The view behind the store (another tab of the account refilled): the
+  // view allows, so the request reaches the store, which refuses it.
+  const other = await accountWith(store, 0, clock.now)
+  const tabA = await connect(worlds, other.token)
+  const tabB = await connect(worlds, other.token)
+  assert.deepEqual(await tabB.askRefill(), { ok: true })
+  await drainSeen(store, tabB, other.publicId, clock.now)
+  const before = spy.calls
+  assert.deepEqual(await tabA.askRefill(), { ok: false, reason: 'cooldown' })
+  assert.equal(spy.calls, before + 1, 'a request the view allows did not reach the store')
+  assert.deepEqual(sent.filter((e) => e.name === 'energy_ad_refused').map((e) => e.params.reason), ['cooldown'])
+})
+
+test('the view ahead of the store (a play spent in another tab): refused plays_left from memory, as the view shows; the next READY corrects it', async () => {
+  const clock = { now: T0 }
+  const store = new MemoryAccountStore()
+  const worlds = makeWorlds(store, clock, ['crazygames'])
+  const known = await accountWith(store, 1, clock.now)
+  const tabA = await connect(worlds, known.token)
+  const spy = spyRefills(store)
+  assert.equal((await store.spend(known.publicId, clock.now)).ok, true)
+  assert.deepEqual(await tabA.askRefill(), { ok: false, reason: 'plays_left' })
+  assert.equal(spy.calls, 0)
+  tabA.handlers.start_requested({ id: 'abcdef' })
+  await settle()
+  assert.equal((tabA.connection.account as Account).energy?.stock, 0, 'start_refused did not refresh the view')
+  clock.now += AD_REQUEST_GAP_MS
+  assert.deepEqual(await tabA.askRefill(), { ok: true })
+  assert.equal(spy.calls, 1)
 })
 
 test('lobby only: energy_ad in a run (or while a start is in flight) is refused, and a second one in flight is busy', async () => {
