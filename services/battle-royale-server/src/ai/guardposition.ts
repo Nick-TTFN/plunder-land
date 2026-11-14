@@ -115,7 +115,7 @@ export default class GuardPosition implements IAIRoutine {
   }
 
   update (dt: number) {
-    const now = new Date().getTime()
+    const now = Date.now()
 
     // Release a target that is no longer in the world. Without this the unit is
     // permanently blinded: acquisition only runs while `target` is null, and a

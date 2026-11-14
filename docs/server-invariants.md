@@ -171,13 +171,12 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   spec that counts bots over a long fake clock also stops them heading out on their own (run
   deadlines start at 150 s; `startqueue.spec.ts` sets `deadline` and `lootGoal` to `Infinity`); a
   spec's "it fired" or "it never happened" check is made to fire, not left to chance (`sleepfar.spec.ts`
-  places a far bot and a near one rather than waiting for one to wander there). **Seeding does
-  not make a world spec fully deterministic: `GuardPosition.update` reads the real clock (`new
-  Date().getTime()`), not `Date.now`, so a spec that fakes `Date.now` still gets mob acquisition
-  timed by wall time.** Some seeds then end differently from run to run, and alone vs under
-  load (`startqueue.spec.ts`, measured by fingerprinting the end state), so a spec whose result
-  hangs on what mobs do can't be replayed by its seed alone. A one-line `Date.now()` there
-  would close it (proposed, not made).
+  places a far bot and a near one rather than waiting for one to wander there).
+- **Server code reads the time through `Date.now()`, never `new Date().getTime()`.** Specs fake
+  `Date.now` (`sleepfar`, `startqueue`, `private`, `padcarry`); a reader of the real clock
+  times that code by wall time instead, so a seeded spec ends differently from run to run and
+  under load. `GuardPosition.update` (mob acquisition) did exactly that and was moved to
+  `Date.now()` (sleepfar-flake); in production both read the same time.
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`.** A rejected
   `void` promise is an unhandled rejection, which ends the process, and no try/catch around
   the tick can see it. With Redis down, every disconnect used to kill the server that way.
