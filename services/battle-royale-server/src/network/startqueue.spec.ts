@@ -29,6 +29,16 @@ const savedReport = Worlds.accountReport
 const realPost = Analytics.post
 const realNow = Date.now
 let clock = 0
+const realRandom = Math.random
+/**
+ * Every test runs on a seeded `Math.random` (restored after it), so a failing
+ * run can be replayed: `SPEC_SEED` picks another seed (as sleepfar.spec.ts).
+ */
+const SEED = Number(process.env.SPEC_SEED ?? 1)
+function seeded (seed: number): () => number {
+  let s = seed >>> 0
+  return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32 }
+}
 
 beforeEach(() => {
   savedLog = Worlds.ACCOUNTS_LOG
@@ -38,6 +48,7 @@ beforeEach(() => {
   Analytics.post = async () => {}
   clock = realNow()
   Date.now = () => clock
+  Math.random = seeded(SEED)
 })
 
 afterEach(() => {
@@ -47,6 +58,7 @@ afterEach(() => {
   World.strict = false
   Analytics.post = realPost
   Date.now = realNow
+  Math.random = realRandom
 })
 
 function redisStub (): Redis {
@@ -243,8 +255,17 @@ test('the load level rises with the tick, sheds private work, and gives it back 
   World.run(world, () => { player.hit = () => false })
   // Unkillable bots too: a bot an NPC kills is replaced up to 2 s later, so a
   // live count taken at a random tick read 0 or 2 now and then (1 run in 20).
-  // This checks the target, not that churn.
-  const immortal = (): void => { for (const p of world.PLAYERS) if (p.bot !== undefined) p.hit = () => false }
+  // This checks the target, not that churn. Nor do they head out on their
+  // own: the clock runs over 260 s here, past a bot's run deadline (150 s at
+  // the least, `TEMPERAMENTS`), and one that extracted at the end was not yet
+  // replaced when the count is read (1 seed in 150; sleepfar-flake).
+  const immortal = (): void => {
+    for (const p of world.PLAYERS) {
+      if (p.bot === undefined) continue
+      p.hit = () => false
+      Object.assign(p.bot, { deadline: Infinity, lootGoal: Infinity })
+    }
+  }
   const tick = async (w: Worlds, ms = 250): Promise<void> => { immortal(); await tickOnce(w, ms) }
   // Still playing: a bot over the target is marked `leaving` and walks out
   // (`BotFill`), which takes a while with the human on its layer.

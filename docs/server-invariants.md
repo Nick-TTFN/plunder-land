@@ -166,6 +166,18 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   keeps it on the map (an east step from the last column was clamped back into its own cell); a
   spec that counts bots keeps them alive and in play (`sturdy` in `bots.spec.ts`); a spec that
   checks what a player picked up allows for refilled natural loot and other players taking it.
+  From the sleepfar-flake lane (2026-11-14): `sleepfar.spec.ts` and `startqueue.spec.ts` run every
+  test on a seeded `Math.random` (`SPEC_SEED` picks another seed, to replay or sweep draws); a
+  spec that counts bots over a long fake clock also stops them heading out on their own (run
+  deadlines start at 150 s; `startqueue.spec.ts` sets `deadline` and `lootGoal` to `Infinity`); a
+  spec's "it fired" or "it never happened" check is made to fire, not left to chance (`sleepfar.spec.ts`
+  places a far bot and a near one rather than waiting for one to wander there). **Seeding does
+  not make a world spec fully deterministic: `GuardPosition.update` reads the real clock (`new
+  Date().getTime()`), not `Date.now`, so a spec that fakes `Date.now` still gets mob acquisition
+  timed by wall time.** Some seeds then end differently from run to run, and alone vs under
+  load (`startqueue.spec.ts`, measured by fingerprinting the end state), so a spec whose result
+  hangs on what mobs do can't be replayed by its seed alone. A one-line `Date.now()` there
+  would close it (proposed, not made).
 - **A stats write ends in `.catch(Multiplayer.logStatsFailure)`, never `void`.** A rejected
   `void` promise is an unhandled rejection, which ends the process, and no try/catch around
   the tick can see it. With Redis down, every disconnect used to kill the server that way.
