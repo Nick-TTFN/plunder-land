@@ -257,6 +257,36 @@ the whole `firebase` import once cost 832 KB. Also gone in that cleanup: `axios`
 compiles to ES5), and the client's eslint setup (eslint 8, unused, past end of life). Only the
 five runtime packages are `dependencies`; the build chain is `devDependencies`.
 
+## Portal builds
+
+The zips uploaded to itch and CrazyGames come from one script (g2-7), run in `plunder-land-client`:
+
+```
+tools/package-portal.sh crazygames      # or itch; --allow-dirty to package uncommitted work
+```
+
+It refuses uncommitted changes under `plunder-land-client` (the build reads nothing else) unless
+`--allow-dirty`, which names the zip and the Sentry release `<sha>-dirty`. Then a production build with
+`SERVER_URL` (production Railway unless the variable is set) and `WORKERS_CI_COMMIT_SHA` = `HEAD`
+(Sentry's release; without it the release is empty), copied out of `dist` without `*.map` and
+`privacy.html`, checked for absolute `src`/`href` paths in `index.html` (CrazyGames: relative paths
+only), and zipped with `index.html` at the root to `outputs/<portal>/plunderbots-<portal>-<shortsha>.zip`
+(untracked). It prints the file count, unzipped and zipped bytes, the main JS size (raw and `gzip -9`)
+and the release, and fails, deleting the zip, over CrazyGames' limits (re-read 2026-11-14,
+docs.crazygames.com/requirements/technical: initial download <= 50 MB, <= 1500 files; the whole
+package is counted as the initial download, an upper bound); over 20 MB it warns (their mobile
+homepage). It starts no server.
+
+Every portal gets the same build: the client tells where it runs from its page's host
+(`net/portal.ts`), so the name only names the zip. `privacy.html` stays out because only the Worker
+serves it: inside a portal every Privacy link is our site's absolute `/privacy` (`privacyUrl`). On a
+host `portalFrom` doesn't recognise (read as `web`) the link would be a relative `/privacy` on the
+portal's host and break; CrazyGames' preview host is still unchecked (g2-7 step 10).
+
+itch: upload the zip with butler to the `html5` channel, then check the itch API shows that upload as
+`type: html` before calling a build live on itch (the channel name alone does not make it playable in
+the browser).
+
 ## Lockfiles are committed. Keep them that way.
 
 Both packages previously listed `package-lock.json` in `.gitignore`. Combined with caret
