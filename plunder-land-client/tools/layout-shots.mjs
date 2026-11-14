@@ -12,7 +12,8 @@
  *    endpoints (XP, energy, stashed gear), saves a four-skill loadout and
  *    remembers two stash items to bring on keys 3-4;
  * 2. per input mode (desktop: CrazyGames' ten frames at DPR 1; touch:
- *    `hasTouch` + `isMobile`, so `(pointer: coarse)` starts touch mode),
+ *    `hasTouch` + `isMobile`, so `(pointer: coarse)` starts touch mode, and
+ *    a phone user agent, `TOUCH_UA`),
  *    opens the lobby and its panels, starts a run, opens the hot slot's fan,
  *    the phone leaderboard and settings, walks to an exit and captures the
  *    run card. Each state is captured at every size of that mode by
@@ -61,6 +62,15 @@ const MODES = (args.modes ?? 'desktop,touch').split(',')
 const ONLY = args.only !== undefined ? new Set(args.only.split(',')) : undefined
 /** `--portal crazygames` (or any `?portal=` value) loads the client as that portal would. */
 const PORTAL_ARG = args.portal
+/**
+ * The touch contexts' user agent, a phone's. CrazyGames' SDK (the `local`
+ * environment too) reads `systemInfo.device.type` from the user agent alone
+ * ("mobile" in it: mobile; else "tablet": tablet; else desktop), and g2-6f
+ * seeds the input mode from that, so with Chromium's desktop agent every
+ * touch shot under `--portal crazygames` was in desktop mode. Every touch size
+ * reads as `mobile`, the tablet frame too (the game treats both alike).
+ */
+const TOUCH_UA = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
 const KEY_FILE = process.env.ADMIN_KEY_FILE
 if (KEY_FILE === undefined) throw new Error('ADMIN_KEY_FILE must name a file holding the server\'s ADMIN_KEY')
 const ADMIN_KEY = readFileSync(KEY_FILE, 'utf8').trim()
@@ -514,7 +524,8 @@ async function runMode (browser, mode, account, sizes) {
     viewport: { width: first.w, height: first.h },
     deviceScaleFactor: first.dpr,
     hasTouch: mode === 'touch',
-    isMobile: mode === 'touch'
+    isMobile: mode === 'touch',
+    ...(mode === 'touch' ? { userAgent: TOUCH_UA } : {})
   })
   await context.addInitScript(({ token, id, bring }) => {
     try {

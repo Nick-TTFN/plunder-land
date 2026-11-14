@@ -172,7 +172,9 @@ shoots the lobby and its panels, a run (fan opened by a real tap, phone leaderbo
 the run card at CrazyGames' ten frames (desktop, DPR 1) and phone sizes (touch, emulated insets),
 and writes `report.tsv` (overlaps, off-screen, outside the safe area, text under 10 px, blocked
 taps) and `report.json`. Chromium only; Playwright comes from `PLAYWRIGHT_DIR` or the npx cache.
-It refuses ports 6379 and 8000. `outputs/` is not gitignored: keep shots out of commits.
+It refuses ports 6379 and 8000. Touch contexts send a phone user agent: CrazyGames' SDK reads its
+device type from the user agent alone, and with a desktop one every touch shot under `--portal
+crazygames` came out in desktop mode. `outputs/` is not gitignored: keep shots out of commits.
 
 ## Bundle size
 
