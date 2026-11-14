@@ -16,6 +16,8 @@ export function noPortalSdk (): PortalSdk {
     userToken: async () => null,
     onLogin: () => {},
     linkPrompt: async () => false,
+    authPrompt: async () => false,
+    accountsAvailable: () => false,
     rewardedAd: async () => 'unavailable',
     adsAvailable: () => false
   }

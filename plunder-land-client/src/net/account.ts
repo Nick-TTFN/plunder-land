@@ -17,8 +17,16 @@
  * run the server sends `progress { gained, xp, level, levelAt, nextAt,
  * levelUp }` once the grant is written. The level is the server's: the curve
  * is not copied here. An offline account has no standing and earns nothing.
+ *
+ * Portal accounts (g2-6b server, g2-6c here; docs/accounts.md "Portal
+ * accounts"): on CrazyGames the handshake also carries the SDK's signed
+ * `portalToken` when a user is logged in. A linked account's `account`
+ * carries `portal` and never a token; a guest account offered for linking
+ * comes with `linkable: true` and is not this connection's account until the
+ * client answers (`portal/identity.ts`).
  */
 import { type Loadouts, type SavedAnswer, mergeSaved, parseLoadouts } from './loadout'
+import type { PortalSdk } from '../portal/adapter'
 
 export const TOKEN_KEY = 'plunderland_token'
 
@@ -29,6 +37,8 @@ export const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/
 export interface TokenStorage {
   getItem: (key: string) => string | null
   setItem: (key: string, value: string) => void
+  /** Optional so a store without it (an older spec's fake) still reads and writes. */
+  removeItem?: (key: string) => void
 }
 
 /** An account's XP and level, as the server computed them. */
@@ -54,6 +64,8 @@ export interface AccountInfo {
    * loadout reads as the start kit (`loadoutOf`).
    */
   loadouts: Loadouts | undefined
+  /** The portal this account is linked to (g2-6b: `'crazygames'`), or undefined for a guest's. */
+  portal?: string
 }
 
 /** A `progress` event: what the run just ended earned, and the standing after it. */
@@ -129,28 +141,80 @@ export function readToken (storage: TokenStorage | undefined): string | undefine
   }
 }
 
-/** The handshake's `auth`, read on every (re)connect: `{ token }`, or `{}` with none. */
-export function handshakeAuth (storage: () => TokenStorage | undefined, portal?: string): (cb: (data: object) => void) => void {
+/** The longest the handshake waits for the portal's user token once its SDK is ready, ms (g2-6c). */
+export const PORTAL_TOKEN_WAIT_MS = 2000
+
+/** `promise`'s value, or `fallback` after `ms`; never rejects. */
+async function orAfter<T> (promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return await new Promise<T>((resolve) => {
+    const timer = setTimeout(() => { resolve(fallback) }, ms)
+    promise.then((value) => { clearTimeout(timer); resolve(value) }, () => { clearTimeout(timer); resolve(fallback) })
+  })
+}
+
+/**
+ * The handshake's `auth`, read on every (re)connect: `{ token }`, or `{}`
+ * with none, plus `portal`. With a portal SDK (g2-6c) it first waits for the
+ * SDK (`ready`, which bounds itself) and then at most `tokenWaitMs` for the
+ * user's token, and adds it as `portalToken`; no user, an error or the wait
+ * running out connects without it (a guest). Socket.io re-reads this on every
+ * reconnect, so each connection gets a fresh token. Without an SDK it answers
+ * at once, as before.
+ */
+export function handshakeAuth (storage: () => TokenStorage | undefined, portal?: string, sdk?: Pick<PortalSdk, 'ready' | 'userToken'>, tokenWaitMs = PORTAL_TOKEN_WAIT_MS): (cb: (data: object) => void) => void {
   return (cb) => {
-    const token = readToken(storage())
-    // `portal` (#56): where this client runs, for analytics only; an older server ignores it.
-    cb({ ...(token === undefined ? {} : { token }), ...(portal === undefined ? {} : { portal }) })
+    // `portal` (#56): where this client runs, for analytics (and the token's portal since g2-6b); an older server ignores it.
+    const base = (): object => {
+      const token = readToken(storage())
+      return { ...(token === undefined ? {} : { token }), ...(portal === undefined ? {} : { portal }) }
+    }
+    if (sdk === undefined) {
+      cb(base())
+      return
+    }
+    void (async () => {
+      let portalToken: string | null = null
+      try {
+        await sdk.ready
+        portalToken = await orAfter(sdk.userToken(), tokenWaitMs, null)
+      } catch {
+        portalToken = null
+      }
+      cb({ ...base(), ...(portalToken === null ? {} : { portalToken }) })
+    })()
   }
 }
 
 /**
  * An `account` event: stores a token that came with it, and returns what the
  * page may show (the id), or undefined for a malformed one.
+ *
+ * A linked account (`portal`, g2-6b) never carries a token, so the stored one
+ * is left alone, **except** when this is the guest account the client just
+ * agreed to link (`linked`, the id of the offer it accepted): that token now
+ * leads nowhere (the server treats a linked account's guest token as none,
+ * rule 4d), so it is dropped, and a logged-out play on this browser starts a
+ * new guest. Any other stored token may be another guest's (one whose link
+ * was declined, say) and is kept. A link offer (`linkable`) is not this
+ * connection's account: see `linkOfferOf`, which the caller checks first.
  */
-export function onAccount (data: unknown, storage: TokenStorage | undefined): AccountInfo | undefined {
+export function onAccount (data: unknown, storage: TokenStorage | undefined, linked?: string): AccountInfo | undefined {
   if (data === null || typeof data !== 'object') return undefined
-  const { id, token, offline } = data as { id?: unknown, token?: unknown, offline?: unknown }
+  const { id, token, offline, portal } = data as { id?: unknown, token?: unknown, offline?: unknown, portal?: unknown }
   if (typeof id !== 'string') return undefined
-  if (offline !== true && typeof token === 'string' && TOKEN_SHAPE.test(token)) {
+  const linkedPortal = offline !== true && typeof portal === 'string' && portal !== '' ? portal : undefined
+  if (offline !== true && linkedPortal === undefined && typeof token === 'string' && TOKEN_SHAPE.test(token)) {
     try {
       storage?.setItem(TOKEN_KEY, token)
     } catch {
       // Not remembered: the next play makes a new account.
+    }
+  }
+  if (linkedPortal !== undefined && linked !== undefined && id === linked) {
+    try {
+      storage?.removeItem?.(TOKEN_KEY)
+    } catch {
+      // Kept: harmless, the server treats it as no token (rule 4d).
     }
   }
   if (offline === true) return { id, offline: true, standing: undefined, loadouts: undefined }
@@ -158,7 +222,14 @@ export function onAccount (data: unknown, storage: TokenStorage | undefined): Ac
   // id was last sent, never another account's.
   const previous = ACCOUNT.info?.id === id && !ACCOUNT.info.offline ? ACCOUNT.info.loadouts : undefined
   const loadouts = parseLoadouts((data as { loadouts?: unknown }).loadouts) ?? previous
-  return { id, offline: false, standing: standingOf(data), loadouts }
+  return { id, offline: false, standing: standingOf(data), loadouts, ...(linkedPortal === undefined ? {} : { portal: linkedPortal }) }
+}
+
+/** The id of a guest account offered for linking (`account { ..., linkable: true }`, g2-6b rule 4b), else undefined. */
+export function linkOfferOf (data: unknown): string | undefined {
+  if (data === null || typeof data !== 'object') return undefined
+  const { id, linkable, offline } = data as { id?: unknown, linkable?: unknown, offline?: unknown }
+  return linkable === true && offline !== true && typeof id === 'string' ? id : undefined
 }
 
 /**

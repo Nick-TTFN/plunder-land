@@ -41,6 +41,8 @@ export const LOBBY_CSS = `
 .lb-invite { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; padding: 0 26px;
   font-size: 15px; font-weight: 600; color: #33dbd3; background: rgba(51,219,211,.06); border: 1px solid #2f7f80; border-radius: 6px; }
 .lb-invite:hover { background: rgba(51,219,211,.14); }
+/* Log in for a portal guest (g2-6c, Q4): allowed "not as a main CTA", so smaller and quieter than INVITE. */
+.lb-login { min-height: 34px; padding: 0 14px; font-size: 13px; font-weight: 500; color: #E6EEF5; border-color: #2A4A5E; background: rgba(11,18,32,.6); }
 .lb-settings { padding: 0 12px; color: #E6EEF5; border-color: #2A4A5E; background: rgba(11,18,32,.6); }
 .lb-settings svg { width: 20px; height: 20px; }
 .lb-menu-label { display: none; }
@@ -73,6 +75,9 @@ export const LOBBY_CSS = `
   padding: 6px 14px; border-radius: 20px; background: rgba(11,18,32,.6); border: 1px solid #1f3646; cursor: default; }
 .lb-dot { width: 10px; height: 10px; border-radius: 50%; background: #39E08A; box-shadow: 0 0 8px #39E08A; flex-shrink: 0; }
 .lb-name { min-width: 0; color: #fff; font-size: 14px; letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+/* A linked portal user's name and picture (g2-6c, Q1): the username keeps its case. */
+.lb-name.lb-portalname { text-transform: none; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; }
+.lb-avatar { width: 22px; height: 22px; margin: -3px 0; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
 
 .lb-eyebrow { font-size: 13px; color: #a9bccd; margin-bottom: 8px; }
 .lb-progress { grid-area: prog; padding-bottom: 20px; border-bottom: 1px solid rgba(51,219,211,.12); }
@@ -357,6 +362,8 @@ export const LOBBY_CSS = `
 .lb-land .lb-right { gap: 6px; justify-content: space-between; }
 .lb-land .lb-callsign { padding: 2px 10px; gap: 8px; }
 .lb-land .lb-dot { width: 8px; height: 8px; }
+.lb-land .lb-avatar { width: 16px; height: 16px; margin: -2px 0; }
+.lb-land .lb-login { min-height: 28px; padding: 0 10px; font-size: 12px; }
 .lb-land .lb-name { font-size: 12px; }
 .lb-land .lb-preview { min-height: 50px; }
 .lb-land .lb-plate { gap: 1px; padding: 0 0 2px; }

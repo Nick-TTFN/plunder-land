@@ -42,8 +42,9 @@ there). Inside an iframe it also needs the host's `allowfullscreen`. Both button
 `fullscreenchange` (Esc included): corners out to enter, in to leave.
 
 **Portal SDK** (g2-6a, #62: "go full in with adapter"): `src/portal/`. `adapter.ts` is the one
-interface (`PortalSdk`: `ready`, `loadingStop`, `gameplayStart`, `gameplayStop`, `onMute`; the user,
-link, rewarded-ad members are declared and answer null/false/`'unavailable'` until g2-6b..d);
+interface (`PortalSdk`: `ready`, `loadingStop`, `gameplayStart`, `gameplayStop`, `onMute`; the user
+members `user`, `userToken`, `onLogin`, `linkPrompt`, `authPrompt`, `accountsAvailable` since g2-6c,
+below; the rewarded-ad members are declared and answer `'unavailable'`/false until g2-6d);
 `withGameplayState` passes on `loadingStop` once and `gameplayStart`/`gameplayStop` only on a
 change. `none.ts` is the no-op (our site, itch, anything else); `crazygames.ts` adds CrazyGames'
 SDK v3 script at run time, only on `crazygames`, awaits `init()` for at most 5 s
@@ -57,6 +58,59 @@ handoff's second `hello` sends nothing), `gameplayStop` at the own destroy (run 
 In the `local` environment (localhost) each call is logged as `portal sdk: <name>`.
 `portaladapter.spec.ts` drives it with fake SDKs. Unverified: whether CrazyGames' QA accepts the
 runtime script tag instead of the static `<head>` one their docs show.
+
+**CrazyGames login** (g2-6c, the client half of docs/accounts.md "Portal accounts"; decision #62 Q1,
+Q3, Q4). Everything goes through the adapter, so off CrazyGames (the no-op, or the SDK `disabled`)
+none of it runs: no token, no prompt, no button, the callsign.
+- **The adapter** (`crazygames.ts`): every user call waits for `ready` and goes through `ask` (never
+  throws; `fallback` on any error; CrazyGames' documented "no" codes, `userNotAuthenticated`,
+  `userCancelled`, `...InProgress`, are not warned). Where `user.isUserAccountAvailable` is false
+  (another site embedding the game) no user member is called at all. `userToken` asks
+  `getUserToken({ signingKeyType: 'IN_GAME_AUTH' })` afresh on every call and never keeps it (1-4096
+  chars, as the server reads). `user()` gives the username and the picture only if it is `https:`.
+  `onLogin` hears a login once a page (a logout reloads the page: CrazyGames does that), from the
+  SDK's auth listener or from our own login modal answering with a user, whichever comes first.
+- **The handshake** (`net/account.ts` `handshakeAuth`, still re-read by socket.io on every
+  reconnect): with the SDK it waits for `ready` (bounded by `INIT_TIMEOUT_MS`), then at most
+  `PORTAL_TOKEN_WAIT_MS` (2 s) for the token, and adds it as `portalToken`; logged out, an error or
+  the wait running out connects without it, a guest. Without an SDK it answers at once, as before.
+- **The link offer** (`portal/identity.ts`, `index.ts`'s `account` handler): an `account` with
+  `linkable: true` is not this connection's account and nothing of it is shown; CrazyGames' link
+  modal asks (`answerLinkOffer`) and the answer goes back as `portal_link { accept }` (a modal error
+  is a decline). **READY is held while the modal is open** (`LINK.open`; the lobby's `readyHeld`
+  presses it once the answer is sent, so the server sees `portal_link` first), because READY first
+  is a decline on the server. Nothing ever waits for an offer: an old server sends none. A second
+  offer while the modal is open is not asked twice (the answer goes out on the same socket).
+- **The stored guest token** (`onAccount`): a linked account's `account` (`portal`, never a
+  token) leaves it alone, **except** when it confirms the offer this page accepted (`LINK.accepted`,
+  same id): that token now leads nowhere (rule 4d) and is removed, so a logged-out play on this
+  browser is a new guest. Any other stored token is kept: after 4a or a declined link it can be
+  another guest's (the device's guest progress the user chose not to link).
+- **A login while the page is open** (`Relogin`, `RELOGIN`): in the lobby the socket reconnects at
+  once (`disconnect()` then `connect()`, a new handshake with the token, a new lobby); during a run
+  it waits for the next lobby (after the run card). The lobby reports itself up and left (READY,
+  teardown).
+- **Log in** (Q4): a small button at the header's right (`lb-login`, quieter than INVITE; in the
+  menu on a portrait phone), only where `accountsAvailable()` and nobody is logged in; it calls
+  `authPrompt()` on a click and nothing else ever opens CrazyGames' login.
+- **The name pill** (Q1, `shownName`): the CrazyGames username (its own case) and picture (a DOM
+  `<img>`, `referrerpolicy="no-referrer"`, hidden until loaded and on error) only when the server
+  announced a linked account (`account.portal`), because only then did it verify the token and
+  name the runs after it; otherwise the callsign. So before `CRAZYGAMES_GAME_ID` is set, a
+  logged-in CrazyGames player is a guest under a callsign, as other players see them. A new
+  logged-in player with no link (rule 4c) has no account before the first run, so the pill stays
+  hidden until then, as for any new player. The lobby shows the username as CrazyGames gives it;
+  the server cuts one over 16 characters and falls back to the callsign on a filter hit, which the
+  pill does not copy (rare; unhandled). INVITE stays hidden on CrazyGames (g2-6e); g2-9b's
+  `fromShown` would read a CG player's `from` as A FRIEND anyway.
+- Specs: `portalidentity.spec.ts` (adapter, handshake, `account`, link answer, relogin, button,
+  pill; fake SDKs) and `portallogin.spec.ts` (the client's handshake, `account` handling and link
+  answer against a real `Worlds` whose verifier trusts a local key pair: guest, login, accept,
+  level kept, a second profile, logout, decline, `CRAZYGAMES_GAME_ID` unset). Locally,
+  `?portal=crazygames` on localhost gives the SDK's `local` environment; `user_response=logged_out`
+  and `token_response=logged_out` give a guest with the Log in button, `user_account_available=false`
+  hides it. Whether its demo tokens verify against CrazyGames' JWKS, and with which `gameId`, is
+  unchecked (unverified 2026-11-14); a local server without `CRAZYGAMES_GAME_ID` ignores them.
 
 ## Sound
 
@@ -105,8 +159,9 @@ on sight. INVITE's `from` is the callsign, and an opened link's `from` is shown 
 only if it is one exactly as the generator makes it (a listed word, '-', 100 to 999; `party.ts`
 `fromShown`, g2-9b), also for an invite stored by an older build; anything else reads A FRIEND and
 the party code still joins. A CrazyGames username in `from` is not accepted (g2-6b would have to
-widen `fromShown` with a verified name, never one taken from the URL). Once g2-6b/6c land, a CrazyGames player's run shows
-their CG username instead, and the pill must then show that too (g2-6c). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art). The
+widen `fromShown` with a verified name, never one taken from the URL). A CrazyGames player whose
+account is linked sees their CrazyGames username and picture in the pill instead, as their runs are
+named (g2-6c, "CrazyGames login" above). Robots, preset swatches and MIX colours and patterns the level hasn't opened are disabled with an `LV n` badge (`ui/lobby/locks.ts`, pixi-free, run by `unlocks.spec.ts`; level `ACCOUNT.info?.standing?.level ?? 1`). The stored robot and finish are the wish: shown and sent as the level allows, and the robot is stored only when picked in this lobby, so a fallback (an outage, the account not yet announced, an arrow with nowhere to step) never overwrites it. A level arriving while the lobby is open re-renders it. Not done: the hangar background (art). The
 header has no tabs: the LOBBY / COLLECTION stub was removed (Nick, 2026-10-15). The game is called **Plunderbots** (Nick, 2026-10-12): the wordmark, the
 picker's heading and its button ("Choose Plunderbot") say so; see "Player-facing copy" below. `assets/index.html`
 now declares `<meta charset="utf-8">`: without it a server that sends no charset decoded the

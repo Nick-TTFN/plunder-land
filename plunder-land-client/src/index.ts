@@ -12,7 +12,7 @@ import { LoaderOverlay } from './ui/components/loaderoverlay'
 import { Leaderboard } from './ui/components/leaderboard'
 import { PORTAL, SERVER_URL } from './config'
 import { decideWelcome, KEY, readPending } from './net/protocol'
-import { ACCOUNT, applyProgress, applySaved, handshakeAuth, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
+import { ACCOUNT, applyProgress, applySaved, handshakeAuth, linkOfferOf, localTokenStorage, onAccount, onProgress, setAccountInfo } from './net/account'
 import { onSeason, setSeason } from './net/season'
 import { onEnergy, setEnergy } from './net/energy'
 import { onStash, setStash } from './net/stash'
@@ -24,6 +24,7 @@ import { INTERVAL_MS, TIMEOUT_MS } from './net/latency'
 import { INPUT_MODE, installInputMode } from './input/inputmode'
 import { STICK_DEAD_ZONE, StickSteer, steer } from './input/stick'
 import { PORTAL_SDK } from './portal'
+import { LINK, RELOGIN, answerLinkOffer, setReconnect } from './portal/identity'
 
 initErrorReporting()
 // Touch mode (decision #59): from the pointer type, then from every press.
@@ -147,8 +148,18 @@ function setup (): void {
   // `frames=1` asks for one binary message per tick; see net/framedparser.ts.
   // `auth` is a function so socket.io reads the stored token again on every
   // reconnect: a token issued during the first run is used from the next
-  // connection on (guest accounts, decision #48; net/account.ts).
-  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage, PORTAL) })
+  // connection on (guest accounts, decision #48; net/account.ts). With a
+  // portal SDK it also carries the portal user's token (g2-6c; off a portal
+  // the no-op SDK has none, so nothing is added).
+  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage, PORTAL, PORTAL_SDK) })
+  // A portal login while the page is open (g2-6c, portal/identity.ts): a new
+  // connection, whose handshake carries the token; in a run, once the lobby
+  // is back. A logout reloads the page (the portal does it).
+  setReconnect(() => {
+    Game.socket.disconnect()
+    Game.socket.connect()
+  })
+  PORTAL_SDK.onLogin(() => { RELOGIN.login() })
 
   Game.socket.on('connect', () => {
     // A new connection announces its own account: the last one's is stale
@@ -171,7 +182,15 @@ function setup (): void {
   Game.socket.on('welcome', onWelcome)
   // Here, not per run: it can arrive on connect, before any start.
   Game.socket.on('account', (data: unknown) => {
-    const info = onAccount(data, localTokenStorage())
+    // A guest account offered for linking to the portal user (g2-6b rule
+    // 4b): not this connection's account until answered, so nothing of it
+    // is shown. The portal's modal asks; READY waits for the answer.
+    const offered = linkOfferOf(data)
+    if (offered !== undefined) {
+      void answerLinkOffer(offered, PORTAL_SDK, (accept) => { Game.socket.emit('portal_link', { accept }) })
+      return
+    }
+    const info = onAccount(data, localTokenStorage(), LINK.accepted)
     if (info !== undefined) setAccountInfo(info)
     // Plays left (decision #48 step 7): only on connect and creation; the
     // grant's mid-run `account` carries none, and `energy` follows each change.

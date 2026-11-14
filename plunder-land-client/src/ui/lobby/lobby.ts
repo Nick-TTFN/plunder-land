@@ -25,6 +25,9 @@ import { SKILL_LIST, loadoutSlotsAt } from '../../utils/skills'
 import { Sfx } from '../../audio/sfx'
 import { BUILD, PORTAL } from '../../config'
 import { fullscreenButtonShown, invitesShown, privacyUrl } from '../../net/portal'
+import { PORTAL_SDK } from '../../portal'
+import type { PortalUser } from '../../portal/adapter'
+import { LINK, RELOGIN, loginButtonShown, shownName } from '../../portal/identity'
 import {
   type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
@@ -261,9 +264,17 @@ export default class Lobby extends Container {
   private readonly onScroll = (): void => { this.layoutPreview() }
 
   private readonly root: HTMLDivElement
-  /** The player's own callsign, as everyone else sees it (`callsignLine`). */
+  /** The player's own name as everyone else sees it: the callsign, or a linked portal user's username (`shownName`). */
   private readonly callsign: HTMLLabelElement
   private readonly callsignText: HTMLSpanElement
+  /** A portal user's picture beside the username (g2-6c); a DOM image, hidden until it loads. */
+  private readonly avatar: HTMLImageElement
+  /** The portal's signed-in user (g2-6c, Q1), once the SDK has said; null off a portal and for a guest. */
+  private portalUser: PortalUser | null = null
+  /** "Log in" for a portal guest (g2-6c, Q4): small, top right, opens the portal's login only on a click. */
+  private readonly loginButton: HTMLButtonElement
+  /** READY was pressed while the portal's link modal was open: it goes once the answer is sent (`LINK`). */
+  private readyHeld = false
   private readonly kindLine: HTMLDivElement
   private readonly nameLine: HTMLDivElement
   private readonly tagline: HTMLDivElement
@@ -294,6 +305,12 @@ export default class Lobby extends Container {
   private readonly onResize = (): void => { this.fit(); this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
   private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel(); this.renderRows(); this.renderCallsign() }
+  /** The link modal opened or closed: a READY held meanwhile goes now. */
+  private readonly onLink = (): void => {
+    if (LINK.open !== undefined || !this.readyHeld || this.tornDown) return
+    this.readyHeld = false
+    this.ready()
+  }
   /** `teardown` ran: it can be reached twice (`destroy` also emits `removed`). */
   private tornDown = false
   /** The progression block (decision #48 step 3): level heading, XP bar and its two lines. */
@@ -371,7 +388,14 @@ export default class Lobby extends Container {
     full.onclick = () => { this.closeMenu(); toggleFullscreen() }
     this.renderFullscreen()
     this.offFullscreen = onFullscreenChange(() => { this.renderFullscreen() })
-    topActions.append(this.inviteButton, full, settings, privacy('lb-privacy lb-menu-only'))
+    // Log in (g2-6c, Q4): only for a portal guest where the portal has
+    // accounts (`loginButtonShown`), hidden until the SDK has said. The game
+    // never opens the portal's login by itself; a login reconnects (`RELOGIN`).
+    const login = this.loginButton = el('button', 'lb-invite lb-login', 'Log in')
+    login.title = 'Log in to keep your progress with your account'
+    login.hidden = true
+    login.onclick = () => { this.closeMenu(); void PORTAL_SDK.authPrompt() }
+    topActions.append(login, this.inviteButton, full, settings, privacy('lb-privacy lb-menu-only'))
     const menu = el('button', 'lb-menu')
     menu.innerHTML = ICON.menu
     menu.setAttribute('aria-label', 'Menu')
@@ -395,8 +419,14 @@ export default class Lobby extends Container {
     removeStorage(NAME_KEY)
     const callsign = this.callsign = el('label', 'lb-callsign')
     this.callsignText = el('span', 'lb-name')
-    callsign.append(el('span', 'lb-dot'), this.callsignText)
-    callsign.title = 'Your callsign: what other players see'
+    const avatar = this.avatar = el('img', 'lb-avatar')
+    avatar.alt = ''
+    avatar.hidden = true
+    // A picture from the portal's host: no referrer, and gone if it fails.
+    avatar.referrerPolicy = 'no-referrer'
+    avatar.onload = () => { avatar.hidden = avatar.getAttribute('src') === null }
+    avatar.onerror = () => { avatar.hidden = true }
+    callsign.append(el('span', 'lb-dot'), avatar, this.callsignText)
     this.renderCallsign()
 
     // Progression: the account's level and XP (decision #48 step 3).
@@ -568,6 +598,7 @@ export default class Lobby extends Container {
     document.body.append(this.root)
     // The account is announced on connect, which may be before or after this.
     ACCOUNT.listeners.add(this.onAccount)
+    LINK.listeners.add(this.onLink)
     STASH.listeners.add(this.onStash)
     ENERGY.listeners.add(this.onEnergy)
     this.energyTimer = setInterval(this.onEnergy, 10_000)
@@ -594,6 +625,19 @@ export default class Lobby extends Container {
     this.renderEnergy()
     this.fit()
     this.layout()
+    void this.loadPortalUser()
+    // A portal login during the run reconnects now (`RELOGIN`); after this
+    // constructor, since a reconnect takes this lobby down and makes another.
+    setTimeout(() => { if (!this.tornDown && !this.started) RELOGIN.lobbyShown() }, 0)
+  }
+
+  /** The portal's user (g2-6c): the name pill and the Log in button. Off a portal at once, null. */
+  private async loadPortalUser (): Promise<void> {
+    const user = await PORTAL_SDK.user()
+    if (this.tornDown) return
+    this.portalUser = user
+    this.loginButton.hidden = !loginButtonShown(PORTAL_SDK, user)
+    this.renderCallsign()
   }
 
   // --------------------------------------------------------------- state
@@ -834,12 +878,19 @@ export default class Lobby extends Container {
     // Enter and a click can both land; a second start would register every
     // socket listener twice.
     if (this.started) return
+    // The portal's link modal is open (g2-6c): a start now would decline the
+    // link on the server, so it waits for the answer (`onLink`).
+    if (LINK.open !== undefined) {
+      this.readyHeld = true
+      return
+    }
     // No play left (Enter bypasses the disabled button).
     if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt)) {
       Sfx.play('ui_error')
       return
     }
     this.started = true
+    RELOGIN.lobbyLeft()
     Sfx.play('ready')
     // The wishes are stored; what is sent is what is shown (#48 step 5). The
     // robot is stored only if picked here, so a fallback to Peep (an outage,
@@ -1124,13 +1175,25 @@ export default class Lobby extends Container {
   }
 
   /**
-   * The callsign pill: the account's callsign, or hidden until the server has
+   * The name pill: the account's callsign, or a linked portal user's username
+   * and picture (`shownName`, g2-6c, Q1); hidden until the server has
    * announced the account (a new player's comes with the first run).
    */
   private renderCallsign (): void {
-    const line = callsignLine(ACCOUNT.info)
-    this.callsign.hidden = line === undefined
-    this.callsignText.textContent = line ?? ''
+    const shown = shownName(ACCOUNT.info, this.portalUser)
+    this.callsign.hidden = shown === undefined
+    this.callsignText.textContent = shown?.text ?? ''
+    // A username keeps its case; a callsign is upper case.
+    this.callsignText.classList.toggle('lb-portalname', shown?.portal === true)
+    this.callsign.title = shown?.portal === true ? 'Your account name: what other players see' : 'Your callsign: what other players see'
+    const avatar = shown?.avatar
+    if (avatar === undefined) {
+      this.avatar.removeAttribute('src')
+      this.avatar.hidden = true
+    } else if (this.avatar.getAttribute('src') !== avatar) {
+      this.avatar.hidden = true
+      this.avatar.src = avatar
+    }
   }
 
   /**
@@ -1297,6 +1360,8 @@ export default class Lobby extends Container {
     this.tornDown = true
     this.offFullscreen()
     ACCOUNT.listeners.delete(this.onAccount)
+    LINK.listeners.delete(this.onLink)
+    RELOGIN.lobbyLeft()
     STASH.listeners.delete(this.onStash)
     SEASON.listeners.delete(this.onSeason)
     clearInterval(this.seasonTimer)
