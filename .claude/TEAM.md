@@ -146,6 +146,23 @@ both sides in the same task (details in `docs/wire-format.md`):
   `net/handoff.ts`, `runmap.spec.ts` plays both); the pad's join sends no second `run_start`
   (`Join.continues`). GA `private_done { seconds }` (append-only). Docs: `docs/world.md` "Partial
   worlds", "Private worlds"; `docs/wire-format.md` (`hello`, `handoff`).
+- **Portal accounts (CrazyGames identity, g2-6b server / g2-6c client; decision #62):** the handshake
+  `auth.portalToken` (CG's `IN_GAME_AUTH` JWT, 1-4096 chars, read only with `auth.portal:
+  'crazygames'`; server `network/portaltoken.ts` `portalTokenOf`, client `net/account.ts`
+  `handshakeAuth`); `account.portal` (a linked account, and then **never** `account.token`) and
+  `account.linkable: true` (the rule 4b offer; nothing set until the answer); the client event
+  `portal_link { accept: boolean }` (READY first is a decline); server `network/worlds.ts`
+  `lookup`/`portalLookup`/`portalLink`/`accountMessage`, client the `account` handler in `index.ts`.
+  Additive, no PROTOCOL bump: an old client sends neither key and sees neither field; a new client
+  on an old server gets guest play, so it **never waits for `linkable`**. Store: `PortalStore`
+  (`db/accounts.ts`, memory and pg; `portalContract` in `db/storecontract.ts`) and **migration 10
+  `account_links`** (PK `(portal, external_id)`, UNIQUE `(portal, account_id)`; additive; a future
+  userbase reset must empty it too). **A linked account is never entered with a guest token (rule
+  4d)**: `lookup` and `retryAccount` both treat a resolved account with `portal` as no account.
+  The verifier pins `alg` RS256 and `kid` `ingame-auth` before any key is read; the JWKS URL is a
+  constant, never an env var. Inert until `CRAZYGAMES_GAME_ID` is set on Railway. GA `portal_link
+  { result }` (append-only). Docs: `docs/accounts.md` "Portal accounts", `docs/wire-format.md`
+  (`account`), `docs/dev-and-ops.md` (`CRAZYGAMES_GAME_ID`).
 - **Who is hit against what the client draws** (no byte, but both sides): server
   `World.FIRST_ON_LINE` with `RangedAttack.stopsOn` (a mob's shot passes mobs) and the 7-cell
   bodies (`World.bodyAt`), against client `vfx/cells.ts` `firstOnLine`/`lineIndexOf` and the
