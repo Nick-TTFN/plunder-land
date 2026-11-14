@@ -172,6 +172,11 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   deadlines start at 150 s; `startqueue.spec.ts` sets `deadline` and `lootGoal` to `Infinity`); a
   spec's "it fired" or "it never happened" check is made to fire, not left to chance (`sleepfar.spec.ts`
   places a far bot and a near one rather than waiting for one to wander there).
+  From stash-flake: a spec that puts a player on a gate or a pad and then counts what it carries
+  stops it taking gear off the ground (`stashpg.spec.ts` makes that player's `gearRoom` refuse;
+  `padcarry.spec.ts` clears `GEAR` and stubs the refill): a natural cache can stand one ring from
+  a gate, inside the pickup reach, and its item rides the pad as a found one. The private-7 test
+  in `stashpg.spec.ts` is seeded too (`SPEC_SEED`).
 - **Server code reads the time through `Date.now()`, never `new Date().getTime()`.** Specs fake
   `Date.now` (`sleepfar`, `startqueue`, `private`, `padcarry`); a reader of the real clock
   times that code by wall time instead, so a seeded spec ends differently from run to run and

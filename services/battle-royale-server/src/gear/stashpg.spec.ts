@@ -18,6 +18,7 @@ import { SKILL_INFO } from '../utils/skills'
 import { xpToReach } from '../progress/xp'
 import { ObjectType } from '../objects/gameobject'
 import { Hex } from '../utils/hex'
+import { seeded } from '../objects/privatemap'
 
 /**
  * Task 49-4's end-to-end run against the pg store: bring two stash items into
@@ -80,6 +81,13 @@ async function until (what: string, ok: () => boolean): Promise<void> {
   for (let i = 0; i < 200 && !ok(); i++) await new Promise((resolve) => setTimeout(resolve, 10))
   assert.ok(ok(), `timed out waiting for ${what}`)
 }
+
+/**
+ * The private-7 test runs on a seeded `Math.random` (restored after it): its
+ * private world's map, caches, mobs and bots draw from it. `SPEC_SEED` picks
+ * another seed, to replay or sweep draws (as sleepfar.spec.ts).
+ */
+const SEED = Number(process.env.SPEC_SEED ?? 1)
 
 function item (skill: number): GearInstance {
   return { tier: 1, skill, rolls: [{ stat: GEAR_STATS.hp.id, q: 400 }] }
@@ -247,6 +255,8 @@ test('pg: a stash item brought into a private world and a found one ride the pad
   const reported: unknown[] = []
   Worlds.ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000, () => Date.now(), () => {})
   Worlds.accountReport = (e) => { reported.push(e) }
+  const realRandom = Math.random
+  Math.random = seeded(SEED)
   try {
     await ledger.beat()
     const { account, token } = await store.create()
@@ -278,6 +288,12 @@ test('pg: a stash item brought into a private world and a found one ride the pad
       World.MOBS.length = 0
       assert.ok(first.addGear(found))
     })
+    // The player takes no gear off the ground on the way down (stash-flake):
+    // it is put on gates the map placed at random, and a natural cache one
+    // ring from one (inside its pickup reach) went into its bag, rode the pad
+    // and was kept as a third row, 2 to 5 runs in 100. The extra item was
+    // handled correctly; this test is about the two it places itself.
+    first.gearRoom = () => false
 
     // Down to the deepest private layer, then onto a pad.
     const step = (pick: (gate: { to: number, handoff?: boolean }) => boolean): void => {
@@ -301,6 +317,7 @@ test('pg: a stash item brought into a private world and a found one ride the pad
     assert.ok(next !== undefined && next !== first && worlds.worlds.includes(shared), 'the pad did not hand off')
     assert.equal(next.gear[0]?.rowId, ids[0])
     assert.ok(next.gear[1] === found, 'the found item is not the same instance')
+    assert.equal(next.bag.length, 0, 'the run picked up gear of its own on the way down')
 
     World.run(shared, () => { next.exit() })
     await until('the stash after the settle', () => stash.some((e) => e.run !== undefined))
@@ -312,6 +329,7 @@ test('pg: a stash item brought into a private world and a found one ride the pad
     assert.deepEqual(rows.map((r) => r.state), [0, 0], 'not two stashed rows in the table')
     assert.deepEqual(reported, [])
   } finally {
+    Math.random = realRandom
     Worlds.ACCOUNTS_LOG = savedLog
     Worlds.accountReport = savedReport
     await ledger.close()
