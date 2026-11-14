@@ -281,6 +281,20 @@ also `account.energy` on connect and creation (not on the grant's mid-run `accou
 and the client goes back to the lobby (`Game.onStartRefused`). An offline account is sent neither
 (it plays free). See "Energy".
 
+**The rewarded refill** (g2-6d; docs/accounts.md "Rewarded refill", docs/client-ui.md). All three
+energy views may carry **`adRefill: { offered: boolean, nextInMs? }`**, only to a connection whose
+portal is in `AD_REFILL_PORTALS` (otherwise absent: no button). Client → server **`energy_ad {}`**
+with a socket.io acknowledgement, answered **`{ ok: true }`** or **`{ ok: false, reason }`**
+(`plays_left`, `cooldown`, `daily_cap`, `off`, `in_run`, `busy`, `error`; server `EnergyAdAnswer`),
+followed by an `energy` with the new view whenever the store answered. Client → server
+**`ad_result { result }`** (`rewarded`, `unavailable`, `adblock`, `failed`), for GA only, no answer.
+The task's spec named a refusal event `energy_ad_refused`; the acknowledgement replaced it (it pairs
+the answer with its request, where an `energy` might also come from a late refund, and gives the
+client's 5 s timeout for free); `energy_ad_refused` is the GA event's name only. Additive, **no
+PROTOCOL bump** (11): an old client never reads `adRefill` and never sends either event; a new client
+on an old server gets no `adRefill`, so it shows no button, and an `energy_ad` it might send times out
+after 5 s.
+
 **`season`** (server → client, JSON, #48 step 6): `SeasonView` after `account` for a persisted account and after each grant; additive, no PROTOCOL bump (older clients have no handler). **`GET /season`**: see "Weekly seasons".
 
 **`stash`** (server → client, JSON, #49, 49-4): `{ items: [{ id, tier, skill, rolls: [[stat, q], …] }],

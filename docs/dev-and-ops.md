@@ -202,6 +202,14 @@ CrazyGames user token's `gameId`. Unset (the default, and every local run and sp
 the id (release R2). There is deliberately no variable for the JWKS URL (docs/accounts.md, "Portal
 accounts").
 
+**`AD_REFILL_PORTALS`** (server, Railway; g2-6d): a comma list of handshake portal names
+(`crazygames`) whose players are offered the rewarded-video energy refill. Unset (the default, and
+every local run and spec): off everywhere, no button. **Set it only at CrazyGames' Full Launch**
+(release R3, g2-10): during Basic Launch CrazyGames disables ads, and a rewarded button with no effect
+is a rejection reason. A change needs a redeploy (read at boot). Locally, `AD_REFILL_PORTALS=crazygames`
+with the client at `?portal=crazygames` gives the SDK's `local` environment, which shows an overlay
+instead of an ad. The limits and GA events: docs/accounts.md, "Rewarded refill".
+
 **Game events go to GA4 from the server** (decision #46; `src/analytics.ts`, EU endpoint),
 only when `GA_MEASUREMENT_ID` and `GA_API_SECRET` are set (Railway; never locally or in the load
 harness): `run_start`, `first_loot`, `run_end`, one GA session per run, `client_id` the

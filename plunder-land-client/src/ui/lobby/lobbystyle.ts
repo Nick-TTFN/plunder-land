@@ -23,7 +23,7 @@ export const LOBBY_CSS = `
 .lb button:disabled { cursor: default; }
 .lb svg { display: block; flex-shrink: 0; }
 .lb [hidden] { display: none !important; }
-.lb-mono, .lb-eyebrow, .lb-xprow, .lb-actstatus, .lb-season-line, .lb-ready-sub, .lb-custom, .lb-name { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
+.lb-mono, .lb-eyebrow, .lb-xprow, .lb-actstatus, .lb-season-line, .lb-ready-sub, .lb-adrefill, .lb-adnote, .lb-custom, .lb-name { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
 
 /* Safe-area insets in the lobby's own pixels: the root is CSS-zoomed (Lobby.fit sets --lb-z), and a zoomed
    env() inset shrinks with it, which put the header and the right column 13-30 px into a notch (g2-4). */
@@ -143,6 +143,18 @@ export const LOBBY_CSS = `
 .lb-ready:hover { filter: brightness(1.08); }
 .lb-ready:disabled { filter: grayscale(1) brightness(.7); box-shadow: none; cursor: not-allowed; }
 .lb-ready-sub { text-align: center; font-size: 13px; letter-spacing: .06em; color: #c9d6e2; }
+/* The rewarded refill (g2-6d): the plays line's size and weight (CrazyGames: the alternative, not watching,
+   looks the same), a video icon so it is clear an ad plays; its note under it. */
+.lb-adrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; column-gap: 10px; row-gap: 2px; }
+.lb-adrefill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; font-size: 13px; font-weight: 400; letter-spacing: .06em;
+  color: #33dbd3; background: none; border: 1px solid rgba(51,219,211,.45); border-radius: 6px; white-space: nowrap; }
+.lb-adrefill svg { width: 16px; height: 16px; }
+.lb-adrefill:hover:not(:disabled) { background: rgba(51,219,211,.1); }
+.lb-adrefill:disabled { color: #6f8496; border-color: #3a4a58; cursor: not-allowed; }
+/* Waiting on the ad or its answer: the icon spins in place. */
+.lb-adrefill.lb-adwait svg { animation: lb-adspin 1s linear infinite; }
+@keyframes lb-adspin { to { transform: rotate(360deg); } }
+.lb-adnote { text-align: center; font-size: 13px; letter-spacing: .06em; color: #c9d6e2; }
 .lb-privacy { align-self: center; font-size: 11px; letter-spacing: .12em; color: #6f8496; text-decoration: none; }
 .lb-privacy:hover { color: #33dbd3; }
 /* A new player's privacy notice under READY (g2-6f, Q6), and an offline launch's line in READY's place. */
@@ -327,7 +339,7 @@ export const LOBBY_CSS = `
   .lb-action { position: sticky; bottom: 0; z-index: 1; width: auto; max-width: none; margin: 0 -16px; padding: 14px 16px max(12px, var(--lb-sb));
     background: linear-gradient(rgba(4,8,14,0), rgba(4,8,14,.92) 28%); }
   .lb-ready { min-height: 52px; font-size: 21px; }
-  .lb-ready-sub { font-size: 12px; }
+  .lb-ready-sub, .lb-adrefill, .lb-adnote { font-size: 12px; }
   .lb-custom { top: auto; bottom: 0; left: 0; right: 0; width: 100%; border-radius: 14px 14px 0 0; max-height: 85%; }
   .lb-swatch { width: 44px; height: 44px; }
   .lb-st-actions .lb-chip, .lb-st-keep .lb-chip, .lb-st-tools .lb-chip { min-height: 40px; }
@@ -381,7 +393,9 @@ export const LOBBY_CSS = `
 .lb-land .lb-action { position: static; gap: 2px; padding: 2px 0 0; background: none; max-width: 340px; }
 .lb-land .lb-ready { min-height: 38px; font-size: 18px; gap: 8px; border-radius: 8px; }
 .lb-land .lb-ready svg { width: 18px; height: 18px; }
-.lb-land .lb-ready-sub { font-size: 11px; }
+.lb-land .lb-ready-sub, .lb-land .lb-adrefill, .lb-land .lb-adnote { font-size: 11px; }
+.lb-land .lb-adrefill { padding: 0 6px; }
+.lb-land .lb-adrefill svg { width: 13px; height: 13px; }
 .lb-land .lb-privacy { font-size: 10px; }
 .lb-land .lb-progress .lb-eyebrow { display: none; }
 .lb-land .lb-eyebrow { font-size: 10px; margin-bottom: 2px; }

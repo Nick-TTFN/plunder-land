@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import {
-  type AccountStore, type AdminStore, firstRunStoreOf, offlineAccount, portalStoreOf, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
+  type AccountStore, type AdminStore, adRefillStoreOf, firstRunStoreOf, offlineAccount, portalStoreOf, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
   STALE_CARRY_MS, type StashEdits, type StashItem, TOKEN_SHAPE
 } from './accounts'
 // The merge rule draws through `rollGear` (archetypes), whose import graph
@@ -12,6 +12,7 @@ import { mergeOutcome } from '../gear/merge'
 import { PAYOUT_DELAY_MS, type SeasonCredit, seasonEndMs, seasonStart, seasonView } from '../progress/seasons'
 import { type GearInstance, STASH_MAX } from '../utils/gear'
 import { ENERGY } from '../progress/xp'
+import { AD_REFILL } from '../progress/energy'
 
 /**
  * What every `AccountStore` must do (decision #48), run against the memory
@@ -76,6 +77,72 @@ export async function storeContract (store: AccountStore): Promise<void> {
   await energyContract(store)
   await firstRunContract(store)
   await portalContract(store)
+  await adRefillContract(store)
+}
+
+/**
+ * Rewarded-video refills (g2-6d, migration 11): refused with plays left
+ * (nothing written, nothing counted), a refill fills to the cap exactly and
+ * `resolve` reads the refills back, the cooldown and the day's cap hold, a
+ * new UTC day counts from one, two at once at 0 plays refill once, and an
+ * unknown account throws. Another account's refills don't move.
+ */
+async function adRefillContract (plain: AccountStore): Promise<void> {
+  const store = adRefillStoreOf(plain)
+  assert.ok(store !== undefined, 'a shipped store has no refill')
+  const min = 60_000
+  const t = Date.parse('2026-11-14T10:00:00.000Z')
+  const { account, token } = await store.create()
+  const other = await store.create()
+  const id = account.publicId
+  // A new account: plays left, nothing written, no `adRefill` on resolve.
+  assert.deepEqual(await store.adRefill(id, t), { ok: false, reason: 'plays_left', energy: { stock: ENERGY.start, asOfMs: t }, adRefill: null })
+  assert.ok(!('adRefill' in ((await store.resolve(token)) ?? {})), 'a refused refill was stored')
+  const empty = async (at: number): Promise<void> => {
+    for (;;) if (!(await store.spend(id, at)).ok) return
+  }
+  await empty(t)
+  // Two at once at 0 plays: one refill.
+  const racing = await Promise.all(Array.from({ length: 5 }, async () => await store.adRefill(id, t + min)))
+  assert.equal(racing.filter((r) => r.ok).length, 1, `racing refills: ${racing.map((r) => r.reason ?? 'ok').join(',')}`)
+  const won = racing.find((r) => r.ok)
+  assert.deepEqual(won, { ok: true, energy: { stock: ENERGY.cap, asOfMs: t + min }, adRefill: { lastAtMs: t + min, day: '2026-11-14', count: 1 } })
+  assert.ok(racing.filter((r) => !r.ok).every((r) => r.reason === 'plays_left' || r.reason === 'cooldown'))
+  const resolved = await store.resolve(token)
+  assert.deepEqual(resolved?.energy, { stock: ENERGY.cap, asOfMs: t + min })
+  assert.deepEqual(resolved?.adRefill, { lastAtMs: t + min, day: '2026-11-14', count: 1 })
+  assert.ok(!('adRefill' in ((await store.resolve(other.token)) ?? {})), 'another account\'s refills moved')
+  // Within the cooldown: refused, the record unchanged.
+  await empty(t + 2 * min)
+  const early = await store.adRefill(id, t + 2 * min)
+  assert.equal(early.ok, false)
+  assert.equal(early.reason, 'cooldown')
+  assert.deepEqual(early.adRefill, { lastAtMs: t + min, day: '2026-11-14', count: 1 })
+  assert.equal(early.energy.stock, 0)
+  // Two more, a cooldown apart; then the day's cap.
+  let at = t + min
+  for (let n = 2; n <= AD_REFILL.perDay; n++) {
+    at += AD_REFILL.cooldownMs
+    await empty(at)
+    const done = await store.adRefill(id, at)
+    assert.equal(done.ok, true, `refill ${n}`)
+    assert.equal(done.adRefill?.count, n)
+  }
+  at += AD_REFILL.cooldownMs
+  await empty(at)
+  const capped = await store.adRefill(id, at)
+  assert.equal(capped.reason, 'daily_cap')
+  assert.equal((await store.resolve(token))?.adRefill?.count, AD_REFILL.perDay)
+  // The next UTC day counts from one.
+  const tomorrow = Date.parse('2026-11-15T00:00:00.000Z')
+  await empty(tomorrow)
+  assert.deepEqual((await store.adRefill(id, tomorrow)).adRefill, { lastAtMs: tomorrow, day: '2026-11-15', count: 1 })
+  assert.deepEqual((await store.resolve(token))?.adRefill, { lastAtMs: tomorrow, day: '2026-11-15', count: 1 })
+  // A spend and a refund after it keep the refills.
+  assert.equal((await store.spend(id, tomorrow + min)).ok, true)
+  await store.refund(id, tomorrow + min)
+  assert.deepEqual((await store.resolve(token))?.adRefill, { lastAtMs: tomorrow, day: '2026-11-15', count: 1 })
+  await assert.rejects(store.adRefill('0123456789abcdef', t), 'a refill for an unknown account succeeded')
 }
 
 /**

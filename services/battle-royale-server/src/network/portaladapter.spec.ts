@@ -46,8 +46,11 @@ function fakeSdk (calls: string[], options: FakeOptions = {}): CrazySdk & { chan
   }
 }
 
-/** Every adapter method called once, as the game would. */
-async function callEverything (sdk: ReturnType<typeof pickPortalSdk>): Promise<void> {
+/**
+ * Every adapter method called once, as the game would. `blocked`: the SDK
+ * script didn't load, which the rewarded ad reports as an ad blocker (g2-6d).
+ */
+async function callEverything (sdk: ReturnType<typeof pickPortalSdk>, blocked = false): Promise<void> {
   sdk.loadingStop()
   sdk.gameplayStart()
   sdk.gameplayStop()
@@ -56,8 +59,9 @@ async function callEverything (sdk: ReturnType<typeof pickPortalSdk>): Promise<v
   assert.equal(await sdk.user(), null)
   assert.equal(await sdk.userToken(), null)
   assert.equal(await sdk.linkPrompt(), false)
-  assert.equal(await sdk.rewardedAd(), 'unavailable')
+  assert.equal(await sdk.rewardedAd(), blocked ? 'adblock' : 'unavailable')
   assert.equal(sdk.adsAvailable(), false)
+  assert.equal(sdk.adBlocked(), blocked)
 }
 
 test('pick: no SDK script for web, itch or anything else; CrazyGames loads it once', async () => {
@@ -103,7 +107,7 @@ test('guard: init or the environment throwing, a missing script, or another envi
     sdk.loadingStop()
     sdk.gameplayStart()
     await sdk.ready
-    await callEverything(sdk)
+    await callEverything(sdk, name === 'script blocked')
     assert.deepEqual(calls.filter((c) => c !== 'init'), [], `${name}: the SDK was called`)
     assert.deepEqual(warnings, [], `${name}: warned`)
   }

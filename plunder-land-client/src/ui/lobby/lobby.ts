@@ -14,7 +14,7 @@ import { LOBBY_CSS } from './lobbystyle'
 import { ACCOUNT, type AccountInfo, TOKEN_KEY, localTokenStorage } from '../../net/account'
 import { callsign } from '../../utils/callsign'
 import { lastNotice, SEASON, type SeasonView, seasonLine } from '../../net/season'
-import { ENERGY, energyLine, outOfPlays } from '../../net/energy'
+import { adOffer, clockOf, ENERGY, energyLine, outOfPlays } from '../../net/energy'
 import { SettingsPanel } from '../settings/settingspanel'
 import { clearFull, fullLine, retryDue } from '../../net/full'
 import { LoadoutPanel } from './loadoutpanel'
@@ -30,6 +30,7 @@ import type { PortalUser } from '../../portal/adapter'
 import { LINK, RELOGIN, loginButtonShown, shownName } from '../../portal/identity'
 import { OFFLINE_LINE } from '../../portal/platform'
 import { NOTICE_LINK, NOTICE_TEXT, markPrivacyNoticeSeen, privacyNoticeShown } from '../../portal/notice'
+import { AD_BUTTON_TEXT, GRANT_TIMEOUT_MS, grantAnswerOf, refillNote, watchForPlays } from '../../portal/adrefill'
 import {
   type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
@@ -129,6 +130,8 @@ const svg = (body: string): string =>
 const ICON = {
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
   menu: svg('<path d="M4 6h16M4 12h16M4 18h16"/>'),
+  // The rewarded refill's button (g2-6d): a video camera, so it is clear an ad plays.
+  video: svg('<rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10.5l6-3.5v10l-6-3.5z"/>'),
   expand: svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
   collapse: svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
   down: svg('<path d="m6 9 6 6 6-6"/>'),
@@ -355,6 +358,22 @@ export default class Lobby extends Container {
   private readonly offFullscreen: () => void
   /** Re-renders the plays countdown every 10 s, so READY comes back within seconds of the play. */
   private readonly energyTimer: ReturnType<typeof setInterval>
+  /**
+   * The rewarded refill (g2-6d, decision #62: the only ad there is): a
+   * button beside the plays line, only where the server offers it
+   * (`energy.adRefill`, `adOffer`), with no play left; its note under it.
+   */
+  private readonly adRow: HTMLDivElement
+  private readonly adButton: HTMLButtonElement
+  private readonly adNote: HTMLSpanElement
+  /** An ad (or the refill's answer) is pending: the button and READY wait, with a spinner. */
+  private adPending = false
+  /** The last click's note and until when it shows (`refillNote`). */
+  private adNoteText: string | undefined
+  private adNoteUntil = 0
+  /** Re-renders the refill's "Next refill in" clock every second while it shows. */
+  private readonly adTimer: ReturnType<typeof setInterval>
+  private adClockShown = false
 
   constructor (private readonly start: LobbyStart) {
     super()
@@ -514,6 +533,14 @@ export default class Lobby extends Container {
     ready.innerHTML = `Start run ${ICON.right}`
     ready.onclick = () => { this.ready() }
     this.playsLine = el('span', 'lb-ready-sub')
+    // Rewarded refill (g2-6d): the plays line stays visible beside it, so not watching is as plain a choice.
+    this.adButton = el('button', 'lb-adrefill')
+    this.adButton.innerHTML = `${ICON.video}<span>${AD_BUTTON_TEXT}</span>`
+    this.adButton.onclick = () => { this.watchAd() }
+    this.adNote = el('span', 'lb-adnote')
+    this.adRow = el('div', 'lb-adrow')
+    this.adRow.append(this.adButton, this.adNote)
+    this.adRow.hidden = true
     this.offlineLine = el('div', 'lb-offline', OFFLINE_LINE)
     this.offlineLine.hidden = true
     this.privacyNotice = el('div', 'lb-notice')
@@ -523,7 +550,7 @@ export default class Lobby extends Container {
     this.privacyLink = privacy('lb-privacy lb-desk-only')
     this.privacyLink.hidden = this.noticeShown
     const action = el('div', 'lb-action')
-    action.append(this.joinBanner, this.fullBanner, ready, this.offlineLine, this.playsLine, this.privacyNotice, this.privacyLink)
+    action.append(this.joinBanner, this.fullBanner, ready, this.offlineLine, this.playsLine, this.adRow, this.privacyNotice, this.privacyLink)
 
     // STATS & PAINT: the stat bars read from the mirrored `stats`, then the paint rows.
     this.customize = el('div', 'lb-custom lb-paint lb-hidden')
@@ -627,6 +654,7 @@ export default class Lobby extends Container {
     STASH.listeners.add(this.onStash)
     ENERGY.listeners.add(this.onEnergy)
     this.energyTimer = setInterval(this.onEnergy, 10_000)
+    this.adTimer = setInterval(() => { if (this.adClockShown || this.adNoteText !== undefined) this.renderEnergy() }, 1000)
     this.layoutObserver.observe(this.preview)
     this.layoutObserver.observe(this.content)
     // Its height changes with what it shows (the season row, banners): `fit` measures again.
@@ -911,8 +939,9 @@ export default class Lobby extends Container {
       this.readyHeld = true
       return
     }
-    // No play left (Enter bypasses the disabled button), or no server at all (an offline launch).
-    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt) || PORTAL_SDK.offline()) {
+    // No play left (Enter bypasses the disabled button), no server at all (an
+    // offline launch), or a rewarded ad still playing or being answered.
+    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt) || PORTAL_SDK.offline() || this.adPending) {
       Sfx.play('ui_error')
       return
     }
@@ -1370,8 +1399,62 @@ export default class Lobby extends Container {
     this.playsLine.hidden = view === undefined || offline
     this.playsLine.textContent = view === undefined ? '' : energyLine(view, elapsed)
     const out = outOfPlays(view, elapsed)
-    this.readyButton.disabled = out
+    this.readyButton.disabled = out || this.adPending
     this.readyButton.title = out ? 'Each run uses 1 play. Extract to get it back.' : ''
+    this.renderAd(offline ? { kind: 'none' } : adOffer(view, elapsed))
+  }
+
+  /**
+   * The rewarded refill's row (g2-6d): the button where the server offers it
+   * and ads can be asked for here; disabled with "Ads are blocked" behind an
+   * ad blocker (no popup); hidden with "Next refill in mm:ss" while a limit
+   * holds; a click's note for a few seconds after it. Hidden after an
+   * `adsDisabled` answer (`adsAvailable`), off CrazyGames, on an offline
+   * launch, and wherever the server sends no `adRefill`.
+   */
+  private renderAd (offer: ReturnType<typeof adOffer>): void {
+    const blocked = PORTAL_SDK.adBlocked()
+    const button = this.adPending || (offer.kind === 'button' && (blocked || PORTAL_SDK.adsAvailable()))
+    if (this.adNoteText !== undefined && Date.now() >= this.adNoteUntil) this.adNoteText = undefined
+    let note = this.adNoteText
+    if (note === undefined && button && blocked && !this.adPending) note = 'Ads are blocked'
+    this.adClockShown = note === undefined && offer.kind === 'wait'
+    if (this.adClockShown && offer.kind === 'wait') note = `Next refill in ${clockOf(offer.inMs)}`
+    this.adButton.hidden = !button
+    this.adButton.disabled = this.adPending || blocked
+    this.adButton.classList.toggle('lb-adwait', this.adPending)
+    this.adNote.hidden = note === undefined
+    this.adNote.textContent = note ?? ''
+    this.adRow.hidden = this.adButton.hidden && this.adNote.hidden
+  }
+
+  /**
+   * One click of the refill button: the ad through the adapter, its outcome
+   * to the server for GA, and on `rewarded` only the request (`energy_ad`),
+   * answered by the acknowledgement within `GRANT_TIMEOUT_MS`. The server's
+   * `energy` updates the plays line (`index.ts`). One at a time; never in a
+   * run (the lobby is gone then) and never while READY is on its way.
+   */
+  private watchAd (): void {
+    if (this.adPending || this.started || PORTAL_SDK.adBlocked()) return
+    this.adPending = true
+    this.adNoteText = undefined
+    this.renderEnergy()
+    void watchForPlays({
+      sdk: PORTAL_SDK,
+      report: (result) => { Game.socket.emit('ad_result', { result }) },
+      askGrant: async () => await new Promise((resolve) => {
+        Game.socket.timeout(GRANT_TIMEOUT_MS).emit('energy_ad', {}, (err: unknown, data: unknown) => {
+          resolve(err === null || err === undefined ? grantAnswerOf(data) : undefined)
+        })
+      })
+    }).then((outcome) => {
+      this.adPending = false
+      if (this.tornDown) return
+      this.adNoteText = refillNote(outcome)
+      this.adNoteUntil = Date.now() + 6000
+      this.renderEnergy()
+    })
   }
 
   /**
@@ -1400,6 +1483,7 @@ export default class Lobby extends Container {
     clearInterval(this.seasonTimer)
     ENERGY.listeners.delete(this.onEnergy)
     clearInterval(this.energyTimer)
+    clearInterval(this.adTimer)
     clearInterval(this.fullTimer)
     this.loadout.dispose()
     this.stash.dispose()

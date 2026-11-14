@@ -195,6 +195,35 @@ than 30 minutes ends at cap + 1 (never higher: above the cap no clock runs). The
 plays under READY (`net/energy.ts` `energyLine`, counted forward on the client) and disables READY
 at 0 until the next play is due; the server decides regardless. Every start now waits one database
 round trip (a transaction of four statements) before its `hello`.
+**Rewarded refill** (g2-6d; decision #62 and its 2026-11-13 addendum: no midgame and no banner ads,
+ever; only this purposeful rewarded video; Q7 2026-11-14: CrazyGames guests too). A player with no
+play left can watch a rewarded video in the lobby to refill to `cap` (3). **Server switch
+`AD_REFILL_PORTALS`** (env, a comma list of handshake portal names, `adRefillPortalsFrom`; unset =
+off everywhere, the default): **off until CrazyGames' Full Launch** (R3, g2-10), because during
+Basic Launch CrazyGames disables ads and "There should not be rewarded ad buttons without effect".
+**Limits** (`AD_REFILL` in `progress/energy.ts`, Dez's numbers, a Dez tunable): only at 0 plays
+(regenerated to now), at most one per 30 min and three per UTC day, **per account** (guests are
+accounts). The server can't verify that an ad was watched (CrazyGames documents no receipt), and any
+client can send `energy_ad`, so the limits are the whole defence: abuse is bounded to three refills
+a day. **Offered** (`EnergyView.adRefill`, on `account.energy`, `energy` and `start_refused.energy`;
+`Worlds.energyFor`) only to a connection whose handshake portal is listed (a claim, unverified), on a
+persisted account (an offline one plays free), with a store that has the refill half
+(`adRefillStoreOf`; both shipped stores do): `{ offered }`, plus `nextInMs` (until the limit allows)
+when the stock is 0 and a limit is in the way. **Granted** by `energy_ad` (`Worlds.energyAd`): refused
+before the store as `off` (not offered here), `in_run` (a run started or starting: lobby only),
+`busy` (one in flight, or within `AD_REQUEST_GAP_MS` 2 s of the last); then the store's one atomic
+check-and-write (`AdRefillStore.adRefill`, `adRefillAt`; pg: one transaction holding the energy row
+`FOR UPDATE`, like a spend, so racing refills and spends don't interleave) grants or refuses
+`plays_left`/`cooldown`/`daily_cap`; a store failure or timeout is `error` and grants nothing. The
+answer is the acknowledgement, followed by an `energy` with the view as it now stands.
+**Migration 11** (`energy.ad_refill_at timestamptz NULL`, `ad_refills_day date NULL`,
+`ad_refills_count smallint NOT NULL DEFAULT 0 CHECK >= 0`; additive; the day is read as text, never
+as a JS `Date`, which would shift it by the time zone). `Account.adRefill` carries it for the view,
+absent with none ever. A refill sets the stock to the cap as of now, so no regeneration clock runs;
+a spend or refund after it keeps the refill columns. The client half is `docs/client-ui.md`
+("Rewarded refill"); GA `ad_result`, `energy_ad_granted`, `energy_ad_refused` (`src/analytics.ts`).
+Specs: `progress/energy.spec.ts` (arithmetic), `db/storecontract.ts` `adRefillContract` (memory and
+pg), `network/adrefill.spec.ts` (through `Worlds`), `pgstore.spec.ts` (migration 11).
 **Across a private world's pad** (#60, private-6; `docs/world.md`, "Private worlds"): a run in a
 private world and its continuation in a shared world are one run and cost **one** play. The play
 spent at the start moves to the shared world's player at the pad (`paid`, `padHandoff`), so the

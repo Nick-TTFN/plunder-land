@@ -1,5 +1,4 @@
-import type { PortalDevice, PortalSdk, PortalUser } from './adapter'
-import { noPortalSdk } from './none'
+import type { PortalDevice, PortalSdk, PortalUser, RewardedResult } from './adapter'
 
 /**
  * The CrazyGames SDK v3 behind the portal adapter (decision #62, g2-6a).
@@ -46,11 +45,31 @@ import { noPortalSdk } from './none'
  * `game.updateRoom({ isJoinable: false })` once, `game.setGameContext` /
  * `clearGameContext` (attached to a player's feedback) and `game.happytime()`.
  * Both values are read once, as the SDK settles.
+ *
+ * The ad module (g2-6d; docs.crazygames.com/sdk/video-ads and
+ * /requirements/ads, read 2026-11-13): `ad.requestAd('rewarded', { adStarted,
+ * adFinished, adError })`, the reward only on `adFinished`, never on
+ * `adError`, whose `code` is `adsDisabled` (no ads this session: Basic
+ * Launch, kids mode, offline), `unfilled`, `adblock`, `adCooldown` or
+ * `other`; "mute the audio ... when the ad starts (adStarted)", "Only mute
+ * the audio when the ad actually starts playing, and not when you request
+ * an ad", and unmute on `adFinished` or `adError`; `ad.hasAdblock()` (a
+ * promise of a boolean). The SDK exposes no "ads enabled" flag before a
+ * request, so `adsAvailable` stays true until an `adsDisabled` answer
+ * (the server's `AD_REFILL_PORTALS` switch is what keeps the button away
+ * during Basic Launch). Only `'rewarded'` is ever requested here.
  */
 
 export const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js'
 /** The longest the SDK's load and `init` may take before the game plays on without it, ms. */
 export const INIT_TIMEOUT_MS = 5000
+/**
+ * The longest a rewarded ad may leave the lobby waiting for `adFinished` or
+ * `adError` before it reads as `failed` (and the sound comes back): a safety
+ * for an SDK that never calls back, well past any ad's length. An
+ * `adFinished` after it rewards nothing.
+ */
+export const AD_MAX_MS = 180_000
 
 interface CrazySettings { muteAudio?: boolean }
 
@@ -98,6 +117,20 @@ export function deviceOf (raw: unknown): PortalDevice | undefined {
   return type === 'desktop' || type === 'tablet' || type === 'mobile' ? type : undefined
 }
 
+/** `adError`'s `code` as the game reads it (g2-6d). `adsDisabled` and `adblock` also change what the adapter says afterwards. */
+export function rewardedResultOf (error: unknown): RewardedResult {
+  const code = error !== null && typeof error === 'object' ? (error as { code?: unknown }).code : undefined
+  if (code === 'adsDisabled' || code === 'unfilled' || code === 'adCooldown') return 'unavailable'
+  if (code === 'adblock') return 'adblock'
+  return 'failed'
+}
+
+/** The SDK's ad module, as far as it is used (g2-6d). Optional on `CrazySdk`: a fake, or an SDK without it, has no ads. */
+export interface CrazyAdModule {
+  requestAd: (type: 'rewarded', callbacks: { adStarted?: () => void, adFinished?: () => void, adError?: (error: unknown) => void }) => unknown
+  hasAdblock?: () => Promise<boolean>
+}
+
 /** An SDK method that must be there: one that isn't throws, so `guard` warns about it once. */
 function required<T> (method: T | undefined, name: string): T {
   if (method === undefined) throw new Error(`${name} is not in this SDK`)
@@ -123,6 +156,7 @@ export interface CrazySdk {
     happytime?: () => void
   }
   user?: CrazyUserModule
+  ad?: CrazyAdModule
 }
 
 export interface CrazyOptions {
@@ -150,7 +184,6 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
   const timeoutMs = options.timeoutMs ?? INIT_TIMEOUT_MS
   const log = options.log ?? ((line: string) => { console.info(line) })
   const warn = options.warn ?? ((line: string) => { console.warn(line) })
-  const none = noPortalSdk()
 
   /** Set only once init resolved in a usable environment. */
   let sdk: CrazySdk | undefined
@@ -158,7 +191,18 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
   let settled = false
   const pending: Array<() => void> = []
   const warned = new Set<string>()
+  /** The portal's own mute (`settings.muteAudio`). */
   let muted = false
+  /** A rewarded ad is playing (g2-6d): from `adStarted` to its end. */
+  let adPlaying = false
+  /** What the mute listeners were last told: the portal's mute or an ad playing. */
+  const heard = (): boolean => muted || adPlaying
+  /** `adsDisabled` was answered once: no ads for the rest of the page (g2-6d). */
+  let adsDisabled = false
+  /** An ad blocker is known (the script blocked, `hasAdblock`, an `adblock` answer). */
+  let adBlocked = false
+  /** The rewarded ad in flight, if any: a second call gets the same promise. */
+  let adInFlight: Promise<RewardedResult> | undefined
   /** Read once as the SDK settles (g2-6f). */
   let device: PortalDevice | undefined
   let offline = false
@@ -246,10 +290,58 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
   }
   const tellMute = (listener: (muted: boolean) => void): void => {
     try {
-      listener(muted)
+      listener(heard())
     } catch (e) {
       warn(`portal sdk: a mute listener failed: ${String(e)}`)
     }
+  }
+  /** Whether an ad plays, telling the mute listeners when what they hear changes. */
+  const setAdPlaying = (playing: boolean): void => {
+    const before = heard()
+    adPlaying = playing
+    if (heard() !== before) muteListeners.forEach(tellMute)
+  }
+  /** One rewarded ad on a usable SDK; see `PortalSdk.rewardedAd`. */
+  const requestRewarded = async (): Promise<RewardedResult> => {
+    await ready
+    if (sdk === undefined) return adBlocked ? 'adblock' : 'unavailable'
+    if (adsDisabled) return 'unavailable'
+    const ad = peek('ad', (s) => s.ad, undefined)
+    if (ad === undefined) return 'unavailable'
+    return await new Promise<RewardedResult>((resolve) => {
+      let done = false
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const end = (result: RewardedResult): void => {
+        if (done) return
+        done = true
+        if (timer !== undefined) clearTimeout(timer)
+        setAdPlaying(false)
+        if (local) log(`portal sdk: rewarded ad ${result}`)
+        resolve(result)
+      }
+      timer = setTimeout(() => { end('failed') }, AD_MAX_MS)
+      try {
+        if (local) log('portal sdk: requestAd rewarded')
+        ad.requestAd('rewarded', {
+          // Muted only once it plays, never at the request (CrazyGames' rule).
+          adStarted: () => { if (!done) setAdPlaying(true) },
+          adFinished: () => { end('rewarded') },
+          adError: (error: unknown) => {
+            const result = rewardedResultOf(error)
+            const code = (error as { code?: unknown } | null)?.code
+            if (code === 'adsDisabled') adsDisabled = true
+            if (result === 'adblock') adBlocked = true
+            end(result)
+          }
+        })
+      } catch (e) {
+        if (!warned.has('requestAd')) {
+          warned.add('requestAd')
+          warn(`portal sdk: requestAd failed: ${String(e)}`)
+        }
+        end('failed')
+      }
+    })
   }
 
   const ready = (async (): Promise<void> => {
@@ -257,7 +349,10 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     try {
       candidate = await within((async () => {
         const loaded = await load()
-        if (loaded !== undefined) await loaded.init()
+        // The script didn't load (its `onerror`): on CrazyGames that is
+        // almost always an ad blocker (g2-6d says so where an ad is offered).
+        if (loaded === undefined) adBlocked = true
+        else await loaded.init()
         return loaded
       })(), timeoutMs)
     } catch {
@@ -279,13 +374,12 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     guard('settings', (s) => {
       muted = s.game.settings?.muteAudio === true
       s.game.addSettingsChangeListener((settings) => {
-        const now = settings?.muteAudio === true
-        if (now === muted) return
-        muted = now
-        muteListeners.forEach(tellMute)
+        const before = heard()
+        muted = settings?.muteAudio === true
+        if (heard() !== before) muteListeners.forEach(tellMute)
       })
     })
-    if (muted) muteListeners.forEach(tellMute)
+    if (heard()) muteListeners.forEach(tellMute)
     // g2-6f: the device the portal reads, and an offline launch (no room to join then).
     device = peek('systemInfo', (s) => deviceOf(s.user?.systemInfo), undefined)
     offline = peek('isOfflineMode', (s) => s.game.isOfflineMode === true, false)
@@ -296,6 +390,13 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
         s.user?.addAuthListener((user) => {
           if (user !== null && user !== undefined) tellLogin()
         })
+      })
+    }
+    // g2-6d: the portal's own ad-blocker check, once; its answer arrives later.
+    const adModule = peek('ad', (s) => s.ad, undefined)
+    if (adModule?.hasAdblock !== undefined) {
+      guard('hasAdblock', () => {
+        void adModule.hasAdblock?.call(adModule).then((present) => { if (present === true) adBlocked = true }, () => {})
       })
     }
     pending.splice(0).forEach((call) => { call() })
@@ -309,7 +410,7 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     onMute: (listener) => {
       muteListeners.push(listener)
       // After settling, the state now; before, the settle tells it if muted.
-      if (settled && muted) tellMute(listener)
+      if (settled && heard()) tellMute(listener)
     },
     // g2-6c.
     user: async () => await ask('getUser', async (m) => portalUserOf(await m.getUser()), null),
@@ -335,8 +436,18 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     clearContext: () => { whenReady('clearGameContext', (s) => { required(s.game.clearGameContext, 'clearGameContext').call(s.game) }) },
     happytime: () => { whenReady('happytime', (s) => { required(s.game.happytime, 'happytime').call(s.game) }) },
     // g2-6d.
-    rewardedAd: none.rewardedAd,
-    adsAvailable: none.adsAvailable
+    rewardedAd: async () => {
+      if (adInFlight !== undefined) return await adInFlight
+      const request = requestRewarded()
+      adInFlight = request
+      try {
+        return await request
+      } finally {
+        if (adInFlight === request) adInFlight = undefined
+      }
+    },
+    adsAvailable: () => settled && !adsDisabled && peek('ad', (s) => s.ad !== undefined, false),
+    adBlocked: () => adBlocked
   }
 }
 

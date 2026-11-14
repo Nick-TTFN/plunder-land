@@ -57,6 +57,15 @@ import type Redis from 'ioredis'
  *   guest account was linked meanwhile) or `auto` (a logged-in user with no
  *   link and no guest account to offer got a new linked account at READY).
  *   Sent by `Worlds` (`portalEvent`) as a visit event, outside any run.
+ * - The rewarded-video refill (g2-6d; added with it; only on a portal in
+ *   `AD_REFILL_PORTALS`), visit events too: `ad_result` with `result`
+ *   (`rewarded`, `unavailable`, `adblock`, `failed`: how one ad request
+ *   ended, as the client reports it, at most 20 a connection),
+ *   `energy_ad_granted` (no params: plays refilled to the cap) and
+ *   `energy_ad_refused` with `reason` (`plays_left`, `cooldown`,
+ *   `daily_cap`: the limits refused it; `error`: the store failed). A
+ *   `rewarded` result followed by no grant is a refill the limits or the
+ *   store refused, or a client that never asked.
  *
  * `client_id` is the player id: since guest accounts (decision #48) the
  * account's `publicId` (16 hex, issued by the server), or a made-up id for

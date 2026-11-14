@@ -47,7 +47,7 @@ there). Inside an iframe it also needs the host's `allowfullscreen`. Both button
 **Portal SDK** (g2-6a, #62: "go full in with adapter"): `src/portal/`. `adapter.ts` is the one
 interface (`PortalSdk`: `ready`, `loadingStop`, `gameplayStart`, `gameplayStop`, `onMute`; the user
 members `user`, `userToken`, `onLogin`, `linkPrompt`, `authPrompt`, `accountsAvailable` since g2-6c,
-and the platform members since g2-6f, both below; the rewarded-ad members are declared and answer `'unavailable'`/false until g2-6d);
+and the platform members since g2-6f, and the rewarded-ad members since g2-6d, all below);
 `withGameplayState` passes on `loadingStop` once and `gameplayStart`/`gameplayStop` only on a
 change. `none.ts` is the no-op (our site, itch, anything else); `crazygames.ts` adds CrazyGames'
 SDK v3 script at run time, only on `crazygames`, awaits `init()` for at most 5 s
@@ -165,6 +165,40 @@ not logged as calls); a method an older SDK lacks is warned once (`required`). T
 - Unverified: the real SDK on CrazyGames (systemInfo, offline mode and the CSS variables exist only in
   their docs here; `?portal=crazygames` on localhost gives their `local` environment), the app, and
   iOS (interrupted audio, the variables).
+
+**Rewarded refill** (g2-6d; decision #62: rewarded videos only, for energy; the server half, the
+switch and the limits are docs/accounts.md "Rewarded refill"; CrazyGames' /sdk/video-ads and
+/requirements/ads read 2026-11-13). **No other ad exists**: the adapter has no midgame or banner
+member, and a spec fails on any `'midgame'` or banner call in the client.
+- **The adapter** (`crazygames.ts`): `rewardedAd()` asks `ad.requestAd('rewarded', …)` and resolves
+  `rewarded` only on `adFinished`; `adError` reads as `unavailable` (`adsDisabled`, `unfilled`,
+  `adCooldown`), `adblock`, or `failed` (anything else, a throw, or no callback within `AD_MAX_MS`,
+  3 min); a callback after the end changes nothing. **Mute** goes through `onMute`: the listeners
+  hear "muted" from `adStarted` (never at the request) to the end, or'd with the portal's own mute.
+  One request at a time (a second call gets the first's answer). `adsDisabled` once: `adsAvailable()`
+  is false for the rest of the page and the SDK is never asked again. `adBlocked()`: the SDK script
+  failed to load (on CrazyGames almost always a blocker; a network failure reads the same),
+  `ad.hasAdblock()` said so at init, or an `adblock` answer. `none.ts`: `unavailable`, false, false.
+- **The click** (`portal/adrefill.ts` `watchForPlays`, pixi-free): the ad; `ad_result { result }` to
+  the server for GA, always; only on `rewarded`, `energy_ad {}` with an acknowledgement, given up
+  after `GRANT_TIMEOUT_MS` (5 s, an old server or a drain). The lobby's notes (`refillNote`): "Plays
+  refilled", "No ad right now, try again later" (`unavailable`, `failed`), "Ads are blocked",
+  "Couldn't add plays, try again later" (watched, then refused for another reason or no answer: the
+  ad was watched for nothing, said plainly); a limit's refusal shows the timer instead.
+- **The lobby** (`lobby.ts` `renderAd`): a row under the plays line (`lb-adrow`), only where the
+  server's view carries `adRefill` and `adOffer` (`net/energy.ts`, counted forward) says so: the
+  button (a video icon and "Watch an ad: refill plays", the plays line's size and weight, so the
+  plays line, the alternative, stays as plain beside it) with no play left and both limits allowing;
+  "Next refill in mm:ss" (h:mm:ss over an hour) while a limit holds, the button again once it has
+  passed (the server decides again); disabled with "Ads are blocked" behind a blocker (no popup);
+  hidden after `adsDisabled`, on an offline launch, before the SDK is ready, off CrazyGames, and
+  with plays left. While an ad or its answer is pending the button spins and READY waits (Enter too).
+  A note shows 6 s. Never in a run, on the run card, after a death or on `start_refused`: only the
+  lobby's readout.
+- Specs: `portalads.spec.ts` (adapter with fake SDKs, the click, `adOffer`, the no-midgame grep).
+  Unverified: the real SDK's ads (Basic Launch has none; the `local` environment shows an overlay),
+  the 3-min safety against a real ad's length, and whether CrazyGames' QA reads an only-at-0-plays
+  offer as the forbidden "Out-of-lives rewarded video each time the users lose a life".
 
 ## Sound
 

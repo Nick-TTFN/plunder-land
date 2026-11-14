@@ -1,6 +1,6 @@
 import { Client, Pool, type PoolClient } from 'pg'
 import {
-  type Account, type AccountStore, type FirstRunStore, type PortalStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
+  type Account, type AccountStore, type AdRefilled, type AdRefillStore, type FirstRunStore, type PortalStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
   type Merged, mergeIdsOf, type MergeRule, newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Scrapped,
   type Settled, splitFound, type Spent, STALE_CARRY_MS, type StashEdits, type StashItem, storable, type StoredLoadout
 } from './accounts'
@@ -12,7 +12,7 @@ import {
   seasonStart, type SeasonView, seasonView, type Tier, tierPlaces
 } from '../progress/seasons'
 import { ENERGY, SEASON } from '../progress/xp'
-import { energyAt, type EnergyRecord, refundAt, spendAt } from '../progress/energy'
+import { adRefillAt, type AdRefillRecord, energyAt, type EnergyRecord, refundAt, spendAt } from '../progress/energy'
 import { ThrottledLog } from '../network/multiplayer'
 
 /**
@@ -77,6 +77,26 @@ function stashItemOfRow (row: StashRowSql): StashItem {
   return { ...instanceOfRow(row), carried: Number(row.state) === 1, source: Number(row.source) }
 }
 
+/**
+ * Migration 11's columns of `energy` (alias `en`), as `AdRefillRow` reads
+ * them. The day as text: node-pg would turn a `date` into a local-midnight
+ * `Date`, which is the wrong day east or west of UTC.
+ */
+const AD_REFILL_COLUMNS = `round(extract(epoch FROM en.ad_refill_at) * 1000)::bigint AS ad_refill_ms,
+         en.ad_refills_day::text AS ad_refills_day, en.ad_refills_count`
+
+interface AdRefillRow {
+  ad_refill_ms: string | null
+  ad_refills_day: string | null
+  ad_refills_count: number | null
+}
+
+/** The stored refills, or null for none ever (no energy row, or no refill on it). */
+function adRefillOfRow (row: AdRefillRow): AdRefillRecord | null {
+  if (row.ad_refill_ms === null || row.ad_refill_ms === undefined) return null
+  return { lastAtMs: Number(row.ad_refill_ms), day: row.ad_refills_day, count: Number(row.ad_refills_count ?? 0) }
+}
+
 /** What the energy transaction did: written or not, the record, and what a spend carried. */
 interface EnergyWritten {
   written: boolean
@@ -116,7 +136,7 @@ export interface PgAccountStoreOptions {
  * both 2 s, so a slow database costs a joining player at most a few seconds
  * in the lobby, then an offline run.
  */
-export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore, PortalStore {
+export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore, PortalStore, AdRefillStore {
   readonly pool: Pool
   ready = false
   private retry: NodeJS.Timeout | undefined
@@ -191,13 +211,15 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits, Admi
    * One round trip: the account `found` names (a CTE giving `id, public_id`,
    * touching `last_seen_at`), its XP (no progress row yet reads as 0), its
    * saved loadouts (none reads as []), its energy (none reads as null), its
-   * first run (no row reads as not done, migration 8) and its first portal
-   * link (none: no `portal`, migration 10).
+   * first run (no row reads as not done, migration 8), its first portal
+   * link (none: no `portal`, migration 10) and its ad refills (none ever: no
+   * `adRefill`, migration 11).
    */
   private async readAccount (found: string, params: unknown[]): Promise<Account | null> {
     const result = await this.pool.query(
       `WITH a AS (${found})
        SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
+         ${AD_REFILL_COLUMNS},
          EXISTS (SELECT 1 FROM first_runs f WHERE f.account_id = a.id) AS first_run_done,
          (SELECT k.portal FROM account_links k WHERE k.account_id = a.id ORDER BY k.linked_at, k.portal LIMIT 1) AS portal,
          COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
@@ -205,14 +227,73 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits, Admi
        FROM a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id`,
       params
     )
-    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null, first_run_done: boolean, portal: string | null } | undefined
+    const row = result.rows[0] as ({ public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null, first_run_done: boolean, portal: string | null } & AdRefillRow) | undefined
     if (row === undefined) return null
     // Raw as stored: `kitFor` checks every row at the join.
     const loadouts = Array.isArray(row.loadouts) ? row.loadouts.map((l) => ({ robot: l.robot, index: Number(l.index), skills: l.skills })) : []
     const energy = row.stock === null || row.as_of_ms === null ? null : { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
     const account: Account = { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy, firstRunDone: row.first_run_done === true }
     if (row.portal !== null) account.portal = row.portal
+    const ads = adRefillOfRow(row)
+    if (ads !== null) account.adRefill = ads
     return account
+  }
+
+  // --- rewarded-video refills (g2-6d, migration 11; contract on `AdRefillStore`) --
+
+  /**
+   * One transaction holding the energy row (`FOR UPDATE`, after the same
+   * start-stock insert as a spend), so a refill and a spend, or two refills,
+   * never interleave. Refused: rolled back, nothing written.
+   */
+  async adRefill (publicId: string, nowMs: number): Promise<AdRefilled> {
+    this.checkOpen()
+    return await this.tracked(this.adRefillWrite(publicId, nowMs))
+  }
+
+  private async adRefillWrite (publicId: string, nowMs: number): Promise<AdRefilled> {
+    const client: PoolClient = await this.pool.connect()
+    const onError = (e: unknown): void => { this.onError(e) }
+    client.on('error', onError)
+    let failed: Error | undefined
+    try {
+      await client.query('BEGIN')
+      await client.query(
+        `INSERT INTO energy (account_id, stock, as_of)
+         SELECT id, $2, to_timestamp($3::double precision / 1000.0) FROM accounts WHERE public_id = $1
+         ON CONFLICT (account_id) DO NOTHING`,
+        [publicId, ENERGY.start, nowMs]
+      )
+      const found = await client.query(
+        `SELECT en.account_id, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms, ${AD_REFILL_COLUMNS}
+         FROM energy en JOIN accounts a ON a.id = en.account_id WHERE a.public_id = $1 FOR UPDATE OF en`,
+        [publicId]
+      )
+      const row = found.rows[0] as ({ account_id: string, stock: number, as_of_ms: string } & AdRefillRow) | undefined
+      if (row === undefined) throw new Error('accounts: refill for an unknown account')
+      const stored = { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
+      const ads = adRefillOfRow(row)
+      const result = adRefillAt(stored, ads, nowMs)
+      if (!result.ok) {
+        await client.query('ROLLBACK')
+        return { ok: false, reason: result.reason, energy: result.energy, adRefill: ads }
+      }
+      await client.query(
+        `UPDATE energy SET stock = $2, as_of = to_timestamp($3::double precision / 1000.0),
+           ad_refill_at = to_timestamp($4::double precision / 1000.0), ad_refills_day = $5::date, ad_refills_count = $6, updated_at = now()
+         WHERE account_id = $1`,
+        [row.account_id, result.energy.stock, result.energy.asOfMs, result.ads.lastAtMs, result.ads.day, result.ads.count]
+      )
+      await client.query('COMMIT')
+      return { ok: true, energy: result.energy, adRefill: result.ads }
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {})
+      failed = e instanceof Error ? e : new Error(String(e))
+      throw e
+    } finally {
+      client.removeListener('error', onError)
+      client.release(failed)
+    }
   }
 
   // --- portal accounts (g2-6b, migration 10; contract on `PortalStore`) --------

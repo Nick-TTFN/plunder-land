@@ -269,5 +269,24 @@ export const MIGRATIONS: readonly Migration[] = [
         UNIQUE (portal, account_id)
       )
     `
+  },
+  {
+    version: 11,
+    name: 'ad refills',
+    // Rewarded-video energy refills (g2-6d; docs/accounts.md, "Rewarded
+    // refill"): per account, the last refill's time, the UTC day the count
+    // counts and that day's count, which `PgAccountStore.adRefill` checks and
+    // writes in one transaction holding the energy row (`AD_REFILL` in
+    // `progress/energy.ts`). Columns on `energy`, so the refill locks the row
+    // a spend locks. Additive: nullable columns and one with a constant
+    // default; the previous release names its columns in every insert and
+    // update and runs unchanged on this schema during overlap and drain.
+    // A userbase reset like migration 9 empties them with the table.
+    sql: `
+      ALTER TABLE energy
+        ADD COLUMN ad_refill_at     timestamptz NULL,
+        ADD COLUMN ad_refills_day   date        NULL,
+        ADD COLUMN ad_refills_count smallint    NOT NULL DEFAULT 0 CHECK (ad_refills_count >= 0)
+    `
   }
 ]

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ENERGY } from './xp'
-import { energyAt, energyView, refundAt, spendAt } from './energy'
+import { AD_REFILL, adRefillAt, adRefillCheck, type AdRefillRecord, adRefillView, energyAt, type EnergyRecord, energyView, refundAt, spendAt, utcDay } from './energy'
 
 /**
  * Energy's arithmetic (decision #48 step 7): 1 play per 30 min, a cap of 3,
@@ -83,4 +83,80 @@ test('another server\'s clock a little behind: no play is taken away, and the wa
   const record = { stock: 1, asOfMs: T }
   assert.deepEqual(energyAt(record, T - 5000), record)
   assert.equal(energyView(record, T - 5000).nextInMs, 30 * MIN)
+})
+
+// --- the rewarded-video refill (g2-6d; decision #62 addendum 2026-11-13) ---
+
+const DAY = 24 * 60 * MIN
+/** 2026-11-14 10:00 UTC. */
+const AT = Date.parse('2026-11-14T10:00:00.000Z')
+/** No play left, as of `AT` (the clock started then). */
+const EMPTY = { stock: 0, asOfMs: AT }
+
+test('the refill\'s limits are #62\'s: one per 30 min, three per UTC day', () => {
+  assert.deepEqual({ ...AD_REFILL }, { cooldownMs: 30 * MIN, perDay: 3 })
+})
+
+test('a refill only at 0 plays: refused with any play left, counting the plays regenerated since', () => {
+  for (const stock of [1, 2, 3, 4, 10]) {
+    assert.deepEqual(adRefillCheck({ stock, asOfMs: AT }, null, AT), { ok: false, reason: 'plays_left' }, `stock ${stock}`)
+  }
+  // A new account (no record) has the start stock.
+  assert.deepEqual(adRefillCheck(null, null, AT), { ok: false, reason: 'plays_left' })
+  assert.deepEqual(adRefillCheck(EMPTY, null, AT + 30 * MIN - 1), { ok: true })
+  assert.deepEqual(adRefillCheck(EMPTY, null, AT + 30 * MIN), { ok: false, reason: 'plays_left' }, 'a regenerated play counts')
+  // Refused: nothing changes.
+  const refused = adRefillAt({ stock: 1, asOfMs: AT }, null, AT + MIN)
+  assert.deepEqual(refused, { ok: false, reason: 'plays_left', energy: { stock: 1, asOfMs: AT }, ads: null })
+})
+
+test('a refill fills to the cap exactly, at the cap so no clock runs, and counts one for the UTC day', () => {
+  const done = adRefillAt(EMPTY, null, AT + 5 * MIN)
+  assert.deepEqual(done, { ok: true, energy: { stock: ENERGY.cap, asOfMs: AT + 5 * MIN }, ads: { lastAtMs: AT + 5 * MIN, day: '2026-11-14', count: 1 } })
+  // Hours later, still the cap: nothing regenerates above it.
+  assert.deepEqual(energyAt(done.energy, AT + 10 * 60 * MIN), { stock: ENERGY.cap, asOfMs: AT + 10 * 60 * MIN })
+})
+
+test('the 30-minute limit: refused until 30 min after the last refill, with the time left', () => {
+  const ads = { lastAtMs: AT, day: '2026-11-14', count: 1 }
+  assert.deepEqual(adRefillCheck(EMPTY, ads, AT + 10 * MIN), { ok: false, reason: 'cooldown', nextInMs: 20 * MIN })
+  assert.deepEqual(adRefillCheck(EMPTY, ads, AT + 30 * MIN - 1), { ok: false, reason: 'cooldown', nextInMs: 1 })
+  // At 30 min the stock regenerated one play; a stock emptied again then is allowed.
+  assert.deepEqual(adRefillCheck({ stock: 0, asOfMs: AT + 30 * MIN }, ads, AT + 30 * MIN), { ok: true })
+  assert.deepEqual(adRefillView(EMPTY, ads, AT + 10 * MIN), { offered: false, nextInMs: 20 * MIN })
+  // A refill stamped in the future (another server's clock ahead) waits one cooldown at most.
+  assert.deepEqual(adRefillCheck(EMPTY, { ...ads, lastAtMs: AT + DAY }, AT), { ok: false, reason: 'cooldown', nextInMs: 30 * MIN })
+})
+
+test('three per UTC day: the fourth waits for UTC midnight, and the count starts again on the next day', () => {
+  let energy: EnergyRecord | null = EMPTY
+  let ads: AdRefillRecord | null = null
+  for (let i = 0; i < 3; i++) {
+    const at = AT + i * 30 * MIN
+    const done = adRefillAt({ stock: 0, asOfMs: at }, ads, at)
+    assert.equal(done.ok, true, `refill ${i + 1}`)
+    energy = done.energy
+    ads = done.ads
+  }
+  assert.deepEqual(ads, { lastAtMs: AT + 60 * MIN, day: '2026-11-14', count: 3 })
+  const fourth = AT + 90 * MIN
+  // 11:30 UTC: 12.5 hours to midnight.
+  assert.deepEqual(adRefillCheck({ stock: 0, asOfMs: fourth }, ads, fourth), { ok: false, reason: 'daily_cap', nextInMs: 12.5 * 60 * MIN })
+  assert.deepEqual(adRefillView({ stock: 0, asOfMs: fourth }, ads, fourth), { offered: false, nextInMs: 12.5 * 60 * MIN })
+  const midnight = Date.parse('2026-11-15T00:00:00.000Z')
+  assert.deepEqual(adRefillCheck({ stock: 0, asOfMs: midnight - 1 }, ads, midnight - 1), { ok: false, reason: 'daily_cap', nextInMs: 1 })
+  const next = adRefillAt({ stock: 0, asOfMs: midnight }, ads, midnight)
+  assert.deepEqual(next.ads, { lastAtMs: midnight, day: '2026-11-15', count: 1 }, 'the new day counts from 1')
+  // The cap a refill just before midnight hit, with the cooldown ending after it: the later one.
+  const late = { lastAtMs: midnight - 10 * MIN, day: '2026-11-14', count: 3 }
+  assert.deepEqual(adRefillCheck({ stock: 0, asOfMs: midnight - 5 * MIN }, late, midnight - 5 * MIN), { ok: false, reason: 'daily_cap', nextInMs: 25 * MIN })
+  // And just after midnight the cooldown still holds.
+  assert.deepEqual(adRefillCheck({ stock: 0, asOfMs: midnight + MIN }, late, midnight + MIN), { ok: false, reason: 'cooldown', nextInMs: 19 * MIN })
+  assert.equal(utcDay(midnight - 1), '2026-11-14')
+  assert.equal(utcDay(midnight), '2026-11-15')
+})
+
+test('the view: offered only at 0 plays with both limits allowing; no timer with plays left', () => {
+  assert.deepEqual(adRefillView(EMPTY, null, AT), { offered: true })
+  assert.deepEqual(adRefillView({ stock: 2, asOfMs: AT }, { lastAtMs: AT, day: '2026-11-14', count: 3 }, AT), { offered: false })
 })

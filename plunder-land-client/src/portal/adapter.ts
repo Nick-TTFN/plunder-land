@@ -6,9 +6,10 @@
  * `PORTAL`.
  *
  * g2-6a implements the first five members, g2-6c the user's (`user` to
- * `accountsAvailable`), g2-6f the platform's (`deviceType` to `happytime`);
- * the ad members land in g2-6d (until then every implementation answers
- * 'unavailable' or false).
+ * `accountsAvailable`), g2-6f the platform's (`deviceType` to `happytime`),
+ * g2-6d the rewarded ad's (`rewardedAd` to `adBlocked`). **Rewarded ads only,
+ * ever** (decision #62: no midgame, no banner): the adapter has no other ad
+ * member, so the game can't show one.
  *
  * Pixi-free and `window`-free.
  */
@@ -20,7 +21,14 @@ export interface PortalUser {
   avatar: string | undefined
 }
 
-export type RewardedResult = 'rewarded' | 'unavailable' | 'failed'
+/**
+ * How a rewarded ad ended (g2-6d). Only `rewarded` means watched to the end
+ * (CrazyGames' `adFinished`); `unavailable` is no ad now (none filled, a
+ * cooldown, ads disabled for the session, no SDK), `adblock` an ad blocker,
+ * `failed` anything else. Append-only: the server reports each to GA
+ * (`ad_result { result }`).
+ */
+export type RewardedResult = 'rewarded' | 'unavailable' | 'adblock' | 'failed'
 
 /** The portal's own reading of the device (CrazyGames' `systemInfo.device.type`). */
 export type PortalDevice = 'desktop' | 'tablet' | 'mobile'
@@ -65,8 +73,18 @@ export interface PortalSdk {
   clearContext: () => void
   /** The portal's celebration (g2-6f, decision #62 Q5: a level-up, the first extraction ever). Sparingly. */
   happytime: () => void
+  /**
+   * One rewarded ad (g2-6d). **Only from a click.** Resolves once it ends,
+   * never rejects; `rewarded` only when it played to the end. The game's
+   * sound is muted (through `onMute`) from the moment the ad starts playing,
+   * not from the request, until it ends. One at a time: a call while one is
+   * pending gets the pending one's promise.
+   */
   rewardedAd: () => Promise<RewardedResult>
+  /** Rewarded ads can be asked for here: a usable SDK with an ad module, and no `adsDisabled` seen this page. */
   adsAvailable: () => boolean
+  /** An ad blocker is known to be in the way (the portal's check, an `adblock` error, or its SDK script blocked). */
+  adBlocked: () => boolean
 }
 
 /**
@@ -108,6 +126,7 @@ export function withGameplayState (inner: PortalSdk): PortalSdk {
     clearContext: () => { inner.clearContext() },
     happytime: () => { inner.happytime() },
     rewardedAd: async () => await inner.rewardedAd(),
-    adsAvailable: () => inner.adsAvailable()
+    adsAvailable: () => inner.adsAvailable(),
+    adBlocked: () => inner.adBlocked()
   }
 }

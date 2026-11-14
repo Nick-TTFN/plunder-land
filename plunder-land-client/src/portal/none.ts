@@ -24,6 +24,7 @@ export function noPortalSdk (): PortalSdk {
     clearContext: () => {},
     happytime: () => {},
     rewardedAd: async () => 'unavailable',
-    adsAvailable: () => false
+    adsAvailable: () => false,
+    adBlocked: () => false
   }
 }

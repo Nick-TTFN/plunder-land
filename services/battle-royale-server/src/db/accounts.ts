@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { type EnergyRecord, refundAt, spendAt } from '../progress/energy'
+import { type AdRefillLimit, adRefillAt, type AdRefillRecord, type EnergyRecord, refundAt, spendAt } from '../progress/energy'
 import { type GearInstance, type GearRoll, type GearTier, GEAR_TIERS, Q_MAX, STASH_MAX } from '../utils/gear'
 import {
   compareEntries, dueStarts, eligible, type LastPayout, type PaidSeason, type SeasonBoard, type SeasonCredit,
@@ -62,6 +62,43 @@ export interface Account {
    * token (rule 4d) and is never sent one (`Worlds.setAccount`).
    */
   portal?: string
+  /**
+   * The account's rewarded-video refills (g2-6d, migration 11) as last read
+   * or written; absent with none ever (and on every offline account). For
+   * the energy view only: the store's is the truth (`AdRefillStore`).
+   */
+  adRefill?: AdRefillRecord
+}
+
+/**
+ * Rewarded-video energy refills (g2-6d; docs/accounts.md, "Rewarded
+ * refill"). **Not part of `AccountStore`**, for the reason `FirstRunStore`
+ * isn't; a store without it never offers a refill (`adRefillStoreOf`).
+ */
+export interface AdRefillStore {
+  /**
+   * One refill at `nowMs` (`adRefillAt`) as one atomic check-and-write over
+   * the account's energy row: refused (nothing changed) with a play left,
+   * within the cooldown or past the day's cap; otherwise the stock to the
+   * cap and the day's count up by one. Two at once get at most one refill
+   * per cooldown. Either way the energy and refills as they now stand.
+   * Throws when the store fails or knows no such account.
+   */
+  adRefill: (publicId: string, nowMs: number) => Promise<AdRefilled>
+}
+
+/** What `AdRefillStore.adRefill` answers. `reason` only when refused. */
+export interface AdRefilled {
+  ok: boolean
+  reason?: AdRefillLimit
+  energy: EnergyRecord
+  /** `null`: no refill ever. */
+  adRefill: AdRefillRecord | null
+}
+
+/** The store's refill half, when it has one (both shipped stores do). */
+export function adRefillStoreOf (store: AccountStore): (AccountStore & AdRefillStore) | undefined {
+  return typeof (store as Partial<AdRefillStore>).adRefill === 'function' ? store as AccountStore & AdRefillStore : undefined
 }
 
 /**
@@ -507,7 +544,7 @@ export function tokenOf (auth: unknown): string | undefined {
  * production (every deploy forgets every account; `openAccountStore` reports
  * that on Railway).
  */
-export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore, PortalStore {
+export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore, PortalStore, AdRefillStore {
   /** The stash's clock (pg's `now()`); specs pass a fake one to age carries and heartbeats. */
   private readonly clock: () => number
 
@@ -532,6 +569,8 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
   private readonly energy = new Map<string, EnergyRecord>()
   /** When each account finished its first run (pg `first_runs`); none is not done. */
   private readonly firstRuns = new Map<string, number>()
+  /** Rewarded-video refills by public id (pg: migration 11's `energy` columns); none is no refill ever. */
+  private readonly adRefills = new Map<string, AdRefillRecord>()
   /** Saved loadouts by public id, then by `robot/index`. */
   private readonly loadouts = new Map<string, Map<string, StoredLoadout>>()
   /** Each account's key in creation order: stands in for pg's `account_id` in the ranking. */
@@ -600,7 +639,20 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
     const account: Account = { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy }, firstRunDone: this.firstRuns.has(publicId) }
     const portal = this.portals.get(publicId)?.[0]
     if (portal !== undefined) account.portal = portal
+    const ads = this.adRefills.get(publicId)
+    if (ads !== undefined) account.adRefill = { ...ads }
     return account
+  }
+
+  /** Synchronous from start to end (no `await`), so two at once can't both refill within one cooldown. */
+  async adRefill (publicId: string, nowMs: number): Promise<AdRefilled> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: refill for an unknown account')
+    const ads = this.adRefills.get(publicId) ?? null
+    const result = adRefillAt(this.energy.get(publicId) ?? null, ads, nowMs)
+    if (!result.ok) return { ok: false, reason: result.reason, energy: { ...result.energy }, adRefill: ads === null ? null : { ...ads } }
+    this.energy.set(publicId, result.energy)
+    this.adRefills.set(publicId, result.ads)
+    return { ok: true, energy: { ...result.energy }, adRefill: { ...result.ads } }
   }
 
   async finishFirstRun (publicId: string, nowMs: number): Promise<void> {

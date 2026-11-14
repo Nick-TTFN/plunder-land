@@ -17,6 +17,18 @@ export interface EnergyView {
   /** Until the next play comes back; null at or above the cap. */
   nextInMs: number | null
   regenMs: number
+  /**
+   * The rewarded-video refill (g2-6d), only where the server offers it (a
+   * portal in its `AD_REFILL_PORTALS`); absent, no button. `offered`: no
+   * play left and both limits allow. `nextInMs`: no play left and a limit
+   * (30 min apart, 3 per UTC day) is in the way, until it allows.
+   */
+  adRefill?: AdRefillView
+}
+
+export interface AdRefillView {
+  offered: boolean
+  nextInMs?: number
 }
 
 /** Why the server refused a start. Only `energy` today. */
@@ -59,7 +71,49 @@ export function onEnergy (data: unknown): EnergyView | undefined {
   const regenMs = count(d.regenMs)
   const nextInMs = d.nextInMs === null ? null : count(d.nextInMs)
   if (stock === undefined || cap === undefined || cap < 1 || regenMs === undefined || regenMs < 1 || nextInMs === undefined) return undefined
-  return { stock, cap, nextInMs, regenMs }
+  const view: EnergyView = { stock, cap, nextInMs, regenMs }
+  // The refill's part is optional: a malformed one is dropped, never the view.
+  const adRefill = adRefillOf(d.adRefill)
+  if (adRefill !== undefined) view.adRefill = adRefill
+  return view
+}
+
+function adRefillOf (data: unknown): AdRefillView | undefined {
+  if (data === null || typeof data !== 'object') return undefined
+  const { offered, nextInMs } = data as { offered?: unknown, nextInMs?: unknown }
+  if (typeof offered !== 'boolean') return undefined
+  if (nextInMs === undefined) return { offered }
+  const ms = count(nextInMs)
+  return ms === undefined ? { offered } : { offered, nextInMs: ms }
+}
+
+/**
+ * What the lobby shows of the refill `elapsedMs` after the view arrived
+ * (g2-6d): `button` (offered, still no play left), `wait` with the time left
+ * (a limit in the way; once it has passed, the button, since the server's
+ * limits are time-based and it decides again on the request), or `none`
+ * (not offered here, plays left, or a limit with no time given).
+ */
+export type AdOffer = { kind: 'none' } | { kind: 'button' } | { kind: 'wait', inMs: number }
+
+export function adOffer (view: EnergyView | undefined, elapsedMs: number): AdOffer {
+  const ad = view?.adRefill
+  if (view === undefined || ad === undefined) return { kind: 'none' }
+  if (projectEnergy(view, elapsedMs).stock > 0) return { kind: 'none' }
+  if (ad.offered) return { kind: 'button' }
+  if (ad.nextInMs === undefined) return { kind: 'none' }
+  const left = ad.nextInMs - Math.max(0, elapsedMs)
+  return left > 0 ? { kind: 'wait', inMs: left } : { kind: 'button' }
+}
+
+/** `mm:ss`, or `h:mm:ss` from an hour, rounded up to the second. */
+export function clockOf (ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const two = (n: number): string => (n < 10 ? '0' : '') + String(n)
+  return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${two(m)}:${two(s)}`
 }
 
 /** A `start_refused` event, or undefined for a malformed one. */

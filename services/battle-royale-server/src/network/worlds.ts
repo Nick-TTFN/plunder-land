@@ -7,7 +7,7 @@ import { PROTOCOL } from '../utils/protocol'
 import { captureError, reportError } from '../errors'
 import BotFill from '../bots/fill'
 import { humanOn } from '../bots/brain'
-import { type Account, type AccountStore, type FirstRunStore, firstRunStoreOf, MemoryAccountStore, offlineAccount, type PortalStore, portalStoreOf, tokenOf } from '../db/accounts'
+import { type Account, type AccountStore, adRefillStoreOf, type FirstRunStore, firstRunStoreOf, MemoryAccountStore, offlineAccount, type PortalStore, portalStoreOf, tokenOf } from '../db/accounts'
 import Analytics, { type RunInfo } from '../analytics'
 import { buildFirstRun, FIRST_RUN } from '../firstrun/scenario'
 import { carryKills } from '../progress/run'
@@ -21,14 +21,14 @@ import Player from '../objects/player'
 import { levelOf, standingOf } from '../progress/xp'
 import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
 import { creditOf } from '../progress/seasons'
-import { type EnergyView, energyView } from '../progress/energy'
+import { adRefillView, type EnergyRecord, type EnergyView, energyView } from '../progress/energy'
 import { joinLevel } from '../progress/unlocks'
 import type { GearLedger } from '../gear/ledger'
 import { type GearCounts, gearStoreOf, lineageOf, stashEvent, type StashRunResult } from '../gear/stash'
 import type { GearStore, Spent, StashEdits, StashItem } from '../db/accounts'
 import { mergedItem, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from '../gear/merge'
 import { BRING_LEVEL, type GearInstance } from '../utils/gear'
-import { Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
+import { PORTALS, Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
 import { PRIVATE_MAP, PRIVATE_MAP_SIZE } from '../objects/privatemap'
 import { type PortalIdentity, type PortalVerifier, portalTokenOf, portalVerifierFromEnv } from './portaltoken'
 import { displayNameFor, setPortalName } from './displayname'
@@ -136,6 +136,47 @@ export interface WorldsOptions {
    * (`CRAZYGAMES_GAME_ID`; unset, every token is ignored). Specs pass their own.
    */
   portal?: PortalVerifier
+  /**
+   * The portals whose players are offered the rewarded-video refill (g2-6d,
+   * `AD_REFILL_PORTALS`). Absent: `adRefillPortalsFrom(process.env.AD_REFILL_PORTALS)`,
+   * which is empty (off everywhere) when unset.
+   */
+  adRefillPortals?: readonly string[]
+}
+
+/**
+ * `AD_REFILL_PORTALS` from the environment (g2-6d): a comma list of portal
+ * names as the handshake says them (`PORTALS`, e.g. `crazygames`). Unset or
+ * empty: none, so no connection anywhere is offered the refill. **Off until
+ * CrazyGames' Full Launch** (R3, g2-10): a rewarded button with no effect
+ * during Basic Launch, where CrazyGames disables ads, is a rejection reason.
+ * Names that aren't portals are dropped; `other` (any unknown name) never
+ * counts.
+ */
+export function adRefillPortalsFrom (value: string | undefined): readonly string[] {
+  if (value === undefined) return []
+  return value.split(',').map((part) => part.trim()).filter((part) => part !== 'other' && PORTALS.includes(part))
+}
+
+/** The ad outcomes a client may report (`ad_result { result }`, GA). Append-only. */
+export const AD_RESULTS: readonly string[] = ['rewarded', 'unavailable', 'adblock', 'failed']
+
+/** `ad_result` reports one connection may send to GA; more are dropped. */
+export const AD_RESULTS_PER_CONNECTION = 20
+
+/** The shortest gap between two `energy_ad` requests of one connection; one sooner is refused `busy`. */
+export const AD_REQUEST_GAP_MS = 2000
+
+/** What `energy_ad`'s acknowledgement says (g2-6d). */
+export interface EnergyAdAnswer {
+  ok: boolean
+  /**
+   * When refused: a limit (`plays_left`, `cooldown`, `daily_cap`), or `off`
+   * (not offered to this connection: its portal isn't in the switch, an
+   * offline account, a store that can't refill), `in_run`, `busy` (one in
+   * flight or too soon), `error` (the store failed or timed out).
+   */
+  reason?: string
 }
 
 /** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
@@ -339,6 +380,12 @@ export default class Worlds {
   private readonly portalStates = new WeakMap<Connection, PortalState>()
   /** Connections with a loadout save in flight (`saveLoadout`): at most one each. */
   private readonly saving = new WeakSet<Connection>()
+  /** Portals whose players are offered the rewarded refill (`AD_REFILL_PORTALS`, g2-6d). */
+  private readonly adRefillPortals: readonly string[]
+  /** Each connection's last `energy_ad` (when it arrived) and whether its answer is pending. */
+  private readonly adRequests = new WeakMap<Connection, { at: number, pending: boolean }>()
+  /** `ad_result` reports sent to GA per connection (`AD_RESULTS_PER_CONNECTION`). */
+  private readonly adResults = new WeakMap<Connection, number>()
   /** Runs that spent a play (`admit`), and the account that paid; an extraction gives it back (`refundRun`). */
   private readonly paid = new WeakMap<Player, Account>()
   /** The store's gear half (`gearStoreOf`); undefined: no stash. */
@@ -438,6 +485,7 @@ export default class Worlds {
     this.botTarget = options.bots ?? 0
     this.accounts = options.accounts ?? new MemoryAccountStore()
     this.portal = options.portal ?? portalVerifierFromEnv()
+    this.adRefillPortals = options.adRefillPortals ?? adRefillPortalsFrom(process.env.AD_REFILL_PORTALS)
     this.accountTimeoutMs = options.accountTimeoutMs ?? 3000
     this.maxPlayers = options.maxPlayers ?? 0
     this.gear = gearStoreOf(this.accounts)
@@ -622,6 +670,15 @@ export default class Worlds {
     // The answer to a `linkable` account (g2-6b rule 4b).
     socket.on('portal_link', (data) => {
       Multiplayer.guarded(() => { this.portalLink(connection, data) })
+    })
+    // The rewarded-video refill (g2-6d): a request after the client's ad
+    // said `rewarded`, answered through its acknowledgement; and every ad's
+    // outcome, for GA. Lobby only; the server checks everything.
+    socket.on('energy_ad', (_data: unknown, ack?: unknown) => {
+      Multiplayer.guarded(() => { this.energyAd(connection, ack) })
+    })
+    socket.on('ad_result', (data) => {
+      Multiplayer.guarded(() => { this.adResult(connection, data) })
     })
     // The HUD's latency readout (client net/latency.ts): answered at once,
     // in no world. A probe without an ack is ignored.
@@ -865,7 +922,7 @@ export default class Worlds {
       message.loadouts = loadoutsFor(account)
       // Plays left and when the next comes back (#48 step 7). Only here and
       // in `energy`: an offline account spends nothing and is sent none.
-      message.energy = energyView(account.energy, this.now())
+      message.energy = this.energyFor(account, account.energy, connection)
     }
     return message
   }
@@ -1498,7 +1555,7 @@ export default class Worlds {
         if (!spent.ok) {
           // A refused spend carries nothing (store contract); return anything all the same.
           this.uncarry(carried)
-          if (!connection.closed) connection.socket.emit('start_refused', { reason: 'energy', energy: energyView(spent.energy, this.now()) })
+          if (!connection.closed) connection.socket.emit('start_refused', { reason: 'energy', energy: this.energyFor(account, spent.energy, connection) })
           if (connection.visit !== undefined) energyOut(connection.visit, account)
           return
         }
@@ -1518,7 +1575,7 @@ export default class Worlds {
         } finally {
           if (player !== undefined) {
             this.paid.set(player, account)
-            connection.socket.emit('energy', energyView(spent.energy, this.now()))
+            connection.socket.emit('energy', this.energyFor(account, spent.energy, connection))
             const equipped = lineageOf(player.gear)
             if (equipped.length > 0) this.brought.set(player, equipped)
             this.uncarry(carried.filter((item) => item.rowId === undefined || !equipped.includes(item.rowId)))
@@ -1545,6 +1602,114 @@ export default class Worlds {
   }
 
   /**
+   * The energy view of `record` (the account's stock as just read or
+   * written) for `connection`, with the rewarded refill's part (`adRefill`,
+   * g2-6d) only where it may be offered (`adRefillOn`). Without a
+   * connection, none.
+   */
+  private energyFor (account: Account, record: EnergyRecord | null, connection?: Connection): EnergyView {
+    const view = energyView(record, this.now())
+    if (connection !== undefined && this.adRefillOn(connection, account)) {
+      view.adRefill = adRefillView(record, account.adRefill ?? null, this.now())
+    }
+    return view
+  }
+
+  /**
+   * Whether `connection` may be offered the rewarded refill at all (g2-6d):
+   * its portal (the handshake's claim; nothing verifies it, the limits are
+   * the defence) is in `AD_REFILL_PORTALS`, its account is persisted (an
+   * offline one plays free), and the store can refill (`adRefillStoreOf`).
+   * Guests count as accounts (decision #62 Q7).
+   */
+  private adRefillOn (connection: Connection, account: Account | undefined): boolean {
+    const portal = connection.visit?.portal
+    return portal !== undefined && this.adRefillPortals.includes(portal) &&
+      account !== undefined && account.persisted && adRefillStoreOf(this.accounts) !== undefined
+  }
+
+  /**
+   * `energy_ad` (g2-6d): the client's rewarded ad finished, so it asks for
+   * the refill. **The server can't verify the ad was watched** (CrazyGames
+   * documents no receipt), so any client can send this; the store grants
+   * only within `AD_REFILL` (no play left, one per 30 min, three per UTC
+   * day, per account; `adRefillAt`), atomically. Also refused: not offered
+   * here (`adRefillOn`), in a run (lobby only: a run started or starting),
+   * one already in flight or within `AD_REQUEST_GAP_MS` of the last, and a
+   * store that fails or times out (nothing granted; the ad was watched for
+   * nothing, which the client says plainly).
+   *
+   * The answer is the acknowledgement (`EnergyAdAnswer`), and after any store
+   * answer an `energy` event with the view as it now stands (the readout,
+   * and the limit's timer on a refusal). GA: `energy_ad_granted`, or
+   * `energy_ad_refused { reason }` for the store's refusals and failures
+   * (the checks before it are a misbehaving client's noise and send none).
+   */
+  private energyAd (connection: Connection, ack: unknown): void {
+    const answer = (reply: EnergyAdAnswer): void => {
+      if (typeof ack === 'function') ack(reply)
+    }
+    const account = connection.account
+    const store = adRefillStoreOf(this.accounts)
+    if (store === undefined || account === undefined || !this.adRefillOn(connection, account)) {
+      answer({ ok: false, reason: 'off' })
+      return
+    }
+    if (connection.started || connection.starting) {
+      answer({ ok: false, reason: 'in_run' })
+      return
+    }
+    const now = this.now()
+    const last = this.adRequests.get(connection)
+    if (last !== undefined && (last.pending || now - last.at < AD_REQUEST_GAP_MS)) {
+      answer({ ok: false, reason: 'busy' })
+      return
+    }
+    const request = { at: now, pending: true }
+    this.adRequests.set(connection, request)
+    const visit = connection.visit
+    this.bounded(store.adRefill(account.publicId, now)).then((result) => {
+      Worlds.accountSuccess()
+      account.energy = result.energy
+      if (result.adRefill !== null) account.adRefill = result.adRefill
+      Multiplayer.guarded(() => {
+        request.pending = false
+        if (visit !== undefined) {
+          if (result.ok) Analytics.send(visit.info(account), 'energy_ad_granted', {})
+          else Analytics.send(visit.info(account), 'energy_ad_refused', { reason: result.reason ?? 'plays_left' })
+        }
+        if (connection.closed || connection.account !== account) return
+        connection.socket.emit('energy', this.energyFor(account, result.energy, connection))
+        answer(result.ok ? { ok: true } : { ok: false, reason: result.reason ?? 'plays_left' })
+      })
+    }, (e) => {
+      Worlds.accountFailure(e)
+      Multiplayer.guarded(() => {
+        request.pending = false
+        if (visit !== undefined) Analytics.send(visit.info(account), 'energy_ad_refused', { reason: 'error' })
+        if (!connection.closed) answer({ ok: false, reason: 'error' })
+      })
+    })
+  }
+
+  /**
+   * `ad_result { result }` (g2-6d): how one rewarded-ad request ended on the
+   * client (`AD_RESULTS`), to GA as `ad_result { result }` with the visit's
+   * `portal`. Only from a connection the refill is offered to, and at most
+   * `AD_RESULTS_PER_CONNECTION`; anything else is dropped.
+   */
+  private adResult (connection: Connection, data: unknown): void {
+    if (!this.adRefillOn(connection, connection.account)) return
+    const result = data !== null && typeof data === 'object' ? (data as { result?: unknown }).result : undefined
+    if (typeof result !== 'string' || !AD_RESULTS.includes(result)) return
+    const sent = this.adResults.get(connection) ?? 0
+    if (sent >= AD_RESULTS_PER_CONNECTION) return
+    this.adResults.set(connection, sent + 1)
+    const visit = connection.visit
+    if (visit !== undefined) Analytics.send(visit.info(connection.account), 'ad_result', { result })
+  }
+
+  /**
    * A run ended: give its play back if it spent one (`admit`) and it
    * extracted, or the server cut it short (`closeAll`: a drain's deadline,
    * Nick's #48 build call 8). A death or the player's own disconnect keeps
@@ -1568,7 +1733,7 @@ export default class Worlds {
       account.energy = record
       Multiplayer.guarded(() => {
         if (connection === undefined || connection.closed || connection.account !== account) return
-        connection.socket.emit('energy', energyView(record, this.now()))
+        connection.socket.emit('energy', this.energyFor(account, record, connection))
       })
     }).catch((e) => { Worlds.accountFailure(e) })
   }
