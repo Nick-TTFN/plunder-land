@@ -108,7 +108,7 @@ Old clients stay open across releases and other code reads these formats, so:
 - Append-only too: frame kinds and version, archetype ids, effect types (`NPC_EFFECT`, both
   sides), item/skill/finish/gear-stat ids, Redis `stats-*` keys, projectile kinds, `Standing`
   statuses, stash `source` values, GA4 event names and params (`src/analytics.ts`), Postgres migrations (`db/migrations.ts`: additive, because the old
-  server runs on the new schema during a drain). **Renames are removals.**
+  server runs on the new schema during a drain; migration 12, dropping tables no code reads, is the sole drop). **Renames are removals.**
 - `utils/{hex,path,archetypes,items,finishes,protocol,skills,gear,callsign}.ts` are **byte-identical in
   both packages** (`mirror.spec.ts`). Change both.
 - A uint8/uint16 wire field fed by an unbounded value can throw inside `World.update`, skip

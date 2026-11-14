@@ -29,12 +29,15 @@ Sentry hears of account failures once per stretch (`Worlds.accountFailure`: the 
 success, then one per `ACCOUNTS_REPORT_MS`, 10 min), and of a failing migration runner once per
 run of failures (`db/open.ts`), which also covers not-migrated. Migrations are
 TypeScript strings in `db/migrations.ts` (a `.sql` file would not reach `dist`), **additive
-only** (overlap and drain run the old server on the new schema for up to 10 min); the one
-deliberate exception is migration 9, **the userbase reset of 2026-11-10** (Nick: "reset userbase",
+only** (overlap and drain run the old server on the new schema for up to 10 min); the two
+deliberate exceptions are migrations 9 and 12. Migration 9 is **the userbase reset of 2026-11-10** (Nick: "reset userbase",
 everything): it copies every player table to `reset_20261110_*` and empties it, schema unchanged,
 and `resetRedisOnce` (`src/resetredis.ts`, marker key `reset-20261110`) deletes `stats-*` and
 `player-*` once at boot. Old tokens no longer resolve, so a returning client is a new guest on its
-next start. Drop the copies once nobody needs them. Migrations are applied at
+next start. **Migration 12 drops those ten copies** (Nick 2026-11-14: "accounts can be deleted";
+they held soft-launch players' data the privacy page does not mention). It is the only migration
+that drops a table, drain-safe because no code reads the copies (only migration 9 and its spec
+name them); the additive rule still holds for everything else. Migrations are applied at
 boot in the background under an advisory lock, retried every 30 s; boot never waits. Without
 `DATABASE_URL` the store is in memory (never evicts) and logs `accounts: in memory (no
 DATABASE_URL)`, reported to Sentry once on Railway (`RAILWAY_ENVIRONMENT_NAME` set). The token is never stored, logged or reported;

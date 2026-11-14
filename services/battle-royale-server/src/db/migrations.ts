@@ -10,7 +10,8 @@
  * for that long. No drops, no renames (a rename is a removal), no NOT NULL
  * column without a default, nothing the previous release's queries would
  * break on. Forward-only: there are no down migrations. A shipped migration
- * is never edited; a correction is a new version.
+ * is never edited; a correction is a new version. Migration 12 (dropping
+ * migration 9's unread copies, Nick's approval) is the one drop.
  *
  * Applied by `migrate` (migrate.ts) at boot, each version once, in its own
  * transaction, under an advisory lock.
@@ -287,6 +288,30 @@ export const MIGRATIONS: readonly Migration[] = [
         ADD COLUMN ad_refill_at     timestamptz NULL,
         ADD COLUMN ad_refills_day   date        NULL,
         ADD COLUMN ad_refills_count smallint    NOT NULL DEFAULT 0 CHECK (ad_refills_count >= 0)
+    `
+  },
+  {
+    version: 12,
+    name: 'drop userbase reset copies',
+    // **The only migration that drops a table, a one-time exception** (Nick
+    // 2026-11-14: "accounts can be deleted"). It drops the ten
+    // reset_20261110_* copies migration 9 made of the soft-launch players'
+    // data, which the privacy page does not mention. Drain-safe because no
+    // code reads them: every query names live tables only, and only
+    // migration 9 and its spec name a copy. The standing rule above still
+    // holds: no drops, no renames. IF EXISTS so a database whose copies
+    // were already dropped by hand still migrates.
+    sql: `
+      DROP TABLE IF EXISTS reset_20261110_accounts;
+      DROP TABLE IF EXISTS reset_20261110_account_progress;
+      DROP TABLE IF EXISTS reset_20261110_loadouts;
+      DROP TABLE IF EXISTS reset_20261110_season_entries;
+      DROP TABLE IF EXISTS reset_20261110_seasons;
+      DROP TABLE IF EXISTS reset_20261110_season_payouts;
+      DROP TABLE IF EXISTS reset_20261110_energy;
+      DROP TABLE IF EXISTS reset_20261110_stash_items;
+      DROP TABLE IF EXISTS reset_20261110_gear_holders;
+      DROP TABLE IF EXISTS reset_20261110_first_runs;
     `
   }
 ]

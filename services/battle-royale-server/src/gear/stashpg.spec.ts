@@ -166,7 +166,7 @@ test('pg: a merge to Legendary before migration 7 answers store and keeps its in
   assert.ok(isLocalDatabase(URL), 'TEST_DATABASE_URL is not on 127.0.0.1, localhost or ::1: refusing to touch it')
   const url = await ownDatabase()
   // This build on a v6 schema: the deploy is up, its migration 7 not yet
-  // run. Plus migrations 8, 10 and 11 (out of order, only a spec does that):
+  // run. Plus migrations 8 and 10 onward (out of order, only a spec does that):
   // this build's resolve reads `first_runs`, `account_links` and the refill
   // columns, and without them the connection plays offline and gets no
   // stash. 7 stays unapplied, which is what this tests.
