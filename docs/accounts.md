@@ -163,7 +163,8 @@ calls `payDue` 30 s after boot and every 5 min. A payout is one transaction per 
 ways: `payAll` lists only unpaid seasons, `pg_try_advisory_xact_lock(SEASON_LOCK)`, a paid check
 inside the lock, the `seasons` primary key (a 23505 there is logged, `seasons: … already paid`, and
 counts as paid) and `season_payouts`' key; `close` waits for one in flight, and a killed one rolls
-back whole. The client hears `season` (`SeasonView`, relative `endsInMs`) after `account` and after
+back whole. `payAll` reads each season's start with `to_char(..., 'YYYY-MM-DD')`, never `::text`
+(whose form follows the session's DateStyle), as every date read out of SQL must. The client hears `season` (`SeasonView`, relative `endsInMs`) after `account` and after
 each grant; the lobby shows a line under the callsign pill and the last payout once per season
 (`plunderland_season_seen`). A payout's XP shows at the next connect or after the next run, not live.
 `GET /season`: the top 10 as `{ rank, name, id, banked }`, the ranked count and places, cached 30 s;

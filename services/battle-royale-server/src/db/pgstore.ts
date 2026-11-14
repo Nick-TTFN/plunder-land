@@ -937,7 +937,7 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits, Admi
     const starts = dueStarts(nowMs)
     if (starts.length === 0) return []
     const due = await this.pool.query(
-      `SELECT DISTINCT e.season_start::text AS start FROM season_entries e
+      `SELECT DISTINCT to_char(e.season_start, 'YYYY-MM-DD') AS start FROM season_entries e
        WHERE e.season_start = ANY($1::date[]) AND NOT EXISTS (SELECT 1 FROM seasons s WHERE s.start = e.season_start)
        ORDER BY 1`,
       [starts]

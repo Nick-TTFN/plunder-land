@@ -394,7 +394,7 @@ pgTest('seasons (migration 4): added to a v3 database it keeps every row, and th
     // And a credit on an account from before it.
     const at = Date.parse('2026-10-07T12:00:00.000Z')
     assert.equal(await store.grant(made[0].publicId, 50, { season: seasonStart(at), atMs: at, banked: 700, extracted: true, xp: 50, name: 'ROOK-42' }), 60)
-    const row = (await store.pool.query('SELECT season_start::text AS s, banked, runs, extractions, xp, banked_at, name FROM season_entries')).rows[0]
+    const row = (await store.pool.query("SELECT to_char(season_start, 'YYYY-MM-DD') AS s, banked, runs, extractions, xp, banked_at, name FROM season_entries")).rows[0]
     assert.deepEqual([row.s, Number(row.banked), row.runs, row.extractions, Number(row.xp), (row.banked_at as Date).getTime(), row.name], ['2026-10-05', 700, 1, 1, 50, at, 'ROOK-42'])
   } finally {
     await store.close()
@@ -961,6 +961,42 @@ pgTest('ad refills under a non-ISO DateStyle (SQL, DMY): the day reads as YYYY-M
     assert.equal(refused.energy.stock, 0)
   } finally {
     await store.close()
+  }
+})
+
+// Every date that leaves SQL goes through `to_char`: a season's `start` read
+// as `::text` under a non-ISO DateStyle came back as 05/10/2026, which the
+// payout reported and handed to its hook.
+pgTest('season payouts under a non-ISO DateStyle (SQL, DMY): start reads as YYYY-MM-DD, and two servers pay each season once', async () => {
+  const setup = await readyStore()
+  await setup.close()
+  const dmy = `${URL as string}${(URL as string).includes('?') ? '&' : '?'}options=${encodeURIComponent('-c DateStyle=SQL,DMY')}`
+  const one = new PgAccountStore({ connectionString: dmy })
+  const two = new PgAccountStore({ connectionString: dmy })
+  one.ready = true
+  two.ready = true
+  const hooked: string[] = []
+  one.payoutHook = async (start) => { hooked.push(start) }
+  two.payoutHook = async (start) => { hooked.push(start) }
+  try {
+    assert.equal((await one.pool.query('SHOW DateStyle')).rows[0].DateStyle, 'SQL, DMY')
+    const first = Date.parse('2026-10-07T12:00:00.000Z')
+    for (let round = 0; round < 3; round++) {
+      const at = first + round * 7 * 86_400_000
+      const start = seasonStart(at)
+      await fillSeason(one, at, 10)
+      const now = seasonEndMs(start) + PAYOUT_DELAY_MS
+      const [a, b] = await Promise.all([one.payDue(now), two.payDue(now)])
+      assert.deepEqual([...a, ...b], [{ start, ranked: 10, paid: 2 }], `round ${round}`)
+      assert.deepEqual(await one.payDue(now), [], `round ${round}: paid twice`)
+      assert.equal(await count('SELECT count(*) AS n FROM seasons WHERE start = $1::date', [start]), 1)
+      assert.equal(await count('SELECT count(*) AS n FROM season_payouts WHERE season_start = $1::date', [start]), 2)
+    }
+    // The payout's own string, as each server's transaction handed it on.
+    assert.deepEqual([...new Set(hooked)], [0, 1, 2].map((r) => seasonStart(first + r * 7 * 86_400_000)))
+  } finally {
+    await one.close()
+    await two.close()
   }
 })
 
