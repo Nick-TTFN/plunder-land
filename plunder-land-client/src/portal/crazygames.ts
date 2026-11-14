@@ -68,7 +68,7 @@ import type { PortalDevice, PortalRoom, PortalSdk, PortalUser, RewardedResult } 
  * open), `game.inviteLink(params)` (returns the link) and
  * `game.isInstantMultiplayer`. The deprecated `showInviteButton` /
  * `hideInviteButton` are never used. **On an offline launch no room call goes
- * out at all** (`whenOnline`), so g2-6f's one `updateRoom({ isJoinable:
+ * out at all** (`whenOnline`, `updateRoom`'s own check), so g2-6f's one `updateRoom({ isJoinable:
  * false })` is never undone, and no invite is read or made.
  */
 
@@ -82,6 +82,14 @@ export const INIT_TIMEOUT_MS = 5000
  * `adFinished` after it rewards nothing.
  */
 export const AD_MAX_MS = 180_000
+/**
+ * The SDK's throttle on `game.updateRoom` (g2-6e-1; read in
+ * crazygames-sdk-v3.js 2026-11-14): a call goes out only when more than 250 ms
+ * (by `Date`) passed since the last one that went out, and a faster one throws
+ * `rateLimited` (the `local` environment doesn't throttle). So the adapter
+ * holds a room asked for sooner and sends the latest one once the window is up.
+ */
+export const ROOM_GAP_MS = 250
 
 interface CrazySettings { muteAudio?: boolean }
 
@@ -266,6 +274,13 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
       }
     })
   }
+  /**
+   * The room waiting for `ROOM_GAP_MS` to pass (g2-6e-1): only the latest is
+   * kept. `roomSentAt` is when the SDK was last called with one (`Date.now()`).
+   */
+  let roomHeld: { roomId?: string, isJoinable: boolean, inviteParams?: Record<string, string> } | undefined
+  let roomSentAt: number | undefined
+  let roomTimer: ReturnType<typeof setTimeout> | undefined
   const muteListeners: Array<(muted: boolean) => void> = []
   const loginListeners: Array<() => void> = []
   /**
@@ -353,6 +368,36 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     const run = (): void => { if (!offline) guard(name, call) }
     if (settled) run()
     else pending.push(run)
+  }
+  /**
+   * Sends the held room if the SDK's window is up, else once it is (a trailing
+   * send: the latest room asked for by then). A `rateLimited` throw anyway
+   * holds it again, unless a newer one is held, and retries after the window.
+   * Only once settled and never offline (the callers check; offline never
+   * changes after settling, so a timer set online stays online).
+   */
+  const sendRoom = (): void => {
+    if (roomTimer !== undefined || roomHeld === undefined) return
+    if (roomSentAt !== undefined) {
+      const wait = roomSentAt + ROOM_GAP_MS - Date.now()
+      if (wait >= 0) {
+        // Capped: a clock set back must not hold the room for longer than a window.
+        roomTimer = setTimeout(() => { roomTimer = undefined; sendRoom() }, Math.min(wait, ROOM_GAP_MS) + 1)
+        return
+      }
+    }
+    const room = roomHeld
+    roomHeld = undefined
+    roomSentAt = Date.now()
+    guard('updateRoom', (s) => {
+      try {
+        required(s.game.updateRoom, 'updateRoom').call(s.game, room)
+      } catch (e) {
+        if ((e as { code?: unknown } | null)?.code !== 'rateLimited') throw e
+        if (roomHeld === undefined) roomHeld = room
+        sendRoom()
+      }
+    })
   }
   const tellMute = (listener: (muted: boolean) => void): void => {
     try {
@@ -449,7 +494,10 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     // g2-6f: the device the portal reads, and an offline launch (no room to join then).
     device = peek('systemInfo', (s) => deviceOf(s.user?.systemInfo), undefined)
     offline = peek('isOfflineMode', (s) => s.game.isOfflineMode === true, false)
-    if (offline) guard('updateRoom', (s) => { required(s.game.updateRoom, 'updateRoom').call(s.game, { isJoinable: false }) })
+    if (offline) {
+      roomSentAt = Date.now()
+      guard('updateRoom', (s) => { required(s.game.updateRoom, 'updateRoom').call(s.game, { isJoinable: false }) })
+    }
     // g2-6e: launched from the portal's multiplayer flow, and joins while the
     // page is open (one SDK listener for every `onJoinRoom`). Not offline.
     instant = peek('isInstantMultiplayer', (s) => s.game.isInstantMultiplayer === true, false)
@@ -528,9 +576,12 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     adsAvailable: () => settled && !adsDisabled && peek('ad', (s) => s.ad !== undefined, false),
     adBlocked: () => adBlocked,
     // g2-6e.
+    // Held and sent at most once per `ROOM_GAP_MS`, the latest room winning (g2-6e-1).
     updateRoom: (room: PortalRoom) => {
-      const copy = { roomId: room.roomId, isJoinable: room.isJoinable, inviteParams: { ...room.inviteParams } }
-      whenOnline('updateRoom', (s) => { required(s.game.updateRoom, 'updateRoom').call(s.game, copy) })
+      roomHeld = { roomId: room.roomId, isJoinable: room.isJoinable, inviteParams: { ...room.inviteParams } }
+      const run = (): void => { if (!offline) sendRoom() }
+      if (settled) run()
+      else pending.push(run)
     },
     leftRoom: () => { whenOnline('leftRoom', (s) => { required(s.game.leftRoom, 'leftRoom').call(s.game) }) },
     inviteParams: async () => {

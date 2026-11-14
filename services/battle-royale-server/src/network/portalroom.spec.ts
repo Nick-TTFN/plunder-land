@@ -1,8 +1,8 @@
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { type CrazySdk, crazyGamesSdk, inviteLinkOf, inviteParamsOf } from '../../../../plunder-land-client/src/portal/crazygames'
+import { type CrazySdk, ROOM_GAP_MS, crazyGamesSdk, inviteLinkOf, inviteParamsOf } from '../../../../plunder-land-client/src/portal/crazygames'
 import { type PortalRoom, type PortalSdk, withGameplayState } from '../../../../plunder-land-client/src/portal/adapter'
 import { noPortalSdk } from '../../../../plunder-land-client/src/portal/none'
 import { JoinInbox, RoomReporter, inviteCodeOf, inviteParamsFor, roomFor } from '../../../../plunder-land-client/src/portal/room'
@@ -29,6 +29,13 @@ interface FakeOptions {
   link?: unknown
   /** No g2-6e members (an older SDK). */
   bare?: boolean
+  /**
+   * `updateRoom` throttled as production's SDK 3.8.0 does (crazygames-sdk-v3.js
+   * `throttledUpdateRoom`, read 2026-11-14): it goes out only when more than
+   * 250 ms passed by `Date` since the last one that went out, else it throws
+   * an error with `code: 'rateLimited'`. The `local` environment doesn't.
+   */
+  throttle?: boolean
 }
 
 interface Fake {
@@ -38,10 +45,14 @@ interface Fake {
   linkParams: unknown[]
   /** The SDK's join listener, once the adapter added it. */
   join: ((params: unknown) => void) | undefined
+  /** `updateRoom` calls the throttle refused (each one threw `rateLimited`). */
+  throttled: number
+  /** When the throttle last let an `updateRoom` through (`Date.now()`); 0 = never. */
+  roomAt: number
 }
 
 function fake (options: FakeOptions = {}): Fake {
-  const out: Fake = { sdk: undefined as unknown as CrazySdk, calls: [], rooms: [], linkParams: [], join: undefined }
+  const out: Fake = { sdk: undefined as unknown as CrazySdk, calls: [], rooms: [], linkParams: [], join: undefined, throttled: 0, roomAt: 0 }
   const call = (name: string) => () => { out.calls.push(name) }
   const game: CrazySdk['game'] = {
     loadingStart: call('loadingStart'),
@@ -51,7 +62,18 @@ function fake (options: FakeOptions = {}): Fake {
     settings: {},
     addSettingsChangeListener: () => {},
     isOfflineMode: options.offline ?? false,
-    updateRoom: (room) => { out.calls.push('updateRoom'); out.rooms.push(room) }
+    updateRoom: (room) => {
+      if (options.throttle === true) {
+        const now = Date.now()
+        if (!(now - out.roomAt > 250)) {
+          out.throttled++
+          throw Object.assign(new Error('updateRoom() call throttled, delay 250'), { code: 'rateLimited' })
+        }
+        out.roomAt = now
+      }
+      out.calls.push('updateRoom')
+      out.rooms.push(room)
+    }
   }
   if (options.bare !== true) {
     game.leftRoom = call('leftRoom')
@@ -73,17 +95,28 @@ function crazy (f: Fake, warnings: string[] = []): PortalSdk {
   return withGameplayState(crazyGamesSdk(async () => f.sdk, { log: () => {}, warn: (l) => warnings.push(l) }))
 }
 
+/** Fake `setTimeout` and `Date` for this test; returns a clock that moves both by `ms`. */
+function fakeClock (t: TestContext): (ms: number) => void {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
+  return (ms) => { t.mock.timers.tick(ms) }
+}
+
+const idsOf = (rooms: unknown[]): Array<[string | undefined, boolean | undefined]> =>
+  rooms.map((r) => [(r as PortalRoom).roomId, (r as PortalRoom).isJoinable])
+
 // ------------------------------------------------------------ the adapter
 
-test('adapter: updateRoom reaches the SDK with the room, also when asked before ready', async () => {
+test('adapter: updateRoom reaches the SDK with the room, also when asked before ready', async (t) => {
+  const tick = fakeClock(t)
   const f = fake()
   const sdk = crazy(f)
   sdk.updateRoom(roomFor('abc123', true))
   assert.deepEqual(f.rooms, [], 'not before init')
   await sdk.ready
   assert.deepEqual(f.rooms, [{ roomId: 'abc123', isJoinable: true, inviteParams: { join: 'abc123' } }])
+  tick(ROOM_GAP_MS + 1)
   sdk.updateRoom(roomFor('abc123', false))
-  assert.deepEqual(f.rooms[1], { roomId: 'abc123', isJoinable: false, inviteParams: { join: 'abc123' } })
+  assert.deepEqual(f.rooms[1], { roomId: 'abc123', isJoinable: false, inviteParams: { join: 'abc123' } }, 'past the window: at once')
   sdk.leftRoom()
   assert.ok(f.calls.includes('leftRoom'))
 })
@@ -96,6 +129,87 @@ test('adapter: the room handed over is a copy (a later change of the caller\'s o
   sdk.updateRoom(room)
   room.inviteParams.join = 'zzzzzz'
   assert.deepEqual(f.rooms[0], { roomId: 'abc123', isJoinable: true, inviteParams: { join: 'abc123' } })
+})
+
+test('adapter: updateRoom throttled like production: two quick changes, the second goes out once the window is up', async (t) => {
+  const tick = fakeClock(t)
+  const f = fake({ throttle: true })
+  const warnings: string[] = []
+  const sdk = crazy(f, warnings)
+  await sdk.ready
+  sdk.updateRoom(roomFor('abc123', true))
+  tick(10)
+  sdk.updateRoom(roomFor('abc123', false))
+  assert.deepEqual(idsOf(f.rooms), [['abc123', true]], 'held inside the window')
+  tick(ROOM_GAP_MS - 10)
+  assert.deepEqual(idsOf(f.rooms), [['abc123', true]], 'still held at exactly 250 ms (the SDK needs more)')
+  tick(1)
+  assert.deepEqual(idsOf(f.rooms), [['abc123', true], ['abc123', false]], 'the latest, once the window is up')
+  assert.equal(f.throttled, 0, 'never called inside the window')
+  assert.deepEqual(warnings, [])
+  tick(10 * ROOM_GAP_MS)
+  assert.equal(f.rooms.length, 2, 'nothing more')
+})
+
+test('adapter: three quick changes send only the latest after the first; the same before ready', async (t) => {
+  const tick = fakeClock(t)
+  const f = fake({ throttle: true })
+  const sdk = crazy(f)
+  // Before ready: three asks, one call, the latest.
+  sdk.updateRoom(roomFor('aaa111', true))
+  sdk.updateRoom(roomFor('bbb222', true))
+  sdk.updateRoom(roomFor('ccc333', true))
+  await sdk.ready
+  assert.deepEqual(idsOf(f.rooms), [['ccc333', true]])
+  sdk.updateRoom(roomFor('ccc333', false))
+  tick(50)
+  sdk.updateRoom(roomFor('ddd444', true))
+  tick(50)
+  sdk.updateRoom(roomFor('eee555', false))
+  tick(ROOM_GAP_MS)
+  assert.deepEqual(idsOf(f.rooms), [['ccc333', true], ['eee555', false]], 'only the latest of the three')
+  assert.equal(f.throttled, 0)
+  tick(10 * ROOM_GAP_MS)
+  assert.equal(f.rooms.length, 2)
+})
+
+test('adapter: a rateLimited throw anyway (the SDK called from elsewhere) is retried after the window with the latest room, unwarned', async (t) => {
+  const tick = fakeClock(t)
+  const f = fake({ throttle: true })
+  const warnings: string[] = []
+  const sdk = crazy(f, warnings)
+  await sdk.ready
+  f.roomAt = Date.now() // as if a call had just gone out
+  sdk.updateRoom(roomFor('abc123', true))
+  assert.equal(f.throttled, 1, 'test setup: the SDK refused it')
+  assert.deepEqual(f.rooms, [])
+  tick(ROOM_GAP_MS + 1)
+  assert.deepEqual(idsOf(f.rooms), [['abc123', true]], 'retried')
+  // Refused again, and a newer room asked meanwhile: the newer one goes.
+  f.roomAt = Date.now() + ROOM_GAP_MS
+  tick(ROOM_GAP_MS + 1)
+  sdk.updateRoom(roomFor('abc123', false))
+  assert.equal(f.throttled, 2)
+  sdk.updateRoom(roomFor('zzz999', true))
+  tick(2 * ROOM_GAP_MS + 2)
+  assert.deepEqual(idsOf(f.rooms), [['abc123', true], ['zzz999', true]])
+  assert.deepEqual(warnings, [], 'a throttle is not a failure')
+})
+
+test('adapter: an offline launch sends nothing more with the throttled SDK either, however long it waits', async (t) => {
+  const tick = fakeClock(t)
+  const f = fake({ throttle: true, offline: true })
+  const sdk = crazy(f)
+  sdk.updateRoom(roomFor('abc123', true))
+  await sdk.ready
+  sdk.updateRoom(roomFor('abc123', true))
+  tick(10)
+  sdk.updateRoom(roomFor('zzz999', true))
+  tick(10 * ROOM_GAP_MS)
+  sdk.updateRoom(roomFor('zzz999', true))
+  tick(10 * ROOM_GAP_MS)
+  assert.deepEqual(f.rooms, [{ isJoinable: false }])
+  assert.equal(f.throttled, 0)
 })
 
 test('adapter: an offline launch sends its one isJoinable false and no room call after it, reads no invite and makes no link', async () => {
@@ -215,7 +329,8 @@ test('room: the party code, joinable, its invite params carrying the code', () =
   assert.equal(inviteCodeOf(inviteParamsFor(code)), code, 'what an invite carries reads back')
 })
 
-test('room: reported on the lobby, again only on a change (code, full); never with another id across runs and handoffs', async () => {
+test('room: reported on the lobby, again only on a change (code, full); never with another id across runs and handoffs', async (t) => {
+  const tick = fakeClock(t)
   const f = fake()
   const sdk = crazy(f)
   await sdk.ready
@@ -228,11 +343,15 @@ test('room: reported on the lobby, again only on a change (code, full); never wi
   for (let i = 0; i < 5; i++) room.report('abc123', true)
   assert.equal(f.rooms.length, 1, 'the next round keeps the room: no new call')
   // The server refuses starts (full): not joinable, then joinable again.
+  // Each change a window apart, so the adapter's hold (g2-6e-1) sends each.
+  tick(ROOM_GAP_MS + 1)
   room.report('abc123', false)
+  tick(ROOM_GAP_MS + 1)
   room.report('abc123', true)
   // An invite accepted: the friend's code is the room now.
+  tick(ROOM_GAP_MS + 1)
   room.report('zzz999', true)
-  assert.deepEqual(f.rooms.map((r) => [(r as PortalRoom).roomId, (r as PortalRoom).isJoinable]), [
+  assert.deepEqual(idsOf(f.rooms), [
     ['abc123', true], ['abc123', false], ['abc123', true], ['zzz999', true]
   ])
 })

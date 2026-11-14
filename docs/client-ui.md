@@ -184,6 +184,9 @@ runs (the no-op adapter; `PORTAL_JOINS.listen` only on `crazygames`).
   call goes out** (`whenOnline`): g2-6f's one `updateRoom({ isJoinable: false })` is never undone,
   `inviteParams` is null, `inviteLink` null (no INVITE), no join listener. The deprecated
   `showInviteButton`/`hideInviteButton` are never used.
+- **`updateRoom` at most once per `ROOM_GAP_MS` (250 ms)** (g2-6e-1): production's SDK throws
+  `rateLimited` on a faster call (`local` doesn't), so the adapter holds a sooner room and sends
+  the latest once the window is up; a `rateLimited` throw anyway is retried the same way.
 - **The room is the party code the next run carries** (`portal/room.ts`; `party.ts` `runParty`):
   the inviter's after an invite, else this browser's own (`plunderland_party`). The lobby reports
   `updateRoom({ roomId: code, isJoinable, inviteParams: { join: code } })` through `PORTAL_ROOM`
