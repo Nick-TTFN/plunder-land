@@ -28,6 +28,8 @@ import { fullscreenButtonShown, invitesShown, privacyUrl } from '../../net/porta
 import { PORTAL_SDK } from '../../portal'
 import type { PortalUser } from '../../portal/adapter'
 import { LINK, RELOGIN, loginButtonShown, shownName } from '../../portal/identity'
+import { OFFLINE_LINE } from '../../portal/platform'
+import { NOTICE_LINK, NOTICE_TEXT, markPrivacyNoticeSeen, privacyNoticeShown } from '../../portal/notice'
 import {
   type Swatch, colourLock, journeyEnd, journeyStop, lockBadge, lockTitle, mixColour, mixPattern, paintWish, patternLock,
   reshownRobot, robotLock, robotToStore, shownFinish, shownRobot, stepRobot, swatchLock
@@ -337,6 +339,16 @@ export default class Lobby extends Container {
    */
   private readonly readyButton: HTMLButtonElement
   private readonly playsLine: HTMLSpanElement
+  /** In READY's place on an offline launch (g2-6f, `PORTAL_SDK.offline()`). */
+  private readonly offlineLine: HTMLDivElement
+  /**
+   * The privacy notice for a new player (g2-6f, decision #62 Q6: everywhere),
+   * under READY until this browser's first run starts (`portal/notice.ts`).
+   * It carries the privacy link, so the plain one under READY hides meanwhile.
+   */
+  private readonly privacyNotice: HTMLDivElement
+  private readonly noticeShown: boolean
+  private readonly privacyLink: HTMLAnchorElement
   private readonly onEnergy = (): void => { this.renderEnergy() }
   /** The header's fullscreen button (g2-1), redrawn on every enter and leave (Esc included). */
   private readonly fullButton: HTMLButtonElement
@@ -502,11 +514,19 @@ export default class Lobby extends Container {
     ready.innerHTML = `Start run ${ICON.right}`
     ready.onclick = () => { this.ready() }
     this.playsLine = el('span', 'lb-ready-sub')
+    this.offlineLine = el('div', 'lb-offline', OFFLINE_LINE)
+    this.offlineLine.hidden = true
+    this.privacyNotice = el('div', 'lb-notice')
+    this.privacyNotice.append(`${NOTICE_TEXT} `, Object.assign(el('a'), { href: privacyUrl(PORTAL), target: '_blank', rel: 'noopener', textContent: NOTICE_LINK }))
+    this.noticeShown = privacyNoticeShown(localTokenStorage(), TOKEN_KEY)
+    this.privacyNotice.hidden = !this.noticeShown
+    this.privacyLink = privacy('lb-privacy lb-desk-only')
+    this.privacyLink.hidden = this.noticeShown
     const action = el('div', 'lb-action')
-    action.append(this.joinBanner, this.fullBanner, ready, this.playsLine, privacy('lb-privacy lb-desk-only'))
+    action.append(this.joinBanner, this.fullBanner, ready, this.offlineLine, this.playsLine, this.privacyNotice, this.privacyLink)
 
     // STATS & PAINT: the stat bars read from the mirrored `stats`, then the paint rows.
-    this.customize = el('div', 'lb-custom lb-hidden')
+    this.customize = el('div', 'lb-custom lb-paint lb-hidden')
     const head = el('div', 'lb-customhead')
     const close = el('button', 'lb-close', '\u00D7')
     close.onclick = () => { this.toggle(undefined) }
@@ -522,7 +542,12 @@ export default class Lobby extends Container {
       stats.append(statRow)
       this.statRows.push({ fill, value })
     }
-    this.customize.append(head, stats)
+    // Two columns on a short landscape screen (g2-6f): the stats, then the
+    // paint rows. Elsewhere the wrappers are `display: contents`.
+    const statsCol = el('div', 'lb-pcol lb-pcol-a')
+    statsCol.append(stats)
+    const paintCol = el('div', 'lb-pcol lb-pcol-b')
+    this.customize.append(head, statsCol, paintCol)
     for (const group of FINISH_GROUPS) {
       const paintRow = el('div', 'lb-row')
       const title = el('div', 'lb-rowtitle')
@@ -530,7 +555,7 @@ export default class Lobby extends Container {
       title.append(el('span', undefined, group.toUpperCase()), current)
       const swatches = el('div', 'lb-swatches')
       paintRow.append(title, swatches)
-      this.customize.append(paintRow)
+      paintCol.append(paintRow)
       this.rows[group] = { current, swatches }
     }
     const foot = el('div', 'lb-customfoot')
@@ -636,7 +661,9 @@ export default class Lobby extends Container {
     const user = await PORTAL_SDK.user()
     if (this.tornDown) return
     this.portalUser = user
-    this.loginButton.hidden = !loginButtonShown(PORTAL_SDK, user)
+    this.loginButton.hidden = !loginButtonShown(PORTAL_SDK, user) || PORTAL_SDK.offline()
+    // The SDK has settled (`user` waits for it): an offline launch shows here.
+    this.renderEnergy()
     this.renderCallsign()
   }
 
@@ -884,12 +911,14 @@ export default class Lobby extends Container {
       this.readyHeld = true
       return
     }
-    // No play left (Enter bypasses the disabled button).
-    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt)) {
+    // No play left (Enter bypasses the disabled button), or no server at all (an offline launch).
+    if (outOfPlays(ENERGY.view, Date.now() - ENERGY.receivedAt) || PORTAL_SDK.offline()) {
       Sfx.play('ui_error')
       return
     }
     this.started = true
+    // The run starts: a new player's privacy notice has been seen (g2-6f).
+    if (this.noticeShown) markPrivacyNoticeSeen(localTokenStorage())
     RELOGIN.lobbyLeft()
     Sfx.play('ready')
     // The wishes are stored; what is sent is what is shown (#48 step 5). The
@@ -1334,7 +1363,11 @@ export default class Lobby extends Container {
   private renderEnergy (): void {
     const view = ENERGY.view
     const elapsed = Date.now() - ENERGY.receivedAt
-    this.playsLine.hidden = view === undefined
+    // An offline launch (g2-6f): no READY, no plays; the line says why.
+    const offline = PORTAL_SDK.offline()
+    this.readyButton.hidden = offline
+    this.offlineLine.hidden = !offline
+    this.playsLine.hidden = view === undefined || offline
     this.playsLine.textContent = view === undefined ? '' : energyLine(view, elapsed)
     const out = outOfPlays(view, elapsed)
     this.readyButton.disabled = out

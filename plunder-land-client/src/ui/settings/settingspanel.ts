@@ -41,6 +41,28 @@ const STYLE = `
 .st-foot { flex: none; display: flex; justify-content: space-between; padding-top: 14px; border-top: 1px solid #1E3344; margin-top: 10px; }
 .st-reset { padding: 8px 14px; font: inherit; font-size: 13px; letter-spacing: .12em; color: #a9bccd; background: none; border: 1px solid #3a5266; border-radius: 6px; cursor: pointer; }
 .st-done { padding: 10px 36px; font: inherit; font-size: 17px; letter-spacing: .14em; font-weight: 700; color: #0B1220; background: #33DBD3; border: 0; border-radius: 6px; cursor: pointer; }
+.st-col { display: contents; }
+/* A short landscape screen (g2-6f, Nick 2026-11-14: the lobby's panels fit a phone held sideways without
+   scrolling): wider, controls left and graphics and sound right, tighter rows. Text stays 10 px or more. */
+@media (orientation: landscape) and (max-height: 640px) {
+  .st-panel { width: min(820px, calc(100% - 32px - var(--safe-area-inset-left, env(safe-area-inset-left, 0px)) - var(--safe-area-inset-right, env(safe-area-inset-right, 0px))));
+    max-height: calc(100% - 16px - var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))); padding: 10px 16px 12px; }
+  /* The title, RESET and DONE share the top row; DONE is the close (the cross goes). */
+  .st-panel { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .st-head { grid-column: 1; grid-row: 1; font-size: 16px; padding-bottom: 6px; }
+  .st-close { display: none; }
+  .st-foot { grid-column: 2; grid-row: 1; justify-content: flex-end; gap: 10px; padding: 0 0 6px; margin: 0; border-top: 0; border-bottom: 1px solid #1E3344; }
+  .st-body { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); column-gap: 24px; align-items: start; }
+  .st-col { display: block; min-width: 0; }
+  .st-section { padding: 8px 0 2px; font-size: 11px; }
+  .st-row { padding: 3px 0; font-size: 12px; gap: 8px; }
+  .st-keys { gap: 4px; }
+  .st-key { min-width: 32px; padding: 3px 5px; font-size: 12px; }
+  .st-opt { padding: 3px 8px; font-size: 12px; }
+  .st-hint { font-size: 10px; padding: 2px 0 4px; }
+  .st-reset { padding: 5px 12px; font-size: 12px; }
+  .st-done { padding: 6px 24px; font-size: 14px; }
+}
 `
 
 function el<K extends keyof HTMLElementTagNameMap> (tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -136,32 +158,37 @@ export class SettingsPanel {
   private render (): void {
     const s = SETTINGS.value
     this.body.replaceChildren()
-    this.body.append(el('div', 'st-section', 'CONTROLS'))
-    this.body.append(this.keyRow('SKILLS', 'skillKeys', SKILL_SLOT_NAMES))
-    this.body.append(this.keyRow('ITEMS', 'itemKeys', ITEM_SLOT_NAMES))
-    this.body.append(el('div', 'st-hint', INPUT_MODE.touch
+    // Two columns on a short landscape screen (g2-6f): controls, then graphics
+    // and sound. Elsewhere the wrappers are `display: contents`.
+    const controls = el('div', 'st-col')
+    const others = el('div', 'st-col')
+    this.body.append(controls, others)
+    controls.append(el('div', 'st-section', 'CONTROLS'))
+    controls.append(this.keyRow('SKILLS', 'skillKeys', SKILL_SLOT_NAMES))
+    controls.append(this.keyRow('ITEMS', 'itemKeys', ITEM_SLOT_NAMES))
+    controls.append(el('div', 'st-hint', INPUT_MODE.touch
       ? 'Keys are for a keyboard. On touch, move with the left-thumb stick and use skills from the right-hand buttons.'
       : 'Click a key, then press the new one. A key already in use swaps places. Movement is click to move.'))
 
-    this.body.append(el('div', 'st-section', 'GRAPHICS'))
+    others.append(el('div', 'st-section', 'GRAPHICS'))
     const density = el('div', 'st-row')
     density.append(el('span', undefined, 'RESOLUTION'), this.choice<Density>([['auto', 'AUTO'], ['1', '1X'], ['2', '2X']], s.density, (density) => { this.change({ ...SETTINGS.value, density }) }))
-    this.body.append(density)
+    others.append(density)
     const shadows = el('div', 'st-row')
     shadows.append(el('span', undefined, 'ROBOT SHADOWS'), this.choice<boolean>([[true, 'ON'], [false, 'OFF']], s.shadows, (shadows) => { this.change({ ...SETTINGS.value, shadows }) }))
-    this.body.append(shadows)
-    this.body.append(el('div', 'st-hint', '1X is lighter on slow machines. Shadows change from the next run.'))
+    others.append(shadows)
+    others.append(el('div', 'st-hint', '1X is lighter on slow machines. Shadows change from the next run.'))
     const perf = el('div', 'st-row')
     perf.append(el('span', undefined, 'PERFORMANCE OVERLAY'), this.choice<boolean>([[true, 'ON'], [false, 'OFF']], s.perfOverlay, (perfOverlay) => { this.change({ ...SETTINGS.value, perfOverlay }) }))
-    this.body.append(perf)
+    others.append(perf)
 
-    this.body.append(el('div', 'st-section', 'SOUND'))
+    others.append(el('div', 'st-section', 'SOUND'))
     const volume = el('div', 'st-row')
     volume.append(el('span', undefined, 'VOLUME'), this.choice<SoundLevel>([[0, 'OFF'], [1, 'LOW'], [2, 'MID'], [3, 'HIGH']], Sfx.level, (level) => {
       Sfx.setLevel(level)
       this.render()
     }))
-    this.body.append(volume)
+    others.append(volume)
   }
 
   private keyRow (label: string, group: 'skillKeys' | 'itemKeys', names: string[]): HTMLDivElement {

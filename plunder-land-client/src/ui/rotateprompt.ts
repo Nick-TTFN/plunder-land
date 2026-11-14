@@ -16,7 +16,7 @@ import { INPUT_MODE } from '../input/inputmode'
 const STYLE = `
 .rp { position: fixed; inset: 0; z-index: 50; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
   background: #0B1220; color: #E6EEF5; font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; user-select: none;
-  touch-action: none; text-align: center; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  touch-action: none; text-align: center; padding: var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) var(--safe-area-inset-right, env(safe-area-inset-right, 0px)) var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) var(--safe-area-inset-left, env(safe-area-inset-left, 0px)); }
 .rp.rp-on { display: flex; }
 .rp-icon { width: 96px; height: 96px; }
 .rp-title { font-size: 20px; letter-spacing: .16em; }

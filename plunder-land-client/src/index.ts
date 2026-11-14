@@ -21,14 +21,18 @@ import { SETTINGS, densityFor, loadSettings } from './net/settings'
 import { Session } from './net/session'
 import { Sfx } from './audio/sfx'
 import { INTERVAL_MS, TIMEOUT_MS } from './net/latency'
-import { INPUT_MODE, installInputMode } from './input/inputmode'
+import { INPUT_MODE, installInputMode, seedTouchMode } from './input/inputmode'
 import { STICK_DEAD_ZONE, StickSteer, steer } from './input/stick'
-import { PORTAL_SDK } from './portal'
+import { HAPPY, PORTAL_SDK } from './portal'
 import { LINK, RELOGIN, answerLinkOffer, setReconnect } from './portal/identity'
+import { applyOfflineMode, seedInputMode } from './portal/platform'
 
 initErrorReporting()
 // Touch mode (decision #59): from the pointer type, then from every press.
 installInputMode()
+// On CrazyGames their device type replaces the pointer guess once the SDK is
+// ready, unless a press came first (g2-6f; "Don't rely on touch detection").
+if (PORTAL === 'crazygames') void seedInputMode(PORTAL_SDK, (touch) => { seedTouchMode(touch) })
 // Before anything reads them: the renderer's density, the HUD's keys.
 loadSettings(localTokenStorage())
 // Audio starts on the first press (browsers' rule); the menus click by delegation.
@@ -158,9 +162,17 @@ function setup (): void {
   // connection, whose handshake carries the token; in a run, once the lobby
   // is back. A logout reloads the page (the portal does it).
   setReconnect(() => {
+    // An offline launch never connects (g2-6f).
+    if (PORTAL_SDK.offline()) return
     Game.socket.disconnect()
     Game.socket.connect()
   })
+  // An offline launch on CrazyGames (their app, a downloaded copy; g2-6f):
+  // no more connection attempts, and the lobby without a server, where READY
+  // says why nothing can start. Off CrazyGames `offline()` is false: nothing.
+  if (PORTAL === 'crazygames') {
+    void applyOfflineMode(PORTAL_SDK, Game.socket, () => { if (!_initialised) onConnect() })
+  }
   PORTAL_SDK.onLogin(() => { RELOGIN.login() })
 
   Game.socket.on('connect', () => {
@@ -223,6 +235,8 @@ function setup (): void {
     const levelBefore = ACCOUNT.info?.standing?.level
     applyProgress(progress)
     Game.RUN.setProgress(progress, levelBefore)
+    // A level-up on the run card is celebrated by the portal (decision #62 Q5, portal/happy.ts).
+    HAPPY.progress(progress.levelUp)
   })
   // This account's season (decision #48 step 6, net/season.ts): after
   // `account`, and after each run's `progress`. A malformed one is ignored.

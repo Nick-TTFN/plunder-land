@@ -6,8 +6,9 @@
  * `PORTAL`.
  *
  * g2-6a implements the first five members, g2-6c the user's (`user` to
- * `accountsAvailable`); the ad members land in g2-6d (until then every
- * implementation answers 'unavailable' or false).
+ * `accountsAvailable`), g2-6f the platform's (`deviceType` to `happytime`);
+ * the ad members land in g2-6d (until then every implementation answers
+ * 'unavailable' or false).
  *
  * Pixi-free and `window`-free.
  */
@@ -20,6 +21,12 @@ export interface PortalUser {
 }
 
 export type RewardedResult = 'rewarded' | 'unavailable' | 'failed'
+
+/** The portal's own reading of the device (CrazyGames' `systemInfo.device.type`). */
+export type PortalDevice = 'desktop' | 'tablet' | 'mobile'
+
+/** What a player's feedback report carries (CrazyGames' game context): string values only. */
+export type PortalContext = Record<string, string>
 
 export interface PortalSdk {
   /** Resolves once the SDK is usable or given up on; never rejects, never waits past its timeout. */
@@ -44,6 +51,20 @@ export interface PortalSdk {
   authPrompt: () => Promise<boolean>
   /** Whether the portal's accounts can be used on this page (false before `ready`, off the portal, embedded elsewhere). */
   accountsAvailable: () => boolean
+  /** The device as the portal reads it (g2-6f), or undefined: before `ready`, off the portal, unknown. */
+  deviceType: () => PortalDevice | undefined
+  /**
+   * The game was launched without a connection (g2-6f; CrazyGames' app plays
+   * downloaded games offline). False before `ready` and off the portal; it
+   * never changes after `ready`. The portal is told the room can't be joined.
+   */
+  offline: () => boolean
+  /** Attach what a feedback report should carry (g2-6f); replaces the last. */
+  setContext: (context: PortalContext) => void
+  /** Nothing to attach any more. */
+  clearContext: () => void
+  /** The portal's celebration (g2-6f, decision #62 Q5: a level-up, the first extraction ever). Sparingly. */
+  happytime: () => void
   rewardedAd: () => Promise<RewardedResult>
   adsAvailable: () => boolean
 }
@@ -81,6 +102,11 @@ export function withGameplayState (inner: PortalSdk): PortalSdk {
     linkPrompt: async () => await inner.linkPrompt(),
     authPrompt: async () => await inner.authPrompt(),
     accountsAvailable: () => inner.accountsAvailable(),
+    deviceType: () => inner.deviceType(),
+    offline: () => inner.offline(),
+    setContext: (context) => { inner.setContext(context) },
+    clearContext: () => { inner.clearContext() },
+    happytime: () => { inner.happytime() },
     rewardedAd: async () => await inner.rewardedAd(),
     adsAvailable: () => inner.adsAvailable()
   }

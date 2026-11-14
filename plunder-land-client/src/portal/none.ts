@@ -18,6 +18,11 @@ export function noPortalSdk (): PortalSdk {
     linkPrompt: async () => false,
     authPrompt: async () => false,
     accountsAvailable: () => false,
+    deviceType: () => undefined,
+    offline: () => false,
+    setContext: () => {},
+    clearContext: () => {},
+    happytime: () => {},
     rewardedAd: async () => 'unavailable',
     adsAvailable: () => false
   }

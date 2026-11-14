@@ -1,4 +1,4 @@
-import type { PortalSdk, PortalUser } from './adapter'
+import type { PortalDevice, PortalSdk, PortalUser } from './adapter'
 import { noPortalSdk } from './none'
 
 /**
@@ -37,6 +37,15 @@ import { noPortalSdk } from './none'
  * as "no". On localhost the `local` environment answers demo values chosen by
  * `?user_response=`, `?token_response=`, `?link_account_response=`,
  * `?show_auth_prompt_response=` and `?user_account_available=`.
+ *
+ * The platform members (g2-6f; docs.crazygames.com/sdk/game, /sdk/user and
+ * /resources/crazygames-app, read 2026-11-13): `user.systemInfo.device.type`
+ * (`desktop`, `tablet` or `mobile`; "rely on our system info ... Don't rely on
+ * touch detection"), `game.isOfflineMode` (the app plays a downloaded game
+ * offline; "available once init() has resolved and does not change"), then
+ * `game.updateRoom({ isJoinable: false })` once, `game.setGameContext` /
+ * `clearGameContext` (attached to a player's feedback) and `game.happytime()`.
+ * Both values are read once, as the SDK settles.
  */
 
 export const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js'
@@ -48,9 +57,14 @@ interface CrazySettings { muteAudio?: boolean }
 /** `getUser()`'s answer, as far as it is read. */
 interface CrazyUser { username?: unknown, profilePictureUrl?: unknown }
 
+/** `user.systemInfo`, as far as it is read (g2-6f). */
+interface CrazySystemInfo { device?: { type?: unknown } }
+
 /** The SDK's user module (g2-6c). Optional: a fake, or an SDK without it, has no accounts. */
 export interface CrazyUserModule {
   isUserAccountAvailable: boolean
+  /** Set whether or not accounts are available (g2-6f reads only the device type). */
+  systemInfo?: CrazySystemInfo
   getUser: () => Promise<CrazyUser | null>
   getUserToken: (options: { signingKeyType: 'IN_GAME_AUTH' }) => Promise<string>
   addAuthListener: (listener: (user: CrazyUser | null) => void) => void
@@ -77,6 +91,19 @@ export function portalUserOf (raw: unknown): PortalUser | null {
   return { username, avatar }
 }
 
+/** The device type in `systemInfo`, or undefined for anything else. */
+export function deviceOf (raw: unknown): PortalDevice | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined
+  const type = (raw as CrazySystemInfo).device?.type
+  return type === 'desktop' || type === 'tablet' || type === 'mobile' ? type : undefined
+}
+
+/** An SDK method that must be there: one that isn't throws, so `guard` warns about it once. */
+function required<T> (method: T | undefined, name: string): T {
+  if (method === undefined) throw new Error(`${name} is not in this SDK`)
+  return method
+}
+
 /** The part of `window.CrazyGames.SDK` used so far. */
 export interface CrazySdk {
   init: () => Promise<void>
@@ -88,6 +115,12 @@ export interface CrazySdk {
     gameplayStop: () => void
     settings: CrazySettings
     addSettingsChangeListener: (listener: (settings: CrazySettings) => void) => void
+    // g2-6f. Optional for an older SDK or a fake: a missing method throws in `required` and `guard` warns once.
+    isOfflineMode?: boolean
+    updateRoom?: (room: { isJoinable: boolean }) => void
+    setGameContext?: (context: Record<string, string>) => void
+    clearGameContext?: () => void
+    happytime?: () => void
   }
   user?: CrazyUserModule
 }
@@ -126,6 +159,9 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
   const pending: Array<() => void> = []
   const warned = new Set<string>()
   let muted = false
+  /** Read once as the SDK settles (g2-6f). */
+  let device: PortalDevice | undefined
+  let offline = false
   const muteListeners: Array<(muted: boolean) => void> = []
   const loginListeners: Array<() => void> = []
   /**
@@ -158,6 +194,19 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
       if (warned.has(name)) return
       warned.add(name)
       warn(`portal sdk: ${name} failed: ${String(e)}`)
+    }
+  }
+  /** A value read off a usable SDK (not a call: not logged); `fallback` without one or on a throw (warned once). */
+  const peek = <T>(name: string, read: (sdk: CrazySdk) => T, fallback: T): T => {
+    if (sdk === undefined) return fallback
+    try {
+      return read(sdk)
+    } catch (e) {
+      if (!warned.has(name)) {
+        warned.add(name)
+        warn(`portal sdk: ${name} failed: ${String(e)}`)
+      }
+      return fallback
     }
   }
   /** The user module, only where accounts are available; never throws. */
@@ -237,6 +286,10 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
       })
     })
     if (muted) muteListeners.forEach(tellMute)
+    // g2-6f: the device the portal reads, and an offline launch (no room to join then).
+    device = peek('systemInfo', (s) => deviceOf(s.user?.systemInfo), undefined)
+    offline = peek('isOfflineMode', (s) => s.game.isOfflineMode === true, false)
+    if (offline) guard('updateRoom', (s) => { required(s.game.updateRoom, 'updateRoom').call(s.game, { isJoinable: false }) })
     // One SDK listener for every `onLogin` (CrazyGames keeps one auth listener).
     if (accounts() !== undefined) {
       guard('addAuthListener', (s) => {
@@ -272,6 +325,15 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
       return user !== null
     },
     accountsAvailable: () => accounts() !== undefined,
+    // g2-6f.
+    deviceType: () => device,
+    offline: () => offline,
+    setContext: (context) => {
+      const copy = { ...context }
+      whenReady('setGameContext', (s) => { required(s.game.setGameContext, 'setGameContext').call(s.game, copy) })
+    },
+    clearContext: () => { whenReady('clearGameContext', (s) => { required(s.game.clearGameContext, 'clearGameContext').call(s.game) }) },
+    happytime: () => { whenReady('happytime', (s) => { required(s.game.happytime, 'happytime').call(s.game) }) },
     // g2-6d.
     rewardedAd: none.rewardedAd,
     adsAvailable: none.adsAvailable

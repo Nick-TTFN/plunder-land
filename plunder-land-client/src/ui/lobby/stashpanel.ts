@@ -153,7 +153,14 @@ export class StashPanel {
     const done = el('button', 'lb-done', 'DONE')
     done.onclick = onClose
     foot.append(this.status, done)
-    this.root.append(head, this.kitRow, this.warn, this.tools, this.grid, this.over, this.overGrid, this.detail, this.notice, foot)
+    // Two columns on a short landscape screen (g2-6f: the panels fit a phone
+    // on its side without scrolling): the keys and the grid, then the card.
+    // Elsewhere the wrappers are `display: contents` and change nothing.
+    const left = el('div', 'lb-pcol lb-pcol-a')
+    left.append(this.kitRow, this.warn, this.tools, this.grid, this.over, this.overGrid)
+    const right = el('div', 'lb-pcol lb-pcol-b')
+    right.append(this.detail, this.notice)
+    this.root.append(head, left, right, foot)
     ACCOUNT.listeners.add(this.onChange)
     STASH.listeners.add(this.onChange)
     Game.socket?.on('merged', this.onMergedEvent)

@@ -27,8 +27,8 @@ export const LOBBY_CSS = `
 
 /* Safe-area insets in the lobby's own pixels: the root is CSS-zoomed (Lobby.fit sets --lb-z), and a zoomed
    env() inset shrinks with it, which put the header and the right column 13-30 px into a notch (g2-4). */
-.lb { --lb-z: 1; --lb-sl: calc(env(safe-area-inset-left, 0px) / var(--lb-z)); --lb-sr: calc(env(safe-area-inset-right, 0px) / var(--lb-z));
-  --lb-sb: calc(env(safe-area-inset-bottom, 0px) / var(--lb-z)); }
+.lb { --lb-z: 1; --lb-sl: calc(var(--safe-area-inset-left, env(safe-area-inset-left, 0px)) / var(--lb-z)); --lb-sr: calc(var(--safe-area-inset-right, env(safe-area-inset-right, 0px)) / var(--lb-z));
+  --lb-sb: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) / var(--lb-z)); }
 
 /* Header */
 .lb-top { position: relative; flex: 0 0 auto; min-height: 68px; display: flex; align-items: center; gap: 16px;
@@ -145,6 +145,11 @@ export const LOBBY_CSS = `
 .lb-ready-sub { text-align: center; font-size: 13px; letter-spacing: .06em; color: #c9d6e2; }
 .lb-privacy { align-self: center; font-size: 11px; letter-spacing: .12em; color: #6f8496; text-decoration: none; }
 .lb-privacy:hover { color: #33dbd3; }
+/* A new player's privacy notice under READY (g2-6f, Q6), and an offline launch's line in READY's place. */
+.lb-notice { align-self: center; text-align: center; font-size: 11px; letter-spacing: .06em; line-height: 1.4; color: #8FA3B5; }
+.lb-notice a { color: #33dbd3; text-decoration: underline; }
+.lb-offline { padding: 12px 10px; text-align: center; font-size: 15px; font-weight: 600; color: #ffc45e;
+  border: 1px solid #6b5a2e; border-radius: 8px; background: rgba(255,196,94,.08); }
 .lb-build { position: absolute; left: max(8px, var(--lb-sl)); bottom: max(4px, var(--lb-sb)); font-size: 10px; letter-spacing: .08em; color: #6f8496; opacity: .7;
   font-family: ui-monospace, Menlo, monospace; pointer-events: none; }
 .lb-join { display: flex; align-items: center; gap: 10px; max-width: 100%;
@@ -154,6 +159,8 @@ export const LOBBY_CSS = `
 .lb-join-x { border: 0; background: transparent; color: #0b1622; font-size: 14px; cursor: pointer; padding: 0 4px; }
 
 /* Panels (mono, placeholder chrome) */
+/* A panel's two column wrappers (g2-6f): nothing unless a short landscape screen lays them side by side. */
+.lb-pcol { display: contents; }
 .lb-custom { position: absolute; top: 80px; right: 24px; width: min(440px, calc(100% - 32px)); max-height: calc(100% - 92px); overflow-y: auto;
   padding: 18px 20px; border-radius: 10px; background: rgba(11,18,32,.98); border: 1px solid #3a6e7e;
   box-shadow: 0 0 24px rgba(51,219,211,.18); pointer-events: auto; z-index: 2; }
@@ -420,4 +427,81 @@ export const LOBBY_CSS = `
 /* The panels open over the grid under the header; their small labels at 10 px. */
 .lb-land .lb-custom { top: 44px; bottom: max(6px, var(--lb-sb)); }
 .lb-land .lb-lock, .lb-land .lb-small .lb-lock, .lb-land .lb-lo-name, .lb-land .lb-lo-badge, .lb-land .lb-st-mslot .lb-st-tier { font-size: 10px; }
+.lb-land .lb-notice { font-size: 10px; line-height: 1.3; }
+/* On a touch phone on its side a panel covers the header too (it is the one thing open; DONE and the cross close it). */
+.lb-land .lb-custom { top: max(6px, var(--safe-area-inset-top, env(safe-area-inset-top, 0px))); }
+.lb-land .lb-offline { padding: 8px; font-size: 13px; }
+
+/* The panels on a short landscape screen (g2-6f, Nick 2026-11-14: they fit a phone held sideways without
+   scrolling, as the lobby does): as wide as the lobby, two columns (.lb-pcol), tighter rows, smaller
+   swatches and cells. On a touch phone (.lb-land, zoom 1) that is 290-380 px of height; in a zoomed desktop
+   window (CrazyGames' small frames) the zoom gives more. Text stays 10 px or more at zoom 1. */
+@media (orientation: landscape) and (max-height: 640px) {
+  .lb-custom { left: max(16px, var(--lb-sl)); right: max(16px, var(--lb-sr)); width: auto; max-width: 980px; margin: 0 auto;
+    padding: 8px 16px 10px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); column-gap: 22px;
+    grid-template-areas: "head head" "a b" "foot b"; grid-template-rows: auto auto 1fr; align-content: start; }
+  .lb-custom.lb-hidden { display: none; }
+  .lb-custom > .lb-customhead { grid-area: head; font-size: 16px; padding-bottom: 6px; }
+  .lb-custom > .lb-pcol { display: flex; flex-direction: column; min-width: 0; }
+  .lb-custom > .lb-pcol-a { grid-area: a; }
+  .lb-custom > .lb-pcol-b { grid-area: b; }
+  .lb-custom > .lb-customfoot { grid-area: foot; align-self: end; padding-top: 8px; gap: 10px; }
+  .lb-close { font-size: 24px; line-height: 1; padding: 0 4px; }
+  .lb-done { padding: 8px 26px; font-size: 15px; }
+  /* Stats & paint: the bars left, the three paint rows right. */
+  .lb-stats { gap: 6px; padding: 8px 0; border-bottom: 0; }
+  .lb-stat { grid-template-columns: 58px minmax(20px, 1fr) 64px; gap: 8px; font-size: 11px; }
+  .lb-row { padding: 4px 0; }
+  .lb-row:last-child { border-bottom: 0; }
+  .lb-rowtitle { margin-bottom: 3px; font-size: 13px; }
+  .lb-swatches { gap: 6px; }
+  .lb-swatch { width: 36px; height: 36px; border-radius: 7px; }
+  .lb-swatch.lb-small { width: 24px; height: 24px; }
+  .lb-patterns { margin-top: 4px; }
+  .lb-patterns .lb-chip { padding: 2px 8px; }
+  /* Loadout: tabs and the four slots left, the skills right (4 across). */
+  .lb-lo-tabs { padding: 8px 0 6px; gap: 6px; }
+  .lb-lo-tabs .lb-chip { min-width: 44px; padding: 5px 8px; font-size: 12px; }
+  .lb-lo-slots { gap: 6px; padding-bottom: 0; border-bottom: 0; }
+  .lb-lo-slot { height: 62px; gap: 2px; }
+  .lb-lo-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 8px 0 0; }
+  .lb-lo-skill { height: 54px; gap: 2px; }
+  .lb-lo-icon { width: 24px; height: 24px; line-height: 24px; font-size: 16px; }
+  /* Stash: the keys, tools and grid left, the item card right with DONE under it. */
+  .lb-stash { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-areas: "head head" "a b" "a foot"; grid-template-rows: auto minmax(0, 1fr) auto; }
+  /* Up to 12 items fit; past the soft cap (the warning says to merge or discard) only this column scrolls. */
+  .lb-stash > .lb-pcol-a { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .lb-st-kit { padding: 8px 0; gap: 5px; }
+  .lb-st-key, .lb-st-bring { height: 44px; }
+  .lb-st-warn { margin-top: 6px; padding: 3px 8px; font-size: 10px; letter-spacing: .04em; line-height: 1.3; }
+  .lb-st-tools { padding-top: 8px; }
+  .lb-st-tools .lb-chip { padding: 6px 12px; white-space: nowrap; }
+  .lb-st-toolhint { font-size: 10px; letter-spacing: .06em; }
+  .lb-st-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding-top: 8px; }
+  .lb-st-cell { height: 40px; gap: 0; }
+  .lb-st-cell .lb-lo-icon { width: 20px; height: 20px; line-height: 20px; }
+  .lb-st-over { padding-top: 8px; }
+  .lb-st-detail { min-height: 0; margin-top: 8px; padding-top: 0; border-top: 0; }
+  .lb-st-hint { padding: 12px 0; }
+  .lb-st-card { gap: 10px; padding: 8px; }
+  .lb-st-lines { line-height: 1.4; }
+  .lb-st-actions { gap: 6px; padding-top: 8px; }
+  .lb-st-actions .lb-chip, .lb-st-keep .lb-chip { padding: 6px 10px; }
+  .lb-st-mslots { gap: 6px; }
+  .lb-st-mslot { height: 54px; }
+  .lb-st-keep, .lb-st-preview { padding-top: 6px; }
+  /* Plunderbots: one row of smaller cards over the tagline. */
+  .lb-picker { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; grid-template-rows: none; }
+  .lb-picker > .lb-customhead, .lb-picker > .lb-customfoot { grid-area: auto; }
+  .lb-cards { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; padding: 8px 0; }
+  .lb-card { height: 104px; padding-bottom: 8px; }
+  .lb-thumb img { max-width: 62px; max-height: 62px; }
+  .lb-tagline { padding: 2px 0; font-size: 12px; line-height: 1.4; }
+}
+/* In a zoomed desktop window the panel ends at its content instead of stretching to the bottom; a touch
+   phone's (.lb-land) still fills the screen under its top. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .lb-custom { bottom: auto; max-height: calc(100% - 68px); }
+  .lb-land .lb-custom { bottom: max(6px, var(--lb-sb)); max-height: none; }
+}
 `

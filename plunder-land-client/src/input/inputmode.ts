@@ -10,6 +10,10 @@
  * changes nothing. So a touchscreen laptop starts in desktop mode and
  * switches the first time it is touched, and back on the next mouse click.
  *
+ * On a portal that says what the device is (CrazyGames' system info, g2-6f)
+ * that reading replaces the coarse-pointer guess once the SDK is ready
+ * (`seedTouchMode`), unless a press has already decided; presses decide after.
+ *
  * Not `HUD.phone()`, which is screen size: a tablet is touch at any size, and
  * a small desktop window is not touch. HUD *size* follows `HUD.phone()`;
  * *controls* follow this.
@@ -39,6 +43,19 @@ export function modeForPress (pointerType: string): boolean | undefined {
 }
 
 let _installed = false
+/** A press has set the mode: a later seed from the portal changes nothing (#59's rule wins). */
+let _pressed = false
+
+/**
+ * The starting mode from a source better than the pointer guess (the portal's
+ * device type, g2-6f). Ignored once a press has decided. Returns whether it
+ * was applied.
+ */
+export function seedTouchMode (touch: boolean): boolean {
+  if (_pressed) return false
+  setTouchMode(touch)
+  return true
+}
 
 /**
  * Read the starting mode and follow every press from now on. In the capture
@@ -55,6 +72,8 @@ export function installInputMode (target: Window = window): void {
   }
   target.addEventListener('pointerdown', (event: PointerEvent) => {
     const touch = modeForPress(event.pointerType)
-    if (touch !== undefined) setTouchMode(touch)
+    if (touch === undefined) return
+    _pressed = true
+    setTouchMode(touch)
   }, { capture: true, passive: true })
 }

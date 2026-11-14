@@ -115,7 +115,13 @@ export class LoadoutPanel {
     const done = el('button', 'lb-done', 'DONE')
     done.onclick = onClose
     foot.append(this.status, done)
-    this.root.append(head, this.tabs, this.slots, this.grid, foot)
+    // Two columns on a short landscape screen (g2-6f): the loadout, then the
+    // skills. Elsewhere the wrappers are `display: contents`.
+    const left = el('div', 'lb-pcol lb-pcol-a')
+    left.append(this.tabs, this.slots)
+    const right = el('div', 'lb-pcol lb-pcol-b')
+    right.append(this.grid)
+    this.root.append(head, left, right, foot)
     ACCOUNT.listeners.add(this.onAccount)
     Game.socket?.on('loadout_saved', this.onSaved)
     if (iconsLoading === undefined) iconsLoading = loadIcons()

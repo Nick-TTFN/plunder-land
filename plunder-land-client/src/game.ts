@@ -68,7 +68,11 @@ import { SETTINGS } from './net/settings'
 import { clearFull, onFull } from './net/full'
 import { decodeRecord } from './net/records'
 import { RunMap, resetForRun } from './net/runmap'
-import { PORTAL_SDK } from './portal'
+import { HAPPY, PORTAL_SDK } from './portal'
+import { lobbyContext, runContext } from './portal/platform'
+import { ACCOUNT } from './net/account'
+import { BUILD } from './config'
+import { PROTOCOL } from './utils/protocol'
 import { Handoff } from './net/handoff'
 import { presenceReach, stillPresent, type Viewpoint } from './net/presence'
 import { SpectateBar } from './ui/popups/spectatebar'
@@ -144,6 +148,8 @@ export class Game extends Container {
   static SPECTATE_ID: number | undefined
   private spectateBar: SpectateBar | undefined
   private runCard: RunSummaryCard | undefined
+  /** This run's robot key, for the portal's feedback context (g2-6f). */
+  private contextRobot: string | undefined
   /** The layer whose plane is shown, so following a spectated player fades only on a change. */
   private shownTag: number | undefined
   static Instance: Game
@@ -364,6 +370,8 @@ export class Game extends Container {
     // The lobby is a break in play (portal SDK, g2-6a): also after a
     // reconnect that drops a run back here. Only a change reaches the portal.
     PORTAL_SDK.gameplayStop()
+    // What a player's feedback from the lobby carries (g2-6f; no-op off a portal).
+    PORTAL_SDK.setContext(lobbyContext({ protocol: PROTOCOL, build: BUILD, level: ACCOUNT.info?.standing?.level }))
     // A run from the lobby continues nothing (net/handoff.ts).
     Handoff.reset()
     this.resetRun()
@@ -388,6 +396,16 @@ export class Game extends Container {
     Leaderboard.Instance?.setStandings([], undefined)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     Game.popups.show(new Lobby(this.onStartRequested.bind(this)))
+  }
+
+  /**
+   * What a player's feedback during a run carries (g2-6f, CrazyGames' game
+   * context; a no-op off a portal): the layer they are on, the robot, the
+   * account's level, the protocol and the build. Set as the own player is
+   * created and again on each layer change.
+   */
+  private setRunContext (layer: number | undefined): void {
+    PORTAL_SDK.setContext(runContext({ layer, robot: this.contextRobot, level: ACCOUNT.info?.standing?.level, protocol: PROTOCOL, build: BUILD }))
   }
 
   /**
@@ -812,8 +830,12 @@ export class Game extends Container {
       if (!Handoff.takeOwnCreate()) {
         Game.RUN.start(archetypeById(data.archetype)?.key)
         GameSfx.runStart()
+        // This run's end may celebrate once (g2-6f, portal/happy.ts).
+        HAPPY.runStarted()
+        this.contextRobot = archetypeById(data.archetype)?.key
       }
       Game.RUN.layer(Session.layerNumber(data.tag))
+      this.setRunContext(Session.layerNumber(data.tag))
       if (typeof data.kills === 'number') Game.RUN.kills = data.kills
 
       Game.hud.setupStats()
@@ -1259,6 +1281,7 @@ export class Game extends Container {
           GameSfx.ownLayer()
           this.updateLayerVisibility(data.tag)
           Game.RUN.layer(Session.layerNumber(data.tag))
+          this.setRunContext(Session.layerNumber(data.tag))
         }
       }
 
@@ -1314,7 +1337,11 @@ export class Game extends Container {
         Game.RUN.finish((obj as Unit).loot ?? 0)
         // The run's end is a break in play (portal SDK, g2-6a), spectating included.
         PORTAL_SDK.gameplayStop()
+        // The run's feedback context ends with it (g2-6f); the lobby sets its own.
+        PORTAL_SDK.clearContext()
         const dead = data.hp === 0
+        // The account's first extraction ever is celebrated (decision #62 Q5, portal/happy.ts).
+        if (!dead) HAPPY.extracted(ACCOUNT.info?.offline === true ? undefined : ACCOUNT.info?.id)
         GameSfx.ownGone(dead)
         const card = this.runCard = new RunSummaryCard(dead ? 'dead' : 'extracted', Game.RUN, this.start.bind(this),
           dead ? () => { card.visible = false } : undefined)

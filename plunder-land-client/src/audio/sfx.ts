@@ -96,6 +96,14 @@ export function masterGain (level: SoundLevel, portalMuted: boolean): number {
   return portalMuted ? 0 : LEVEL_GAIN[level]
 }
 
+/**
+ * Whether a press should resume the context (g2-6f): any state but running
+ * (`suspended`, iOS's `interrupted`) on a visible page; never a closed one.
+ */
+export function needsResume (state: string, hidden: boolean): boolean {
+  return !hidden && state !== 'running' && state !== 'closed'
+}
+
 /** What `SOUND_KEY` holds, read back; anything else is the default. */
 export function parseLevel (raw: string | null): SoundLevel {
   const n = Number(raw)
@@ -169,14 +177,15 @@ export class Sfx {
       // Not remembered: the default.
     }
     Sfx._level = parseLevel(raw)
-    const unlock = (): void => {
-      Sfx.start()
-      if (Sfx.ctx?.state === 'running') {
-        window.removeEventListener('pointerdown', unlock, true)
-        window.removeEventListener('keydown', unlock, true)
-      }
-    }
+    // Kept for the page's life (g2-6f): iOS interrupts a running context when
+    // the app is backgrounded or a call comes in, and it may be resumed only
+    // inside a gesture (CrazyGames, requirements/technical: "Simply listening
+    // for a visibility change is insufficient"). Each press checks the state
+    // and calls resume only when it isn't running; touchend because iOS
+    // counts it as a gesture where pointerdown may not be.
+    const unlock = (): void => { Sfx.start() }
     window.addEventListener('pointerdown', unlock, true)
+    window.addEventListener('touchend', unlock, true)
     window.addEventListener('keydown', unlock, true)
     document.addEventListener('visibilitychange', () => {
       if (Sfx.ctx === undefined) return
@@ -198,7 +207,7 @@ export class Sfx {
   /** Makes (or resumes) the context inside a gesture, and loads the files the first time. */
   private static start (): void {
     if (Sfx.ctx !== undefined) {
-      if (Sfx.ctx.state === 'suspended' && !document.hidden) void Sfx.ctx.resume().catch(() => {})
+      if (needsResume(Sfx.ctx.state, document.hidden)) void Sfx.ctx.resume().catch(() => {})
       return
     }
     const Ctor: typeof AudioContext | undefined = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext

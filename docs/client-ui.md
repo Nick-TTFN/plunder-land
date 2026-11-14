@@ -12,7 +12,10 @@ while open it takes every key (the lobby's handler steps aside). Skill keys (Q W
 cards rekey with cooldowns kept (`HUD.rekey`). Resolution auto/1x/2x (`densityFor`) applies at once;
 ROBOT SHADOWS (`RobotSprite`'s cast pass) from the next run. VOLUME (OFF/LOW/MID/HIGH) is the
 sound module's own setting, not a `Settings` field (see Sound). The old S key toggled an unused
-`Game.simulate`: removed.
+`Game.simulate`: removed. On a short landscape screen (`orientation: landscape` and at most 640 tall,
+g2-6f) the panel is wider with two columns (controls; graphics and sound, `st-col`), the title,
+RESET and DONE share the top row and the cross goes (DONE closes), so it fits a phone on its side
+without scrolling.
 
 ## Portals (itch, CrazyGames)
 
@@ -44,7 +47,7 @@ there). Inside an iframe it also needs the host's `allowfullscreen`. Both button
 **Portal SDK** (g2-6a, #62: "go full in with adapter"): `src/portal/`. `adapter.ts` is the one
 interface (`PortalSdk`: `ready`, `loadingStop`, `gameplayStart`, `gameplayStop`, `onMute`; the user
 members `user`, `userToken`, `onLogin`, `linkPrompt`, `authPrompt`, `accountsAvailable` since g2-6c,
-below; the rewarded-ad members are declared and answer `'unavailable'`/false until g2-6d);
+and the platform members since g2-6f, both below; the rewarded-ad members are declared and answer `'unavailable'`/false until g2-6d);
 `withGameplayState` passes on `loadingStop` once and `gameplayStart`/`gameplayStop` only on a
 change. `none.ts` is the no-op (our site, itch, anything else); `crazygames.ts` adds CrazyGames'
 SDK v3 script at run time, only on `crazygames`, awaits `init()` for at most 5 s
@@ -119,6 +122,50 @@ none of it runs: no token, no prompt, no button, the callsign.
   hides it. Whether its demo tokens verify against CrazyGames' JWKS, and with which `gameId`, is
   unchecked (unverified 2026-11-14); a local server without `CRAZYGAMES_GAME_ID` ignores them.
 
+**CrazyGames platform fit** (g2-6f, decision #62; their docs read 2026-11-13: /resources/crazygames-app,
+/requirements/technical, /sdk/game, /sdk/user). Adapter members `deviceType`, `offline`,
+`setContext`, `clearContext`, `happytime`; the no-op answers undefined/false and calls nothing. The
+CrazyGames SDK's values are read once as it settles (`systemInfo.device.type`, `game.isOfflineMode`,
+not logged as calls); a method an older SDK lacks is warned once (`required`). The rules are in
+`portal/platform.ts`, `happy.ts` and `notice.ts` (pixi-free; `portalplatform.spec.ts`).
+- **Safe areas:** every inset in the client is `var(--safe-area-inset-X, env(safe-area-inset-X,
+  0px))` (`ui/safearea.ts`'s probe, the lobby's `--lb-sl`/`--lb-sr`/`--lb-sb`, the rotate prompt;
+  the settings panel's short-landscape width too). Inside CrazyGames' app their SDK sets those
+  variables to the part of the inset over the game's iframe, where `env()` is wrong (always 0 on
+  Android; on iOS blind to where the iframe sits); elsewhere nothing sets them and `env()` is read as
+  before. The probe is re-read on every resize (the HUD's), and CrazyGames updates the variables "when
+  the device rotates"; whether they change before or after that resize event is unverified. A spec
+  fails on any bare `env(safe-area-inset-*)` in client code.
+- **Device type:** on `crazygames` once the SDK is ready, `mobile` or `tablet` starts touch mode and
+  `desktop` desktop mode (`seedInputMode` -> `seedTouchMode`), replacing the `(pointer: coarse)`
+  guess ("Don't rely on touch detection ... to show mobile controls"). A press made before then
+  wins, and presses decide after (#59). Off CrazyGames nothing is seeded.
+- **Offline launch** (their app plays a downloaded copy; `isOfflineMode` "does not change while the
+  game is running"): the adapter tells the portal the room is not joinable (`updateRoom({ isJoinable:
+  false })`, once), and `index.ts` (`applyOfflineMode`) turns socket.io's reconnection off and
+  disconnects, so the attempt already made is the only one, then puts the lobby up without a
+  server; READY is replaced by "Plunderbots needs an internet connection" (`OFFLINE_LINE`), Enter
+  starts nothing, Log in is hidden, a portal login doesn't reconnect. g2-6e's room calls must check
+  `offline()` too.
+- **Feedback context** (`setGameContext`): in the lobby `{ protocol, build, level }` (`Game.start`);
+  in a run `{ layer, robot, level, protocol, build }`, set as the own player is created and again on
+  each layer change (the layer is known from `create_own`, not from `hello`); cleared at the own
+  destroy. Strings only; anything unknown is left out. `build` is `BUILD` (the short commit the
+  lobby shows).
+- **happytime** (Q5): an account level-up (`progress.levelUp`, the run card) and the account's first
+  extraction ever, at most once per run's end (`Happy`). "Ever" is per browser: a localStorage list
+  of the accounts already celebrated (`plunderland_first_extraction`, last 20); off CrazyGames it has
+  no storage, so nothing is recorded or called. A storage that can't be read or written celebrates no
+  extraction. No `reportGameCompletedPercentage` anywhere (a spec checks the source).
+- **Privacy notice** (Q6, **everywhere**): "By playing you accept our Privacy Policy" under READY,
+  the link to `privacyUrl(PORTAL)` in a new tab, for a browser with no account token and no
+  `plunderland_privacy_seen` (set when READY is pressed); while it shows, the plain Privacy link
+  under READY hides (the menu's stays). A simple line, not a pop-up, as CrazyGames recommends. The
+  privacy page's text is Nick's (g2-8).
+- Unverified: the real SDK on CrazyGames (systemInfo, offline mode and the CSS variables exist only in
+  their docs here; `?portal=crazygames` on localhost gives their `local` environment), the app, and
+  iOS (interrupted audio, the variables).
+
 ## Sound
 
 The minimal sound pass before the itch soft launch (#56). Effects only, no music.
@@ -130,6 +177,12 @@ The minimal sound pass before the itch soft launch (#56). Effects only, no music
   Paths are relative (`./res/sfx/`).
 - **Starts on the first pointer or key press** (browsers' autoplay rule): the context is made and
   the files load then; a play before that is dropped, not queued. A hidden tab suspends it.
+- **Every press resumes a context that isn't running** (g2-6f): the capture `pointerdown`,
+  `touchend` and `keydown` listeners stay for the page's life and call `resume()` whenever the state
+  is anything but `running` or `closed` (`needsResume`), which covers iOS's `interrupted` after the
+  app is backgrounded or a call comes in (CrazyGames: resume "within a valid user-initiated gesture
+  ... Simply listening for a visibility change is insufficient"). Code-read and spec'd; not seen on
+  an iPhone.
 - **Volume**: localStorage `plunderland_sound`, 0-3, default MID (2). Kept out of `Settings` so the
   settings shape and its spec stay as they are.
 - **A portal's mute outranks it** (CrazyGames' `muteAudio`, g2-6a): `Sfx.setPortalMuted` silences
@@ -209,9 +262,22 @@ the arrows beside the robot and the key-hints line are gone (left/right still sw
   `lobbystyle.ts` (40 px header, smaller hero and Start run, the level and XP line on one row, no
   "Progress" eyebrow, 36 px rows; under 370 px tall also no "Upcoming unlocks" heading, 32 px rows),
   so no text is under 10 px. Measured: no lobby scroll from 340 to 430 tall, Safari's bars and notch
-  insets included. The build tag sits in the header's middle there. The panels (loadout, stash,
-  paint, robots) open over the grid and scroll inside (up to ~370 px at 340 tall). A mouse in the
+  insets included. The build tag sits in the header's middle there. A mouse in the
   same window size (CrazyGames' small desktop frames) keeps the zoomed desktop grid.
+- **The panels fit a short landscape screen without scrolling** (g2-6f; Nick 2026-11-14: "settings,
+  stash, loadout and any other" as the lobby does). Under `orientation: landscape` and at most 640
+  tall (`lobbystyle.ts`) a panel is as wide as the lobby (insets kept, at most 980) and a grid of two
+  columns: each panel's DOM puts its halves in `.lb-pcol-a`/`.lb-pcol-b` wrappers, which are
+  `display: contents` everywhere else, so the other layouts are unchanged. Stats & paint: the bars,
+  then the three paint rows (36 px swatches); Loadout: tabs and the four slots, then the skills four
+  across; Stash: keys, tools and the grid four across (40 px cells), then the item card with DONE
+  under it; Plunderbots: one row of cards. On a touch phone (`.lb-land`) the panel also covers the
+  header (it is the one thing open). In a zoomed desktop window it ends at its content. Past the
+  stash's soft cap of 12 (the panel already warns to merge or discard) only the stash's left column
+  scrolls, up to `STASH_MAX` items. Measured with `tools/layout-shots.mjs` (Chromium) and a scratch
+  check of the states the tool doesn't open (an item's card, DISCARD's confirm, MERGE with 3 picked,
+  MIX): 0 scroll at every landscape phone size and every desktop frame, except the 13-item stash on
+  a 750x340 phone (its left column, 83 px).
 - **No skill points exist**: the rows' status lines are facts (the kit READY plays, the first three
   stats, `stashCount` and "N new"); only the Stash row's dot lights.
 - **The journey** is `journeyStop(level)` in `locks.ts` (pixi-free, `unlocks.spec.ts`): a stop is
