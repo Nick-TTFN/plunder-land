@@ -25,9 +25,12 @@ test('client: CrazyGames\' file host, iOS frame and apex read crazygames; a look
   assert.equal(portalFrom('x.game-files.crazygames.com', '?portal=web'), 'web', '?portal= still overrides')
 })
 
-test('client: invites hidden on itch and CrazyGames; the privacy link leaves both for our site', () => {
+test('client: invites hidden on itch, on CrazyGames only with their SDK\'s link (g2-6e); the privacy link leaves both for our site', () => {
   assert.equal(invitesShown('itch'), false)
-  assert.equal(invitesShown('crazygames'), false)
+  assert.equal(invitesShown('itch', 'https://x'), false, 'never on itch')
+  assert.equal(invitesShown('crazygames'), false, 'no SDK link: hidden')
+  assert.equal(invitesShown('crazygames', null), false)
+  assert.equal(invitesShown('crazygames', 'https://www.crazygames.com/game/x?join=abcdef'), true)
   assert.equal(invitesShown('web'), true)
   assert.equal(privacyUrl('web'), '/privacy')
   assert.equal(privacyUrl('itch'), `${SITE_URL}/privacy`)

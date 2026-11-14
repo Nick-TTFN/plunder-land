@@ -7,7 +7,8 @@
  *
  * g2-6a implements the first five members, g2-6c the user's (`user` to
  * `accountsAvailable`), g2-6f the platform's (`deviceType` to `happytime`),
- * g2-6d the rewarded ad's (`rewardedAd` to `adBlocked`). **Rewarded ads only,
+ * g2-6d the rewarded ad's (`rewardedAd` to `adBlocked`), g2-6e the room's
+ * (`updateRoom` to `instantMultiplayer`). **Rewarded ads only,
  * ever** (decision #62: no midgame, no banner): the adapter has no other ad
  * member, so the game can't show one.
  *
@@ -29,6 +30,17 @@ export interface PortalUser {
  * (`ad_result { result }`).
  */
 export type RewardedResult = 'rewarded' | 'unavailable' | 'adblock' | 'failed'
+
+/**
+ * Where the player can be joined (g2-6e; CrazyGames' room data): `roomId`
+ * unique in the game at any time, `isJoinable` whether friends may join now,
+ * `inviteParams` what a friend who joins is launched with (string values).
+ */
+export interface PortalRoom {
+  roomId: string
+  isJoinable: boolean
+  inviteParams: Record<string, string>
+}
 
 /** The portal's own reading of the device (CrazyGames' `systemInfo.device.type`). */
 export type PortalDevice = 'desktop' | 'tablet' | 'mobile'
@@ -85,6 +97,26 @@ export interface PortalSdk {
   adsAvailable: () => boolean
   /** An ad blocker is known to be in the way (the portal's check, an `adblock` error, or its SDK script blocked). */
   adBlocked: () => boolean
+  /**
+   * The player's room as the portal should show it (g2-6e). Dropped on an
+   * offline launch (`offline`: the portal was told once the room can't be
+   * joined, and nothing may undo that), and off the portal.
+   */
+  updateRoom: (room: PortalRoom) => void
+  /** The player left the room. Not called by the game (the page closing is the end); here for completeness. */
+  leftRoom: () => void
+  /**
+   * The params this page was launched with from a friend's invite (g2-6e;
+   * string values only), or null: not from an invite, offline, off the
+   * portal, any error. Waits for `ready`.
+   */
+  inviteParams: () => Promise<Record<string, string> | null>
+  /** A friend's invite accepted while the page is open (the portal's join listener); the params as for `inviteParams`. Never offline. */
+  onJoinRoom: (listener: (params: Record<string, string>) => void) => void
+  /** The portal's own invite link for these params, or null: before `ready`, offline, off the portal, any error. */
+  inviteLink: (params: Record<string, string>) => string | null
+  /** The portal launched the game from its multiplayer flow (CrazyGames' `isInstantMultiplayer`); false before `ready` and off the portal. */
+  instantMultiplayer: () => boolean
 }
 
 /**
@@ -127,6 +159,12 @@ export function withGameplayState (inner: PortalSdk): PortalSdk {
     happytime: () => { inner.happytime() },
     rewardedAd: async () => await inner.rewardedAd(),
     adsAvailable: () => inner.adsAvailable(),
-    adBlocked: () => inner.adBlocked()
+    adBlocked: () => inner.adBlocked(),
+    updateRoom: (room) => { inner.updateRoom(room) },
+    leftRoom: () => { inner.leftRoom() },
+    inviteParams: async () => await inner.inviteParams(),
+    onJoinRoom: (listener) => { inner.onJoinRoom(listener) },
+    inviteLink: (params) => inner.inviteLink(params),
+    instantMultiplayer: () => inner.instantMultiplayer()
   }
 }

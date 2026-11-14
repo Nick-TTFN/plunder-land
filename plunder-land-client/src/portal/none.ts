@@ -25,6 +25,13 @@ export function noPortalSdk (): PortalSdk {
     happytime: () => {},
     rewardedAd: async () => 'unavailable',
     adsAvailable: () => false,
-    adBlocked: () => false
+    adBlocked: () => false,
+    updateRoom: () => {},
+    leftRoom: () => {},
+    inviteParams: async () => null,
+    // Never joined from a portal: the listener is never called.
+    onJoinRoom: () => {},
+    inviteLink: () => null,
+    instantMultiplayer: () => false
   }
 }

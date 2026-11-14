@@ -23,7 +23,7 @@ import { Sfx } from './audio/sfx'
 import { INTERVAL_MS, TIMEOUT_MS } from './net/latency'
 import { INPUT_MODE, installInputMode, seedTouchMode } from './input/inputmode'
 import { STICK_DEAD_ZONE, StickSteer, steer } from './input/stick'
-import { HAPPY, PORTAL_SDK } from './portal'
+import { HAPPY, PORTAL_JOINS, PORTAL_SDK } from './portal'
 import { LINK, RELOGIN, answerLinkOffer, setReconnect } from './portal/identity'
 import { applyOfflineMode, seedInputMode } from './portal/platform'
 
@@ -40,6 +40,10 @@ Sfx.init()
 Sfx.bindDom(document)
 // A portal's mute outranks the volume setting (CrazyGames' muteAudio, g2-6a); the setting is kept.
 PORTAL_SDK.onMute((muted) => { Sfx.setPortalMuted(muted) })
+// A friend's invite on CrazyGames (g2-6e): the launch's params once the SDK
+// is ready, then joins while the page is open; the lobby's runs carry the
+// friend's party code, as `?join=` does on our own site. Off CrazyGames: nothing.
+if (PORTAL === 'crazygames') PORTAL_JOINS.listen(PORTAL_SDK)
 
 // The stats.js developer overlay (fps, socket bytes), with ?stats=1 or the
 // settings' PERFORMANCE OVERLAY. It sat on top of the HUD's status panel for

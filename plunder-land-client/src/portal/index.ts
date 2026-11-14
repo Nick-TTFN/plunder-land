@@ -2,6 +2,7 @@ import { PORTAL } from '../config'
 import { loadCrazyGamesScript } from './crazygames'
 import { Happy } from './happy'
 import { pickPortalSdk } from './pick'
+import { JoinInbox, RoomReporter } from './room'
 
 /**
  * This page's portal SDK (decision #62, g2-6a), picked once from `PORTAL`
@@ -22,3 +23,10 @@ export const HAPPY = new Happy(PORTAL_SDK, () => {
     return undefined
   }
 })
+
+/**
+ * The room the lobby reports and the invites the portal brings (g2-6e,
+ * `room.ts`). Off CrazyGames the no-op adapter sends nothing and brings none.
+ */
+export const PORTAL_ROOM = new RoomReporter(PORTAL_SDK)
+export const PORTAL_JOINS = new JoinInbox()

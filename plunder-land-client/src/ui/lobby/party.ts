@@ -36,6 +36,11 @@ export function fromShown (from: unknown): string {
   return match !== null && CALLSIGN_WORDS.includes(match[1]) ? from : ''
 }
 
+/** The code a run carries (and the portal's room, g2-6e): the inviter's, else this browser's own. */
+export function runParty (invite: Invite | undefined, own: string): string {
+  return invite?.code ?? own
+}
+
 export function makeCode (random: () => number = Math.random): string {
   let code = ''
   for (let i = 0; i < 6; i++) code += ALPHABET[Math.floor(random() * ALPHABET.length)]

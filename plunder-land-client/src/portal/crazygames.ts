@@ -1,4 +1,4 @@
-import type { PortalDevice, PortalSdk, PortalUser, RewardedResult } from './adapter'
+import type { PortalDevice, PortalRoom, PortalSdk, PortalUser, RewardedResult } from './adapter'
 
 /**
  * The CrazyGames SDK v3 behind the portal adapter (decision #62, g2-6a).
@@ -58,6 +58,18 @@ import type { PortalDevice, PortalSdk, PortalUser, RewardedResult } from './adap
  * request, so `adsAvailable` stays true until an `adsDisabled` answer
  * (the server's `AD_REFILL_PORTALS` switch is what keeps the button away
  * during Basic Launch). Only `'rewarded'` is ever requested here.
+ *
+ * The room (g2-6e; docs.crazygames.com/sdk/game "Multiplayer" and
+ * /requirements/multiplayer, read 2026-11-13 and 2026-11-14):
+ * `game.updateRoom({ roomId, isJoinable, inviteParams })` ("The room doesn't
+ * have to exist on the server"), `game.leftRoom()`, `game.inviteParams`
+ * ("null if the game wasn't started from an invite link"),
+ * `game.addJoinRoomListener(listener(inviteParams))` (a join while the game is
+ * open), `game.inviteLink(params)` (returns the link) and
+ * `game.isInstantMultiplayer`. The deprecated `showInviteButton` /
+ * `hideInviteButton` are never used. **On an offline launch no room call goes
+ * out at all** (`whenOnline`), so g2-6f's one `updateRoom({ isJoinable:
+ * false })` is never undone, and no invite is read or made.
  */
 
 export const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js'
@@ -125,6 +137,36 @@ export function rewardedResultOf (error: unknown): RewardedResult {
   return 'failed'
 }
 
+/** The most invite params read, and the longest key or value: an invite is anyone's to craft. */
+const PARAMS_MAX = 16
+const PARAM_MAX = 256
+
+/**
+ * Invite params as the game reads them (g2-6e): an object's own string
+ * values (keys and values at most `PARAM_MAX` long, at most `PARAMS_MAX`),
+ * or null for anything else or nothing left.
+ */
+export function inviteParamsOf (raw: unknown): Record<string, string> | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const out: Record<string, string> = {}
+  let count = 0
+  for (const [key, value] of Object.entries(raw)) {
+    if (count >= PARAMS_MAX) break
+    if (typeof value !== 'string' || key.length > PARAM_MAX || value.length > PARAM_MAX) continue
+    out[key] = value
+    count++
+  }
+  return count === 0 ? null : out
+}
+
+/** The longest invite link taken from the SDK. */
+const LINK_MAX = 2048
+
+/** `inviteLink`'s answer as the game uses it: a non-empty string, or null. */
+export function inviteLinkOf (raw: unknown): string | null {
+  return typeof raw === 'string' && raw.length > 0 && raw.length <= LINK_MAX ? raw : null
+}
+
 /** The SDK's ad module, as far as it is used (g2-6d). Optional on `CrazySdk`: a fake, or an SDK without it, has no ads. */
 export interface CrazyAdModule {
   requestAd: (type: 'rewarded', callbacks: { adStarted?: () => void, adFinished?: () => void, adError?: (error: unknown) => void }) => unknown
@@ -150,7 +192,13 @@ export interface CrazySdk {
     addSettingsChangeListener: (listener: (settings: CrazySettings) => void) => void
     // g2-6f. Optional for an older SDK or a fake: a missing method throws in `required` and `guard` warns once.
     isOfflineMode?: boolean
-    updateRoom?: (room: { isJoinable: boolean }) => void
+    updateRoom?: (room: { roomId?: string, isJoinable?: boolean, inviteParams?: Record<string, string> }) => void
+    // g2-6e, optional likewise.
+    leftRoom?: () => void
+    inviteParams?: unknown
+    addJoinRoomListener?: (listener: (params: unknown) => void) => void
+    inviteLink?: (params: Record<string, string>) => unknown
+    isInstantMultiplayer?: boolean
     setGameContext?: (context: Record<string, string>) => void
     clearGameContext?: () => void
     happytime?: () => void
@@ -206,6 +254,18 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
   /** Read once as the SDK settles (g2-6f). */
   let device: PortalDevice | undefined
   let offline = false
+  /** Read once as the SDK settles (g2-6e). */
+  let instant = false
+  const joinListeners: Array<(params: Record<string, string>) => void> = []
+  const tellJoin = (params: Record<string, string>): void => {
+    joinListeners.forEach((listener) => {
+      try {
+        listener({ ...params })
+      } catch (e) {
+        warn(`portal sdk: a join listener failed: ${String(e)}`)
+      }
+    })
+  }
   const muteListeners: Array<(muted: boolean) => void> = []
   const loginListeners: Array<() => void> = []
   /**
@@ -287,6 +347,12 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
   const whenReady = (name: string, call: (sdk: CrazySdk) => void): void => {
     if (settled) guard(name, call)
     else pending.push(() => { guard(name, call) })
+  }
+  /** A room call (g2-6e): as `whenReady`, but never on an offline launch (g2-6f told the portal the room can't be joined). */
+  const whenOnline = (name: string, call: (sdk: CrazySdk) => void): void => {
+    const run = (): void => { if (!offline) guard(name, call) }
+    if (settled) run()
+    else pending.push(run)
   }
   const tellMute = (listener: (muted: boolean) => void): void => {
     try {
@@ -384,6 +450,19 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
     device = peek('systemInfo', (s) => deviceOf(s.user?.systemInfo), undefined)
     offline = peek('isOfflineMode', (s) => s.game.isOfflineMode === true, false)
     if (offline) guard('updateRoom', (s) => { required(s.game.updateRoom, 'updateRoom').call(s.game, { isJoinable: false }) })
+    // g2-6e: launched from the portal's multiplayer flow, and joins while the
+    // page is open (one SDK listener for every `onJoinRoom`). Not offline.
+    instant = peek('isInstantMultiplayer', (s) => s.game.isInstantMultiplayer === true, false)
+    if (!offline && peek('addJoinRoomListener', (s) => typeof s.game.addJoinRoomListener === 'function', false)) {
+      guard('addJoinRoomListener', (s) => {
+        s.game.addJoinRoomListener?.call(s.game, (raw) => {
+          if (offline) return
+          const params = inviteParamsOf(raw)
+          if (local) log(`portal sdk: join room ${JSON.stringify(params)}`)
+          if (params !== null) tellJoin(params)
+        })
+      })
+    }
     // One SDK listener for every `onLogin` (CrazyGames keeps one auth listener).
     if (accounts() !== undefined) {
       guard('addAuthListener', (s) => {
@@ -447,7 +526,29 @@ export function crazyGamesSdk (load: () => Promise<CrazySdk | undefined>, option
       }
     },
     adsAvailable: () => settled && !adsDisabled && peek('ad', (s) => s.ad !== undefined, false),
-    adBlocked: () => adBlocked
+    adBlocked: () => adBlocked,
+    // g2-6e.
+    updateRoom: (room: PortalRoom) => {
+      const copy = { roomId: room.roomId, isJoinable: room.isJoinable, inviteParams: { ...room.inviteParams } }
+      whenOnline('updateRoom', (s) => { required(s.game.updateRoom, 'updateRoom').call(s.game, copy) })
+    },
+    leftRoom: () => { whenOnline('leftRoom', (s) => { required(s.game.leftRoom, 'leftRoom').call(s.game) }) },
+    inviteParams: async () => {
+      await ready
+      if (offline) return null
+      const params = peek('inviteParams', (s) => inviteParamsOf(s.game.inviteParams), null)
+      if (local) log(`portal sdk: inviteParams ${JSON.stringify(params)}`)
+      return params
+    },
+    onJoinRoom: (listener) => { joinListeners.push(listener) },
+    inviteLink: (params) => {
+      if (!settled || offline) return null
+      const copy = { ...params }
+      const link = peek('inviteLink', (s) => typeof s.game.inviteLink === 'function' ? inviteLinkOf(s.game.inviteLink(copy)) : null, null)
+      if (local) log(`portal sdk: inviteLink ${JSON.stringify(copy)} -> ${String(link)}`)
+      return link
+    },
+    instantMultiplayer: () => instant
   }
 }
 

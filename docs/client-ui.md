@@ -22,9 +22,10 @@ without scrolling.
 `net/portal.ts` (#56): `PORTAL` (`config.ts`) is `itch` inside itch's embed (`*.itch.zone`,
 `*.itch.io`) and `crazygames` on `crazygames.com` and its subdomains (#62, g2-2: their file host
 `<slug>.game-files.crazygames.com`, and `games.crazygames.com`, the frame their iOS app runs; the
-host of their QA preview is unchecked). `?portal=` overrides it. On both the lobby hides INVITE (a
-link is built from the page's own address, which there is the bare game on the portal's file host;
-CrazyGames' own invite links are an SDK feature) and Privacy links to our own site (`SITE_URL`).
+host of their QA preview is unchecked). `?portal=` overrides it. On both the lobby never copies our
+own invite link (it is built from the page's own address, which there is the bare game on the
+portal's file host): itch hides INVITE, CrazyGames shows it with their SDK's link (g2-6e, "CrazyGames
+multiplayer" below). Privacy links to our own site (`SITE_URL`) on both.
 Every asset path is relative (`res/...`), because itch serves the build from a subfolder; the Worker
 serves the game only at `/`, so that is safe there. `SITE_URL` changes with a custom domain.
 
@@ -47,7 +48,8 @@ there). Inside an iframe it also needs the host's `allowfullscreen`. Both button
 **Portal SDK** (g2-6a, #62: "go full in with adapter"): `src/portal/`. `adapter.ts` is the one
 interface (`PortalSdk`: `ready`, `loadingStop`, `gameplayStart`, `gameplayStop`, `onMute`; the user
 members `user`, `userToken`, `onLogin`, `linkPrompt`, `authPrompt`, `accountsAvailable` since g2-6c,
-and the platform members since g2-6f, and the rewarded-ad members since g2-6d, all below);
+and the platform members since g2-6f, the rewarded-ad members since g2-6d, and the room members
+since g2-6e, all below);
 `withGameplayState` passes on `loadingStop` once and `gameplayStart`/`gameplayStop` only on a
 change. `none.ts` is the no-op (our site, itch, anything else); `crazygames.ts` adds CrazyGames'
 SDK v3 script at run time, only on `crazygames`, awaits `init()` for at most 5 s
@@ -109,8 +111,10 @@ none of it runs: no token, no prompt, no button, the callsign.
   until loaded and on error) only when linked and the SDK user is known. Otherwise the callsign.
   So before `CRAZYGAMES_GAME_ID` is set, a logged-in CrazyGames player is a guest under a callsign,
   as other players see them. A new logged-in player with no link (rule 4c) has no account before
-  the first run, so the pill stays hidden until then, as for any new player. INVITE stays hidden on CrazyGames (g2-6e); g2-9b's
-  `fromShown` would read a CG player's `from` as A FRIEND anyway.
+  the first run, so the pill stays hidden until then, as for any new player. INVITE on CrazyGames
+  copies their link with the party code only, no `from` (g2-6e): CrazyGames shows its friend who
+  invited, and the lobby reads A FRIEND. g2-9b's `fromShown` would refuse a CG username anyway; a
+  name would only ever come from a verified source, never a URL.
 - Specs: `portalidentity.spec.ts` (adapter, handshake, `account`, link answer, relogin, button,
   pill; fake SDKs) and `portallogin.spec.ts` (the client's handshake, `account` handling and link
   answer against a real `Worlds` whose verifier trusts a local key pair: guest, login, accept,
@@ -145,8 +149,8 @@ not logged as calls); a method an older SDK lacks is warned once (`required`). T
   false })`, once), and `index.ts` (`applyOfflineMode`) turns socket.io's reconnection off and
   disconnects, so the attempt already made is the only one, then puts the lobby up without a
   server; READY is replaced by "Plunderbots needs an internet connection" (`OFFLINE_LINE`), Enter
-  starts nothing, Log in is hidden, a portal login doesn't reconnect. g2-6e's room calls must check
-  `offline()` too.
+  starts nothing, Log in is hidden, a portal login doesn't reconnect. g2-6e's room calls never go
+  out offline (`whenOnline`, below).
 - **Feedback context** (`setGameContext`): in the lobby `{ protocol, build, level }` (`Game.start`);
   in a run `{ layer, robot, level, protocol, build }`, set as the own player is created and again on
   each layer change (the layer is known from `create_own`, not from `hello`); cleared at the own
@@ -165,6 +169,59 @@ not logged as calls); a method an older SDK lacks is warned once (`required`). T
 - Unverified: the real SDK on CrazyGames (systemInfo, offline mode and the CSS variables exist only in
   their docs here; `?portal=crazygames` on localhost gives their `local` environment), the app, and
   iOS (interrupted audio, the variables).
+
+**CrazyGames multiplayer** (g2-6e; decision #62 Q2 A, Q8, Q9; their /requirements/multiplayer and
+/sdk/game "Multiplayer" read 2026-11-13/14). Client only, no bytes: the party code already crosses
+the wire (`start_requested.party`) and the server's rule is unchanged. Off CrazyGames none of it
+runs (the no-op adapter; `PORTAL_JOINS.listen` only on `crazygames`).
+- **The adapter** (`crazygames.ts`): `updateRoom({ roomId, isJoinable, inviteParams })`,
+  `leftRoom()` (passed through, never called by the game: the page closing is the end),
+  `inviteParams()` (waits for `ready`; `game.inviteParams`, string values only, at most 16, each at
+  most 256 chars; null when not launched from an invite), `onJoinRoom` (one SDK
+  `addJoinRoomListener` feeding every listener, each in its own try/catch), `inviteLink(params)`
+  (`game.inviteLink`, a non-empty string of at most 2048 chars, else null; null before `ready`) and
+  `instantMultiplayer()` (`game.isInstantMultiplayer`, read once). **On an offline launch no room
+  call goes out** (`whenOnline`): g2-6f's one `updateRoom({ isJoinable: false })` is never undone,
+  `inviteParams` is null, `inviteLink` null (no INVITE), no join listener. The deprecated
+  `showInviteButton`/`hideInviteButton` are never used.
+- **The room is the party code the next run carries** (`portal/room.ts`; `party.ts` `runParty`):
+  the inviter's after an invite, else this browser's own (`plunderland_party`). The lobby reports
+  `updateRoom({ roomId: code, isJoinable, inviteParams: { join: code } })` through `PORTAL_ROOM`
+  (`RoomReporter`: only on a change, never offline) when it is up, on every redraw of its full
+  banner (so `isJoinable` is false while the server refuses starts, `full`, and true again after)
+  and when the code changes (an invite accepted or cancelled). Nothing reports during a run, so the
+  room id never changes across a run's handoffs, and the next lobby repeats the same code ("keep
+  rooms across rounds": the next run carries it and `Worlds.choose` finds the friend again).
+- **Where friends meet** (Q2 A): every run still starts solo in its own private world (01-02,
+  whatever its code); the pad on 02 picks the shared world by the code (docs/world.md), so friends
+  with one code meet from layer 03. The pad (`Worlds.choose(party)`) finds a friend only while one
+  is live in a shared world with the code: the first of them to reach 03 goes fill-first, the next
+  follows. Risk accepted by Nick: CrazyGames' QA may read
+  this as not "joinable immediately"; the fallback is a party private world (dropped g2-6g).
+- **Joining** (`JoinInbox`, `PORTAL_JOINS`): at boot the launch's `inviteParams().join`, then any
+  join while the page is open (`onJoinRoom`); a `join` not matching `PARTY_SHAPE` is ignored. The
+  latest stays for the page: a lobby that is up takes it at once (its runs carry it from the next
+  READY; the banner reads JOIN A FRIEND'S WORLD, `from` ''), and one made later (a join during a run
+  lands after the run card) takes it on creation, ahead of the tab's stored `?join=`. The banner's
+  cross clears it (`PORTAL_JOINS.clear`). A join with this browser's own code is no invite. No
+  onboarding is skipped and nothing is pressed for the player: READY is the one click (Q3, Q8).
+- **INVITE** (`invitesShown(PORTAL, link)`): on CrazyGames shown only when `inviteLink({ join:
+  code })` gives a link (checked when the lobby is made and again once the SDK is ready), and a
+  click copies that link (clipboard, else a prompt, as before); if the SDK gives none at the click,
+  the button hides. Off CrazyGames unchanged (our own `?join=&from=` link; hidden on itch).
+- **Instant multiplayer** (Q8): no special path. The lobby is the "intermediate configuration
+  screen" CrazyGames allows; the room is reported joinable as soon as it is up, as on every launch;
+  no auto-READY. `instantMultiplayer()` is read but nothing branches on it yet.
+- **Usernames** (Q1): a logged-in CrazyGames friend plays under the server's name for the linked
+  account (g2-6b/6c, `Worlds.runName`), the same `Player.name` the world, the standings and the kill
+  feed read. **Chat**: we have none, so `DisableChat` needs nothing. **Lobby size**: declared 200
+  (`WORLD_CAP`) in the submission (g2-10), not in code.
+- Specs: `portalroom.spec.ts` (adapter with fake SDKs, offline, the reporter, the inbox, a source
+  scan that only the lobby reports the room and nothing outside `portal/` calls `updateRoom` or
+  `leftRoom`); `portal.spec.ts` (`invitesShown`). Unverified: CrazyGames' Join/Invite UI for our
+  room (their preview tool), what the `local` environment's `inviteLink` returns (INVITE shows in
+  `--portal crazygames` layout shots, so a string), and two browsers meeting on 03 through an SDK
+  link end to end.
 
 **Rewarded refill** (g2-6d; decision #62: rewarded videos only, for energy; the server half, the
 switch and the limits are docs/accounts.md "Rewarded refill"; CrazyGames' /sdk/video-ads and

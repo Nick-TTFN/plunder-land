@@ -38,13 +38,14 @@ export function privacyUrl (portal: Portal): string {
 /**
  * Whether the lobby offers invite links. Not on itch: a link is built from
  * the page's own address, which inside the embed is the bare game on
- * itch.zone, not the itch page (Nick, 2026-10-14: hide for now). Not on
- * CrazyGames for the same reason (the bare game on their file host, a
- * playable copy outside their page); their own invite links are a Full
- * Launch SDK feature (#62).
+ * itch.zone, not the itch page (Nick, 2026-10-14: hide for now). On
+ * CrazyGames never our own link (the bare game on their file host, a
+ * playable copy outside their page), only theirs (g2-6e): shown when the SDK
+ * made one (`portalLink`, `PortalSdk.inviteLink`), hidden otherwise.
  */
-export function invitesShown (portal: Portal): boolean {
-  return portal !== 'itch' && portal !== 'crazygames'
+export function invitesShown (portal: Portal, portalLink: string | null = null): boolean {
+  if (portal === 'crazygames') return portalLink !== null
+  return portal !== 'itch'
 }
 
 /**

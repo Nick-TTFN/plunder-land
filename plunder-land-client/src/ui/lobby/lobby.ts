@@ -1,7 +1,7 @@
 import { fullscreenSupported, isFullscreen, onFullscreenChange, toggleFullscreen } from '../fullscreen'
 import { Container, Graphics, Sprite, Texture } from 'pixi.js'
 import { INPUT_MODE } from '../../input/inputmode'
-import { inviteUrl, type Invite, JOIN_KEY, makeCode, parseStoredInvite, PARTY_KEY, readInvite, withoutInvite } from './party'
+import { inviteUrl, type Invite, JOIN_KEY, makeCode, parseStoredInvite, PARTY_KEY, readInvite, runParty, withoutInvite } from './party'
 import { RobotSprite } from '../../robots/robotsprite'
 import { ROBOT_RIGS } from '../../robots/robotrig'
 import { Game } from '../../game'
@@ -25,7 +25,8 @@ import { SKILL_LIST, loadoutSlotsAt } from '../../utils/skills'
 import { Sfx } from '../../audio/sfx'
 import { BUILD, PORTAL } from '../../config'
 import { fullscreenButtonShown, invitesShown, privacyUrl } from '../../net/portal'
-import { PORTAL_SDK } from '../../portal'
+import { PORTAL_JOINS, PORTAL_ROOM, PORTAL_SDK } from '../../portal'
+import { inviteParamsFor } from '../../portal/room'
 import type { PortalUser } from '../../portal/adapter'
 import { LINK, RELOGIN, loginButtonShown, shownName } from '../../portal/identity'
 import { OFFLINE_LINE } from '../../portal/platform'
@@ -310,6 +311,17 @@ export default class Lobby extends Container {
   private readonly onResize = (): void => { this.fit(); this.layout() }
   private readonly onMove = (e: PointerEvent): void => { this.lookAt(e.clientX, e.clientY) }
   private readonly onAccount = (): void => { this.renderLevel(); this.applyLevel(); this.renderRows(); this.renderCallsign() }
+  /**
+   * A friend's invite accepted on the portal while this lobby is up (g2-6e):
+   * its runs carry the friend's code from the next READY. After READY it
+   * waits in `PORTAL_JOINS` for the next lobby.
+   */
+  private readonly onPortalJoin = (code: string): void => {
+    if (this.started || this.tornDown) return
+    this.invite = this.portalInvite(code)
+    writeSession(JOIN_KEY, this.invite === undefined ? null : JSON.stringify(this.invite))
+    this.renderJoin()
+  }
   /** The link modal opened or closed: a READY held meanwhile goes now. */
   private readonly onLink = (): void => {
     if (LINK.open !== undefined || !this.readyHeld || this.tornDown) return
@@ -382,7 +394,9 @@ export default class Lobby extends Container {
     this.robotWish = readStorage(ROBOT_KEY)
     this.index = PICKABLE.indexOf(shownRobot(this.robotWish, this.accountLevel))
     this.ownParty = Lobby.loadParty()
-    this.invite = Lobby.loadInvite()
+    // A portal invite (g2-6e) brought this page, or came in during a run: it outranks the tab's last.
+    const joined = PORTAL_JOINS.latest
+    this.invite = joined === undefined ? Lobby.loadInvite() : this.portalInvite(joined)
 
     this.previewLayer.addChild(this.platform, this.stage)
     this.previewLayer.mask = this.previewClip
@@ -401,7 +415,7 @@ export default class Lobby extends Container {
     this.inviteButton = el('button', 'lb-invite', 'Invite')
     this.inviteButton.title = 'Copy a link that puts a friend in your world'
     this.inviteButton.onclick = () => { this.closeMenu(); this.copyInvite() }
-    if (!invitesShown(PORTAL)) this.inviteButton.style.display = 'none'
+    this.renderInvite()
     // Settings (L3): key bindings and graphics, a panel over the lobby.
     const settings = el('button', 'lb-invite lb-settings')
     settings.innerHTML = `${ICON.gear}<span class="lb-menu-label">Settings</span>`
@@ -651,6 +665,7 @@ export default class Lobby extends Container {
     // The account is announced on connect, which may be before or after this.
     ACCOUNT.listeners.add(this.onAccount)
     LINK.listeners.add(this.onLink)
+    PORTAL_JOINS.listeners.add(this.onPortalJoin)
     STASH.listeners.add(this.onStash)
     ENERGY.listeners.add(this.onEnergy)
     this.energyTimer = setInterval(this.onEnergy, 10_000)
@@ -690,6 +705,8 @@ export default class Lobby extends Container {
     if (this.tornDown) return
     this.portalUser = user
     this.loginButton.hidden = !loginButtonShown(PORTAL_SDK, user) || PORTAL_SDK.offline()
+    // The portal's invite link can be asked for now (g2-6e).
+    this.renderInvite()
     // The SDK has settled (`user` waits for it): an offline launch shows here.
     this.renderEnergy()
     this.renderCallsign()
@@ -744,14 +761,36 @@ export default class Lobby extends Container {
     return parseStoredInvite(readSession(JOIN_KEY))
   }
 
-  /** The code this player's runs carry: the inviter's, else its own. */
+  /** The code this player's runs carry: the inviter's, else its own (also the portal's room, g2-6e). */
   private get party (): string {
-    return this.invite?.code ?? this.ownParty
+    return runParty(this.invite, this.ownParty)
+  }
+
+  /** A portal invite's code as this lobby's invite (no name: the portal shows who invited); none for this browser's own code. */
+  private portalInvite (code: string): Invite | undefined {
+    return code === this.ownParty ? undefined : { code, from: '' }
+  }
+
+  /**
+   * The portal's room (g2-6e, `portal/room.ts`): the code the next run
+   * carries, joinable unless the server is refusing starts (`full`). Sent only
+   * on a change, never offline; off CrazyGames it sends nothing.
+   */
+  private reportRoom (): void {
+    if (this.tornDown) return
+    PORTAL_ROOM.report(this.party, fullLine(performance.now()) === undefined)
+  }
+
+  /** INVITE: our own link on our site; on CrazyGames only theirs, once their SDK makes one (`invitesShown`). */
+  private renderInvite (): void {
+    const shown = invitesShown(PORTAL, PORTAL === 'crazygames' ? PORTAL_SDK.inviteLink(inviteParamsFor(this.party)) : null)
+    this.inviteButton.style.display = shown ? '' : 'none'
   }
 
   /** The server-full countdown; at zero, READY as if pressed (the player can cancel with the cross). */
   private renderFull (): void {
     const now = performance.now()
+    this.reportRoom()
     if (retryDue(now) && !this.started && !this.tornDown && Game.socket?.connected === true) {
       this.ready()
       return
@@ -773,6 +812,7 @@ export default class Lobby extends Container {
   }
 
   private renderJoin (): void {
+    this.reportRoom()
     this.joinBanner.replaceChildren()
     this.joinBanner.style.display = this.invite === undefined ? 'none' : ''
     if (this.invite === undefined) return
@@ -784,13 +824,21 @@ export default class Lobby extends Container {
     cancel.onclick = () => {
       this.invite = undefined
       writeSession(JOIN_KEY, null)
+      PORTAL_JOINS.clear()
       this.renderJoin()
     }
     this.joinBanner.append(cancel)
   }
 
   private copyInvite (): void {
-    const url = inviteUrl(window.location.origin, window.location.pathname, window.location.search, this.party, callsignLine(ACCOUNT.info) ?? '')
+    // On CrazyGames their link to their page (g2-6e), with the code only: CG
+    // shows its friend who invited. None (offline, an SDK error): no button.
+    const portalLink = PORTAL === 'crazygames' ? PORTAL_SDK.inviteLink(inviteParamsFor(this.party)) : null
+    if (PORTAL === 'crazygames' && portalLink === null) {
+      this.renderInvite()
+      return
+    }
+    const url = portalLink ?? inviteUrl(window.location.origin, window.location.pathname, window.location.search, this.party, callsignLine(ACCOUNT.info) ?? '')
     const done = (label: string): void => {
       this.inviteButton.textContent = label
       setTimeout(() => { this.inviteButton.textContent = 'INVITE' }, 2000)
@@ -1477,6 +1525,7 @@ export default class Lobby extends Container {
     this.offFullscreen()
     ACCOUNT.listeners.delete(this.onAccount)
     LINK.listeners.delete(this.onLink)
+    PORTAL_JOINS.listeners.delete(this.onPortalJoin)
     RELOGIN.lobbyLeft()
     STASH.listeners.delete(this.onStash)
     SEASON.listeners.delete(this.onSeason)
