@@ -255,6 +255,14 @@ sends the handshake `auth: { token }`, which the server checks against `TOKEN_SH
 (`/^[A-Za-z0-9_-]{43}$/`, `db/accounts.ts`, copied by hand in the client's `net/account.ts`);
 anything else is no token. Additive both ways. See Accounts. A persisted account's `account`
 also carries its standing, `xp, level, levelAt, nextAt` (#48 step 3).
+Portal accounts (g2-6b, additive, **no PROTOCOL bump**): a client on CrazyGames may add
+`auth.portalToken` (CG's user token, at most 4096 characters; read only with `auth.portal:
+'crazygames'`). A linked account's `account` carries `portal: 'crazygames'` and no `token`; a guest
+account offered for linking comes as `account { ..., linkable: true }` (nothing is set until the
+answer), answered by the client event **`portal_link { accept: boolean }`** (client → server; READY
+first counts as a decline). An old client sends neither and sees neither; a new client against an
+old server gets guest behaviour, so it must never wait for `linkable`. Rules: docs/accounts.md,
+"Portal accounts".
 
 **`progress`** (server → client, text, #48 step 3): `{ gained, xp, level, levelAt, nextAt,
 levelUp }` once a run's grant is written, a database round trip after the run's end (sometimes

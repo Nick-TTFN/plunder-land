@@ -7,7 +7,8 @@ import World from '../objects/world'
 import Timers from '../objects/timers'
 import { GameObject } from '../objects/gameobject'
 import Player from '../objects/player'
-import { displayNameFor } from './displayname'
+import { displayNameFor, setPortalName } from './displayname'
+import type { Connection } from './multiplayer'
 import BotFill from '../bots/fill'
 import { CALLSIGN_NUMBERS, CALLSIGN_WORDS, callsign, callsignOf } from '../utils/callsign'
 import { Hex } from '../utils/hex'
@@ -474,6 +475,47 @@ test('two players who typed names: each is sent the other\'s callsign, and its o
     assert.equal(rows.find((r) => r.id === other.id)?.name, other.name)
   }
   assert.deepEqual([first.name, second.name], [Player.callsign('aaaaaa'), Player.callsign('bbbbbb')])
+})
+
+/** `connect`, keeping the connection Multiplayer makes for the socket. */
+function connectKept (multiplayer: Multiplayer, socketId: string): ReturnType<typeof fakeSocket> & { connection: Connection } {
+  const real = Multiplayer.connectionFor
+  let made: Connection | undefined
+  Multiplayer.connectionFor = (socket) => { made = real(socket); return made }
+  try {
+    const fake = connect(multiplayer, socketId)
+    assert.ok(made !== undefined)
+    return { ...fake, connection: made }
+  } finally {
+    Multiplayer.connectionFor = real
+  }
+}
+
+test('g2-6b: a verified CrazyGames username is the run\'s name, sent to another player\'s client; a profane one is the callsign', () => {
+  const multiplayer = setup()
+  const a = connectKept(multiplayer, 's1')
+  setPortalName(a.connection, 'Nova_Rider')
+  a.fire('start_requested', { id: 'aaaaaa', name: 'Typed1' })
+  const first = lastPlayer()
+  multiplayer.flushAll(1)
+  const b = connectKept(multiplayer, 's2')
+  setPortalName(b.connection, 'shithead99')
+  b.fire('start_requested', { id: 'bbbbbb', name: 'Typed2' })
+  const second = lastPlayer()
+  for (let tick = 2; tick <= 14; tick++) multiplayer.flushAll(tick, 250)
+  assert.equal(first.name, 'Nova_Rider')
+  // The filter (Player.sanitiseName, in the constructor) is the CG name check.
+  assert.equal(second.name, Player.callsign('bbbbbb'))
+  const toB = recordsFor(b.sent, 'create', first.id)
+  assert.equal(toB.length, 1)
+  assert.equal(nameIn(toB[0]), 'Nova_Rider')
+  assert.equal(nameIn(recordsFor(a.sent, 'create', second.id)[0]), Player.callsign('bbbbbb'))
+  // Cleared, the callsign again; and a 20-character CG name is cut to NAME_MAX.
+  setPortalName(a.connection, undefined)
+  assert.equal(displayNameFor('aaaaaa', a.connection), Player.callsign('aaaaaa'))
+  setPortalName(a.connection, 'abcdefghij_klmnopqrs')
+  assert.equal(displayNameFor('aaaaaa', a.connection), 'abcdefghij_klmnopqrs')
+  assert.equal(Player.displayName(displayNameFor('aaaaaa', a.connection), 'aaaaaa'), 'abcdefghij_klmno')
 })
 
 test('a newcomer gets every existing player\'s name in its join snapshot', () => {

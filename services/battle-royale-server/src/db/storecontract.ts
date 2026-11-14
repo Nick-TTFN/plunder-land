@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import {
-  type AccountStore, type AdminStore, firstRunStoreOf, offlineAccount, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
+  type AccountStore, type AdminStore, firstRunStoreOf, offlineAccount, portalStoreOf, GEAR_SOURCE, type GearStore, type MergeRule, newToken, PUBLIC_ID_SHAPE, RECONCILE_AFTER_MS, ROW_ID_SHAPE,
   STALE_CARRY_MS, type StashEdits, type StashItem, TOKEN_SHAPE
 } from './accounts'
 // The merge rule draws through `rollGear` (archetypes), whose import graph
@@ -75,6 +75,75 @@ export async function storeContract (store: AccountStore): Promise<void> {
   await seasonContract(store)
   await energyContract(store)
   await firstRunContract(store)
+  await portalContract(store)
+}
+
+/**
+ * Portal links (g2-6b, migration 10): resolve by user, link an existing
+ * account, create-and-link, and the two uniqueness rules under races: one
+ * user, one account; one account, one user per portal. `resolve` reports the
+ * link (`portal`), which is what rule 4d keys on.
+ */
+export async function portalContract (plain: AccountStore): Promise<void> {
+  const store = portalStoreOf(plain)
+  assert.ok(store !== undefined, 'a shipped store has no portal half')
+  const cg = 'crazygames'
+  const uid = (n: string): string => `cg-user-${n}-${Math.random().toString(36).slice(2)}`
+
+  // Nothing linked: null, and resolve shows no `portal` key at all.
+  const guest = await store.create()
+  const u1 = uid('1')
+  assert.equal(await store.resolvePortal(cg, u1), null)
+  assert.equal(await store.linkedPortal(guest.account.publicId), null)
+  assert.ok(!('portal' in ((await store.resolve(guest.token)) ?? {})), 'an unlinked account carries a portal key')
+
+  // Link the guest: resolve by user gives it, with its progress; resolve by token says linked.
+  await store.grant(guest.account.publicId, 40)
+  assert.equal(await store.linkPortal(cg, u1, guest.account.publicId), 'linked')
+  const byUser = await store.resolvePortal(cg, u1)
+  assert.deepEqual(byUser, { publicId: guest.account.publicId, persisted: true, xp: 40, loadouts: [], energy: null, firstRunDone: false, portal: cg })
+  assert.equal((await store.resolve(guest.token))?.portal, cg)
+  assert.equal(await store.linkedPortal(guest.account.publicId), cg)
+  // Idempotent for the same pair; 'taken' for another user on it, or it for another account.
+  assert.equal(await store.linkPortal(cg, u1, guest.account.publicId), 'linked')
+  const other = await store.create()
+  assert.equal(await store.linkPortal(cg, uid('x'), guest.account.publicId), 'taken', 'an account got a second user of one portal')
+  assert.equal(await store.linkPortal(cg, u1, other.account.publicId), 'taken', 'a user got a second account')
+  assert.equal(await store.resolvePortal(cg, u1).then((a) => a?.publicId), guest.account.publicId)
+  assert.equal(await store.linkedPortal(other.account.publicId), null, 'a refused link wrote anyway')
+  await assert.rejects(store.linkPortal(cg, uid('y'), '0123456789abcdef'), 'a link to an unknown account succeeded')
+  // Another portal is another key space.
+  assert.equal(await store.resolvePortal('poki', u1), null)
+
+  // createLinked: a new account, linked, persisted, no token handed out; again for the same user, the same account.
+  const u2 = uid('2')
+  const made = await store.createLinked(cg, u2)
+  assert.equal(made.persisted, true)
+  assert.equal(made.portal, cg)
+  assert.match(made.publicId, PUBLIC_ID_SHAPE)
+  assert.ok(!('token' in made), 'createLinked handed out a token')
+  assert.equal((await store.resolvePortal(cg, u2))?.publicId, made.publicId)
+  assert.equal((await store.createLinked(cg, u2)).publicId, made.publicId, 'a second createLinked made a second account')
+
+  // Races: one user created five times at once is one account; one user
+  // linked to five accounts at once is one link; five users linked to one
+  // account at once is one link.
+  const u3 = uid('3')
+  const racing = await Promise.all(Array.from({ length: 5 }, async () => await store.createLinked(cg, u3)))
+  assert.equal(new Set(racing.map((a) => a.publicId)).size, 1, 'racing createLinked made several accounts for one user')
+  const u4 = uid('4')
+  const guests = await Promise.all(Array.from({ length: 5 }, async () => await store.create()))
+  const results = await Promise.all(guests.map(async (g) => await store.linkPortal(cg, u4, g.account.publicId)))
+  assert.deepEqual(results.filter((r) => r === 'linked').length, 1, `one user linked to several accounts: ${results.join(',')}`)
+  const winner = guests[results.indexOf('linked')].account.publicId
+  assert.equal((await store.resolvePortal(cg, u4))?.publicId, winner)
+  for (const g of guests) assert.equal(await store.linkedPortal(g.account.publicId), g.account.publicId === winner ? cg : null)
+  const lone = await store.create()
+  const users = Array.from({ length: 5 }, (_, i) => uid(`5-${i}`))
+  const linkedUsers = await Promise.all(users.map(async (u) => await store.linkPortal(cg, u, lone.account.publicId)))
+  assert.equal(linkedUsers.filter((r) => r === 'linked').length, 1, `one account linked to several users: ${linkedUsers.join(',')}`)
+  const found = await Promise.all(users.map(async (u) => (await store.resolvePortal(cg, u))?.publicId ?? null))
+  assert.equal(found.filter((id) => id === lone.account.publicId).length, 1)
 }
 
 /**

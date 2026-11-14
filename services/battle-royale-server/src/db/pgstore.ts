@@ -1,6 +1,6 @@
 import { Client, Pool, type PoolClient } from 'pg'
 import {
-  type Account, type AccountStore, type FirstRunStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
+  type Account, type AccountStore, type FirstRunStore, type PortalStore, type AdminAccount, type AdminGranted, type AdminStore, type Bring, byRowId, checkHolder, flatRolls, GEAR_SOURCE, type GearStore, hashToken,
   type Merged, mergeIdsOf, type MergeRule, newPublicId, newToken, RECONCILE_AFTER_MS, rollsOf, rowIdsOf, type Scrapped,
   type Settled, splitFound, type Spent, STALE_CARRY_MS, type StashEdits, type StashItem, storable, type StoredLoadout
 } from './accounts'
@@ -84,6 +84,9 @@ interface EnergyWritten {
   carried?: GearInstance[]
 }
 
+/** `createLinked`'s rollback when the user was linked meanwhile (not an error to anyone outside). */
+class LinkTaken extends Error {}
+
 /** Thrown by `resolve` and `create` until the migrations have run: the caller plays offline. */
 export class NotReadyError extends Error {
   constructor () {
@@ -113,7 +116,7 @@ export interface PgAccountStoreOptions {
  * both 2 s, so a slow database costs a joining player at most a few seconds
  * in the lobby, then an offline run.
  */
-export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore {
+export class PgAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore, PortalStore {
   readonly pool: Pool
   ready = false
   private retry: NodeJS.Timeout | undefined
@@ -181,24 +184,114 @@ export class PgAccountStore implements AccountStore, GearStore, StashEdits, Admi
 
   async resolve (token: string): Promise<Account | null> {
     if (!this.ready) throw new NotReadyError()
-    // One round trip: the account, its XP (no progress row yet reads as 0),
-    // its saved loadouts (none reads as []), its energy (none reads as null)
-    // and its first run (no row reads as not done, migration 8).
+    return await this.readAccount('UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id', [hashToken(token)])
+  }
+
+  /**
+   * One round trip: the account `found` names (a CTE giving `id, public_id`,
+   * touching `last_seen_at`), its XP (no progress row yet reads as 0), its
+   * saved loadouts (none reads as []), its energy (none reads as null), its
+   * first run (no row reads as not done, migration 8) and its first portal
+   * link (none: no `portal`, migration 10).
+   */
+  private async readAccount (found: string, params: unknown[]): Promise<Account | null> {
     const result = await this.pool.query(
-      `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
+      `WITH a AS (${found})
        SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
          EXISTS (SELECT 1 FROM first_runs f WHERE f.account_id = a.id) AS first_run_done,
+         (SELECT k.portal FROM account_links k WHERE k.account_id = a.id ORDER BY k.linked_at, k.portal LIMIT 1) AS portal,
          COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
                    FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
        FROM a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id`,
-      [hashToken(token)]
+      params
     )
-    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null, first_run_done: boolean } | undefined
+    const row = result.rows[0] as { public_id: string, xp: string | number, loadouts: StoredLoadout[], stock: number | null, as_of_ms: string | null, first_run_done: boolean, portal: string | null } | undefined
     if (row === undefined) return null
     // Raw as stored: `kitFor` checks every row at the join.
     const loadouts = Array.isArray(row.loadouts) ? row.loadouts.map((l) => ({ robot: l.robot, index: Number(l.index), skills: l.skills })) : []
     const energy = row.stock === null || row.as_of_ms === null ? null : { stock: Number(row.stock), asOfMs: Number(row.as_of_ms) }
-    return { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy, firstRunDone: row.first_run_done === true }
+    const account: Account = { publicId: row.public_id, persisted: true, xp: Number(row.xp), loadouts, energy, firstRunDone: row.first_run_done === true }
+    if (row.portal !== null) account.portal = row.portal
+    return account
+  }
+
+  // --- portal accounts (g2-6b, migration 10; contract on `PortalStore`) --------
+
+  async resolvePortal (portal: string, externalId: string): Promise<Account | null> {
+    if (!this.ready) throw new NotReadyError()
+    return await this.readAccount(
+      `UPDATE accounts SET last_seen_at = now()
+       WHERE id = (SELECT account_id FROM account_links WHERE portal = $1 AND external_id = $2) RETURNING id, public_id`,
+      [portal, externalId]
+    )
+  }
+
+  /**
+   * One insert that either unique key can refuse (`ON CONFLICT DO NOTHING`
+   * covers both): of two links racing for one user or one account, one row
+   * lands and the other reads the row that won. Throws for an unknown account.
+   */
+  async linkPortal (portal: string, externalId: string, publicId: string): Promise<'linked' | 'taken'> {
+    this.checkOpen()
+    const result = await this.tracked(this.pool.query(
+      `WITH a AS (SELECT id FROM accounts WHERE public_id = $3),
+       i AS (INSERT INTO account_links (portal, external_id, account_id) SELECT $1, $2, id FROM a ON CONFLICT DO NOTHING RETURNING account_id)
+       SELECT (SELECT count(*)::int FROM a) AS known, (SELECT count(*)::int FROM i) AS inserted`,
+      [portal, externalId, publicId]
+    ))
+    const row = result.rows[0] as { known: number, inserted: number }
+    if (row.known !== 1) throw new Error('accounts: link for an unknown account')
+    if (row.inserted === 1) return 'linked'
+    // Refused: already this link (idempotent), or another account's user or another user's account.
+    const held = await this.pool.query(
+      `SELECT 1 FROM account_links k JOIN accounts a ON a.id = k.account_id
+       WHERE k.portal = $1 AND k.external_id = $2 AND a.public_id = $3`,
+      [portal, externalId, publicId]
+    )
+    return held.rows.length === 1 ? 'linked' : 'taken'
+  }
+
+  async linkedPortal (publicId: string): Promise<string | null> {
+    if (!this.ready) throw new NotReadyError()
+    const result = await this.pool.query(
+      `SELECT k.portal FROM account_links k JOIN accounts a ON a.id = k.account_id
+       WHERE a.public_id = $1 ORDER BY k.linked_at, k.portal LIMIT 1`,
+      [publicId]
+    )
+    return (result.rows[0] as { portal: string } | undefined)?.portal ?? null
+  }
+
+  /**
+   * The account and its link in one transaction. A user linked meanwhile (the
+   * link's primary key; a racing insert is waited on) rolls the new account
+   * back, and the account that won is returned.
+   */
+  async createLinked (portal: string, externalId: string): Promise<Account> {
+    this.checkOpen()
+    for (let attempt = 1; ; attempt++) {
+      let created: Account | null
+      try {
+        created = await this.tracked(this.transaction(async (client) => {
+          const publicId = newPublicId()
+          // A random token's hash, never returned: `token_hash` is NOT NULL UNIQUE.
+          const made = await client.query('INSERT INTO accounts (public_id, token_hash) VALUES ($1, $2) RETURNING id', [publicId, hashToken(newToken())])
+          const linked = await client.query(
+            'INSERT INTO account_links (portal, external_id, account_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING account_id',
+            [portal, externalId, (made.rows[0] as { id: string }).id]
+          )
+          if (linked.rows.length === 0) throw new LinkTaken()
+          return { publicId, persisted: true, xp: 0, loadouts: [], energy: null, firstRunDone: false, portal }
+        }))
+      } catch (e) {
+        if (e instanceof LinkTaken) created = null
+        else if ((e as { code?: string }).code === '23505' && attempt < 3) continue
+        else throw e
+      }
+      if (created !== null) return created
+      const winner = await this.resolvePortal(portal, externalId)
+      if (winner !== null) return winner
+      if (attempt >= 3) throw new Error('accounts: portal link kept changing')
+    }
   }
 
   /**

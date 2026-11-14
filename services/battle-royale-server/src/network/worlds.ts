@@ -7,7 +7,7 @@ import { PROTOCOL } from '../utils/protocol'
 import { captureError, reportError } from '../errors'
 import BotFill from '../bots/fill'
 import { humanOn } from '../bots/brain'
-import { type Account, type AccountStore, type FirstRunStore, firstRunStoreOf, MemoryAccountStore, offlineAccount, tokenOf } from '../db/accounts'
+import { type Account, type AccountStore, type FirstRunStore, firstRunStoreOf, MemoryAccountStore, offlineAccount, type PortalStore, portalStoreOf, tokenOf } from '../db/accounts'
 import Analytics, { type RunInfo } from '../analytics'
 import { buildFirstRun, FIRST_RUN } from '../firstrun/scenario'
 import { carryKills } from '../progress/run'
@@ -25,6 +25,38 @@ import { mergedItem, mergeOutcome, parseMerge, parseScrap, stashEditsOf } from '
 import { BRING_LEVEL, type GearInstance } from '../utils/gear'
 import { Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
 import { PRIVATE_MAP, PRIVATE_MAP_SIZE } from '../objects/privatemap'
+import { type PortalIdentity, type PortalVerifier, portalTokenOf, portalVerifierFromEnv } from './portaltoken'
+import { setPortalName } from './displayname'
+
+/** The one portal whose users are linked to accounts (g2-6b): its handshake name and `account_links.portal`. */
+export const LINKED_PORTAL = 'crazygames'
+
+/** What `portal_link { result }` (GA, `src/analytics.ts`) reports. Append-only. */
+type PortalLinkResult = 'linked' | 'declined' | 'taken' | 'auto'
+
+/** A connection with a verified CrazyGames token (g2-6b). */
+interface PortalState {
+  identity: PortalIdentity
+  /** Rule 4b: the guest account offered for linking, until `portal_link` or READY answers. */
+  pending?: Account
+  /** The player said no (or pressed READY first): the account made at READY is not `auto`. */
+  declined: boolean
+}
+
+/** The `account` event (decision #48; `portal` and `linkable` since g2-6b). */
+interface AccountMessage {
+  id: string
+  token?: string
+  offline?: boolean
+  portal?: string
+  linkable?: boolean
+  xp?: number
+  level?: number
+  levelAt?: number
+  nextAt?: number
+  loadouts?: Record<string, number[][]>
+  energy?: EnergyView
+}
 
 export interface WorldsOptions {
   /** The tick, sent to every client in `hello`. */
@@ -92,6 +124,11 @@ export interface WorldsOptions {
    * or `true`: the `LAYERS` rows' `owned` flags decide.
    */
   privateRuns?: boolean
+  /**
+   * CrazyGames token verification (g2-6b). Absent: `portalVerifierFromEnv`
+   * (`CRAZYGAMES_GAME_ID`; unset, every token is ignored). Specs pass their own.
+   */
+  portal?: PortalVerifier
 }
 
 /** What `full` suggests the client wait before asking again; it adds its own backoff and jitter. */
@@ -288,7 +325,11 @@ export default class Worlds {
   private readonly accountTimeoutMs: number
   private readonly maxPlayers: number
   /** Each connection's account creation while it may still land (`create`). */
-  private readonly creating = new WeakMap<Connection, Promise<{ account: Account, token: string }>>()
+  private readonly creating = new WeakMap<Connection, Promise<{ account: Account, token?: string }>>()
+  /** CrazyGames token checks (g2-6b). */
+  private readonly portal: PortalVerifier
+  /** Each connection whose handshake carried a verified CrazyGames token (g2-6b). */
+  private readonly portalStates = new WeakMap<Connection, PortalState>()
   /** Connections with a loadout save in flight (`saveLoadout`): at most one each. */
   private readonly saving = new WeakSet<Connection>()
   /** Runs that spent a play (`admit`), and the account that paid; an extraction gives it back (`refundRun`). */
@@ -389,6 +430,7 @@ export default class Worlds {
     this.now = options.now ?? (() => Date.now())
     this.botTarget = options.bots ?? 0
     this.accounts = options.accounts ?? new MemoryAccountStore()
+    this.portal = options.portal ?? portalVerifierFromEnv()
     this.accountTimeoutMs = options.accountTimeoutMs ?? 3000
     this.maxPlayers = options.maxPlayers ?? 0
     this.gear = gearStoreOf(this.accounts)
@@ -551,7 +593,9 @@ export default class Worlds {
     const auth = socket.handshake?.auth
     const visit = connection.visit = new Visit(portalOf(auth), Date.now(), tokenOf(auth) === undefined)
     // At once, while the player is still in the lobby: READY doesn't wait on it.
-    const ready = connection.accountReady = this.lookup(connection, tokenOf(auth))
+    // A portal token is read only from a client that says it runs on CrazyGames.
+    const portalToken = portalOf(auth) === LINKED_PORTAL ? portalTokenOf(auth) : undefined
+    const ready = connection.accountReady = this.lookup(connection, tokenOf(auth), portalToken)
     void ready.then((account) => { visitStart(visit, account, this.redis) })
     if (this.draining) Worlds.redirect(connection)
     socket.on('start_requested', (data) => {
@@ -567,6 +611,10 @@ export default class Worlds {
     })
     socket.on('scrap', (data) => {
       Multiplayer.guarded(() => { this.scrap(connection, data) })
+    })
+    // The answer to a `linkable` account (g2-6b rule 4b).
+    socket.on('portal_link', (data) => {
+      Multiplayer.guarded(() => { this.portalLink(connection, data) })
     })
     // The HUD's latency readout (client net/latency.ts): answered at once,
     // in no world. A probe without an ack is ignored.
@@ -612,12 +660,27 @@ export default class Worlds {
    * The account for `token`, or null for none or an unknown one, or an
    * offline account if the store failed. Never rejects. A found (or offline)
    * account is set on the connection and its client told (`account { id }`).
+   *
+   * With a `portalToken` that verifies (g2-6b), the portal rules instead
+   * (`portalLookup`). Without one, or one that doesn't verify, today's rules,
+   * **except rule 4d**: a guest token whose account is linked to a portal
+   * user counts as no token (a new guest at READY), so a logged-out sibling
+   * on the same device never gets the CrazyGames user's account.
    */
-  private async lookup (connection: Connection, token: string | undefined): Promise<Account | null> {
+  private async lookup (connection: Connection, token: string | undefined, portalToken?: string): Promise<Account | null> {
+    if (portalToken !== undefined) {
+      const store = portalStoreOf(this.accounts)
+      if (store !== undefined && this.portal.enabled) {
+        const identity = await this.portal.verify(portalToken)
+        if (identity !== null) return await this.portalLookup(connection, store, token, identity)
+      }
+    }
     if (token === undefined) return null
     try {
-      const account = await this.bounded(this.accounts.resolve(token))
+      const found = await this.bounded(this.accounts.resolve(token))
       Worlds.accountSuccess()
+      // Rule 4d: a linked account is never played through a guest token.
+      const account = found?.portal === undefined ? found : null
       if (account !== null) this.setAccount(connection, account)
       return account
     } catch (e) {
@@ -626,6 +689,105 @@ export default class Worlds {
       this.setAccount(connection, account)
       return account
     }
+  }
+
+  /**
+   * The portal rules for a connection whose CrazyGames token verified (g2-6b,
+   * docs/accounts.md "Portal accounts"); `auth.token` is consulted only for 4b:
+   *
+   * - 4a: the user is linked: that account, at once.
+   * - 4b: not linked, and `token` resolves to an unlinked guest account: that
+   *   account is offered (`account { ..., linkable: true }`, nothing set on
+   *   the connection) until `portal_link { accept }` answers; READY first is
+   *   a decline.
+   * - 4c: not linked, no usable guest token: nothing now, a new linked
+   *   account at the first READY (`create`), as a guest's is.
+   *
+   * The runs are named after the token's username from here on (`setPortalName`).
+   * A store that fails gives an offline account, as `lookup` does. Never rejects.
+   */
+  private async portalLookup (connection: Connection, store: PortalStore, token: string | undefined, identity: PortalIdentity): Promise<Account | null> {
+    const state: PortalState = { identity, declined: false }
+    this.portalStates.set(connection, state)
+    setPortalName(connection, identity.username)
+    try {
+      const linked = await this.bounded(store.resolvePortal(LINKED_PORTAL, identity.userId))
+      Worlds.accountSuccess()
+      if (linked !== null) {
+        this.setAccount(connection, linked)
+        return linked
+      }
+      if (token !== undefined) {
+        const guest = await this.bounded(this.accounts.resolve(token))
+        Worlds.accountSuccess()
+        if (guest !== null && guest.portal === undefined && !connection.closed) {
+          state.pending = guest
+          // Not set on the connection: the answer decides which account plays.
+          connection.socket.emit('account', { ...this.accountMessage(guest), linkable: true })
+        }
+      }
+      return null
+    } catch (e) {
+      Worlds.accountFailure(e)
+      const account = offlineAccount()
+      this.setAccount(connection, account)
+      return account
+    }
+  }
+
+  /**
+   * `portal_link { accept }` (g2-6b rule 4b), sent by the client after
+   * CrazyGames' own link prompt. Only answers a pending offer; anything but
+   * `accept: true` declines. Accepting links the offered guest account to the
+   * user (no merge: the guest account becomes theirs); a READY meanwhile
+   * waits for it (`accountReady`). Declining leaves the connection to get a
+   * new linked account at READY.
+   */
+  private portalLink (connection: Connection, data: unknown): void {
+    const state = this.portalStates.get(connection)
+    const guest = state?.pending
+    const store = portalStoreOf(this.accounts)
+    if (state === undefined || guest === undefined || store === undefined || connection.account !== undefined) return
+    state.pending = undefined
+    const accept = data !== null && typeof data === 'object' && (data as { accept?: unknown }).accept === true
+    if (!accept) {
+      state.declined = true
+      this.portalEvent(connection, 'declined')
+      return
+    }
+    connection.accountReady = this.linkGuest(connection, store, state.identity, guest)
+  }
+
+  /** Rule 4b accepted: the link, then the account it gives (the guest's, or the user's if it was linked meanwhile). Never rejects. */
+  private async linkGuest (connection: Connection, store: PortalStore, identity: PortalIdentity, guest: Account): Promise<Account | null> {
+    try {
+      const result = await this.bounded(store.linkPortal(LINKED_PORTAL, identity.userId, guest.publicId))
+      Worlds.accountSuccess()
+      let account: Account | null
+      if (result === 'linked') {
+        account = { ...guest, portal: LINKED_PORTAL }
+      } else {
+        // Another tab linked this user, or this guest to another user, first.
+        account = await this.bounded(store.resolvePortal(LINKED_PORTAL, identity.userId))
+        Worlds.accountSuccess()
+      }
+      Multiplayer.guarded(() => {
+        if (account !== null && !connection.closed && connection.account === undefined) this.setAccount(connection, account)
+        this.portalEvent(connection, result)
+      })
+      return account
+    } catch (e) {
+      // Nothing set: READY makes a new linked account (or plays offline).
+      Worlds.accountFailure(e)
+      return null
+    }
+  }
+
+  /** GA `portal_link { result }` (g2-6b), under the connection's account if it has one. */
+  private portalEvent (connection: Connection, result: PortalLinkResult): void {
+    const visit = connection.visit
+    if (visit === undefined) return
+    Analytics.send(visit.info(connection.account), 'portal_link', { result })
   }
 
   /** `promise`, or a rejection after `accountTimeoutMs`. */
@@ -654,10 +816,24 @@ export default class Worlds {
       token = undefined
     }
     connection.account = account
-    const message: { id: string, token?: string, offline?: boolean, xp?: number, level?: number, levelAt?: number, nextAt?: number, loadouts?: Record<string, number[][]>, energy?: EnergyView } = { id: account.publicId }
+    connection.socket.emit('account', this.accountMessage(account, token))
+    if (account.persisted) {
+      this.sendSeason(connection, account)
+      this.sendStash(connection, account)
+    }
+  }
+
+  /**
+   * The `account` event for `account`. A linked account (g2-6b) carries
+   * `portal` and **never a token**: it is reached through the portal's token,
+   * and a stored guest token must not lead back to it (rule 4d).
+   */
+  private accountMessage (account: Account, token?: string): AccountMessage {
+    const message: AccountMessage = { id: account.publicId }
     if (!account.persisted) message.offline = true
     else {
-      if (token !== undefined) message.token = token
+      if (account.portal !== undefined) message.portal = account.portal
+      else if (token !== undefined) message.token = token
       // The account's standing, for the lobby (decision #48 step 3). An
       // offline account has none: it earns nothing.
       Object.assign(message, standingOf(account.xp))
@@ -669,11 +845,7 @@ export default class Worlds {
       // in `energy`: an offline account spends nothing and is sent none.
       message.energy = energyView(account.energy, this.now())
     }
-    connection.socket.emit('account', message)
-    if (account.persisted) {
-      this.sendSeason(connection, account)
-      this.sendStash(connection, account)
-    }
+    return message
   }
 
   /**
@@ -727,10 +899,22 @@ export default class Worlds {
    */
   private async retryAccount (connection: Connection): Promise<void> {
     const token = tokenOf(connection.socket.handshake?.auth)
+    const portal = this.portalStates.get(connection)
+    const store = portalStoreOf(this.accounts)
     try {
-      if (token !== undefined) {
-        const found = await this.bounded(this.accounts.resolve(token))
+      if (portal !== undefined && store !== undefined) {
+        // A verified portal user: their linked account, else a new linked one (no offer on a retry).
+        const linked = await this.bounded(store.resolvePortal(LINKED_PORTAL, portal.identity.userId))
         Worlds.accountSuccess()
+        if (linked !== null) {
+          if (!connection.closed) this.setAccount(connection, linked)
+          return
+        }
+      } else if (token !== undefined) {
+        const resolved = await this.bounded(this.accounts.resolve(token))
+        Worlds.accountSuccess()
+        // Rule 4d, as at connect.
+        const found = resolved?.portal === undefined ? resolved : null
         if (found !== null) {
           if (!connection.closed) this.setAccount(connection, found)
           return
@@ -754,10 +938,16 @@ export default class Worlds {
    * connection, not one per try. A creation that fails is forgotten, and the
    * next try creates anew.
    */
-  private async create (connection: Connection): Promise<{ account: Account, token: string }> {
+  private async create (connection: Connection): Promise<{ account: Account, token?: string }> {
     let pending = this.creating.get(connection)
     if (pending === undefined) {
-      const created = this.accounts.create()
+      const portal = this.portalStates.get(connection)
+      const store = portalStoreOf(this.accounts)
+      // A verified portal user gets an account linked to them (rules 4b
+      // declined, 4c), with no token; anyone else a guest account and its token.
+      const created: Promise<{ account: Account, token?: string }> = portal !== undefined && store !== undefined
+        ? store.createLinked(LINKED_PORTAL, portal.identity.userId).then((account) => ({ account }))
+        : this.accounts.create()
       pending = created
       this.creating.set(connection, created)
       created.catch(() => { if (this.creating.get(connection) === created) this.creating.delete(connection) })
@@ -996,7 +1186,14 @@ export default class Worlds {
   private async accountFor (connection: Connection): Promise<void> {
     await connection.accountReady
     if (connection.account !== undefined || connection.closed || this.draining) return
-    let created: { account: Account, token: string }
+    const portal = this.portalStates.get(connection)
+    if (portal?.pending !== undefined) {
+      // Rule 4b: READY before an answer is a decline.
+      portal.pending = undefined
+      portal.declined = true
+      this.portalEvent(connection, 'declined')
+    }
+    let created: { account: Account, token?: string }
     try {
       created = await this.create(connection)
     } catch (e) {
@@ -1006,6 +1203,8 @@ export default class Worlds {
     }
     Worlds.accountSuccess()
     this.setAccount(connection, created.account, created.token)
+    // Rule 4c: linked without a prompt.
+    if (portal !== undefined && !portal.declined && created.account.portal !== undefined) this.portalEvent(connection, 'auto')
   }
 
   /**

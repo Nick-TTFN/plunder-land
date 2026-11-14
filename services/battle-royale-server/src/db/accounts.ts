@@ -54,6 +54,51 @@ export interface Account {
    * wrapper that forgets it) fails closed to a normal run, today's behaviour.
    */
   firstRunDone?: boolean
+  /**
+   * The portal this account is linked to (g2-6b, migration 10
+   * `account_links`), e.g. `'crazygames'`; absent for an account with no link
+   * (every guest, every offline account). Set by `resolve`, `resolvePortal`
+   * and `createLinked`. A linked account is never played through its guest
+   * token (rule 4d) and is never sent one (`Worlds.setAccount`).
+   */
+  portal?: string
+}
+
+/**
+ * Accounts linked to a portal's user (g2-6b; docs/accounts.md, "Portal
+ * accounts"): `account_links (portal, external_id) -> account`, one account
+ * per portal user and one portal user per account and portal, both enforced
+ * by the store (pg: the two unique keys), so two racing links leave one.
+ * **Not part of `AccountStore`**, for the reason `FirstRunStore` isn't (spec
+ * wrappers implement `AccountStore`); a store without it plays every portal
+ * user as a guest (`portalStoreOf`). Every method throws when the store fails.
+ */
+export interface PortalStore {
+  /** The account linked to the portal user, or null. Counts as a visit, as `resolve` does. */
+  resolvePortal: (portal: string, externalId: string) => Promise<Account | null>
+  /**
+   * Link the portal user to the existing account `publicId`. `'linked'` when
+   * that link now stands (made here, or already there); `'taken'` when the
+   * user is linked to another account or the account to another user of this
+   * portal (nothing written). Throws for an unknown account.
+   */
+  linkPortal: (portal: string, externalId: string, publicId: string) => Promise<'linked' | 'taken'>
+  /** The portal the account is linked to (the first linked, if several), or null. */
+  linkedPortal: (publicId: string) => Promise<string | null>
+  /**
+   * A new account linked to the portal user, in one transaction. Its token
+   * hash is a random token's that is never returned or sent. If the user is
+   * linked already (a racing tab got there first), nothing is created and
+   * that account is returned instead.
+   */
+  createLinked: (portal: string, externalId: string) => Promise<Account>
+}
+
+/** The store's portal half, when it has every method (both shipped stores do). */
+export function portalStoreOf (store: AccountStore): (AccountStore & PortalStore) | undefined {
+  const s = store as Partial<PortalStore>
+  const methods: Array<keyof PortalStore> = ['resolvePortal', 'linkPortal', 'linkedPortal', 'createLinked']
+  return methods.every((m) => typeof s[m] === 'function') ? store as AccountStore & PortalStore : undefined
 }
 
 /**
@@ -462,7 +507,7 @@ export function tokenOf (auth: unknown): string | undefined {
  * production (every deploy forgets every account; `openAccountStore` reports
  * that on Railway).
  */
-export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore {
+export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, AdminStore, FirstRunStore, PortalStore {
   /** The stash's clock (pg's `now()`); specs pass a fake one to age carries and heartbeats. */
   private readonly clock: () => number
 
@@ -498,15 +543,64 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
   /** Every payout received, by public id, oldest first (pg `season_payouts`). */
   private readonly payouts = new Map<string, LastPayout[]>()
 
+  /** Portal links (pg `account_links`): public id by `portal` + newline + external id. */
+  private readonly links = new Map<string, string>()
+  /** The same links the other way: external id by `portal` + newline + public id. */
+  private readonly linkedBy = new Map<string, string>()
+  /** Each linked account's portals, in link order. */
+  private readonly portals = new Map<string, string[]>()
+
   async resolve (token: string): Promise<Account | null> {
     const publicId = this.byHash.get(hashToken(token).toString('hex'))
     if (publicId === undefined) return null
+    return this.accountOf(publicId)
+  }
+
+  async resolvePortal (portal: string, externalId: string): Promise<Account | null> {
+    const publicId = this.links.get(`${portal}\n${externalId}`)
+    return publicId === undefined ? null : this.accountOf(publicId)
+  }
+
+  /** Synchronous from start to end, so two links at once can't both pass the checks (pg: the unique keys). */
+  async linkPortal (portal: string, externalId: string, publicId: string): Promise<'linked' | 'taken'> {
+    if (!this.ids.has(publicId)) throw new Error('accounts: link for an unknown account')
+    const holder = this.links.get(`${portal}\n${externalId}`)
+    if (holder !== undefined) return holder === publicId ? 'linked' : 'taken'
+    if (this.linkedBy.has(`${portal}\n${publicId}`)) return 'taken'
+    this.links.set(`${portal}\n${externalId}`, publicId)
+    this.linkedBy.set(`${portal}\n${publicId}`, externalId)
+    this.portals.set(publicId, [...(this.portals.get(publicId) ?? []), portal])
+    return 'linked'
+  }
+
+  async linkedPortal (publicId: string): Promise<string | null> {
+    return this.portals.get(publicId)?.[0] ?? null
+  }
+
+  async createLinked (portal: string, externalId: string): Promise<Account> {
+    const existing = this.links.get(`${portal}\n${externalId}`)
+    if (existing !== undefined) return this.accountOf(existing)
+    // No await between the check above and the link below, so two at once
+    // for one user make one account (pg: the primary key, then a rollback).
+    const { account } = this.createSync()
+    const key = `${portal}\n${externalId}`
+    this.links.set(key, account.publicId)
+    this.linkedBy.set(`${portal}\n${account.publicId}`, externalId)
+    this.portals.set(account.publicId, [portal])
+    return { ...account, portal }
+  }
+
+  /** The account `publicId` as `resolve` gives it. */
+  private accountOf (publicId: string): Account {
     // Copies, so an account in memory never shares an array with the store.
     const loadouts = [...(this.loadouts.get(publicId)?.values() ?? [])]
       .map((l) => ({ robot: l.robot, index: l.index, skills: copyOf(l.skills) }))
       .sort((a, b) => a.robot < b.robot ? -1 : a.robot > b.robot ? 1 : a.index - b.index)
     const energy = this.energy.get(publicId)
-    return { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy }, firstRunDone: this.firstRuns.has(publicId) }
+    const account: Account = { publicId, persisted: true, xp: this.xp.get(publicId) ?? 0, loadouts, energy: energy === undefined ? null : { ...energy }, firstRunDone: this.firstRuns.has(publicId) }
+    const portal = this.portals.get(publicId)?.[0]
+    if (portal !== undefined) account.portal = portal
+    return account
   }
 
   async finishFirstRun (publicId: string, nowMs: number): Promise<void> {
@@ -704,6 +798,10 @@ export class MemoryAccountStore implements AccountStore, GearStore, StashEdits, 
   }
 
   async create (): Promise<{ account: Account, token: string }> {
+    return this.createSync()
+  }
+
+  private createSync (): { account: Account, token: string } {
     let publicId = newPublicId()
     while (this.ids.has(publicId)) publicId = newPublicId()
     const token = newToken()

@@ -50,6 +50,14 @@ import type Redis from 'ioredis'
  *   made up for one connection and has no history, and nothing is written
  *   to Redis for it. Added with guest accounts.
  *
+ * - Portal accounts (g2-6b; added with them): `portal_link` with `result`
+ *   `linked` (a guest account accepted the link to a CrazyGames user),
+ *   `declined` (the player said no, or pressed READY before answering; a new
+ *   linked account follows), `taken` (the link lost a race: the user or the
+ *   guest account was linked meanwhile) or `auto` (a logged-in user with no
+ *   link and no guest account to offer got a new linked account at READY).
+ *   Sent by `Worlds` (`portalEvent`) as a visit event, outside any run.
+ *
  * `client_id` is the player id: since guest accounts (decision #48) the
  * account's `publicId` (16 hex, issued by the server), or a made-up id for
  * one connection on an offline run (`offline: 1`). Each run is its own

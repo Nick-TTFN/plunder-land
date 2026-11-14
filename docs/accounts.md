@@ -59,6 +59,63 @@ CrazyGames against free-text names that the filter (English only) can't police. 
 typed names old tabs still send. The callsign generator is a consumed format in effect: a change to
 its words, numbers or hash renames every player (`names.spec.ts` pins three).
 
+### Portal accounts
+
+**CrazyGames users are linked to accounts** (task g2-6b, plan g2-0; CG's Full Launch "account
+integration": logged-in users are registered and logged in automatically, guests play as guests,
+no other login). Our progress is server-side, so we link CG's `userId` to one of our accounts
+(Postgres `account_links`, migration 10: `(portal, external_id) -> account_id`, primary key
+`(portal, external_id)`, `UNIQUE (portal, account_id)`) rather than using CG's Data module. Never
+the username, which CG lets users change.
+
+**The token.** The client asks CG's SDK for `getUserToken({ signingKeyType: "IN_GAME_AUTH" })`
+and sends it as the handshake's `auth.portalToken` (at most 4096 characters), read only when
+`auth.portal` is `crazygames`. `network/portaltoken.ts` verifies it **by hand, no JWT library**:
+header `alg` exactly `RS256` and `kid` exactly `ingame-auth` (so `none`, `HS256` key confusion, every
+other alg and the `ingame-auth-legacy` key are refused before any key is read; a `crit` header too),
+the signature with Node's `crypto.verify('RSA-SHA256')` against the JWKS key (RSA, 2048+ bits, built
+from `n`/`e` only), then `exp`/`iat` with 60 s skew, `gameId === CRAZYGAMES_GAME_ID` as a string (a
+numeric `gameId` compares by its decimal form), and `userId` 1-128 printable ASCII. The JWKS
+(`https://userportal.crazygames.com/.well-known/jwks.json`) is fetched on the first token, kept,
+and fetched again at most once a minute (failed attempts count) when the kid is missing, when a
+signature fails against the kept key (rotation under the same kid) or after an hour; each fetch has
+a 3 s timeout. **Everything fails closed to guest play**: a token that doesn't verify, a JWKS that
+can't be fetched, `CRAZYGAMES_GAME_ID` unset (every token ignored, logged once at boot), or a store
+without the portal half (`portalStoreOf`). A JWKS outage makes logged-in users guests for that
+session: their progress is safe, not visible. The JWKS URL and the clock are constructor parameters
+for the specs, never an env var.
+
+**The rules** (`Worlds.lookup` / `portalLookup`, at connect):
+
+- **4a** Valid token, user linked: that account at once; `auth.token` is ignored.
+- **4b** Valid token, no link, and `auth.token` resolves to a guest account with no link: the server
+  sends that account's `account` with `linkable: true` and sets nothing; the client shows CG's link
+  prompt and answers `portal_link { accept }`. Accept: `linkPortal` links that guest account (no
+  merge: it becomes the CG user's, whoever on the device made it); a READY meanwhile waits for the
+  write. Decline, anything but `accept: true`, or **READY before an answer**: a new account, created
+  and linked at that READY as a guest's is.
+- **4c** Valid token, no link, no usable guest token (none, unknown, or one already linked to someone):
+  a new linked account at the first READY, no prompt.
+- **4d** No or an invalid token: today's guest rules, **except** that a guest token whose account is
+  linked counts as no token (a new guest at READY), so a logged-out sibling on the same device never
+  gets the CG user's account. Also on `retryAccount`.
+
+A linked account's `account` carries `portal: 'crazygames'` and **never a token** (it is reached
+through CG's token; a created linked account's `token_hash` is a random token's that is never sent).
+Two tabs racing are safe by the two unique keys: `createLinked` rolls back and returns the winner,
+`linkPortal` answers `taken`. An offline connection with a verified token retries the user's link
+at its next start. GA `portal_link { result: linked | declined | taken | auto }` measures it.
+
+**Name.** A connection with a verified token is shown under the token's `username` if it has CG's
+documented shape (6-20 of `[A-Za-z0-9._]`), through `setPortalName` / `displayNameFor`; the `Player`
+constructor's `displayName` runs it through `sanitiseName`, so a filtered name (profanity, `YOU`)
+falls back to the callsign, and a 17-20 character username is cut to `NAME_MAX` (16). Taken from
+each new token, so a changed CG username shows on the next connection. Everyone else, bots
+included, keeps the callsign. `profilePictureUrl` is not stored or relayed.
+
+**Any future userbase reset like migration 9 must empty `account_links` too**, or a CG user lands
+on a missing account (the foreign key would also block emptying `accounts`).
+
 **Loadouts** (#48 step 4): migration 3, table `loadouts (account_id, robot key, slot_index,
 skills smallint[4])` keyed by (account, robot, index), CHECKs as a backstop; written by one upsert
 (`saveLoadout`, which `close` waits for), read by `resolve` in the same round trip (`json_agg`).

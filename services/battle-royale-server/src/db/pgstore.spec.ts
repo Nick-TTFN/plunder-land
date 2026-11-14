@@ -32,9 +32,9 @@ const URL = process.env.TEST_DATABASE_URL
 /**
  * Every schema migration, without migration 9 (the 2026-11-10 userbase
  * reset, which empties the player tables): the tests that load rows into an
- * older schema and check them after migrating stop here.
+ * older schema and check them after migrating use this, so the rows survive.
  */
-const SCHEMA_ONLY: readonly Migration[] = MIGRATIONS.filter((m) => m.version <= 8)
+const SCHEMA_ONLY: readonly Migration[] = MIGRATIONS.filter((m) => m.version !== 9)
 
 /** The only hosts this spec will drop a schema on. */
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
@@ -113,7 +113,8 @@ pgTest('migration 9 copies every player table to reset_20261110_* and empties it
     await client.query("INSERT INTO account_progress (account_id, xp) SELECT id, 500 FROM accounts")
     await client.query('INSERT INTO first_runs (account_id, done_at) SELECT id, now() FROM accounts')
   })
-  assert.deepEqual(await withClient(async (client) => await migrate(client)), [9])
+  // 10 (account_links) follows: it is the migrations after 8, in order.
+  assert.deepEqual(await withClient(async (client) => await migrate(client)), [9, 10])
   await withClient(async (client) => {
     const count = async (table: string): Promise<number> => Number((await client.query(`SELECT count(*) AS n FROM ${table}`)).rows[0].n)
     for (const table of ['accounts', 'account_progress', 'loadouts', 'season_entries', 'seasons', 'season_payouts', 'energy', 'stash_items', 'gear_holders', 'first_runs']) {
@@ -285,7 +286,7 @@ pgTest('loadouts (migration 3): added to a v2 database it keeps every row, the v
   const after = await withClient(async (client) => (await client.query('SELECT a.public_id, a.token_hash, p.xp FROM accounts a JOIN account_progress p ON p.account_id = a.id ORDER BY a.id')).rows)
   assert.deepEqual(after, before, 'migration 3 changed an existing row')
   // The rest, so this release's queries find their tables.
-  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [4, 5, 6, 7, 8])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [4, 5, 6, 7, 8, 10])
 
   const store = new PgAccountStore({ connectionString: URL as string, migrations: SCHEMA_ONLY })
   try {
@@ -378,7 +379,7 @@ pgTest('seasons (migration 4): added to a v3 database it keeps every row, and th
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 4))), [4])
   assert.deepEqual(await snapshot(), before, 'migration 4 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [5, 6, 7, 8])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [5, 6, 7, 8, 10])
 
   const store = new PgAccountStore({ connectionString: URL as string, migrations: SCHEMA_ONLY })
   try {
@@ -455,7 +456,7 @@ pgTest('energy (migration 5): added to a v4 database it keeps every row, step 6\
   const before = await snapshot()
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 5))), [5])
   assert.deepEqual(await snapshot(), before, 'migration 5 changed an existing row')
-  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [6, 7, 8])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [6, 7, 8, 10])
 
   const store = new PgAccountStore({ connectionString: URL as string, migrations: SCHEMA_ONLY })
   try {
@@ -611,11 +612,11 @@ pgTest('stash (migration 6): added to a v5 database it keeps every row, the step
   assert.equal(before.length, 2)
   assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version <= 6))), [6])
   assert.deepEqual(await snapshot(), before, 'migration 6 changed an existing row')
-  // Migration 8 only, so this release's resolve finds `first_runs`; not 7,
-  // whose wider tier CHECK this test pins at its v6 width below. (Out of
-  // order on purpose: only a spec does that; a server serves only after
-  // its own migrations ran, in order.)
-  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version === 8))), [8])
+  // Migrations 8 and 10 only, so this release's resolve finds `first_runs`
+  // and `account_links`; not 7, whose wider tier CHECK this test pins at its
+  // v6 width below. (Out of order on purpose: only a spec does that; a server
+  // serves only after its own migrations ran, in order.)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, MIGRATIONS.filter((m) => m.version === 8 || m.version === 10))), [8, 10])
 
   // Step 7's queries are this release's resolve, grant, saveLoadout, spend
   // and refund unchanged (a spend without `bring` sends exactly step 7's SQL).
@@ -690,7 +691,7 @@ pgTest('legendary tier (migration 7): on a v6 database a T4 merge fails the CHEC
     assert.deepEqual(await rows(), before, 'a refused T4 merge changed rows (the inputs must survive: never a loss, never a dupe)')
     await assert.rejects(store.pool.query('INSERT INTO stash_items (account_id, tier, skill, source) SELECT id, 4, 1, 1 FROM accounts LIMIT 1'), /check/i, 'tier 4 at v6')
 
-    assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [7, 8])
+    assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [7, 8, 10])
     assert.deepEqual(await rows(), before, 'migration 7 changed an existing row')
     const wide = await tierChecks()
     assert.equal(wide.length, 1)
@@ -749,7 +750,7 @@ pgTest('first runs (migration 8): added to a v7 database with rows it keeps ever
      JOIN season_entries e ON e.account_id = a.id JOIN energy en ON en.account_id = a.id JOIN stash_items s ON s.account_id = a.id ORDER BY a.id`)).rows)
   const before = await snapshot()
   assert.equal(before.length, 3)
-  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [8])
+  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [8, 10])
   assert.deepEqual(await snapshot(), before, 'migration 8 changed an existing row')
   // No backfill (Nick, #58 addendum 6): every existing account gets the first run.
   const count = async (): Promise<number> => await withClient(async (client) => Number((await client.query('SELECT count(*) AS n FROM first_runs')).rows[0].n))
@@ -787,6 +788,104 @@ pgTest('first runs (migration 8): added to a v7 database with rows it keeps ever
     if (!closed) await store.close()
   }
   assert.equal(await count(), 2, 'close cut a first-run write short')
+})
+
+/** The resolve of the release before g2-6b (migration 8's), verbatim: what a draining old server runs. */
+const V9_RESOLVE = `WITH a AS (UPDATE accounts SET last_seen_at = now() WHERE token_hash = $1 RETURNING id, public_id)
+       SELECT a.public_id, COALESCE(p.xp, 0) AS xp, en.stock, round(extract(epoch FROM en.as_of) * 1000)::bigint AS as_of_ms,
+         EXISTS (SELECT 1 FROM first_runs f WHERE f.account_id = a.id) AS first_run_done,
+         COALESCE((SELECT json_agg(json_build_object('robot', l.robot, 'index', l.slot_index, 'skills', l.skills) ORDER BY l.robot, l.slot_index)
+                   FROM loadouts l WHERE l.account_id = a.id), '[]'::json) AS loadouts
+       FROM a LEFT JOIN account_progress p ON p.account_id = a.id LEFT JOIN energy en ON en.account_id = a.id`
+
+pgTest('account links (migration 10): added to a database with rows it keeps every row, the previous resolve and create still run, its keys hold', async () => {
+  const before10 = SCHEMA_ONLY.filter((m) => m.version < 10)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, before10)), [1, 2, 3, 4, 5, 6, 7, 8])
+  const at = Date.parse('2026-11-14T12:00:00.000Z')
+  const made: Array<{ token: string, publicId: string }> = []
+  const old = new PgAccountStore({ connectionString: URL as string, migrations: before10 })
+  try {
+    old.ready = true
+    for (let i = 0; i < 3; i++) {
+      const { account, token } = await old.create()
+      await old.grant(account.publicId, 10, { season: seasonStart(at), atMs: at, banked: 100, extracted: true, xp: 10, name: 'OLD' })
+      await old.saveLoadout(account.publicId, 'peep', 0, [1, 2, 3, i])
+      assert.equal((await old.spend(account.publicId, at)).ok, true)
+      await old.settleGear(account.publicId, randomUUID(), [], [T1])
+      await old.finishFirstRun(account.publicId, at)
+      made.push({ token, publicId: account.publicId })
+    }
+  } finally {
+    await old.close()
+  }
+  const snapshot = async (): Promise<unknown[]> => await withClient(async (client) => (await client.query(
+    `SELECT a.public_id, a.token_hash, a.created_at, p.xp, l.skills, e.banked, en.stock, en.as_of, s.tier, s.skill, s.rolls, s.state, f.done_at
+     FROM accounts a JOIN account_progress p ON p.account_id = a.id JOIN loadouts l ON l.account_id = a.id
+     JOIN season_entries e ON e.account_id = a.id JOIN energy en ON en.account_id = a.id JOIN stash_items s ON s.account_id = a.id
+     JOIN first_runs f ON f.account_id = a.id ORDER BY a.id`)).rows)
+  const before = await snapshot()
+  assert.equal(before.length, 3)
+  assert.deepEqual(await withClient(async (client) => await migrate(client, SCHEMA_ONLY)), [10])
+  assert.deepEqual(await snapshot(), before, 'migration 10 changed an existing row')
+
+  const store = new PgAccountStore({ connectionString: URL as string, migrations: SCHEMA_ONLY })
+  try {
+    store.ready = true
+    // Existing accounts are unlinked.
+    for (const m of made) assert.ok(!('portal' in ((await store.resolve(m.token)) ?? {})))
+    assert.equal(await store.linkPortal('crazygames', 'CGuser1', made[0].publicId), 'linked')
+    const linked = await store.createLinked('crazygames', 'CGuser2')
+    // The previous release, as a draining old server runs it on the new schema:
+    // its resolve and its create still work, linked rows present or not.
+    const resolved = await store.pool.query(V9_RESOLVE, [hashToken(made[0].token)])
+    assert.deepEqual(resolved.rows.map((r) => [r.public_id, Number(r.xp)]), [[made[0].publicId, 10]])
+    const oldAgain = new PgAccountStore({ connectionString: URL as string, migrations: before10 })
+    try {
+      oldAgain.ready = true
+      const fresh = await oldAgain.create()
+      assert.equal((await store.resolve(fresh.token))?.publicId, fresh.account.publicId)
+    } finally {
+      await oldAgain.close()
+    }
+    // A created linked account has a token hash (NOT NULL UNIQUE), never any token we handed out.
+    const row = (await store.pool.query('SELECT token_hash FROM accounts WHERE public_id = $1', [linked.publicId])).rows[0]
+    assert.equal((row.token_hash as Buffer).length, 32)
+    // The keys back it.
+    const idOf = async (publicId: string): Promise<string> => (await store.pool.query('SELECT id FROM accounts WHERE public_id = $1', [publicId])).rows[0].id
+    await assert.rejects(store.pool.query("INSERT INTO account_links (portal, external_id, account_id) VALUES ('crazygames', 'CGuser1', $1)", [await idOf(made[1].publicId)]), /duplicate key/i)
+    await assert.rejects(store.pool.query("INSERT INTO account_links (portal, external_id, account_id) VALUES ('crazygames', 'CGuser9', $1)", [await idOf(made[0].publicId)]), /duplicate key/i)
+    await assert.rejects(store.pool.query("INSERT INTO account_links (portal, external_id, account_id) VALUES ('crazygames', 'CGuser8', 999999)"), /foreign key/i)
+    await assert.rejects(store.pool.query("INSERT INTO account_links (portal, external_id, account_id) VALUES ('Crazy Games', 'CGuser7', $1)", [await idOf(made[2].publicId)]), /check/i)
+    await assert.rejects(store.pool.query("INSERT INTO account_links (portal, external_id, account_id) VALUES ('crazygames', '', $1)", [await idOf(made[2].publicId)]), /check/i)
+    // Another portal may link the same account.
+    await store.pool.query("INSERT INTO account_links (portal, external_id, account_id) VALUES ('poki', 'P1', $1)", [await idOf(made[0].publicId)])
+    assert.equal(await store.linkedPortal(made[0].publicId), 'crazygames')
+  } finally {
+    await store.close()
+  }
+})
+
+pgTest('portal link races under load: twenty createLinked for one user, twenty guests for one user, twenty users for one account', async () => {
+  const store = await readyStore()
+  try {
+    for (let round = 0; round < 5; round++) {
+      const user = `CGrace${round}`
+      const made = await Promise.all(Array.from({ length: 20 }, async () => await store.createLinked('crazygames', user)))
+      assert.equal(new Set(made.map((a) => a.publicId)).size, 1, 'one user, several accounts')
+      const guests = await Promise.all(Array.from({ length: 20 }, async () => await store.create()))
+      const other = `CGother${round}`
+      const results = await Promise.all(guests.map(async (g) => await store.linkPortal('crazygames', other, g.account.publicId)))
+      assert.equal(results.filter((r) => r === 'linked').length, 1)
+      const lone = guests[0].account.publicId
+      const many = await Promise.all(Array.from({ length: 20 }, async (_, i) => await store.linkPortal('poki', `P${round}-${i}`, lone)))
+      assert.equal(many.filter((r) => r === 'linked').length, 1)
+    }
+    const counts = (await store.pool.query('SELECT portal, count(*)::int AS n FROM account_links GROUP BY portal ORDER BY portal')).rows
+    assert.deepEqual(counts, [{ portal: 'crazygames', n: 10 }, { portal: 'poki', n: 5 }])
+    assert.equal(Number((await store.pool.query('SELECT count(*) AS n FROM accounts')).rows[0].n), 5 + 100, 'a rolled-back createLinked left an account')
+  } finally {
+    await store.close()
+  }
 })
 
 pgTest('the gear stash contract, dupe races 1-11, merge and scrap, against Postgres', async () => {

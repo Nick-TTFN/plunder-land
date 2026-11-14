@@ -244,5 +244,30 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE TABLE reset_20261110_first_runs AS TABLE first_runs;
       TRUNCATE accounts, account_progress, loadouts, season_entries, seasons, season_payouts, energy, stash_items, gear_holders, first_runs;
     `
+  },
+  {
+    version: 10,
+    name: 'account links',
+    // Portal accounts (g2-6b, CrazyGames Full Launch; docs/accounts.md,
+    // "Portal accounts"): a portal's user id (`external_id`, CrazyGames'
+    // `userId`, never the username, which can change) linked to one of our
+    // accounts. The primary key gives a portal user one account, the UNIQUE
+    // gives an account one user per portal: two racing links leave one
+    // (`PgAccountStore.linkPortal`, `createLinked`). A linked account created
+    // fresh still has a `token_hash` (NOT NULL UNIQUE): a random token's,
+    // never sent. The CHECKs are backstops; `portal` takes the handshake's
+    // names (`network/visits.ts` `PORTALS`). A new table only: the previous
+    // release never reads it and runs unchanged on this schema during overlap
+    // and drain. **A userbase reset like migration 9 must empty it too.**
+    sql: `
+      CREATE TABLE account_links (
+        portal      text        NOT NULL CHECK (portal ~ '^[a-z]{1,16}$'),
+        external_id text        NOT NULL CHECK (char_length(external_id) BETWEEN 1 AND 128),
+        account_id  bigint      NOT NULL REFERENCES accounts(id),
+        linked_at   timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (portal, external_id),
+        UNIQUE (portal, account_id)
+      )
+    `
   }
 ]

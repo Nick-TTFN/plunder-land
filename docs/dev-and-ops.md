@@ -195,6 +195,13 @@ An error may carry `reportTags` (string values), which the server's `captureErro
 Source maps are not uploaded: Sentry fetches the public `.map` of the deployed build, so a
 stack from an older deploy can't be mapped once a newer one replaces it.
 
+**`CRAZYGAMES_GAME_ID`** (server, Railway; g2-6b): our CrazyGames game id, compared with each
+CrazyGames user token's `gameId`. Unset (the default, and every local run and spec), every
+`auth.portalToken` is ignored and CrazyGames players play as guests; the server logs
+`portal: CRAZYGAMES_GAME_ID unset; ...` once at boot. Set it only once the developer account gives
+the id (release R2). There is deliberately no variable for the JWKS URL (docs/accounts.md, "Portal
+accounts").
+
 **Game events go to GA4 from the server** (decision #46; `src/analytics.ts`, EU endpoint),
 only when `GA_MEASUREMENT_ID` and `GA_API_SECRET` are set (Railway; never locally or in the load
 harness): `run_start`, `first_loot`, `run_end`, one GA session per run, `client_id` the
