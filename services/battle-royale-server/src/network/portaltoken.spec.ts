@@ -421,6 +421,43 @@ function linkResults (): string[] {
   return ga.filter((e) => e.name === 'portal_link').map((e) => String(e.params.result))
 }
 
+/**
+ * `store` with every method named in `down` rejecting at once, as a store
+ * that is down does (the timeout path ends the same way, slower). Everything
+ * else is the real store's, called on the real store.
+ */
+function flaky (store: Store): { store: Store, down: Set<string> } {
+  const down = new Set<string>()
+  const proxy = new Proxy(store, {
+    get (target, prop) {
+      const value: unknown = Reflect.get(target, prop, target)
+      if (typeof value !== 'function') return value
+      if (typeof prop === 'string' && down.has(prop)) return async () => { throw new Error(`store down: ${prop}`) }
+      return (value as (...args: unknown[]) => unknown).bind(target)
+    }
+  })
+  return { store: proxy, down }
+}
+
+const hellos = (c: FakeClient): number => c.emitted.filter(([e]) => e === 'hello').length
+
+/** Start a run and wait for its `hello`. */
+async function play (c: FakeClient): Promise<Player> {
+  const before = hellos(c)
+  c.start()
+  await until('the run', () => hellos(c) > before && c.connection.player !== undefined)
+  return c.connection.player as Player
+}
+
+/** End the connection's run (as accounts.spec does), so PLAY AGAIN can start another on the same socket. */
+async function endRun (h: Harness, c: FakeClient): Promise<void> {
+  const player = c.connection.player
+  assert.ok(player !== undefined, 'no run to end')
+  World.run(h.worlds.worldFor(c.connection) as World, () => { player.exit() })
+  h.worlds.tickAll(250)
+  await settle()
+}
+
 /** Every rule, against one store. */
 async function rules (t: { test: (name: string, fn: () => Promise<void>) => Promise<void> }, makeStore: () => Promise<Store>): Promise<void> {
   await t.test('4a: a linked user gets their account at connect, whatever guest token comes along; no token is sent', async () => {
@@ -559,6 +596,160 @@ async function rules (t: { test: (name: string, fn: () => Promise<void>) => Prom
     }
   })
 
+  // ---- the store failing (Archie's g2-6b review, finding 1) ----
+
+  await t.test('4d on a retry: a linked guest token whose lookup failed at connect is a new guest at PLAY AGAIN, never the linked account', async () => {
+    const base = await makeStore()
+    const f = flaky(base)
+    const h = harness(f.store)
+    const user = uid('r')
+    const guest = await base.create()
+    assert.equal(await base.linkPortal('crazygames', user, guest.account.publicId), 'linked')
+    const forged = token(claims({ userId: user }), undefined, STRANGER.privateKey)
+    for (const auth of [{ token: guest.token }, cgAuth({ token: guest.token, portalToken: forged })]) {
+      f.down.add('resolve')
+      f.down.add('create')
+      const c = h.connect(auth)
+      await until('the offline account', () => c.accounts().length > 0)
+      const [offline] = c.accounts()
+      assert.equal(offline.offline, true)
+      assert.notEqual(offline.id, guest.account.publicId)
+      // The first start retries (`retryAccount`) and still fails: offline.
+      const first = await play(c)
+      assert.equal(first.playerId, offline.id)
+      await endRun(h, c)
+      f.down.clear()
+      // PLAY AGAIN: the store answers now, and the guest token leads to a linked account.
+      const again = await play(c)
+      const msg = c.accounts().at(-1) as Record<string, unknown>
+      assert.notEqual(msg.id, guest.account.publicId, 'a guest token reached the linked account on a retry')
+      assert.notEqual(again.playerId, guest.account.publicId, 'played the linked account on a retry')
+      assert.equal(again.playerId, msg.id)
+      assert.match(String(msg.token), TOKEN_SHAPE)
+      assert.ok(!('portal' in msg))
+      assert.equal(c.connection.account?.persisted, true)
+    }
+  })
+
+  await t.test('portal lookup failing at connect: offline (no token, no portal, no offer); PLAY AGAIN gives the linked account, or a new linked one, never the guest token\'s', async () => {
+    const base = await makeStore()
+    const f = flaky(base)
+    const h = harness(f.store)
+    const linkedUser = uid('s')
+    const linked = await base.createLinked('crazygames', linkedUser)
+    for (const [user, expected] of [[linkedUser, linked.publicId], [uid('t'), undefined]] as const) {
+      // A sibling's unlinked guest token comes along: rule 4b would offer it,
+      // but a retry never offers, and must not just play it either.
+      const sibling = await base.create()
+      f.down.add('resolvePortal')
+      f.down.add('createLinked')
+      const c = h.connect(cgAuth({ token: sibling.token, portalToken: liveToken(user) }))
+      await until('the offline account', () => c.accounts().length > 0)
+      const [offline] = c.accounts()
+      assert.deepEqual(Object.keys(offline).sort(), ['id', 'offline'])
+      assert.equal(c.connection.account?.persisted, false)
+      const first = await play(c)
+      assert.equal(first.playerId, offline.id, 'not offline while the store is down')
+      assert.equal(first.name, 'Nova_Rider', 'the verified username is lost while offline')
+      await endRun(h, c)
+      f.down.clear()
+      const again = await play(c)
+      const msg = c.accounts().at(-1) as Record<string, unknown>
+      assert.notEqual(msg.id, sibling.account.publicId, 'a verified CG user played the guest token\'s account on a retry')
+      assert.equal(msg.portal, 'crazygames')
+      assert.ok(!('token' in msg) && !('linkable' in msg) && !('offline' in msg))
+      assert.equal(again.playerId, msg.id)
+      assert.equal((await base.resolvePortal('crazygames', user))?.publicId, expected ?? msg.id)
+      assert.equal(await base.linkedPortal(sibling.account.publicId), null, 'the sibling\'s guest was linked')
+      assert.ok(c.accounts().every((m) => m.linkable === undefined), 'an offer on a retry')
+    }
+  })
+
+  await t.test('the guest lookup failing in a portal lookup: offline, no offer; PLAY AGAIN gives a new linked account and the guest stays unlinked', async () => {
+    const base = await makeStore()
+    const f = flaky(base)
+    const h = harness(f.store)
+    const user = uid('u')
+    const guest = await base.create()
+    f.down.add('resolve')
+    const c = h.connect(cgAuth({ token: guest.token, portalToken: liveToken(user) }))
+    await until('the offline account', () => c.accounts().length > 0)
+    assert.deepEqual(Object.keys(c.accounts()[0]).sort(), ['id', 'offline'])
+    f.down.clear()
+    // The first start is already the retry, and the store answers.
+    const player = await play(c)
+    const msg = c.accounts().at(-1) as Record<string, unknown>
+    assert.equal(msg.portal, 'crazygames')
+    assert.notEqual(msg.id, guest.account.publicId)
+    assert.equal(player.playerId, msg.id)
+    assert.equal((await base.resolvePortal('crazygames', user))?.publicId, msg.id)
+    assert.equal(await base.linkedPortal(guest.account.publicId), null)
+    assert.ok(c.accounts().every((m) => m.linkable === undefined))
+  })
+
+  await t.test('createLinked failing on a retry: offline again and nothing linked; the next PLAY AGAIN creates it', async () => {
+    const base = await makeStore()
+    const f = flaky(base)
+    const h = harness(f.store)
+    const user = uid('v')
+    f.down.add('resolvePortal')
+    const c = h.connect(cgAuth({ portalToken: liveToken(user) }))
+    await until('the offline account', () => c.accounts().length > 0)
+    const offlineId = c.accounts()[0].id
+    f.down.clear()
+    f.down.add('createLinked')
+    const first = await play(c)
+    assert.equal(first.playerId, offlineId)
+    assert.equal(c.connection.account?.persisted, false)
+    assert.equal(await base.resolvePortal('crazygames', user), null, 'linked although the creation failed')
+    assert.equal(c.accounts().length, 1, 'announced again while still offline')
+    await endRun(h, c)
+    f.down.clear()
+    const again = await play(c)
+    const msg = c.accounts().at(-1) as Record<string, unknown>
+    assert.equal(msg.portal, 'crazygames')
+    assert.equal(again.playerId, msg.id)
+    assert.equal((await base.resolvePortal('crazygames', user))?.publicId, msg.id)
+  })
+
+  await t.test('createLinked failing at the first READY (4c): offline, nothing linked', async () => {
+    const base = await makeStore()
+    const f = flaky(base)
+    const h = harness(f.store)
+    const user = uid('w')
+    f.down.add('createLinked')
+    const c = h.connect(cgAuth({ portalToken: liveToken(user) }))
+    const player = await play(c)
+    const [msg] = c.accounts()
+    assert.deepEqual(Object.keys(msg).sort(), ['id', 'offline'])
+    assert.equal(player.playerId, msg.id)
+    assert.equal(await base.resolvePortal('crazygames', user), null)
+    assert.deepEqual(linkResults(), [])
+  })
+
+  await t.test('4b accept with linkPortal failing: nothing set, the guest stays unlinked, READY makes a new linked account', async () => {
+    const base = await makeStore()
+    const f = flaky(base)
+    const h = harness(f.store)
+    const user = uid('x')
+    const guest = await base.create()
+    const c = h.connect(cgAuth({ token: guest.token, portalToken: liveToken(user) }))
+    await until('the offer', () => c.accounts().length > 0)
+    f.down.add('linkPortal')
+    c.handlers.portal_link({ accept: true })
+    await settle()
+    assert.equal(c.connection.account, undefined, 'an account set by a failed link')
+    assert.equal(c.accounts().length, 1)
+    f.down.clear()
+    const player = await play(c)
+    const msg = c.accounts().at(-1) as Record<string, unknown>
+    assert.notEqual(msg.id, guest.account.publicId)
+    assert.equal(msg.portal, 'crazygames')
+    assert.equal(player.playerId, msg.id)
+    assert.equal(await base.linkedPortal(guest.account.publicId), null)
+    assert.equal((await base.resolvePortal('crazygames', user))?.publicId, msg.id)
+  })
+
   await t.test('CRAZYGAMES_GAME_ID unset: a valid token is ignored; the connection plays as today\'s guest', async () => {
     const h = harness(await makeStore(), null)
     const user = uid('h')
@@ -661,4 +852,32 @@ test('a store without the portal half plays a verified CG user as a guest', asyn
   assert.match(String(c.accounts()[0].token), TOKEN_SHAPE)
   assert.equal(c.connection.player?.name, Player.callsign(String(c.accounts()[0].id)))
   void Multiplayer
+})
+
+// Two guards no path reaches today (Archie's review: equivalent mutants). Pinned
+// directly, so a later path that does reach them can't drop them unnoticed.
+
+test('guard: an account message for a linked account never carries a token, even when handed one', async () => {
+  const h = harness(new MemoryAccountStore())
+  const linked = await h.store.createLinked('crazygames', uid('y'))
+  const message = (h.worlds as unknown as { accountMessage: (account: unknown, token?: string) => Record<string, unknown> }).accountMessage(linked, 'B'.repeat(43))
+  assert.equal(message.portal, 'crazygames')
+  assert.ok(!('token' in message), 'a linked account was sent a token')
+})
+
+test('guard: a link answer reaching a connection that already plays an account links nothing', async () => {
+  const h = harness(new MemoryAccountStore())
+  const user = uid('z')
+  const guest = await h.store.create()
+  const c = h.connect(cgAuth({ token: guest.token, portalToken: liveToken(user) }))
+  await until('the offer', () => c.accounts().length > 0)
+  // No path sets an account while an offer is pending; stand in for one that would.
+  const other = await h.store.create()
+  c.connection.account = other.account
+  c.handlers.portal_link({ accept: true })
+  await settle()
+  assert.equal(c.connection.account, other.account)
+  assert.equal(await h.store.linkedPortal(guest.account.publicId), null, 'the guest was linked behind the playing account')
+  assert.equal(await h.store.resolvePortal('crazygames', user), null)
+  assert.deepEqual(linkResults(), [])
 })
