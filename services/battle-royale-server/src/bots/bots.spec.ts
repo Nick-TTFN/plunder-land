@@ -1,4 +1,4 @@
-import test, { afterEach, type TestContext } from 'node:test'
+import test, { afterEach, beforeEach, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import type Redis from 'ioredis'
@@ -14,7 +14,7 @@ import { Hex } from '../utils/hex'
 import { Vector } from '../utils/vector'
 import { NO_GEAR_EFFECT } from '../utils/gear'
 import BotFill, { LEAVE_GRACE_MS } from './fill'
-import BotBrain, { BOT_CARGO, BOT_KIT_BASE, TEMPERAMENTS, botCargo, botKit, kitOf, pickTemperament } from './brain'
+import BotBrain, { BOT_CARGO, BOT_KIT_BASE, TEMPERAMENTS, botCargo, botKit, botLayer, kitOf, pickTemperament } from './brain'
 
 /**
  * Bots (decision #47): a world with a human is topped up to the target, a
@@ -23,7 +23,21 @@ import BotBrain, { BOT_CARGO, BOT_KIT_BASE, TEMPERAMENTS, botCargo, botKit, kitO
  * simulated ten minutes of a real world, to see that they play.
  */
 
-afterEach(() => { World.strict = false })
+const realRandom = Math.random
+/**
+ * Every test runs on a seeded `Math.random` (restored after it): the world's
+ * map, mobs, caches, its bots and every bot decision draw from it, so a
+ * failure replays. `SPEC_SEED` picks another seed, to replay or sweep draws
+ * (as sleepfar.spec.ts; bots-flakes).
+ */
+const SEED = Number(process.env.SPEC_SEED ?? 1)
+
+beforeEach(() => { Math.random = seeded(SEED) })
+
+afterEach(() => {
+  World.strict = false
+  Math.random = realRandom
+})
 
 function redisStub (writes: string[] = []): Redis {
   return Object.assign(new EventEmitter(), {
@@ -53,8 +67,16 @@ function human (worlds: Worlds, id: string): { connection: Connection, start: ()
       for (let i = 0; i < 3; i++) await new Promise((resolve) => setImmediate(resolve))
       // Can't be killed in a spec's lifetime (a mob or a bot would otherwise
       // end the run and change the human count): within hp's uint16 on the wire.
+      // Nor take gear off the ground: a skill item goes into an empty slot
+      // (`equipGear`), which rebuilds max HP from the robot's and cuts hp to it
+      // (60050 hp + armor down to 155-156, seeds 3456, 4090 and 4221 of 5000 of
+      // the grace test; bots-flakes). Gear is not what these tests are about.
       const player = connection.player
-      if (player !== undefined) { player.maxHp = 60000; player.hp = 60000 }
+      if (player !== undefined) {
+        player.maxHp = 60000
+        player.hp = 60000
+        player.gearRoom = () => false
+      }
     }
   }
 }
@@ -104,7 +126,7 @@ function clock (t: TestContext): (ms: number) => void {
 
 test('a world with a human fills to the target, one bot every 2 s; none without a human', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 4, now: () => Date.now(), tickClock: () => 0 })
   const world = worlds.worlds[0]
   noPortals(world)
   for (let i = 0; i < 20; i++) { worlds.tickAll(250); tick(250) }
@@ -129,7 +151,7 @@ test('a world with a human fills to the target, one bot every 2 s; none without 
 
 test('a human over the target displaces a bot, which heads out and is gone within the grace', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 3, now: () => Date.now(), tickClock: () => 0 })
   const world = worlds.worlds[0]
   noPortals(world)
   await human(worlds, 'a').start()
@@ -149,7 +171,7 @@ test('a human over the target displaces a bot, which heads out and is gone withi
 
 test('bots never count as humans: world choice, idle and drain ignore them', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 1, idleMs: 300_000, redis: redisStub(), bots: 6, now: () => Date.now(), tickClock: () => 0 })
   noPortals(worlds.worlds[0])
   const a = human(worlds, 'a')
   await a.start()
@@ -176,7 +198,7 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
   process.env.GA_MEASUREMENT_ID = 'G-TEST'
   process.env.GA_API_SECRET = 'secret'
   try {
-    const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), bots: 2, now: () => Date.now() })
+    const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(writes), bots: 2, now: () => Date.now(), tickClock: () => 0 })
     const a = human(worlds, 'a')
     await a.start()
     worlds.tickAll(250)
@@ -207,8 +229,14 @@ test('a bot writes no stats and sends no analytics, and a kill on a bot counts f
 
 test('bots leave a human alone for the first 10 s of the run', async (t) => {
   const tick = clock(t)
-  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 2, now: () => Date.now() })
+  const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 2, now: () => Date.now(), tickClock: () => 0 })
   const world = worlds.worlds[0]
+  // No portals (bots-flakes): in its grace wanders a bot crossed a portal
+  // down, landed on a layer with no human and was sent out (the fill's
+  // `leave`); put back beside the human, it walked to an exit and never
+  // fired (seeds 681, 1911, 3005, 3912 of 5000). Moving it back fixed its
+  // layer, not `leaving`.
+  noPortals(world)
   const a = human(worlds, 'a')
   await a.start()
   worlds.tickAll(250)
@@ -229,9 +257,10 @@ test('bots leave a human alone for the first 10 s of the run', async (t) => {
   // refilled by its end (1 run in 200 failed "attacked after the grace").
   const full = me.hp + me.armor
   let lowest = full
-  // Diagnostic: the stricter check failed once in ~700 runs (a hit inside
-  // the grace that the old end-state check would have missed once refilled),
-  // cause not yet caught. A failure names the hit's call stack and the players.
+  // A failure names each hit's call stack and the players. The one failure in
+  // ~700 runs this was added for had no hit at all: the human equipped a skill
+  // item off the ground, which cut its spec-made 60000 hp to its robot's
+  // (bots-flakes; `human` now refuses gear).
   const hits: string[] = []
   const hit = me.hit.bind(me)
   me.hit = (...args: Parameters<typeof me.hit>) => { hits.push(`${String(args[0])} ${(new Error().stack ?? '').split('\n').slice(2, 7).join(' | ')} / players ${world.PLAYERS.map((p) => `${p.playerId}:${p.tag}:${Hex.distance(p.cell, me.cell)}:${p.exited ? 'x' : ''}${p.destroyed ? 'd' : ''}`).join(',')}`); return hit(...args) }
@@ -239,15 +268,14 @@ test('bots leave a human alone for the first 10 s of the run', async (t) => {
   me.hit = hit
   assert.equal(lowest, full, `touched within 9 s: ${hits.join(' ;; ')}`)
   // On to 10.25 s, past the grace, before putting it back: put back at 9 s,
-  // its next think still saw a human in its grace, so it wandered, and on
-  // layer 01 a quarter of its wanders head for a portal down. In 400 runs 3
-  // bots were on layer 02 within 0.75 s and spent the window there.
+  // its next think still saw a human in its grace, so it wandered off again.
   for (let i = 0; i < 5; i++) { tick(250); worlds.tickAll(250) }
-  // It wandered off meanwhile, maybe through a portal: beside the human
-  // again, on its layer, now the grace is over.
+  // Still playing on the human's layer (no portals to leave it by), and not
+  // sent out: one heading out never fights.
+  assert.ok(bot.tag === me.tag && bot.bot?.leaving === false && !bot.exited && !bot.destroyed, 'the bot left the human\'s layer or the world')
+  // It wandered off meanwhile: beside the human again, now the grace is over.
   World.run(world, () => {
     bot.stop()
-    if (bot.tag !== me.tag) bot.changeLayer(me.tag)
     bot.position = Hex.toPosition(Hex.neighbour(me.cell, 0))
   })
   // Up to 20 s, stopping at the first hit. A layer-0 looter carries no melee
@@ -264,7 +292,7 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
   const realError = console.error
   console.error = (...args: unknown[]) => { errors.push(args) }
   try {
-    const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 7, now: () => Date.now() })
+    const worlds = new Worlds({ privateRuns: false, tickLengthMs: 250, cap: 10, idleMs: 300_000, redis: redisStub(), bots: 7, now: () => Date.now(), tickClock: () => 0 })
     const world = worlds.worlds[0]
     const a = human(worlds, 'a')
     await a.start()
@@ -272,10 +300,16 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
     // Every bot that ever played, by object: FINISHED forgets after 10 s.
     const all = new Set<Player>()
     const ended = new Map<Player, number>()
+    // The layer each bot joined on, which picked its temperament (#58, Q6).
+    const joined = new Map<Player, number>()
     for (let i = 0; i < 2400; i++) {
       tick(250)
       worlds.tickAll(250)
-      for (const p of world.PLAYERS) if (p.bot !== undefined) all.add(p)
+      for (const p of world.PLAYERS) {
+        if (p.bot === undefined) continue
+        all.add(p)
+        if (!joined.has(p)) joined.set(p, p.tag)
+      }
       for (const p of all) if ((p.destroyed || p.exited) && !ended.has(p)) ended.set(p, Date.now() - p.createdAt)
     }
     if (process.env.BOT_DEBUG === '1') {
@@ -300,8 +334,10 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
     // A third, not a half, since bots follow the humans (#60, Q8): they stay
     // on layer 01 with its 10 pickups, where they used to wander down to
     // richer layers. Over 30 runs each (task private-4): before, 66-89% of
-    // bots looted (median 79%); after, 43-90% (median 71%).
-    assert.ok(looted > list.length / 3, `bots pick up loot: ${looted} of ${list.length}`)
+    // bots looted (median 79%); after, 43-90% (median 71%). A fifth since
+    // bots-flakes: over seeds 1-450, 25-100% looted (median about 60%), and 5
+    // seeds of 450 were at or under a third (5 of 20, 6 of 18, 7 of 22).
+    assert.ok(looted >= list.length / 5, `bots pick up loot: ${looted} of ${list.length}`)
     // Every bot's kit is its temperament's (#48 step 4, temperaments 2026-10-04), and both throws turn up.
     for (const p of list) {
       const t = (p.bot as BotBrain).temperament
@@ -309,7 +345,18 @@ test('ten simulated minutes: bots loot, fight, extract, without one error', asyn
       assert.ok(kit === TEMPERAMENTS[t].kit(6).join() || kit === TEMPERAMENTS[t].kit(7).join(), `a ${t} bot played kit ${kit}`)
     }
     assert.ok(list.some((p) => p.skillIds.includes(6)) && list.some((p) => p.skillIds.includes(7)), 'only one throw turned up')
-    assert.ok(new Set(list.map((p) => (p.bot as BotBrain).temperament)).size >= 3, `${list.length} bots and fewer than three temperaments`)
+    // Each bot's temperament is one its join layer allows (BOT_SKILL), and
+    // they vary. Not "all of a row": the human stays on 01, so every bot joins
+    // there, and 01 allows three (steady 50%, looter 25%, diver 25%); 17 bots
+    // missed one about 1 run in 66 (2 * 0.75^17 + 0.5^17; 9 seeds of 450 with
+    // 14-20 bots; bots-flakes). Fewer
+    // than two in 15 bots is 0.5^15 + 2 * 0.25^15, 1 in 30 000; botlayers.spec.ts pins the weights.
+    for (const p of list) {
+      const t = (p.bot as BotBrain).temperament
+      const tag = joined.get(p) as number
+      assert.ok(botLayer(tag).temperaments.includes(t), `a ${t} bot joined on ${tag}`)
+    }
+    assert.ok(new Set(list.map((p) => (p.bot as BotBrain).temperament)).size >= 2, `${list.length} bots and one temperament`)
   } finally {
     console.error = realError
   }

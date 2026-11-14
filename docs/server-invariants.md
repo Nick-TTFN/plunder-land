@@ -177,6 +177,14 @@ _Moved verbatim from CLAUDE.md on 2026-10-07. A quoted section name ("Who gets w
   `padcarry.spec.ts` clears `GEAR` and stubs the refill): a natural cache can stand one ring from
   a gate, inside the pickup reach, and its item rides the pad as a found one. The private-7 test
   in `stashpg.spec.ts` is seeded too (`SPEC_SEED`).
+  From bots-flakes: `bots.spec.ts` is seeded too, and gives `Worlds` a fixed `tickClock` (the
+  load level is measured in wall time and could shed under a busy suite). A spec that makes a
+  player unkillable by writing `maxHp`/`hp` also refuses it gear (`gearRoom`): a skill item it
+  stands on is equipped, and `applyGear` rebuilds max HP from the robot's and cuts hp to it, with
+  no `hit` to see. A spec that moves a bot back to a human's layer has not undone the fill's
+  `leave` (a bot that strayed to a layer with no human heads out and never fights again); take
+  the portals away instead (`noPortals`). Check a random pick against the set it may come from,
+  not a count of distinct picks that a small sample can miss by chance.
 - **Server code reads the time through `Date.now()`, never `new Date().getTime()`.** Specs fake
   `Date.now` (`sleepfar`, `startqueue`, `private`, `padcarry`); a reader of the real clock
   times that code by wall time instead, so a seeded spec ends differently from run to run and
