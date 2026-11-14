@@ -264,7 +264,7 @@ export default class Lobby extends Container {
   private readonly onScroll = (): void => { this.layoutPreview() }
 
   private readonly root: HTMLDivElement
-  /** The player's own name as everyone else sees it: the callsign, or a linked portal user's username (`shownName`). */
+  /** The player's own name as everyone else sees it: the callsign, or the server's name for a linked portal account (`shownName`). */
   private readonly callsign: HTMLLabelElement
   private readonly callsignText: HTMLSpanElement
   /** A portal user's picture beside the username (g2-6c); a DOM image, hidden until it loads. */
@@ -631,7 +631,7 @@ export default class Lobby extends Container {
     setTimeout(() => { if (!this.tornDown && !this.started) RELOGIN.lobbyShown() }, 0)
   }
 
-  /** The portal's user (g2-6c): the name pill and the Log in button. Off a portal at once, null. */
+  /** The portal's user (g2-6c): the name pill's picture and the Log in button. Off a portal at once, null. */
   private async loadPortalUser (): Promise<void> {
     const user = await PORTAL_SDK.user()
     if (this.tornDown) return
@@ -1175,8 +1175,8 @@ export default class Lobby extends Container {
   }
 
   /**
-   * The name pill: the account's callsign, or a linked portal user's username
-   * and picture (`shownName`, g2-6c, Q1); hidden until the server has
+   * The name pill: the account's callsign, or for a linked portal account the
+   * server's `name` and the user's picture (`shownName`, g2-6c, Q1); hidden until the server has
    * announced the account (a new player's comes with the first run).
    */
   private renderCallsign (): void {

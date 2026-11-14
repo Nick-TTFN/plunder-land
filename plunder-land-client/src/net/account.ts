@@ -66,6 +66,12 @@ export interface AccountInfo {
   loadouts: Loadouts | undefined
   /** The portal this account is linked to (g2-6b: `'crazygames'`), or undefined for a guest's. */
   portal?: string
+  /**
+   * With `portal` only (g2-6c): the name the server will show this
+   * connection's next run under, already cut and filtered as the run's is.
+   * Undefined from a server before it (the lobby then shows the callsign).
+   */
+  name?: string
 }
 
 /** A `progress` event: what the run just ended earned, and the standing after it. */
@@ -189,7 +195,8 @@ export function handshakeAuth (storage: () => TokenStorage | undefined, portal?:
  * An `account` event: stores a token that came with it, and returns what the
  * page may show (the id), or undefined for a malformed one.
  *
- * A linked account (`portal`, g2-6b) never carries a token, so the stored one
+ * A linked account (`portal`, g2-6b) carries the name its runs are shown
+ * under (`name`, kept only beside `portal`) and never a token, so the stored one
  * is left alone, **except** when this is the guest account the client just
  * agreed to link (`linked`, the id of the offer it accepted): that token now
  * leads nowhere (the server treats a linked account's guest token as none,
@@ -200,7 +207,7 @@ export function handshakeAuth (storage: () => TokenStorage | undefined, portal?:
  */
 export function onAccount (data: unknown, storage: TokenStorage | undefined, linked?: string): AccountInfo | undefined {
   if (data === null || typeof data !== 'object') return undefined
-  const { id, token, offline, portal } = data as { id?: unknown, token?: unknown, offline?: unknown, portal?: unknown }
+  const { id, token, offline, portal, name } = data as { id?: unknown, token?: unknown, offline?: unknown, portal?: unknown, name?: unknown }
   if (typeof id !== 'string') return undefined
   const linkedPortal = offline !== true && typeof portal === 'string' && portal !== '' ? portal : undefined
   if (offline !== true && linkedPortal === undefined && typeof token === 'string' && TOKEN_SHAPE.test(token)) {
@@ -222,7 +229,8 @@ export function onAccount (data: unknown, storage: TokenStorage | undefined, lin
   // id was last sent, never another account's.
   const previous = ACCOUNT.info?.id === id && !ACCOUNT.info.offline ? ACCOUNT.info.loadouts : undefined
   const loadouts = parseLoadouts((data as { loadouts?: unknown }).loadouts) ?? previous
-  return { id, offline: false, standing: standingOf(data), loadouts, ...(linkedPortal === undefined ? {} : { portal: linkedPortal }) }
+  const linkedName = linkedPortal !== undefined && typeof name === 'string' && name !== '' ? { name } : {}
+  return { id, offline: false, standing: standingOf(data), loadouts, ...(linkedPortal === undefined ? {} : { portal: linkedPortal }), ...linkedName }
 }
 
 /** The id of a guest account offered for linking (`account { ..., linkable: true }`, g2-6b rule 4b), else undefined. */

@@ -6,6 +6,7 @@ import type { Socket } from 'socket.io'
 // See world.spec.ts: enter the module graph through multiplayer, as index.ts does.
 import Multiplayer, { type Connection, ThrottledLog } from './multiplayer'
 import Worlds from './worlds'
+import { setPortalName } from './displayname'
 import World from '../objects/world'
 import { ObjectType } from '../objects/gameobject'
 import type Player from '../objects/player'
@@ -404,6 +405,29 @@ test('progress is never sent after the next run began: that card is gone, and ac
   const info = onAccount(accounts.at(-1), { getItem: () => null, setItem: (key) => { writes.push(key) } })
   assert.deepEqual(info, { id: player.playerId, offline: false, standing: { xp: 15, level: 1, levelAt: 0, nextAt: 40 }, loadouts: undefined })
   assert.deepEqual(writes, [], 'a mid-run account stored something')
+})
+
+test('a linked account\'s mid-run account keeps portal and name (g2-6c): the lobby\'s name pill reads them from the last one', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 })
+  const store = new GrantStore()
+  let release!: () => void
+  store.gate = new Promise((resolve) => { release = resolve })
+  const worlds = makeWorlds(store)
+  const { client, player, world } = await inRun(worlds)
+  // Stand-ins for a verified CrazyGames link (portallogin.spec.ts runs the real one).
+  ;(client.connection.account as Account).portal = 'crazygames'
+  setPortalName(client.connection, 'Abcdefghij_klmnopqr')
+  t.mock.timers.tick(100_000)
+  World.run(world, () => { player.exit() })
+  worlds.tickAll(250)
+  await settle()
+  client.start()
+  await settle()
+  assert.notEqual(client.connection.player, player)
+  release()
+  await settle()
+  assert.deepEqual(client.events('account').at(-1), { id: player.playerId, portal: 'crazygames', name: 'Abcdefghij_klmno', ...standingOf(15) })
+  assert.equal(client.connection.player?.name, 'Abcdefghij_klmno', 'the name sent is not the run\'s')
 })
 
 test('progress that lands before the run\'s own flush (a death from a socket handler) is still sent', async () => {

@@ -111,7 +111,17 @@ documented shape (6-20 of `[A-Za-z0-9._]`), through `setPortalName` / `displayNa
 constructor's `displayName` runs it through `sanitiseName`, so a filtered name (profanity, `YOU`)
 falls back to the callsign, and a 17-20 character username is cut to `NAME_MAX` (16). Taken from
 each new token, so a changed CG username shows on the next connection. Everyone else, bots
-included, keeps the callsign. `profilePictureUrl` is not stored or relayed.
+included, keeps the callsign. `profilePictureUrl` is not stored or relayed. A linked account's
+`account` (on connect, creation, link, and the grant's mid-run one) also carries **`name`**
+(g2-6c): `Worlds.runName`, the same `Player.displayName(displayNameFor(id, connection), id)` the
+run's `Player` gets, so the lobby shows exactly what other players see (`portallogin.spec.ts`
+pins it against the run's `Player.name`). `worlds.ts` imports `Player` as a value for it, which is
+safe there only: `Player` is loaded by `./multiplayer` before, and nothing but `index.ts` imports
+`worlds.ts` (never in `multiplayer.ts` or `displayname.ts`: see `displayname.ts`).
+
+**Declines are per connection on the server**, so a reconnect before READY re-offers the same
+guest account (4b). The client remembers this page's declines (`LINK.declined`) and answers the
+re-offer `accept: false` without CG's modal (docs/client-ui.md, "CrazyGames login").
 
 **Any future userbase reset like migration 9 must empty `account_links` too**, or a CG user lands
 on a missing account (the foreign key would also block emptying `accounts`).

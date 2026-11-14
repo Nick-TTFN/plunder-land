@@ -12,7 +12,12 @@ import Analytics, { type RunInfo } from '../analytics'
 import { buildFirstRun, FIRST_RUN } from '../firstrun/scenario'
 import { carryKills } from '../progress/run'
 import { NotReadyError } from '../db/pgstore'
-import type Player from '../objects/player'
+// A value import (g2-6c, `runName`), safe here and only here: `Player` is
+// already loaded by `./multiplayer` and `../objects/world` above, and no
+// module but the server's `index.ts` imports this one, so it sits on no
+// cycle. Never import `Player` as a value in `multiplayer.ts` or
+// `displayname.ts` (network/displayname.ts says why).
+import Player from '../objects/player'
 import { levelOf, standingOf } from '../progress/xp'
 import { kitFor, loadoutsFor, parseSave } from '../progress/loadouts'
 import { creditOf } from '../progress/seasons'
@@ -26,7 +31,7 @@ import { BRING_LEVEL, type GearInstance } from '../utils/gear'
 import { Visit, energyOut, portalOf, visitEnd, visitStart } from './visits'
 import { PRIVATE_MAP, PRIVATE_MAP_SIZE } from '../objects/privatemap'
 import { type PortalIdentity, type PortalVerifier, portalTokenOf, portalVerifierFromEnv } from './portaltoken'
-import { setPortalName } from './displayname'
+import { displayNameFor, setPortalName } from './displayname'
 
 /** The one portal whose users are linked to accounts (g2-6b): its handshake name and `account_links.portal`. */
 export const LINKED_PORTAL = 'crazygames'
@@ -49,6 +54,8 @@ interface AccountMessage {
   token?: string
   offline?: boolean
   portal?: string
+  /** With `portal` only (g2-6c): the name this connection's next run is shown under (`Worlds.runName`). */
+  name?: string
   linkable?: boolean
   xp?: number
   level?: number
@@ -816,7 +823,7 @@ export default class Worlds {
       token = undefined
     }
     connection.account = account
-    connection.socket.emit('account', this.accountMessage(account, token))
+    connection.socket.emit('account', this.accountMessage(account, token, connection))
     if (account.persisted) {
       this.sendSeason(connection, account)
       this.sendStash(connection, account)
@@ -824,16 +831,31 @@ export default class Worlds {
   }
 
   /**
+   * The name `connection`'s next run under `account` is shown under, to
+   * everyone: what `Multiplayer.startRequested` passes the `Player`
+   * constructor (`displayNameFor` with the account's id), through the same
+   * `Player.displayName` the constructor applies (the cut to `NAME_MAX`, the
+   * profanity and reserved-name filter, the callsign fallback).
+   */
+  static runName (account: Account, connection: Connection): string {
+    return Player.displayName(displayNameFor(account.publicId, connection), account.publicId)
+  }
+
+  /**
    * The `account` event for `account`. A linked account (g2-6b) carries
    * `portal` and **never a token**: it is reached through the portal's token,
-   * and a stored guest token must not lead back to it (rule 4d).
+   * and a stored guest token must not lead back to it (rule 4d). With
+   * `connection` it also carries `name`, the name the connection's next run
+   * gets (g2-6c: the lobby shows exactly what other players will see).
    */
-  private accountMessage (account: Account, token?: string): AccountMessage {
+  private accountMessage (account: Account, token?: string, connection?: Connection): AccountMessage {
     const message: AccountMessage = { id: account.publicId }
     if (!account.persisted) message.offline = true
     else {
-      if (account.portal !== undefined) message.portal = account.portal
-      else if (token !== undefined) message.token = token
+      if (account.portal !== undefined) {
+        message.portal = account.portal
+        if (connection !== undefined) message.name = Worlds.runName(account, connection)
+      } else if (token !== undefined) message.token = token
       // The account's standing, for the lobby (decision #48 step 3). An
       // offline account has none: it earns nothing.
       Object.assign(message, standingOf(account.xp))
@@ -965,7 +987,8 @@ export default class Worlds {
    * `progress { gained, xp, level, levelAt, nextAt, levelUp }` goes to the
    * client, unless its socket closed, or it has started another run since:
    * that card is gone, so the new standing goes as `account { id, xp,
-   * level, levelAt, nextAt }` instead, which moves the lobby's badge only.
+   * level, levelAt, nextAt }` instead (a linked account's also `portal` and
+   * `name`, g2-6c), which moves the lobby's badge only.
    * A failed or slow grant is logged and reported like any account failure
    * and is not retried: no `progress` is sent, and the card says the XP is
    * unavailable.
@@ -986,7 +1009,10 @@ export default class Worlds {
           // The next run has begun and this run's card is gone, so no
           // `progress` (the client would put it on the new run). The lobby's
           // standing still moves: `account` carries it, mid-run too.
-          connection.socket.emit('account', { id: account.publicId, ...standing })
+          // A linked account keeps `portal` and `name` (g2-6c): the lobby's
+          // name pill reads them from the last `account`.
+          const linked = account.portal === undefined ? {} : { portal: account.portal, name: Worlds.runName(account, connection) }
+          connection.socket.emit('account', { id: account.publicId, ...linked, ...standing })
         } else {
           connection.socket.emit('progress', { gained: xp, ...standing, levelUp: standing.level > standingOf(total - xp).level })
         }

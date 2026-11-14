@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { handshakeAuth, linkOfferOf, onAccount, TOKEN_KEY, type TokenStorage } from '../../../../plunder-land-client/src/net/account'
 import { type CrazySdk, type CrazyUserModule, crazyGamesSdk, portalUserOf } from '../../../../plunder-land-client/src/portal/crazygames'
@@ -14,6 +14,9 @@ import { callsign } from '../../../../plunder-land-client/src/utils/callsign'
  * fake SDKs; the browser wiring (`index.ts`, the lobby's DOM, READY held while
  * the link modal is open) is not run here.
  */
+
+// Every spec starts with no decline remembered (`LINK.declined` is the page's).
+beforeEach(() => { LINK.declined.clear() })
 
 const GUEST_TOKEN = 'a'.repeat(43)
 const ID = 'abcdef012345'
@@ -181,12 +184,20 @@ test('link: yes sends accept true and remembers the id; no or a modal error send
     assert.deepEqual(seen, [ID, undefined], 'open while the modal is up, closed after')
 
     LINK.accepted = undefined
+    assert.equal(LINK.declined.size, 0, 'a yes is no decline')
     await answerLinkOffer(ID, adapter(sdkWithUser([], { link: async () => ({ response: 'no' }) })), (a) => sent.push(a))
+    assert.deepEqual([...LINK.declined], [ID])
+    // Each decline below is a fresh page's (else the remembered one answers without the modal).
     const warnings: string[] = []
+    LINK.declined.clear()
     await answerLinkOffer(ID, adapter(sdkWithUser([], { link: async () => { throw Object.assign(new Error('x'), { code: 'showAccountLinkPromptInProgress' }) } }), warnings), (a) => sent.push(a))
+    LINK.declined.clear()
     await answerLinkOffer(ID, adapter(sdkWithUser([], { link: async () => { throw Object.assign(new Error('x'), { code: 'unexpectedError' }) } }), warnings), (a) => sent.push(a))
+    LINK.declined.clear()
     await answerLinkOffer(ID, adapter(sdkWithUser([], { link: async () => null })), (a) => sent.push(a))
+    LINK.declined.clear()
     await answerLinkOffer(ID, { linkPrompt: async () => { throw new Error('a raw throw') } }, (a) => sent.push(a))
+    assert.deepEqual([...LINK.declined], [ID], 'a modal error is a decline too')
     assert.deepEqual(sent, [true, false, false, false, false, false])
     assert.equal(LINK.accepted, undefined, 'a decline accepts nothing')
     assert.equal(warnings.length, 1, `a documented "no" (in progress) is not warned, an unexpected error is: ${warnings.join(' | ')}`)
@@ -210,6 +221,34 @@ test('link: a second offer while the modal is open is not answered twice', async
   await first
   assert.deepEqual(sent, [true])
   assert.equal(LINK.open, undefined)
+  LINK.accepted = undefined
+})
+
+test('link: an offer this page declined, offered again (a reconnect before READY), is declined at once without the modal', async () => {
+  let modals = 0
+  const sdk = { linkPrompt: async () => { modals++; return false } }
+  const sent: boolean[] = []
+  const seen: Array<string | undefined> = []
+  const listener = (): void => { seen.push(LINK.open) }
+  await answerLinkOffer(ID, sdk, (a) => sent.push(a))
+  assert.deepEqual([sent, modals], [[false], 1])
+  LINK.listeners.add(listener)
+  try {
+    await answerLinkOffer(ID, sdk, (a) => sent.push(a))
+    assert.deepEqual([sent, modals], [[false, false], 1], 'asked twice')
+    assert.deepEqual(seen, [], 'READY was held for a remembered decline')
+    // Another account's offer still asks.
+    await answerLinkOffer('other000000', sdk, (a) => sent.push(a))
+    assert.equal(modals, 2)
+  } finally {
+    LINK.listeners.delete(listener)
+  }
+  // An accepted id offered again (its link was never written) asks again: a yes needs the modal.
+  let yes = 0
+  const yesSdk = { linkPrompt: async () => { yes++; return true } }
+  await answerLinkOffer('third000000', yesSdk, () => {})
+  await answerLinkOffer('third000000', yesSdk, () => {})
+  assert.equal(yes, 2)
   LINK.accepted = undefined
 })
 
@@ -313,13 +352,30 @@ test('lobby: Log in only where the portal has accounts and nobody is logged in',
   assert.equal(loginButtonShown(noPortalSdk(), null), false, 'off a portal: never')
 })
 
-test('lobby: the username and picture only for an account the server says is linked; else the callsign', () => {
-  const user = { username: 'Crazy.User_1', avatar: 'https://images.crazygames.com/a.png' }
+test('lobby: a linked account shows the server\'s name (never the raw username) and the picture; else the callsign', () => {
+  // A username the server cuts to 16 for the run: the pill must show the cut one.
+  const user = { username: 'Abcdefghij_klmnopqr', avatar: 'https://images.crazygames.com/a.png' }
   const guest = { id: ID, offline: false, standing: undefined, loadouts: undefined }
+  const linked = { ...guest, portal: 'crazygames', name: 'Abcdefghij_klmno' }
   assert.equal(shownName(undefined, user), undefined, 'hidden until announced')
-  assert.deepEqual(shownName({ ...guest, portal: 'crazygames' }, user), { text: 'Crazy.User_1', avatar: user.avatar, portal: true })
+  assert.deepEqual(shownName(linked, user), { text: 'Abcdefghij_klmno', avatar: user.avatar, portal: true })
+  // The SDK user not (yet) known: the name still, no picture.
+  assert.deepEqual(shownName(linked, null), { text: 'Abcdefghij_klmno', avatar: undefined, portal: true })
+  // A filtered username: the server sends the callsign as the name.
+  assert.deepEqual(shownName({ ...linked, name: callsign(ID) }, { username: 'fuckface_99', avatar: undefined })?.text, callsign(ID))
+  // An older server: linked, but no name: the callsign (and the picture).
+  assert.deepEqual(shownName({ ...guest, portal: 'crazygames' }, user), { text: callsign(ID), avatar: user.avatar, portal: false })
   // CRAZYGAMES_GAME_ID unset: the server never links, the player is a guest to everyone.
   assert.deepEqual(shownName(guest, user), { text: callsign(ID), avatar: undefined, portal: false })
-  assert.deepEqual(shownName({ ...guest, portal: 'crazygames' }, null), { text: callsign(ID), avatar: undefined, portal: false })
-  assert.deepEqual(shownName({ ...guest, offline: true, portal: 'crazygames' }, user)?.portal, false)
+  assert.deepEqual(shownName({ ...linked, offline: true }, user), { text: callsign(ID), avatar: undefined, portal: false })
+})
+
+test('account: name is kept only beside portal, and only as a non-empty string', () => {
+  const storage = memoryStorage()
+  assert.equal(onAccount({ id: ID, portal: 'crazygames', name: 'Nova_Rider' }, storage)?.name, 'Nova_Rider')
+  assert.equal(onAccount({ id: ID, portal: 'crazygames' }, storage)?.name, undefined)
+  assert.equal(onAccount({ id: ID, name: 'Nova_Rider' }, storage)?.name, undefined, 'a guest\'s name is its callsign')
+  assert.equal(onAccount({ id: ID, portal: 'crazygames', name: 7 }, storage)?.name, undefined)
+  assert.equal(onAccount({ id: ID, portal: 'crazygames', name: '' }, storage)?.name, undefined)
+  assert.equal(onAccount({ id: ID, offline: true, portal: 'crazygames', name: 'Nova_Rider' }, storage)?.name, undefined)
 })

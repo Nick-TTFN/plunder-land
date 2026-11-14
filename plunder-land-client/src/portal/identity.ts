@@ -17,14 +17,20 @@ import { callsign } from '../utils/callsign'
  *   reconnects at once (a new handshake with the token); in a run, once the
  *   lobby is back after the run card. The game never opens the login modal by
  *   itself: only the lobby's "Log in" button does (`loginButtonShown`).
- * - **The name in the lobby** (`shownName`): the portal username and picture
- *   for an account the server says is linked, else the callsign.
+ * - **The name in the lobby** (`shownName`): for an account the server says
+ *   is linked, the name the server sends (`account.name`, exactly what other
+ *   players will see) and the portal user's picture; else the callsign.
  */
 
-/** The link offer being answered: its account id while the modal is open, and who wants to hear (the lobby's READY). */
-export const LINK: { open: string | undefined, accepted: string | undefined, listeners: Set<() => void> } = {
+/**
+ * The link offer being answered: its account id while the modal is open, the
+ * id this page agreed to link, the ids this page declined, and who wants to
+ * hear (the lobby's READY).
+ */
+export const LINK: { open: string | undefined, accepted: string | undefined, declined: Set<string>, listeners: Set<() => void> } = {
   open: undefined,
   accepted: undefined,
+  declined: new Set(),
   listeners: new Set()
 }
 
@@ -46,9 +52,20 @@ function tell (listeners: Set<() => void>): void {
  * applies it to whatever offer that connection holds. `LINK.accepted` keeps
  * the id agreed to, so the `account { portal }` that confirms it can drop the
  * stored guest token (`onAccount`).
+ *
+ * An offer this page already declined (`LINK.declined`; any "no", a modal
+ * error included) is declined again at once, without the modal: the server
+ * remembers a decline per connection only, so a reconnect before READY
+ * offers the same account again, and the player must not be asked twice.
+ * An accepted id offered again (a link the store failed to write) asks
+ * again: the player said yes, and a yes needs the modal.
  */
 export async function answerLinkOffer (id: string, sdk: Pick<PortalSdk, 'linkPrompt'>, emit: (accept: boolean) => void): Promise<void> {
   if (LINK.open !== undefined) return
+  if (LINK.declined.has(id)) {
+    emit(false)
+    return
+  }
   LINK.open = id
   tell(LINK.listeners)
   let accept = false
@@ -58,6 +75,7 @@ export async function answerLinkOffer (id: string, sdk: Pick<PortalSdk, 'linkPro
     accept = false
   }
   if (accept) LINK.accepted = id
+  else LINK.declined.add(id)
   try {
     emit(accept)
   } finally {
@@ -122,19 +140,27 @@ export function loginButtonShown (sdk: Pick<PortalSdk, 'accountsAvailable'>, use
 export interface ShownName {
   text: string
   avatar: string | undefined
-  /** The portal username (true) or the callsign. */
+  /** The server's name for a linked account (true: shown in its own case) or the callsign. */
   portal: boolean
 }
 
 /**
- * The lobby's name (Q1): the portal username and picture when the server has
- * announced an account linked to the portal (so it verified the token: before
- * `CRAZYGAMES_GAME_ID` is set it never does, and the player is a guest under
- * a callsign, as other players see them); otherwise the account's callsign;
- * undefined before the account is announced.
+ * The lobby's name (Q1): for an account the server has announced as linked
+ * to the portal (so it verified the token: before `CRAZYGAMES_GAME_ID` is
+ * set it never does, and the player is a guest under a callsign), the name
+ * the server sent with it (`info.name`), **never the portal's raw username**:
+ * the server cuts it to 16 and swaps a filtered one for the callsign, and the
+ * pill shows exactly what other players see. A linked account without a
+ * `name` (an older server) shows the callsign. The picture only when linked
+ * and the portal user is known. Otherwise the account's callsign; undefined
+ * before the account is announced.
  */
 export function shownName (info: AccountInfo | undefined, user: PortalUser | null): ShownName | undefined {
   if (info === undefined) return undefined
-  if (info.portal !== undefined && !info.offline && user !== null) return { text: user.username, avatar: user.avatar, portal: true }
+  if (info.portal !== undefined && !info.offline) {
+    const avatar = user !== null ? user.avatar : undefined
+    if (info.name !== undefined) return { text: info.name, avatar, portal: true }
+    return { text: callsign(info.id), avatar, portal: false }
+  }
   return { text: callsign(info.id), avatar: undefined, portal: false }
 }

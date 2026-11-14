@@ -257,16 +257,20 @@ anything else is no token. Additive both ways. See Accounts. A persisted account
 also carries its standing, `xp, level, levelAt, nextAt` (#48 step 3).
 Portal accounts (g2-6b, additive, **no PROTOCOL bump**): a client on CrazyGames may add
 `auth.portalToken` (CG's user token, at most 4096 characters; read only with `auth.portal:
-'crazygames'`). A linked account's `account` carries `portal: 'crazygames'` and no `token`; a guest
+'crazygames'`). A linked account's `account` carries `portal: 'crazygames'` and no `token`, plus (g2-6c) `name`,
+the name the connection's next run is shown under (cut and filtered as the run's; also on the
+grant's mid-run `account`, which then reads `{ id, portal, name, xp, level, levelAt, nextAt }`;
+a client keeps `name` only beside `portal`); a guest
 account offered for linking comes as `account { ..., linkable: true }` (nothing is set until the
 answer), answered by the client event **`portal_link { accept: boolean }`** (client → server; READY
-first counts as a decline). An old client sends neither and sees neither; a new client against an
+first counts as a decline; a decline is remembered per connection, so the client remembers its own
+and answers a re-offer after a reconnect with `accept: false`, no modal). An old client sends neither and sees neither; a new client against an
 old server gets guest behaviour, so it must never wait for `linkable`. Rules: docs/accounts.md,
 "Portal accounts".
 
 **`progress`** (server → client, text, #48 step 3): `{ gained, xp, level, levelAt, nextAt,
 levelUp }` once a run's grant is written, a database round trip after the run's end (sometimes
-before its own destroy reaches the client). Never sent after the next run's `hello` (`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; then the new standing goes as a mid-run `account { id, xp, level, levelAt, nextAt }` instead, which moves only the lobby badge; the run card's
+before its own destroy reaches the client). Never sent after the next run's `hello` (`Worlds.grant` checks `connection.player`), so the client puts it on `Game.RUN`; then the new standing goes as a mid-run `account { id, xp, level, levelAt, nextAt }` (plus `portal`, `name` for a linked account) instead, which moves only the lobby badge; the run card's
 XP row says NOT CONFIRMED after `PROGRESS_WAIT_MS` (6 s) without it, NOT EARNED OFFLINE at once offline. Additive, no
 PROTOCOL bump; until the server has it, every card says NOT CONFIRMED.
 

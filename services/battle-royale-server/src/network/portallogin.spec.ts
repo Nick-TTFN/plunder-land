@@ -94,6 +94,8 @@ let socketN = 0
 class Page {
   readonly handlers: Record<string, (data?: unknown) => void> = {}
   readonly linkAnswers: boolean[] = []
+  /** Every `account` event as sent. */
+  readonly accounts: unknown[] = []
   readonly connection: Connection
   info: AccountInfo | undefined
 
@@ -103,7 +105,10 @@ class Page {
       handshake: { query: { frames: '1' }, auth },
       on: (event: string, cb: (data?: unknown) => void) => { this.handlers[event] = cb },
       emit: (event: string, data?: unknown) => {
-        if (event === 'account') this.onAccountEvent(data)
+        if (event === 'account') {
+          this.accounts.push(data)
+          this.onAccountEvent(data)
+        }
         return true
       },
       conn: { write: () => {}, close: () => { this.handlers.disconnect?.() } }
@@ -144,11 +149,13 @@ beforeEach(() => {
   savedLog = Worlds.ACCOUNTS_LOG
   Worlds.ACCOUNTS_LOG = new ThrottledLog('accounts', 60_000, () => Date.now(), () => {})
   LINK.accepted = undefined
+  LINK.declined.clear()
 })
 afterEach(() => {
   Worlds.ACCOUNTS_LOG = savedLog
   World.strict = false
   LINK.accepted = undefined
+  LINK.declined.clear()
 })
 
 function worldsOn (store: MemoryAccountStore, gameId: string | null = GAME): Worlds {
@@ -238,6 +245,34 @@ test('a guest who says no keeps its guest token and gets a new linked account at
   page.close()
 })
 
+test('a decline, then a reconnect before READY: the server offers the same account again, and the page declines it without a second modal', async () => {
+  const store = new MemoryAccountStore()
+  const worlds = worldsOn(store)
+  const browser = new Browser(worlds)
+  const guestPage = await browser.open(cgSdk(undefined))
+  guestPage.ready()
+  await until('the guest account', () => guestPage.info !== undefined)
+  const guestToken = browser.storage.data[TOKEN_KEY]
+  guestPage.close()
+
+  const base = cgSdk({ id: 'CGuser80', name: 'Third.Name' }, 'no')
+  let modals = 0
+  const sdk: PortalSdk = { ...base, linkPrompt: async () => { modals++; return await base.linkPrompt() } }
+  const page = await browser.open(sdk)
+  await until('the answer', () => page.linkAnswers.length > 0)
+  page.close() // the network drops before READY
+
+  const again = await browser.open(sdk)
+  await until('the second answer', () => again.linkAnswers.length > 0)
+  assert.deepEqual([page.linkAnswers, again.linkAnswers], [[false], [false]], 'the server did not offer it again')
+  assert.equal(modals, 1, 'the player was asked twice')
+  again.ready()
+  await until('the new account', () => again.info !== undefined)
+  assert.equal(again.info?.portal, 'crazygames')
+  assert.equal(browser.storage.data[TOKEN_KEY], guestToken)
+  again.close()
+})
+
 test('before CRAZYGAMES_GAME_ID is set a logged-in CrazyGames player is a plain guest: token stored, callsign shown', async () => {
   const worlds = worldsOn(new MemoryAccountStore(), null)
   const browser = new Browser(worlds)
@@ -250,3 +285,47 @@ test('before CRAZYGAMES_GAME_ID is set a logged-in CrazyGames player is a plain 
   assert.equal(shownName(page.info, await page.sdk.user())?.text, callsign(page.info?.id as string))
   page.close()
 })
+
+/**
+ * The name pill shows what other players see (g2-6c review): the server's
+ * `account.name`, which is the run's `Player.name`, not the raw CrazyGames
+ * username (cut to 16, or the callsign on a filter hit).
+ */
+for (const [what, username, expected] of [
+  ['over 16 characters: cut, as the run is', 'Abcdefghij_klmnopqr', 'Abcdefghij_klmno'],
+  ['profane: the callsign, as the run is', 'fuckface_99', undefined],
+  ['clean and short: as given', 'Nova_Rider', 'Nova_Rider']
+] as const) {
+  test(`a linked account's name is the run's name, username ${what}`, async () => {
+    const worlds = worldsOn(new MemoryAccountStore())
+    const user = { id: `CG${username.length}x${what.length}`, name: username }
+    const sdk = cgSdk(user)
+    const sdkUser = await sdk.user()
+    assert.equal(sdkUser?.username, username, 'the SDK gives the raw username')
+
+    // 4c: no link yet, no guest token: a new linked account at READY.
+    const browser = new Browser(worlds)
+    const first = await browser.open(sdk)
+    first.ready()
+    await until('the linked account', () => first.info !== undefined && first.connection.player !== undefined)
+    const id = first.info?.id as string
+    const name = expected ?? callsign(id)
+    assert.equal(first.info?.portal, 'crazygames')
+    assert.equal(first.info?.name, name)
+    assert.equal((first.accounts.at(-1) as { name?: unknown }).name, name)
+    assert.ok(first.connection.player?.name === name, `the run is ${String(first.connection.player?.name)}, the lobby showed ${name}`)
+    assert.equal(shownName(first.info, sdkUser)?.text, name)
+    first.close()
+
+    // 4a: linked, at connect: the name before any run, then the same run name.
+    const again = await browser.open(sdk)
+    await until('the account', () => again.info !== undefined)
+    assert.equal(again.info?.id, id)
+    assert.equal(again.info?.name, name)
+    assert.equal(shownName(again.info, sdkUser)?.text, name)
+    again.ready()
+    await until('a player', () => again.connection.player !== undefined)
+    assert.ok(again.connection.player?.name === name, 'the run\'s name is not the one the lobby showed')
+    again.close()
+  })
+}

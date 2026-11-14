@@ -148,10 +148,12 @@ function setup (): void {
   // `frames=1` asks for one binary message per tick; see net/framedparser.ts.
   // `auth` is a function so socket.io reads the stored token again on every
   // reconnect: a token issued during the first run is used from the next
-  // connection on (guest accounts, decision #48; net/account.ts). With a
-  // portal SDK it also carries the portal user's token (g2-6c; off a portal
-  // the no-op SDK has none, so nothing is added).
-  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage, PORTAL, PORTAL_SDK) })
+  // connection on (guest accounts, decision #48; net/account.ts). On
+  // CrazyGames it also carries the portal user's token (g2-6c). Anywhere
+  // else no SDK is passed, so the handshake stays synchronous: no wait, no
+  // timer, no SDK call.
+  const handshakeSdk = PORTAL === 'crazygames' ? PORTAL_SDK : undefined
+  Game.socket = io.connect(SERVER_URL, { transports: ['websocket'], parser: framedParser, query: { frames: '1' }, auth: handshakeAuth(localTokenStorage, PORTAL, handshakeSdk) })
   // A portal login while the page is open (g2-6c, portal/identity.ts): a new
   // connection, whose handshake carries the token; in a run, once the lobby
   // is back. A logout reloads the page (the portal does it).
